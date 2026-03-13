@@ -5,15 +5,15 @@
     let splitRatio = $state(parseFloat(localStorage.getItem('agex-preview-split') || '0.5'))
     let dragging = $state(false)
     let container
-    let wasCollapsed = collapsed
+    let prevCollapsed = $state(true)
 
     // Reset to center when the preview first appears
     $effect(() => {
-        if (wasCollapsed && !collapsed) {
+        if (prevCollapsed && !collapsed) {
             splitRatio = 0.5
             localStorage.setItem('agex-preview-split', '0.5')
         }
-        wasCollapsed = collapsed
+        prevCollapsed = collapsed
     })
 
     function onPointerDown(e) {
