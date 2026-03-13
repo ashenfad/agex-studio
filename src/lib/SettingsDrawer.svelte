@@ -40,7 +40,7 @@
         updateSettings({
             apiKey: apiKey.trim(),
             model: model.trim(),
-            chapteringTrigger: parseInt(chapteringTrigger, 10) || 80000,
+            chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
         })
         onClose()
     }

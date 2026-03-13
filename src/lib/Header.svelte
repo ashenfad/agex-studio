@@ -1,6 +1,6 @@
 <script>
     /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, inputTokens?: number | null, chapteringTrigger?: number }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onChapterClick, configured, fileCount = 0, inputTokens = null, chapteringTrigger = 80000 } = $props()
+    let { onSettingsClick, onSessionsClick, onFilesClick, onChapterClick, configured, fileCount = 0, inputTokens = null, chapteringTrigger = 150000 } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
