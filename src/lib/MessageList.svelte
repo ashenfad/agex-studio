@@ -130,6 +130,8 @@
 
         {#if msg.streaming}
             <!-- Activity panel shows the pulsing dot; no extra indicator needed -->
+        {:else if msg.cancelled}
+            <div class="cancelled-band">Stopped</div>
         {:else if msg.role === 'agent' && typeof msg.content === 'object'}
             {@const segments = segmentParts(msg.content)}
             <div class="rich-response">
@@ -401,6 +403,13 @@
         display: flex;
         justify-content: flex-start;
         margin-bottom: -0.75rem;
+    }
+
+    .cancelled-band {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-style: italic;
+        padding: 0.1rem 0;
     }
 
     .thinking {

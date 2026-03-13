@@ -746,14 +746,35 @@ def _on_token(token):
         "done": token.done,
     })
 
-from agex import TaskFail, TaskClarify
+from agex import TaskFail, TaskClarify, TaskCancelled
+import asyncio as _asyncio
+
+# Store the running task so the cancel handler can interrupt it
+_agex_running_task = _asyncio.current_task()
 
 try:
     _result = await chat("${escaped}", on_event=_on_event, on_token=_on_token)
+except TaskCancelled:
+    _result = None
+    _events_log.append({"type": "cancelled"})
+except _asyncio.CancelledError:
+    _result = None
+    _events_log.append({"type": "cancelled"})
+    # asyncio cancel bypasses agex's loop — record CancelledEvent and commit manually
+    try:
+        _state = _agent.state("default")
+        from agex.agent.events import CancelledEvent as _CE
+        from agex.state.log import add_event_to_log as _add_log
+        _add_log(_state, _CE(agent_name=_agent.name, task_name="chat", iterations_completed=0))
+        _state.commit()
+    except Exception:
+        pass
 except TaskFail as _tf:
     _result = _tf.message
 except TaskClarify as _tc:
     _result = _tc.message
+finally:
+    _agex_running_task = None
 
 def _serialize_result(r):
     if isinstance(r, Response):

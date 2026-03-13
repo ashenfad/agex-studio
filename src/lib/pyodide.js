@@ -523,6 +523,16 @@ export function runPythonStreaming(code, onToken) {
 }
 
 /**
+ * Request cancellation of the running task.
+ * Uses two mechanisms: an in-memory flag checked at iteration boundaries,
+ * and asyncio Task.cancel() for immediate interruption mid-iteration.
+ */
+export function cancelTask() {
+    if (!worker || state.status !== "ready") return;
+    worker.postMessage({ type: "cancel" });
+}
+
+/**
  * Terminate the worker and reject all pending tasks.
  * The caller is responsible for re-initializing (startWorker + initAgent).
  */

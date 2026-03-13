@@ -218,6 +218,24 @@ describe("terminateWorker", () => {
     });
 });
 
+describe("cancelTask", () => {
+    it("does nothing when worker is not ready", async () => {
+        const { cancelTask } = await loadPyodide();
+        expect(() => cancelTask()).not.toThrow();
+    });
+
+    it("sends cancel message to worker when ready", async () => {
+        const { startWorker, cancelTask } = await loadPyodide();
+        startWorker();
+        const w = MockWorker.instances[0];
+        w._receive({ type: "ready" });
+
+        cancelTask();
+        const msg = w.posted.find((m) => m.type === "cancel");
+        expect(msg).toBeDefined();
+    });
+});
+
 describe("setGoogleToken", () => {
     it("does nothing when worker is not ready", async () => {
         const { setGoogleToken } = await loadPyodide();

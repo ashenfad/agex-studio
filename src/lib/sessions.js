@@ -183,6 +183,7 @@ from agex.agent.events import (
     TaskStartEvent as _TaskStart,
     SuccessEvent as _SuccessEvent,
     FileEvent as _FileEvent,
+    CancelledEvent as _CancelledEvent,
 )
 # Helper functions (_is_error_output, _output_text, _serialize_output_parts,
 # _serialize_file_actions, _serialize_chapter_events) and event types
@@ -308,6 +309,16 @@ for _evt in _flat:
             })
             _current_events = []
             _current_task = None
+    elif isinstance(_evt, _CancelledEvent):
+        _messages.append({
+            "role": "agent",
+            "content": {"type": "text", "content": ""},
+            "events": list(_current_events),
+            "timestamp": _evt.timestamp.isoformat(),
+            "cancelled": True,
+        })
+        _current_events = []
+        _current_task = None
 
 _json.dumps(_messages)
     `);
