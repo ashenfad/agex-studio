@@ -1,0 +1,78 @@
+@import 'highlight.js/styles/github-dark-dimmed.css';
+
+:root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface-hover: #1a2744;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --text-muted: #888;
+    --accent: #e94560;
+    --accent-hover: #d63851;
+    --input-bg: #0f3460;
+    --user-bubble: #0f3460;
+    --agent-bubble: #1e2a45;
+    --success: #4caf50;
+    --warning: #ff9800;
+    --error: #e94560;
+    --purple: #a371f7;
+}
+
+.hljs {
+    background: transparent !important;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body, #app {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* Shared modal backdrop */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Shared close button (1.3rem variant) */
+.close-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.close-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+/* Shared keyframe animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
