@@ -1,0 +1,191 @@
+<script>
+    /** @type {{ columns: string[], rows: any[][] }} */
+    let { columns, rows } = $props()
+
+    let sortCol = $state(null)
+    let sortAsc = $state(true)
+
+    let sortedRows = $derived.by(() => {
+        if (sortCol === null) return rows
+        const idx = columns.indexOf(sortCol)
+        if (idx < 0) return rows
+        return [...rows].sort((a, b) => {
+            const va = a[idx], vb = b[idx]
+            if (va == null && vb == null) return 0
+            if (va == null) return 1
+            if (vb == null) return -1
+            if (typeof va === 'number' && typeof vb === 'number') {
+                return sortAsc ? va - vb : vb - va
+            }
+            const sa = String(va), sb = String(vb)
+            return sortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa)
+        })
+    })
+
+    // Virtual scrolling for large tables
+    const ROW_HEIGHT = 28
+    const BUFFER = 10
+    let scrollTop = $state(0)
+    let containerHeight = $state(400)
+    let container
+
+    let totalHeight = $derived(sortedRows.length * ROW_HEIGHT)
+    let startIdx = $derived(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER))
+    let endIdx = $derived(Math.min(sortedRows.length, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + BUFFER))
+    let visibleRows = $derived(sortedRows.slice(startIdx, endIdx))
+    let offsetY = $derived(startIdx * ROW_HEIGHT)
+
+    // Only virtualize if table is large
+    let useVirtual = $derived(rows.length > 200)
+
+    function handleSort(col) {
+        if (sortCol === col) {
+            sortAsc = !sortAsc
+        } else {
+            sortCol = col
+            sortAsc = true
+        }
+    }
+
+    function handleScroll() {
+        if (container) {
+            scrollTop = container.scrollTop
+        }
+    }
+
+    function isNumeric(colIdx) {
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
+            if (rows[i][colIdx] != null && typeof rows[i][colIdx] !== 'number') return false
+        }
+        return true
+    }
+</script>
+
+<div class="table-wrapper">
+    <div class="row-count">{rows.length.toLocaleString()} rows</div>
+    <div
+        class="table-container"
+        bind:this={container}
+        bind:clientHeight={containerHeight}
+        onscroll={useVirtual ? handleScroll : undefined}
+    >
+        <table>
+            <thead>
+                <tr>
+                    {#each columns as col, i}
+                        <th
+                            class:numeric={isNumeric(i)}
+                            onclick={() => handleSort(col)}
+                        >
+                            {col}
+                            {#if sortCol === col}
+                                <span class="sort-arrow">{sortAsc ? '▲' : '▼'}</span>
+                            {/if}
+                        </th>
+                    {/each}
+                </tr>
+            </thead>
+            <tbody>
+                {#if useVirtual}
+                    <tr style="height: {offsetY}px" class="spacer"></tr>
+                    {#each visibleRows as row}
+                        <tr>
+                            {#each row as cell, i}
+                                <td class:numeric={isNumeric(i)}>{cell ?? ''}</td>
+                            {/each}
+                        </tr>
+                    {/each}
+                    <tr style="height: {Math.max(0, totalHeight - (endIdx * ROW_HEIGHT))}px" class="spacer"></tr>
+                {:else}
+                    {#each sortedRows as row}
+                        <tr>
+                            {#each row as cell, i}
+                                <td class:numeric={isNumeric(i)}>{cell ?? ''}</td>
+                            {/each}
+                        </tr>
+                    {/each}
+                {/if}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .table-wrapper {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .row-count {
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+    }
+
+    .table-container {
+        max-height: 400px;
+        overflow: auto;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    th {
+        background: var(--surface);
+        color: var(--text-muted);
+        font-weight: 600;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 0.4rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        text-align: left;
+    }
+
+    th:hover {
+        color: var(--text);
+    }
+
+    th.numeric {
+        text-align: right;
+    }
+
+    .sort-arrow {
+        font-size: 0.55rem;
+        margin-left: 0.2rem;
+    }
+
+    td {
+        padding: 0.3rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    td.numeric {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    tr:nth-child(even) td {
+        background: var(--surface);
+    }
+
+    tr.spacer {
+        border: none;
+    }
+</style>
