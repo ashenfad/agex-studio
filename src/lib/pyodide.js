@@ -61,7 +61,7 @@ export function startWorker() {
 
     update({ status: "loading", message: "Starting worker...", progress: 0 });
 
-    worker = new Worker("/worker.js");
+    worker = new Worker(`/worker.js?v=${__APP_VERSION__}`);
 
     worker.onmessage = (e) => {
         const msg = e.data;
