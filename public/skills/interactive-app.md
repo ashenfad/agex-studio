@@ -50,6 +50,13 @@ render(html`<${App} />`, document.getElementById('app'))
 </body></html>
 ```
 
+## Before You Finish
+
+- **Persist control state** — save filter selections, dates, and UI state
+  to `localStorage` so they survive page reloads (see Persisting UI State)
+- **Namespace storage keys** — prefix with a random compound name
+  (e.g., `"coral-panda-startDate"`) to avoid collisions with other apps
+
 ## The query() Bridge
 
 `query()` is a **global function** auto-injected into the iframe — just call
