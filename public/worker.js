@@ -24,7 +24,7 @@ const AGEX_DEPS = [
     "kvgit>=0.1.7",
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
-    "sandtrap>=0.1.8",
+    "sandtrap>=0.1.9",
     "termish>=0.1.3",
     "pydantic",
     "pygments",
