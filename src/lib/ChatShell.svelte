@@ -407,9 +407,9 @@
 
             // Refresh file list, preview, and persist session meta
             files = await listFiles()
-            if (!cancelled && response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
-                previewRefreshKey++
             if (!cancelled) {
+                if (response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
+                    previewRefreshKey++
                 const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
                 await persistSessionMeta(lastAction?.title || '')
             }
