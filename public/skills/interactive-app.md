@@ -24,7 +24,10 @@ Write a single `app/index.html` file:
 
 ```html
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
 <body>
 <div id="app"></div>
 <script type="module">
@@ -219,7 +222,7 @@ function Chart({ data }) {
     Plotly.react(ref.current, data.traces, data.layout, { responsive: true })
   }, [data])
 
-  return html`<div ref=${ref} style="width:100%;height:400px"></div>`
+  return html`<div ref=${ref} style="width:100%;height:50vh;min-height:250px;max-height:600px"></div>`
 }
 ```
 
@@ -298,14 +301,14 @@ function App() {
 
   return html`
     <div style="padding: 1rem; font-family: system-ui;">
-      <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
         <input type="date" value=${startDate}
                onInput=${e => setStartDate(e.target.value)} />
         <input type="date" value=${endDate}
                onInput=${e => setEndDate(e.target.value)} />
       </div>
       ${loading ? html`<p>Loading...</p>` : null}
-      <div ref=${chartRef} style="width:100%;height:400px"></div>
+      <div ref=${chartRef} style="width:100%;height:50vh;min-height:250px;max-height:600px"></div>
     </div>
   `
 }
@@ -324,6 +327,7 @@ body {
   background: #1a1a2e;
   color: #e0e0e0;
   padding: 1rem;
+  margin: 0;
 }
 input, select, button {
   background: #0f3460;
@@ -331,6 +335,8 @@ input, select, button {
   border: 1px solid #1a3a6e;
   border-radius: 4px;
   padding: 0.4rem 0.6rem;
+  font-size: 16px; /* prevents iOS zoom on focus */
+  min-height: 44px; /* touch-friendly */
 }
 button { cursor: pointer; }
 button:hover { background: #1a3a6e; }
@@ -340,6 +346,45 @@ Plotly charts: use `template: 'plotly_dark'` in layout for dark-themed charts:
 ```js
 Plotly.react(div, traces, { template: 'plotly_dark', ...layout })
 ```
+
+### Mobile-Friendly Layout
+
+Apps run on both desktop and mobile. Follow these patterns:
+
+**Always include the viewport meta tag** (shown in Quick Start):
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+**Use flexible layouts that wrap on narrow screens:**
+```css
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+```
+
+**Use relative heights for charts** so they scale with the viewport:
+```js
+return html`<div ref=${ref} style="width:100%;height:50vh;min-height:250px;max-height:600px"></div>`
+```
+
+**Handle landscape mode on phones** — vertical space is very limited when
+a phone is turned sideways. Use a media query to reduce heights and
+tighten spacing so content fits without excessive scrolling:
+```css
+@media (orientation: landscape) and (max-height: 500px) {
+  /* reduce tall elements, tighten margins */
+}
+```
+
+**Touch targets must be at least 44px.** Inputs, buttons, and interactive
+elements should have `min-height: 44px` and enough padding to be easily
+tappable.
+
+**Set `font-size: 16px` on inputs** to prevent iOS Safari from
+auto-zooming when the user taps an input field.
 
 ## Testing and Inspecting Apps
 
