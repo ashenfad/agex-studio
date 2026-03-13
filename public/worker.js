@@ -6,6 +6,8 @@
  * Main → Worker:
  *   { type: 'init' }                      — load Pyodide and install packages
  *   { type: 'run', id, code }            — execute Python code
+ *   { type: 'cancel' }                   — cancel the running task
+ *   { type: 'set-google-token', token }  — push Google OAuth token
  *
  * Worker → Main:
  *   { type: 'progress', message, progress } — loading progress (0–1)
@@ -89,6 +91,27 @@ await micropip.install("calgebra>=0.10.8", deps=False)
         progress("Verifying installation...", 0.95);
         await pyodide.runPythonAsync("import agex");
 
+        // Patch cancellation to use an in-memory flag (set from JS via
+        // pyodide.globals.set) instead of IndexedDB, which can't be
+        // accessed synchronously from the worker's cancel message handler.
+        await pyodide.runPythonAsync(`
+import agex.agent.loop.async_loop as _aloop_mod
+
+_agex_running_task = None
+
+def _patched_check_cancellation(task_name, versioned_state, exec_state,
+                                _orig=_aloop_mod.check_cancellation):
+    flag_name = f"__agex_cancel_{task_name}"
+    import __main__
+    if getattr(__main__, flag_name, False):
+        delattr(__main__, flag_name)
+        return True
+    return _orig(task_name, versioned_state, exec_state)
+
+_aloop_mod.check_cancellation = _patched_check_cancellation
+del _aloop_mod, _patched_check_cancellation
+        `);
+
         // Install JS bridge for token streaming from Python.
         // We register a JS function that Python can call directly.
         pyodide.globals.set("_js_post_token", (runId, jsonStr) => {
@@ -158,6 +181,10 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
 
 async function run(id, code) {
     try {
+        // Clear any stale cancel flag from a previous run
+        if (pyodide.globals.has("__agex_cancel_chat")) {
+            pyodide.globals.delete("__agex_cancel_chat");
+        }
         const result = await pyodide.runPythonAsync(code);
         // Convert Python objects to JS strings
         const value = result != null ? result.toString() : null;
@@ -186,6 +213,20 @@ self.onmessage = (e) => {
         if (pyodide) {
             const val = e.data.token ? `"${e.data.token}"` : "None";
             pyodide.runPython(`_google_access_token = ${val}`);
+        }
+    } else if (type === "cancel") {
+        if (pyodide) {
+            // Set in-memory flag for graceful cancellation at next iteration boundary.
+            pyodide.globals.set("__agex_cancel_chat", true);
+            // Also cancel the asyncio task for immediate interruption.
+            // Task.cancel() is a simple flag-set (no I/O), safe from sync context.
+            try {
+                pyodide.runPython(
+                    "if _agex_running_task is not None: _agex_running_task.cancel()"
+                );
+            } catch (e) {
+                // Fallback: in-memory flag still provides cancellation
+            }
         }
     } else if (type === "run") {
         run(e.data.id, e.data.code);

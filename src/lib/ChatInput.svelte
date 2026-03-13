@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSend: (text: string) => void, onCancel?: () => void, busy?: boolean, disabled: boolean, prefill?: string }} */
-    let { onSend, onCancel, busy = false, disabled, prefill = '' } = $props()
+    /** @type {{ onSend: (text: string) => void, onCancel?: () => void, busy?: boolean, cancelling?: boolean, disabled: boolean, prefill?: string }} */
+    let { onSend, onCancel, busy = false, cancelling = false, disabled, prefill = '' } = $props()
 
     let text = $state('')
 
@@ -40,8 +40,8 @@
         {disabled}
     ></textarea>
     {#if busy}
-        <button class="stop" onclick={onCancel}>
-            Stop
+        <button class="stop" onclick={onCancel} disabled={cancelling}>
+            {cancelling ? 'Stopping...' : 'Stop'}
         </button>
     {:else}
         <button onclick={send} disabled={disabled || !text.trim()}>

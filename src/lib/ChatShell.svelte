@@ -12,7 +12,7 @@
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
     import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
-    import { terminateWorker } from './pyodide.js'
+    import { cancelTask } from './pyodide.js'
     import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
     import { tryRestore, refreshIfNeeded } from './google-auth.js'
     import { onMount } from 'svelte'
@@ -31,6 +31,7 @@
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
     let busy = $state(false)
+    let cancelling = $state(false)
     let historyChunks = $state(null)
     let settingsOpen = $state(false)
     let sessionsOpen = $state(false)
@@ -381,47 +382,53 @@
         try {
             tokenOverride = null
             const response = await sendMessage(prompt, handleToken)
+            const cancelled = response.events.some(e => e.type === 'cancelled')
 
             // Replace streaming message with final message
             const finalMessages = messages.filter(m => !m.streaming)
-            messages = [...finalMessages, {
-                role: 'agent',
-                content: response.result,
-                events: response.events,
-                timestamp: new Date(),
-            }]
-
-            // Refresh file list, preview, and persist session meta
-            files = await listFiles()
-            if (response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
-                previewRefreshKey++
-            const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
-            await persistSessionMeta(lastAction?.title || '')
-        } catch (e) {
-            if (e.message === 'Cancelled') {
-                // Remove streaming message, don't show error
-                messages = messages.filter(m => !m.streaming)
-            } else {
-                const finalMessages = messages.filter(m => !m.streaming)
+            if (cancelled) {
                 messages = [...finalMessages, {
                     role: 'agent',
-                    content: `Error: ${e.message}`,
+                    content: { type: 'text', content: '' },
+                    events: response.events,
+                    timestamp: new Date(),
+                    cancelled: true,
+                }]
+            } else {
+                messages = [...finalMessages, {
+                    role: 'agent',
+                    content: response.result,
+                    events: response.events,
                     timestamp: new Date(),
                 }]
             }
+
+            // Refresh file list, preview, and persist session meta
+            files = await listFiles()
+            if (!cancelled && response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
+                previewRefreshKey++
+            if (!cancelled) {
+                const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
+                await persistSessionMeta(lastAction?.title || '')
+            }
+        } catch (e) {
+            const finalMessages = messages.filter(m => !m.streaming)
+            messages = [...finalMessages, {
+                role: 'agent',
+                content: `Error: ${e.message}`,
+                timestamp: new Date(),
+            }]
         } finally {
             busy = false
+            cancelling = false
             streamingEvents = []
             currentAction = null
         }
     }
 
     function handleCancel() {
-        terminateWorker()
-        // Re-trigger agent init by resetting state — the settings $effect will pick it up
-        agentReady = false
-        lastKey = ''
-        lastModel = ''
+        cancelling = true
+        cancelTask()
     }
 </script>
 
@@ -455,7 +462,7 @@
             </div>
         {:else}
             <MessageList {messages} {busy} {scrollKey} onUndo={handleUndo} hasMore={historyChunks?.hasMore ?? false} onLoadMore={handleLoadMore} onActionOpen={(i) => actionModalIndex = i} onChapterOpen={(msg) => chapterModalData = msg} />
-            <ChatInput onSend={handleSend} onCancel={handleCancel} {busy} disabled={busy || !agentReady} prefill={inputPrefill} />
+            <ChatInput onSend={handleSend} onCancel={handleCancel} {busy} {cancelling} disabled={busy || !agentReady} prefill={inputPrefill} />
         {/if}
     </div>
 {/snippet}
