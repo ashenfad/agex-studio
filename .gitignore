@@ -5,6 +5,8 @@ node_modules/
 # Dev tooling
 .vscode/
 .idea/
+.vite/
+coverage/
 
 # OS
 .DS_Store
