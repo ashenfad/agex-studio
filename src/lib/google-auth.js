@@ -50,10 +50,11 @@ function loadState() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             const saved = JSON.parse(raw);
+            const stillValid = saved.token && saved.expiresAt && Date.now() < saved.expiresAt;
             return {
-                connected: false,
-                token: null,
-                expiresAt: null,
+                connected: !!stillValid,
+                token: stillValid ? saved.token : null,
+                expiresAt: stillValid ? saved.expiresAt : null,
                 scopes: saved.scopes || [...DEFAULT_SCOPES],
             };
         }
@@ -69,6 +70,8 @@ function loadState() {
 function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
         scopes: state.scopes,
+        token: state.token,
+        expiresAt: state.expiresAt,
     }));
 }
 
@@ -240,7 +243,13 @@ export async function tryRestore() {
     try {
         await loadGIS();
         ensureTokenClient();
-        needsRefresh = true;
+        // If we have a valid persisted token, restore it immediately
+        if (state.connected && state.token) {
+            setGoogleToken(state.token);
+            scheduleRefresh(state.expiresAt);
+        } else {
+            needsRefresh = true;
+        }
         return true;
     } catch {
         return false;
