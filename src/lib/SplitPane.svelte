@@ -108,16 +108,17 @@
         cursor: col-resize;
         transition: background 0.15s;
         position: relative;
+        touch-action: none;
     }
 
-    /* Wide invisible hit area */
+    /* Wide invisible hit area (44px for touch-friendly target) */
     .divider::before {
         content: '';
         position: absolute;
         top: 0;
         bottom: 0;
-        left: -8px;
-        right: -8px;
+        left: -22px;
+        right: -22px;
     }
 
     .divider:hover,
