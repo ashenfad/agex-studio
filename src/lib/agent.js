@@ -659,30 +659,43 @@ if _query_error:
     raise RuntimeError(_query_error)
 
 # Collect result variables from state
-def _serialize_query_var(val):
+def _serialize(val):
     if isinstance(val, pd.DataFrame):
-        _split = _json.loads(val.to_json(orient="split"))
-        return {"type": "dataframe", "columns": _split["columns"], "rows": _split["data"]}
+        import numpy as _np
+        _df = val.reset_index() if not isinstance(val.index, pd.RangeIndex) else val
+        for _col in _df.select_dtypes(include=["float"]).columns:
+            _vals = _df[_col].dropna()
+            if len(_vals) == 0:
+                continue
+            _mag = _np.log10(_np.maximum(_np.abs(_vals), 1e-15)).median()
+            _decimals = max(0, min(6, int(4 - _np.floor(_mag))))
+            _df[_col] = _df[_col].round(_decimals)
+        _split = _json.loads(_df.to_json(orient="split"))
+        return {"__type__": "dataframe", "columns": _split["columns"], "rows": _split["data"]}
     elif isinstance(val, go.Figure):
-        return {"type": "plotly", "figure": _json.loads(val.to_json())}
+        return {"__type__": "plotly", "figure": _json.loads(val.to_json())}
+    elif isinstance(val, dict):
+        return {k: _serialize(v) for k, v in val.items()}
+    elif isinstance(val, (list, tuple)):
+        return [_serialize(v) for v in val]
     else:
         try:
             _json.dumps(val)
-            return {"type": "value", "value": val}
+            return val
         except (TypeError, ValueError):
-            return {"type": "value", "value": str(val)}
+            return str(val)
 
 _query_result = {}
 if _query_result_vars is not None:
     for _name in _query_result_vars:
         if _name in _query_state:
-            _query_result[_name] = _serialize_query_var(_query_state[_name])
+            _query_result[_name] = _serialize(_query_state[_name])
 else:
     for _name in _query_state.keys():
         if _name.startswith("_") or _name.startswith("__"):
             continue
         try:
-            _query_result[_name] = _serialize_query_var(_query_state[_name])
+            _query_result[_name] = _serialize(_query_state[_name])
         except Exception:
             pass
 
