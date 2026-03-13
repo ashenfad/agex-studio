@@ -146,6 +146,8 @@
                 <button class="save" type="submit">Save</button>
                 <button class="cancel" type="button" onclick={onClose}>Cancel</button>
             </div>
+
+            <div class="version">v{__APP_VERSION__}</div>
         </form>
     </div>
 {/if}
@@ -342,5 +344,11 @@
     .google-connect:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    .version {
+        text-align: center;
+        font-size: 0.7rem;
+        color: var(--text-muted);
     }
 </style>
