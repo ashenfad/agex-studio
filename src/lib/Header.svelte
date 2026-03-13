@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onRefreshApp?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, hasAppFiles: boolean, inputTokens?: number | null, chapteringTrigger?: number }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onRefreshApp, onChapterClick, configured, fileCount = 0, hasAppFiles = false, inputTokens = null, chapteringTrigger = 80000 } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, inputTokens?: number | null, chapteringTrigger?: number }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onChapterClick, configured, fileCount = 0, inputTokens = null, chapteringTrigger = 80000 } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -33,18 +33,6 @@
             title="Context usage"
         >
             {formatTokens(inputTokens)} / {formatTokens(chapteringTrigger)}
-        </button>
-    {/if}
-    {#if hasAppFiles}
-        <button
-            class="refresh-btn"
-            onclick={onRefreshApp}
-            title="Refresh App"
-        >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-            </svg>
         </button>
     {/if}
     <button
@@ -122,22 +110,6 @@
     }
 
     .sessions-btn:hover {
-        color: var(--text);
-        background: var(--surface-hover);
-    }
-
-    .refresh-btn {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0.3rem;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-    }
-
-    .refresh-btn:hover {
         color: var(--text);
         background: var(--surface-hover);
     }

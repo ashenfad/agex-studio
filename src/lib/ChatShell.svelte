@@ -43,6 +43,8 @@
     let files = $state([])
     let inputPrefill = $state('')
     let previewRefreshKey = $state(0)
+    /** @type {'chat' | 'app'} */
+    let mobileView = $state('chat')
     let scrollKey = $state(0)
     let chaptering = $state(false)
     let tokenModalOpen = $state(false)
@@ -438,11 +440,9 @@
             onSettingsClick={() => settingsOpen = true}
             onSessionsClick={() => sessionsOpen = true}
             onFilesClick={() => filesOpen = true}
-            onRefreshApp={() => previewRefreshKey++}
             onChapterClick={handleTokenClick}
             {configured}
             fileCount={files?.length ?? 0}
-            {hasAppFiles}
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
         />
@@ -467,7 +467,7 @@
     </div>
 {/snippet}
 
-<SplitPane collapsed={!hasAppFiles}>
+<SplitPane collapsed={!hasAppFiles} {mobileView} onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}>
     {#snippet children()}
         {@render chatContent()}
     {/snippet}
