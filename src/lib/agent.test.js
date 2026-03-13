@@ -20,7 +20,7 @@ vi.mock("./pyodide.js", () => ({
     setLiveIframe: vi.fn(),
 }));
 
-import { initAgent, sendMessage } from "./agent.js";
+import { initAgent, sendMessage, runQuery } from "./agent.js";
 
 beforeEach(() => {
     runPythonCalls.length = 0;
@@ -136,4 +136,26 @@ describe("sendMessage", () => {
         expect(code).toContain("ActionEvent");
         expect(code).toContain("_post_token");
     });
+});
+
+describe("runQuery", () => {
+    it("includes recursive serializer that handles DataFrames, Figures, dicts, and lists", async () => {
+        await runQuery("x = 1", ["x"]).catch(() => {});
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("def _serialize(val):");
+        expect(code).toContain('"__type__": "dataframe"');
+        expect(code).toContain('"__type__": "plotly"');
+        // Recursion into dicts and lists
+        expect(code).toContain("{k: _serialize(v) for k, v in val.items()}");
+        expect(code).toContain("[_serialize(v) for v in val]");
+    });
+
+    it("uses _serialize for each result variable", async () => {
+        await runQuery("x = 1", ["x"]).catch(() => {});
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("_serialize(_query_state[_name])");
+    });
+
 });

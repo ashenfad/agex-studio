@@ -69,12 +69,17 @@ const { df } = await query({ code: '...python...', result: ['df'] })
 
 **Return value types:**
 
+Results are recursively serialized — DataFrames and Figures are tagged
+with `__type__` wherever they appear, even nested inside dicts or lists.
+
 | Python type | Returned shape |
 |---|---|
-| `pd.DataFrame` | `{ type: 'dataframe', columns: [...], rows: [[...], ...] }` |
-| `go.Figure` | `{ type: 'plotly', figure: { data: [...], layout: {...} } }` |
-| str, int, float, bool, None, list, dict | `{ type: 'value', value: ... }` |
-| Anything else | `{ type: 'value', value: '<str repr>' }` |
+| `pd.DataFrame` | `{ __type__: 'dataframe', columns: [...], rows: [[...], ...] }` |
+| `go.Figure` | `{ __type__: 'plotly', figure: { data: [...], layout: {...} } }` |
+| dict | `{ key: <serialized value>, ... }` |
+| list, tuple | `[<serialized value>, ...]` |
+| str, int, float, bool, None | returned as-is |
+| Anything else | `'<str repr>'` |
 
 **Error handling:** `query()` rejects the promise on Python errors.
 Always use try/catch:
@@ -229,7 +234,7 @@ function Chart({ data }) {
 **Using Plotly figures from Python:**
 ```js
 const { fig } = await query({ code: 'fig = create_chart()', result: ['fig'] })
-// fig = { type: 'plotly', figure: { data: [...], layout: {...} } }
+// fig = { __type__: 'plotly', figure: { data: [...], layout: {...} } }
 Plotly.react(div, fig.figure.data, fig.figure.layout)
 ```
 
