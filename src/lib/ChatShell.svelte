@@ -23,9 +23,12 @@
             refreshIfNeeded().catch(() => {})
             document.removeEventListener('click', onFirstGesture)
             document.removeEventListener('keydown', onFirstGesture)
+            window.removeEventListener('blur', onFirstGesture)
         }
         document.addEventListener('click', onFirstGesture, { once: true })
         document.addEventListener('keydown', onFirstGesture, { once: true })
+        // Clicking inside the iframe doesn't bubble to document, but blurs the parent window
+        window.addEventListener('blur', onFirstGesture, { once: true })
 
         // Refresh app preview when Google auth completes (e.g. after re-auth)
         function onGoogleToken() { previewRefreshKey++ }
