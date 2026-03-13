@@ -31,7 +31,7 @@ describe("settingsStore", () => {
         expect(received).toEqual({
             apiKey: "",
             model: "google/gemini-3-flash-preview",
-            chapteringTrigger: 80000,
+            chapteringTrigger: 150000,
         });
         unsub();
     });

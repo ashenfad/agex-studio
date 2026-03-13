@@ -7,7 +7,7 @@ const STORAGE_KEY = "agex-settings";
 const DEFAULTS = {
     apiKey: "",
     model: "google/gemini-3-flash-preview",
-    chapteringTrigger: 80000,
+    chapteringTrigger: 150000,
 };
 
 /** @type {((s: Settings) => void)[]} */
