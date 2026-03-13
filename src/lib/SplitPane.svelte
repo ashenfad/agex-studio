@@ -16,10 +16,14 @@
         prevCollapsed = collapsed
     })
 
+    let overlay
+
     function onPointerDown(e) {
         if (collapsed) return
         e.preventDefault()
         dragging = true
+        // Show overlay to capture pointer events without disabling them on panes
+        if (overlay) overlay.style.display = 'block'
         const onMove = (/** @type {PointerEvent} */ me) => {
             const rect = container.getBoundingClientRect()
             const ratio = Math.max(0.001, Math.min(0.999, (me.clientX - rect.left) / rect.width))
@@ -28,6 +32,7 @@
         }
         const onUp = () => {
             dragging = false
+            if (overlay) overlay.style.display = 'none'
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
             // Trigger resize so Plotly charts in the chat pane relayout
@@ -45,6 +50,9 @@
     class:mobile-chat={!collapsed && mobileView === 'chat'}
     bind:this={container}
 >
+    <!-- Transparent overlay during drag — prevents iframe from eating pointer events
+         without setting pointer-events:none on panes (which breaks trackpad scroll) -->
+    <div class="drag-overlay" bind:this={overlay}></div>
     <div class="pane left" style:flex-basis="{collapsed ? '100%' : (splitRatio * 100) + '%'}">
         {@render children()}
     </div>
@@ -75,6 +83,7 @@
         display: flex;
         height: 100%;
         overflow: hidden;
+        position: relative;
     }
 
     .split-pane.dragging {
@@ -82,8 +91,12 @@
         user-select: none;
     }
 
-    .split-pane.dragging .pane {
-        pointer-events: none;
+    .drag-overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 10;
+        cursor: col-resize;
     }
 
     .pane {
