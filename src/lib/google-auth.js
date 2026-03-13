@@ -133,6 +133,9 @@ async function handleTokenResponse(response) {
     setGoogleToken(response.access_token);
     scheduleRefresh(expiresAt);
 
+    // Signal that a fresh token is available (e.g. after re-auth)
+    window.dispatchEvent(new CustomEvent("google-auth-token"));
+
     if (pendingResolve) {
         pendingResolve(response);
         pendingResolve = null;

@@ -26,6 +26,11 @@
         }
         document.addEventListener('click', onFirstGesture, { once: true })
         document.addEventListener('keydown', onFirstGesture, { once: true })
+
+        // Refresh app preview when Google auth completes (e.g. after re-auth)
+        function onGoogleToken() { previewRefreshKey++ }
+        window.addEventListener('google-auth-token', onGoogleToken)
+        return () => window.removeEventListener('google-auth-token', onGoogleToken)
     })
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
