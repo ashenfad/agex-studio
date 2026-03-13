@@ -238,6 +238,23 @@ const { fig } = await query({ code: 'fig = create_chart()', result: ['fig'] })
 Plotly.react(div, fig.figure.data, fig.figure.layout)
 ```
 
+## Persisting UI State
+
+Use `localStorage` to save filter selections, date ranges, and other
+control state so they survive page reloads. Pick a random compound name
+(e.g., `"coral-panda"`) as your app's namespace prefix to avoid
+collisions with other apps:
+
+```js
+const APP = 'coral-panda'
+// Save
+localStorage.setItem(APP + '-startDate', startDate)
+// Restore
+const [startDate, setStartDate] = useState(
+  localStorage.getItem(APP + '-startDate') || '2025-01-01'
+)
+```
+
 ## Common Patterns
 
 ### Data Explorer with Filters
@@ -505,6 +522,7 @@ Both functions also return the list of result dicts if you need them:
 - Use `Plotly.react()` for efficient chart updates (not `Plotly.newPlot()`)
 - Files are accessible via the sandbox filesystem
 - The iframe is sandboxed — no access to parent page DOM
+- Use `localStorage` with a random compound-name prefix to persist UI state across reloads
 - `test_app()` tests uncommitted app files in a hidden iframe — use after writing/editing
 - `live_app()` reads from or interacts with the live preview the user sees
 - Both auto-display results and return them — capture the return value only when needed
