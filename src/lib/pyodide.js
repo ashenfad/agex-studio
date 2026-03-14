@@ -225,19 +225,151 @@ window.query = function(opts) {
 };
 <\/script>`;
 
-export const CDN_SCRIPTS = `
-<script type="importmap">
-{ "imports": {
+const CDN_IMPORTS = {
     "preact": "https://esm.sh/preact@10.25.4",
     "preact/": "https://esm.sh/preact@10.25.4/",
-    "htm": "https://esm.sh/htm@3.1.1"
-}}
-<\/script>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>`;
+    "htm": "https://esm.sh/htm@3.1.1",
+};
+
+const PLOTLY_SCRIPT = `<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>`;
+
+/** Prefix used for bare specifiers in the import map for local app files. */
+const APP_MODULE_PREFIX = '__app/';
+
+/**
+ * Escape a string for use in a RegExp.
+ * @param {string} s
+ */
+function _escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Rewrite local relative import/export specifiers in JS code to use bare
+ * prefixed specifiers that resolve via the import map.
+ *
+ * ./foo.js  → __app/foo.js
+ * ./components/Bar.js → __app/components/Bar.js
+ *
+ * Only rewrites specifiers whose target file exists in knownFiles.
+ *
+ * @param {string} code - JS source code
+ * @param {Set<string>} knownFiles - set of relative paths (e.g. "App.js", "utils/helpers.js")
+ * @returns {string} rewritten code
+ */
+export function _rewriteLocalImports(code, knownFiles) {
+    // Static import/export-from: import ... from './foo.js'  /  export ... from './foo.js'
+    code = code.replace(
+        /((?:import|export)\s(?:[^'"]*?\s)?from\s*|import\s*)(['"])(\.\/([^'"]+))\2/g,
+        (match, before, quote, _specifier, relative) => {
+            if (knownFiles.has(relative)) {
+                return `${before}${quote}${APP_MODULE_PREFIX}${relative}${quote}`;
+            }
+            return match;
+        },
+    );
+    // Dynamic import: import('./foo.js')
+    code = code.replace(
+        /import\s*\(\s*(['"])(\.\/([^'"]+))\1\s*\)/g,
+        (match, quote, _specifier, relative) => {
+            if (knownFiles.has(relative)) {
+                return `import(${quote}${APP_MODULE_PREFIX}${relative}${quote})`;
+            }
+            return match;
+        },
+    );
+    return code;
+}
+
+/**
+ * Collect JS and CSS files from appFiles, build an import map with data URIs,
+ * and inline CSS/script-src references in the HTML.
+ *
+ * @param {Record<string, string>} appFiles
+ * @param {string} html - the index.html content
+ * @returns {{ html: string, importMap: Record<string, string> }}
+ */
+function _resolveAppModules(appFiles, html) {
+    // Collect non-HTML files
+    const jsFiles = new Map();   // relative path → content
+    const cssFiles = new Map();  // relative path → content
+
+    for (const [path, content] of Object.entries(appFiles)) {
+        const relative = path.replace(/^app\//, '');
+        if (relative === 'index.html') continue;
+        if (path.endsWith('.js')) {
+            jsFiles.set(relative, content);
+        } else if (path.endsWith('.css')) {
+            cssFiles.set(relative, content);
+        }
+    }
+
+    // Inline CSS: <link ... href="./style.css"> → <style>contents</style>
+    for (const [name, content] of cssFiles) {
+        const pattern = new RegExp(
+            `<link[^>]*href=["']\\./${_escapeRegex(name)}["'][^>]*/?>`,
+            'g',
+        );
+        html = html.replace(pattern, `<style>${content}</style>`);
+    }
+
+    // Build import map entries for JS files
+    const appImports = {};
+    const knownFiles = new Set(jsFiles.keys());
+
+    if (knownFiles.size > 0) {
+        for (const [name, content] of jsFiles) {
+            const rewritten = _rewriteLocalImports(content, knownFiles);
+            const encoded = encodeURIComponent(rewritten);
+            appImports[APP_MODULE_PREFIX + name] = `data:text/javascript;charset=utf-8,${encoded}`;
+        }
+
+        // Rewrite imports in inline <script type="module"> blocks
+        html = html.replace(
+            /(<script\b[^>]*type\s*=\s*["']module["'][^>]*>)([\s\S]*?)(<\/script>)/gi,
+            (match, open, body, close) => {
+                // Skip scripts with src attribute (handled below)
+                if (/\bsrc\s*=/.test(open)) return match;
+                return open + _rewriteLocalImports(body, knownFiles) + close;
+            },
+        );
+
+        // Replace <script type="module" src="./foo.js"> with import via import map
+        for (const name of jsFiles.keys()) {
+            const pattern = new RegExp(
+                `<script([^>]*?)\\bsrc=["']\\./${_escapeRegex(name)}["']([^>]*)>[\\s\\S]*?</script>`,
+                'g',
+            );
+            html = html.replace(pattern, (match, before, after) => {
+                if (/type\s*=\s*["']module["']/.test(before + after)) {
+                    // Module script → import via import map
+                    const attrs = (before + after).replace(/type\s*=\s*["']module["']\s*/g, '').trim();
+                    return `<script type="module" ${attrs}>import '${APP_MODULE_PREFIX}${name}';<\/script>`;
+                }
+                // Non-module script → inline directly
+                const attrs = (before + after).trim();
+                return `<script${attrs ? ' ' + attrs : ''}>${jsFiles.get(name)}<\/script>`;
+            });
+        }
+    }
+
+    return { html, importMap: appImports };
+}
+
+/**
+ * Build the import map script tag, merging CDN and app-local entries.
+ * @param {Record<string, string>} appImports
+ * @returns {string}
+ */
+function _buildImportMapTag(appImports) {
+    const imports = { ...CDN_IMPORTS, ...appImports };
+    return `<script type="importmap">${JSON.stringify({ imports })}<\/script>`;
+}
 
 /**
  * Build the full HTML string for an app preview or test iframe.
- * Injects console interceptor, query bridge, and CDN scripts.
+ * Injects console interceptor, query bridge, CDN scripts, and resolves
+ * multi-file app projects (JS via import map with data URIs, CSS inlined).
  *
  * @param {Record<string, string>} appFiles - map of filename → content
  * @returns {string} complete HTML document
@@ -245,10 +377,16 @@ export const CDN_SCRIPTS = `
 export function buildAppHtml(appFiles) {
     let html = appFiles['app/index.html'] || appFiles['index.html'];
     if (html) {
+        // Resolve multi-file references (JS import map, CSS inlining)
+        const resolved = _resolveAppModules(appFiles, html);
+        html = resolved.html;
+        const importMapTag = _buildImportMapTag(resolved.importMap);
+        const cdnScripts = importMapTag + '\n' + PLOTLY_SCRIPT;
+
         if (!html.includes('agex-query')) {
-            html = html.replace('<head>', '<head>' + CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + CDN_SCRIPTS);
+            html = html.replace('<head>', '<head>' + CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + cdnScripts);
             if (!html.includes('<head>')) {
-                html = CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + CDN_SCRIPTS + html;
+                html = CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + cdnScripts + html;
             }
         } else {
             html = html.replace('<head>', '<head>' + CONSOLE_INTERCEPTOR);
@@ -258,11 +396,13 @@ export function buildAppHtml(appFiles) {
         }
     } else {
         const mainJs = appFiles['app/main.js'] || appFiles['main.js'] || '';
+        const importMapTag = _buildImportMapTag({});
         html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 ${CONSOLE_INTERCEPTOR}
 ${QUERY_BRIDGE_SCRIPT}
-${CDN_SCRIPTS}
+${importMapTag}
+${PLOTLY_SCRIPT}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
