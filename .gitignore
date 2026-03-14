@@ -11,6 +11,9 @@ coverage/
 # OS
 .DS_Store
 
+# Python
+__pycache__/
+
 # Environment / secrets
 .env
 .envrc

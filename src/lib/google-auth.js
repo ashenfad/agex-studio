@@ -14,6 +14,8 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const DEFAULT_SCOPES = [
     "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
 ];
 
 const STORAGE_KEY = "agex-google-auth";
@@ -50,12 +52,15 @@ function loadState() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             const saved = JSON.parse(raw);
-            const stillValid = saved.token && saved.expiresAt && Date.now() < saved.expiresAt;
+            const savedScopes = saved.scopes || [];
+            // Invalidate if scopes have changed (e.g. Gmail added)
+            const scopesMatch = DEFAULT_SCOPES.every(s => savedScopes.includes(s));
+            const stillValid = scopesMatch && saved.token && saved.expiresAt && Date.now() < saved.expiresAt;
             return {
                 connected: !!stillValid,
                 token: stillValid ? saved.token : null,
                 expiresAt: stillValid ? saved.expiresAt : null,
-                scopes: saved.scopes || [...DEFAULT_SCOPES],
+                scopes: [...DEFAULT_SCOPES],
             };
         }
     } catch {}
