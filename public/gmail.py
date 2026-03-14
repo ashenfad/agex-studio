@@ -222,18 +222,13 @@ def _parse_batch_response(response_text, content_type):
         if not section or section == "--":
             continue
 
-        # Find the JSON body: skip HTTP headers, find the response status line,
-        # skip response headers, then parse the JSON body.
-        # Format: MIME headers \r\n\r\n HTTP/1.1 200 OK \r\n headers \r\n\r\n JSON
-        json_start = section.find("{")
-        if json_start == -1:
-            continue
-
-        # Find the matching closing brace
-        json_str = section[json_start:]
+        # Each section has the structure:
+        # Part headers\r\n\r\nHTTP status + headers\r\n\r\nJSON body
         try:
-            results.append(json.loads(json_str))
-        except json.JSONDecodeError:
+            _, http_response = section.split("\r\n\r\n", 1)
+            _, json_body = http_response.split("\r\n\r\n", 1)
+            results.append(json.loads(json_body))
+        except (ValueError, json.JSONDecodeError):
             continue
 
     return results
