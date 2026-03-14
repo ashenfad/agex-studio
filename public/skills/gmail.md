@@ -126,6 +126,26 @@ it's available as a global), then passed into the helper function.
 | `snippet` | `str` | Gmail snippet |
 | `labels` | `list[str]` | Label IDs |
 
+## Rendering HTML Emails in an App
+
+Many emails have rich HTML bodies (`body_html`). Sanitize with DOMPurify
+before rendering:
+
+```js
+import DOMPurify from 'dompurify'
+
+function EmailBody({ bodyHtml, bodyText }) {
+  if (bodyHtml) {
+    const clean = DOMPurify.sanitize(bodyHtml)
+    return html`<div dangerouslySetInnerHTML=${{ __html: clean }} />`
+  }
+  return html`<pre style="white-space: pre-wrap">${bodyText}</pre>`
+}
+```
+
+Prefer `body_html` when available — it preserves formatting, links, and
+tables. Fall back to `body_text` for plain-text-only messages.
+
 ## Tips
 
 - `search()` returns a flat list of up to `limit` messages (default 500),
