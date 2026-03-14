@@ -214,13 +214,6 @@ def _do_flatten(evts, collect=True):
 
 _do_flatten(_pre)
 
-print(f"[loadHistory] {len(_all)} total, {len(_pre)} non-setup, {len(_flat)} flat")
-for _i, _e in enumerate(_flat[:20]):
-    _tn = getattr(_e, 'task_name', '')
-    print(f"  [{_i}] {type(_e).__name__} source={getattr(_e, 'source', '?')} {_tn}")
-if len(_flat) > 20:
-    print(f"  ... and {len(_flat) - 20} more")
-
 _messages = []
 _current_events = []
 _current_task = None
