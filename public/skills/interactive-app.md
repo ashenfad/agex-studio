@@ -15,6 +15,8 @@ Your app runs in a sandboxed iframe with:
 - **Preact + HTM** for reactive UI (via import map, no build step)
 - **Plotly.js** for charts (global `Plotly` — auto-injected, no `<script>` tag needed)
 - **marked** for Markdown rendering (via import map)
+- **DOMPurify** for HTML sanitization (via import map)
+- **dayjs** for date formatting/parsing (via import map)
 - **query()** bridge to call Python in your sandbox (global `query` — auto-injected, no import needed)
 
 The preview panel appears automatically when `app/index.html` exists.
@@ -258,14 +260,46 @@ for rendering Markdown as HTML:
 
 ```js
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 function Markdown({ text }) {
-  return html`<div dangerouslySetInnerHTML=${{ __html: marked(text) }} />`
+  const clean = DOMPurify.sanitize(marked(text))
+  return html`<div dangerouslySetInnerHTML=${{ __html: clean }} />`
 }
 ```
 
 Supports the full CommonMark/GFM spec: tables, ordered/unordered lists,
-code blocks, task lists, links, images, etc.
+code blocks, task lists, links, images, etc. Always sanitize with
+DOMPurify when rendering user-provided content.
+
+## HTML Sanitization
+
+Use DOMPurify whenever rendering untrusted HTML (e.g. from marked or
+email bodies):
+
+```js
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+
+function Markdown({ text }) {
+  const clean = DOMPurify.sanitize(marked(text))
+  return html`<div dangerouslySetInnerHTML=${{ __html: clean }} />`
+}
+```
+
+## Date Formatting
+
+dayjs is available for date parsing, formatting, and relative time:
+
+```js
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+dayjs.extend(relativeTime)
+
+dayjs('2025-03-14').format('MMM D, YYYY')  // "Mar 14, 2025"
+dayjs('2025-03-14T10:30:00').fromNow()     // "2 hours ago"
+dayjs().subtract(7, 'day').format('YYYY-MM-DD')  // 7 days ago
+```
 
 ## Plotly Integration
 
@@ -578,7 +612,7 @@ Both functions also return the list of result dicts if you need them:
 - Modules are auto-reloaded on import, so edits take effect immediately
 - Registered globals (`local_timezone()`, etc.) only work in the main sandbox scope — pass them as parameters
 - Capture globals once on app mount with a setup `query()`, then reuse in subsequent calls
-- Plotly.js, Preact+HTM, and marked are auto-injected — no CDN script tags needed
+- Plotly.js, Preact+HTM, marked, DOMPurify, and dayjs are auto-injected — no CDN script tags needed
 - Use `Plotly.react()` for efficient chart updates (not `Plotly.newPlot()`)
 - Files are accessible via the sandbox filesystem
 - The iframe is sandboxed — no access to parent page DOM

@@ -230,6 +230,9 @@ const CDN_IMPORTS = {
     "preact/": "https://esm.sh/preact@10.25.4/",
     "htm": "https://esm.sh/htm@3.1.1",
     "marked": "https://esm.sh/marked@17.0.4",
+    "dayjs": "https://esm.sh/dayjs@1.11.20",
+    "dayjs/": "https://esm.sh/dayjs@1.11.20/",
+    "dompurify": "https://esm.sh/dompurify@3.3.3",
 };
 
 const PLOTLY_SCRIPT = `<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>`;
