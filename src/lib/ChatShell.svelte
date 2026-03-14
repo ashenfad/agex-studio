@@ -230,7 +230,6 @@
         } else if (token.type === 'file') {
             if (token.done) {
                 flushFileAction()
-                if (hasAppFiles) previewRefreshKey++
             } else if (token.content.startsWith('path=')) {
                 // Flush previous file if any
                 flushFileAction()
@@ -246,7 +245,6 @@
         } else if (token.type === 'edit') {
             if (token.done) {
                 flushEditAction()
-                if (hasAppFiles) previewRefreshKey++
             } else if (token.content.startsWith('path=')) {
                 flushEditAction()
                 const pathMatch = token.content.match(/path=([^,]+)/)
