@@ -52,6 +52,10 @@ render(html`<${App} />`, document.getElementById('app'))
 
 ## Before You Finish
 
+- **Test then continue** — call `test_app()` with `read`/`eval` actions
+  to verify real content, then `task_continue()` to review results. Never
+  `task_success()` in the same turn as `test_app()` — you haven't seen
+  the output yet.
 - **Persist control state** — save filter selections, dates, and UI state
   to `localStorage` so they survive page reloads (see Persisting UI State)
 - **Namespace storage keys** — prefix with a random compound name
@@ -433,19 +437,26 @@ made this turn) in a hidden iframe. Use this to verify your work before
 finishing:
 
 ```python
-# Simple — results are auto-displayed
-await test_app()
-task_continue()
+# GOOD — interact with controls and verify the data updates
+await test_app(actions=[
+    {"select": "#date-range", "value": "last-7-days"},
+    {"wait": 500},
+    {"read": "#results-table"},
+    {"eval": "document.querySelectorAll('#results-table tr').length"},
+])
+task_continue()  # MUST be task_continue — you need to SEE the results
 ```
 
-```python
-# With actions — interact and inspect
-await test_app(actions=[
-    {"click": "#load-btn"},
-    {"read": "#results-count"},
-])
-task_continue()
-```
+A bare `await test_app()` only checks for console errors — it does NOT
+verify that data loaded, charts rendered, or controls work. **Always use
+actions** to interact with your app and read back results before finishing.
+
+**CRITICAL: `test_app()` must be followed by `task_continue()`, NEVER
+`task_success()`.** You cannot see the test results until the next turn.
+If you call `task_success()` after `test_app()`, you are finishing
+without ever reading the test output — you have no idea if the app
+actually works. Always continue, review the results, and only then
+call `task_success()` in a subsequent turn.
 
 ```python
 # Capture return value when you need to branch on results
@@ -455,9 +466,6 @@ if int(count) > 10:
     ...  # handle it
 task_continue()
 ```
-
-**Important:** Call `task_continue()` after `test_app()` so you can see
-the auto-displayed output and fix any errors in the next iteration.
 
 ### live_app() — Interact with the User's Live Preview
 
