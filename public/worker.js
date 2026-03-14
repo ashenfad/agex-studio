@@ -85,7 +85,7 @@ await micropip.install("${pkg}"${isOwn ? `, index_urls="${freshIndex}"` : ""})
         progress("Installing icalendar...", 0.15 + (0.8 * allDeps.length) / total);
         await pyodide.runPythonAsync(`
 import micropip
-await micropip.install("icalendar", deps=False, index_urls="${freshIndex}")
+await micropip.install("icalendar", deps=False)
         `);
 
         // Install agex and calgebra last (deps already satisfied above)
