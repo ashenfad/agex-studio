@@ -20,7 +20,7 @@ The preview panel appears automatically when `app/index.html` exists.
 
 ## Quick Start
 
-Write a single `app/index.html` file:
+Write `app/index.html` (and optionally separate `.js` / `.css` files):
 
 ```html
 <!DOCTYPE html>
@@ -60,6 +60,34 @@ render(html`<${App} />`, document.getElementById('app'))
   to `localStorage` so they survive page reloads (see Persisting UI State)
 - **Namespace storage keys** — prefix with a random compound name
   (e.g., `"coral-panda-startDate"`) to avoid collisions with other apps
+
+## Multi-File Apps
+
+For larger apps, split code into separate files. JS files use standard
+ES module imports — they're resolved automatically via the import map:
+
+```
+app/
+  index.html          ← entry point
+  App.js              ← main component
+  components/Chart.js ← sub-component
+  style.css           ← stylesheet
+```
+
+```html
+<!-- app/index.html -->
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./App.js"></script>
+```
+
+```js
+// app/App.js
+import { Chart } from './components/Chart.js'
+```
+
+CSS `<link>` tags and `<script src>` references to local files are
+inlined automatically. ES module imports between `app/` files work
+via the import map — no build step needed.
 
 ## The query() Bridge
 

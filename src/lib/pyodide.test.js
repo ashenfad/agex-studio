@@ -266,6 +266,179 @@ describe("setGoogleToken", () => {
     });
 });
 
+describe("_rewriteLocalImports", () => {
+    it("rewrites static import-from specifiers for known files", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["App.js", "utils.js"]);
+        const code = `import { App } from './App.js';\nimport { helper } from './utils.js';`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toContain("from '__app/App.js'");
+        expect(result).toContain("from '__app/utils.js'");
+    });
+
+    it("leaves unknown files unchanged", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["App.js"]);
+        const code = `import { x } from './unknown.js';`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toBe(code);
+    });
+
+    it("rewrites default imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["App.js"]);
+        const result = _rewriteLocalImports(`import App from './App.js';`, known);
+        expect(result).toContain("from '__app/App.js'");
+    });
+
+    it("rewrites export-from", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js"]);
+        const result = _rewriteLocalImports(`export { helper } from './utils.js';`, known);
+        expect(result).toContain("from '__app/utils.js'");
+    });
+
+    it("rewrites export * from", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js"]);
+        const result = _rewriteLocalImports(`export * from './utils.js';`, known);
+        expect(result).toContain("from '__app/utils.js'");
+    });
+
+    it("rewrites side-effect imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["init.js"]);
+        const result = _rewriteLocalImports(`import './init.js';`, known);
+        expect(result).toContain("import '__app/init.js'");
+    });
+
+    it("rewrites dynamic imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["lazy.js"]);
+        const result = _rewriteLocalImports(`const mod = await import('./lazy.js');`, known);
+        expect(result).toContain("import('__app/lazy.js')");
+    });
+
+    it("handles nested paths", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["components/Header.js"]);
+        const result = _rewriteLocalImports(`import { Header } from './components/Header.js';`, known);
+        expect(result).toContain("from '__app/components/Header.js'");
+    });
+
+    it("does not rewrite CDN/absolute imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["App.js"]);
+        const code = `import { html } from 'https://esm.sh/htm/preact/standalone';`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toBe(code);
+    });
+
+    it("handles double-quoted imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["App.js"]);
+        const result = _rewriteLocalImports(`import App from "./App.js";`, known);
+        expect(result).toContain(`from "__app/App.js"`);
+    });
+});
+
+describe("buildAppHtml multi-file", () => {
+    it("inlines CSS link tags", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head><link rel="stylesheet" href="./style.css"></head><body></body></html>',
+            'app/style.css': 'body { color: red; }',
+        });
+        expect(result).toContain('<style>body { color: red; }</style>');
+        expect(result).not.toContain('href="./style.css"');
+    });
+
+    it("adds JS files to import map as data URIs", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module">import { App } from \'./App.js\';</script></body></html>',
+            'app/App.js': 'export function App() { return "hello"; }',
+        });
+        expect(result).toContain('"__app/App.js"');
+        expect(result).toContain('data:text/javascript;charset=utf-8,');
+        // The inline script should be rewritten too
+        expect(result).toContain("from '__app/App.js'");
+    });
+
+    it("replaces module script src with import map reference", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
+            'app/App.js': 'console.log("hello");',
+        });
+        expect(result).toContain("import '__app/App.js'");
+        expect(result).not.toContain('src="./App.js"');
+    });
+
+    it("inlines non-module script src directly", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script src="./legacy.js"></script></body></html>',
+            'app/legacy.js': 'var x = 1;',
+        });
+        expect(result).toContain('<script>var x = 1;</script>');
+    });
+
+    it("rewrites nested imports between app files", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
+            'app/App.js': 'import { utils } from \'./utils.js\';\nconsole.log(utils);',
+            'app/utils.js': 'export const utils = 42;',
+        });
+        // Both files should be in the import map
+        expect(result).toContain('"__app/App.js"');
+        expect(result).toContain('"__app/utils.js"');
+        // App.js content in the data URI should have rewritten imports
+        const importMap = result.match(/<script type="importmap">([\s\S]*?)<\/script>/);
+        expect(importMap).not.toBeNull();
+        const map = JSON.parse(importMap[1]);
+        const appJsUri = map.imports['__app/App.js'];
+        const appJsContent = decodeURIComponent(appJsUri.replace('data:text/javascript;charset=utf-8,', ''));
+        expect(appJsContent).toContain("from '__app/utils.js'");
+    });
+
+    it("preserves CDN imports in the merged import map", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body></body></html>',
+            'app/App.js': 'export const x = 1;',
+        });
+        const importMap = result.match(/<script type="importmap">([\s\S]*?)<\/script>/);
+        const map = JSON.parse(importMap[1]);
+        expect(map.imports['preact']).toContain('esm.sh');
+        expect(map.imports['htm']).toContain('esm.sh');
+        expect(map.imports['__app/App.js']).toContain('data:');
+    });
+
+    it("works with single-file apps (no extra files)", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><h1>Hello</h1></body></html>',
+        });
+        expect(result).toContain('<h1>Hello</h1>');
+        expect(result).toContain('importmap');
+        // Should still have CDN imports
+        const importMap = result.match(/<script type="importmap">([\s\S]*?)<\/script>/);
+        const map = JSON.parse(importMap[1]);
+        expect(map.imports['preact']).toBeDefined();
+    });
+
+    it("handles self-closing link tags", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head><link rel="stylesheet" href="./style.css" /></head><body></body></html>',
+            'app/style.css': '.app { margin: 0; }',
+        });
+        expect(result).toContain('<style>.app { margin: 0; }</style>');
+    });
+});
+
 describe("setQueryHandler", () => {
     it("exports setQueryHandler", async () => {
         const mod = await loadPyodide();
