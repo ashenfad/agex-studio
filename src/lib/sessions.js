@@ -182,6 +182,7 @@ from agex import events as _get_events
 from agex.agent.events import (
     TaskStartEvent as _TaskStart,
     SuccessEvent as _SuccessEvent,
+    FailEvent as _FailEvent,
     FileEvent as _FileEvent,
     CancelledEvent as _CancelledEvent,
 )
@@ -319,6 +320,26 @@ for _evt in _flat:
         })
         _current_events = []
         _current_task = None
+    elif isinstance(_evt, _FailEvent):
+        _err_msg = str(_evt.error) if hasattr(_evt, "error") else "Task failed"
+        _messages.append({
+            "role": "agent",
+            "content": {"type": "text", "content": f"Error: {_err_msg}"},
+            "events": list(_current_events),
+            "timestamp": _evt.timestamp.isoformat(),
+        })
+        _current_events = []
+        _current_task = None
+
+# Flush any orphan events (no TaskStart preceded them)
+if _current_events and _current_task is None:
+    from datetime import datetime as _dt
+    _messages.append({
+        "role": "agent",
+        "content": {"type": "text", "content": ""},
+        "events": list(_current_events),
+        "timestamp": _dt.now().isoformat(),
+    })
 
 _json.dumps(_messages)
     `);
