@@ -66,6 +66,8 @@ _llm = connect_llm(
     provider="pyfetch_openai",
     model="${settings.model}",
     api_key="${settings.apiKey}",
+    app_url="https://agex.studio",
+    app_title="Agex Studio",
 )
 
 _agent = Agent(

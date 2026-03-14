@@ -23,12 +23,15 @@ if token is None:
 ```python
 import gmail
 
-messages = gmail.search("from:alice subject:meeting", token, max_results=5)
+messages = gmail.search("from:alice subject:meeting", token, limit=5)
 for m in messages:
     print(m["date"], m["from_"], m["subject"])
     print(m["snippet"])
     print()
 ```
+
+Pagination is handled automatically — `limit` controls how many messages
+to return (default 500). Results are always newest-first.
 
 **Query syntax** — same as the Gmail search box:
 - `from:alice` / `to:bob@example.com`
@@ -37,6 +40,20 @@ for m in messages:
 - `after:2025/01/01` / `before:2025/02/01`
 - `filename:pdf` / `larger:5M`
 - Combine freely: `from:boss is:unread after:2025/03/01 has:attachment`
+
+## Paginated Search
+
+For paginated UIs (e.g. an inbox view), use `gmail.paged()`:
+
+```python
+page = gmail.paged("label:inbox", token, page_size=20)
+# page["messages"] — list of messages for this page
+# page["next_page_token"] — pass to next call, or None if no more pages
+
+# Next page:
+page2 = gmail.paged("label:inbox", token, page_size=20,
+                     page_token=page["next_page_token"])
+```
 
 ## Reading a Single Message
 
@@ -73,8 +90,8 @@ Always pass it as a parameter.
 # helpers/email_data.py
 import gmail
 
-def get_recent(query_str, token, max_results=20):
-    messages = gmail.search(query_str, token, max_results)
+def get_recent(query_str, token, limit=20):
+    messages = gmail.search(query_str, token, limit=limit)
     return [
         {"from": m["from_"], "subject": m["subject"], "date": m["date"]}
         for m in messages
@@ -111,8 +128,8 @@ it's available as a global), then passed into the helper function.
 
 ## Tips
 
-- `search()` returns up to `max_results` messages (default 10, max 100) with
-  full bodies already parsed — no need to fetch individually.
+- `search()` returns a flat list of up to `limit` messages (default 500),
+  fully parsed. Pagination is handled internally.
 - `body_text` is usually what you want. `body_html` is available for rich
   content but can be very large.
 - The `snippet` field is a short summary Google generates — useful for

@@ -239,45 +239,82 @@ def _parse_batch_response(response_text, content_type):
 # ---------------------------------------------------------------------------
 
 
-def search(query, token, max_results=10):
+def _fetch_page(query, token, page_size, page_token=None):
+    """Fetch a single page of search results.
+
+    Returns (messages, next_page_token).
+    """
+    params = {"q": query, "maxResults": str(min(page_size, _MAX_BATCH))}
+    if page_token:
+        params["pageToken"] = page_token
+    url = f"{_API_BASE}/users/me/messages?{urlencode(params)}"
+    data = _xhr_request("GET", url, token)
+
+    if not data or "messages" not in data:
+        return [], None
+
+    message_ids = [m["id"] for m in data["messages"]]
+    raw_messages = _batch_get_messages(message_ids, token)
+
+    parsed_by_id = {}
+    for raw in raw_messages:
+        msg = _parse_message(raw)
+        parsed_by_id[msg["id"]] = msg
+
+    messages = [parsed_by_id[mid] for mid in message_ids if mid in parsed_by_id]
+    return messages, data.get("nextPageToken")
+
+
+def search(query, token, limit=500):
     """Search Gmail and return fully parsed messages.
+
+    Handles pagination internally, fetching up to ``limit`` messages
+    across as many API pages as needed.
 
     Args:
         query: Gmail search query (same syntax as the Gmail search box).
             Examples: "from:alice subject:meeting", "is:unread after:2025/01/01",
             "has:attachment filename:pdf", "label:work"
         token: Google OAuth access token.
-        max_results: Maximum number of messages to return (default 10, max 100).
+        limit: Maximum number of messages to return (default 500).
 
     Returns:
         List of message dicts, each with keys:
             id, thread_id, date, from_, to, cc, subject,
             body_text, body_html, snippet, labels
     """
-    max_results = min(max_results, _MAX_BATCH)
+    all_messages = []
+    page_token = None
 
-    # Step 1: List message IDs
-    params = {"q": query, "maxResults": str(max_results)}
-    url = f"{_API_BASE}/users/me/messages?{urlencode(params)}"
-    data = _xhr_request("GET", url, token)
+    while len(all_messages) < limit:
+        page_size = limit - len(all_messages)
+        messages, page_token = _fetch_page(query, token, page_size, page_token)
+        all_messages.extend(messages)
+        if not page_token:
+            break
 
-    if not data or "messages" not in data:
-        return []
+    return all_messages
 
-    message_ids = [m["id"] for m in data["messages"]]
 
-    # Step 2: Batch fetch full messages
-    raw_messages = _batch_get_messages(message_ids, token)
+def paged(query, token, page_size=100, page_token=None):
+    """Fetch a single page of Gmail search results.
 
-    # Step 3: Parse each message
-    # Batch responses may not preserve order, so build a lookup
-    parsed_by_id = {}
-    for raw in raw_messages:
-        msg = _parse_message(raw)
-        parsed_by_id[msg["id"]] = msg
+    Use this for building paginated UIs or processing large result sets
+    incrementally.
 
-    # Return in the order from the search results
-    return [parsed_by_id[mid] for mid in message_ids if mid in parsed_by_id]
+    Args:
+        query: Gmail search query (same syntax as the Gmail search box).
+        token: Google OAuth access token.
+        page_size: Number of messages per page (default 100, max 100).
+        page_token: Token from a previous call to fetch the next page.
+
+    Returns:
+        Dict with keys:
+            messages: List of message dicts for this page.
+            next_page_token: Token for the next page, or None if done.
+    """
+    messages, next_token = _fetch_page(query, token, page_size, page_token)
+    return {"messages": messages, "next_page_token": next_token}
 
 
 def get(message_id, token):
