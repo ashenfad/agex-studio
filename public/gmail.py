@@ -14,12 +14,14 @@ Example:
 
 import base64
 import json
+import time
 from email.mime.text import MIMEText
 from urllib.parse import urlencode
 
 _API_BASE = "https://www.googleapis.com/gmail/v1"
 _BATCH_URL = "https://www.googleapis.com/batch/gmail/v1"
-_MAX_BATCH = 100
+_MAX_BATCH = 25
+_BATCH_MAX_RETRIES = 3
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +170,8 @@ def _parse_message(raw):
 # ---------------------------------------------------------------------------
 
 
-def _batch_get_messages(message_ids, token):
-    """Fetch multiple messages in a single HTTP round-trip using Gmail batch API."""
-    if not message_ids:
-        return []
-
+def _send_batch(message_ids, token):
+    """Send a single batch request and return the raw response."""
     boundary = "gmail_batch_boundary"
     parts = []
     for msg_id in message_ids:
@@ -188,15 +187,50 @@ def _batch_get_messages(message_ids, token):
     body = "".join(parts) + f"--{boundary}--\r\n"
     content_type = f"multipart/mixed; boundary={boundary}"
 
-    response_text, resp_ct = _xhr_request(
+    return _xhr_request(
         "POST", _BATCH_URL, token, body=body, content_type=content_type,
     )
 
-    return _parse_batch_response(response_text, resp_ct)
+
+def _batch_get_messages(message_ids, token):
+    """Fetch messages via batch API with chunking and retry on 429s."""
+    if not message_ids:
+        return []
+
+    all_results = []
+
+    # Process in chunks of _MAX_BATCH
+    for i in range(0, len(message_ids), _MAX_BATCH):
+        chunk = message_ids[i:i + _MAX_BATCH]
+        pending = chunk
+
+        for attempt in range(_BATCH_MAX_RETRIES):
+            response_text, resp_ct = _send_batch(pending, token)
+            results, failed_ids = _parse_batch_response(response_text, resp_ct)
+            all_results.extend(results)
+
+            if not failed_ids:
+                break
+
+            pending = failed_ids
+            if attempt < _BATCH_MAX_RETRIES - 1:
+                time.sleep(1 * (attempt + 1))
+        else:
+            if pending:
+                raise RuntimeError(
+                    f"Gmail batch: {len(pending)} messages failed after "
+                    f"{_BATCH_MAX_RETRIES} retries"
+                )
+
+    return all_results
 
 
 def _parse_batch_response(response_text, content_type):
-    """Parse a multipart/mixed batch response into a list of JSON objects."""
+    """Parse a multipart/mixed batch response.
+
+    Returns (results, failed_ids) where failed_ids is a list of message IDs
+    that had retryable errors (429, 5xx).
+    """
     # Extract boundary from Content-Type header
     boundary = None
     for part in content_type.split(";"):
@@ -212,9 +246,10 @@ def _parse_batch_response(response_text, content_type):
             boundary = first_line[2:]
 
     if not boundary:
-        return []
+        return [], []
 
     results = []
+    failed_ids = []
     sections = response_text.split(f"--{boundary}")
 
     for section in sections:
@@ -222,16 +257,43 @@ def _parse_batch_response(response_text, content_type):
         if not section or section == "--":
             continue
 
-        # Each section has the structure:
-        # Part headers\r\n\r\nHTTP status + headers\r\n\r\nJSON body
+        # Extract Content-ID to recover message ID on failure
+        content_id = None
         try:
-            _, http_response = section.split("\r\n\r\n", 1)
-            _, json_body = http_response.split("\r\n\r\n", 1)
-            results.append(json.loads(json_body))
-        except (ValueError, json.JSONDecodeError):
-            continue
+            part_headers, http_response = section.split("\r\n\r\n", 1)
+            for line in part_headers.split("\r\n"):
+                if line.lower().startswith("content-id:"):
+                    # Content-ID: <msg_id> or <response-msg_id>
+                    cid = line.split(":", 1)[1].strip().strip("<>")
+                    content_id = cid.replace("response-", "")
+                    break
 
-    return results
+            status_line, rest = http_response.split("\r\n", 1)
+            _, json_body = rest.split("\r\n\r\n", 1)
+
+            status_parts = status_line.split(" ", 2)
+            status_code = int(status_parts[1]) if len(status_parts) >= 2 else 0
+
+            parsed = json.loads(json_body)
+            if 200 <= status_code < 300:
+                results.append(parsed)
+            elif status_code == 429 or status_code >= 500:
+                # Retryable — collect the ID
+                if content_id:
+                    failed_ids.append(content_id)
+            else:
+                # Non-retryable error (4xx other than 429)
+                msg = parsed.get("error", {}).get("message", status_line)
+                raise RuntimeError(
+                    f"Gmail batch sub-request failed ({status_code}): {msg}"
+                )
+        except RuntimeError:
+            raise
+        except (ValueError, json.JSONDecodeError):
+            if content_id:
+                failed_ids.append(content_id)
+
+    return results, failed_ids
 
 
 # ---------------------------------------------------------------------------

@@ -183,14 +183,54 @@ class TestParseBatchResponse(unittest.TestCase):
         )
         content_type = f"multipart/mixed; boundary={boundary}"
 
-        results = gmail._parse_batch_response(body, content_type)
+        results, failed = gmail._parse_batch_response(body, content_type)
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["id"], "msg1")
         self.assertEqual(results[1]["id"], "msg2")
+        self.assertEqual(failed, [])
+
+    def test_429_returns_failed_ids(self):
+        boundary = "batch_retry"
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/http\r\n"
+            f"Content-ID: <msg1>\r\n"
+            f"\r\n"
+            f"HTTP/1.1 429 Too Many Requests\r\n"
+            f"Content-Type: application/json\r\n"
+            f"\r\n"
+            f'{{"error": {{"code": 429, "message": "Rate limit"}}}}\r\n'
+            f"--{boundary}--\r\n"
+        )
+        content_type = f"multipart/mixed; boundary={boundary}"
+
+        results, failed = gmail._parse_batch_response(body, content_type)
+        self.assertEqual(results, [])
+        self.assertEqual(failed, ["msg1"])
+
+    def test_404_raises(self):
+        boundary = "batch_err"
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/http\r\n"
+            f"Content-ID: <msg1>\r\n"
+            f"\r\n"
+            f"HTTP/1.1 404 Not Found\r\n"
+            f"Content-Type: application/json\r\n"
+            f"\r\n"
+            f'{{"error": {{"code": 404, "message": "Not found"}}}}\r\n'
+            f"--{boundary}--\r\n"
+        )
+        content_type = f"multipart/mixed; boundary={boundary}"
+
+        with self.assertRaises(RuntimeError) as ctx:
+            gmail._parse_batch_response(body, content_type)
+        self.assertIn("404", str(ctx.exception))
 
     def test_empty_response(self):
-        results = gmail._parse_batch_response("", "text/plain")
+        results, failed = gmail._parse_batch_response("", "text/plain")
         self.assertEqual(results, [])
+        self.assertEqual(failed, [])
 
 
 class TestSendMessageConstruction(unittest.TestCase):
