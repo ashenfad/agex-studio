@@ -112,11 +112,29 @@ try:
 except Exception as _e:
     print(f"[skills] failed to register: {_e}")
 
-# -- Register interactive app skill (loaded from static file) --
+# -- Register skills from static files --
 from pyodide.http import open_url as _open_url
+
 _app_skill_text = _open_url("/skills/interactive-app.md").read()
 _agent.skill(_app_skill_text.encode("utf-8"))
-del _app_skill_text, _open_url
+del _app_skill_text
+
+# -- Gmail module (loaded from static file, injected into sys.modules) --
+import types as _types
+import sys as _sys
+_gmail_src = _open_url("/gmail.py").read()
+_gmail_mod = _types.ModuleType("gmail")
+_gmail_mod.__file__ = "/gmail.py"
+exec(_gmail_src, _gmail_mod.__dict__)
+_sys.modules["gmail"] = _gmail_mod
+_agent.module(_gmail_mod, visibility="low", network_access=True)
+del _gmail_src, _gmail_mod, _types, _sys
+
+_gmail_skill_text = _open_url("/skills/gmail.md").read()
+_agent.skill(_gmail_skill_text.encode("utf-8"))
+del _gmail_skill_text
+
+del _open_url
 
 _OR_API_KEY = "${settings.apiKey}"
 
@@ -325,6 +343,12 @@ If it returns None, tell the user to connect Google in Settings.
 local_timezone() and google_token() are registered globals — call them directly,
 do not import them from any module. Use local_timezone() to get the user's
 IANA timezone (e.g. "America/Los_Angeles") as the tz parameter for calgebra.
+
+Gmail: whenever the user asks about email, inbox, messages, or needs to
+send email, read the gmail skill first (if you haven't already):
+  cat /skills/gmail/SKILL.md
+Then call google_token() to get the current OAuth token.
+If it returns None, tell the user to connect Google in Settings.
 
 You are already in an async context — use await directly on async functions.
 Do not use asyncio.run() — it will fail (you are already in an event loop).
