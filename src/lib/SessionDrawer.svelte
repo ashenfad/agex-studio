@@ -33,16 +33,18 @@
         }
         purging = true
         try {
-            // Delete all IndexedDB databases
+            // Delete all IndexedDB databases (session data).
+            // Settings and API keys live in localStorage and are preserved.
             const dbs = await indexedDB.databases()
             await Promise.all(dbs.map(db =>
-                new Promise((resolve, reject) => {
+                new Promise((resolve) => {
                     const req = indexedDB.deleteDatabase(db.name)
                     req.onsuccess = resolve
-                    req.onerror = reject
+                    req.onerror = resolve
+                    req.onblocked = resolve  // worker holds connection
                 })
             ))
-            localStorage.clear()
+            // Reload to re-initialize with clean state
             window.location.reload()
         } catch {
             purging = false
