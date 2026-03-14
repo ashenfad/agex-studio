@@ -229,6 +229,7 @@ const CDN_IMPORTS = {
     "preact": "https://esm.sh/preact@10.25.4",
     "preact/": "https://esm.sh/preact@10.25.4/",
     "htm": "https://esm.sh/htm@3.1.1",
+    "marked": "https://esm.sh/marked@17.0.4",
 };
 
 const PLOTLY_SCRIPT = `<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>`;
