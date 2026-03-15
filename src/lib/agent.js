@@ -139,7 +139,16 @@ _sheets_mod.__file__ = "/sheets.py"
 exec(_sheets_src, _sheets_mod.__dict__)
 _sys.modules["sheets"] = _sheets_mod
 _agent.module(_sheets_mod, visibility="low", network_access=True)
-del _sheets_src, _sheets_mod, _types, _sys
+del _sheets_src, _sheets_mod
+
+# -- Docs module (loaded from static file, injected into sys.modules) --
+_docs_src = _open_url("/docs.py").read()
+_docs_mod = _types.ModuleType("docs")
+_docs_mod.__file__ = "/docs.py"
+exec(_docs_src, _docs_mod.__dict__)
+_sys.modules["docs"] = _docs_mod
+_agent.module(_docs_mod, visibility="low", network_access=True)
+del _docs_src, _docs_mod, _types, _sys
 
 _gmail_skill_text = _open_url("/skills/gmail.md").read()
 _agent.skill(_gmail_skill_text.encode("utf-8"))
@@ -148,6 +157,10 @@ del _gmail_skill_text
 _sheets_skill_text = _open_url("/skills/sheets.md").read()
 _agent.skill(_sheets_skill_text.encode("utf-8"))
 del _sheets_skill_text
+
+_docs_skill_text = _open_url("/skills/docs.md").read()
+_agent.skill(_docs_skill_text.encode("utf-8"))
+del _docs_skill_text
 
 del _open_url
 
@@ -368,6 +381,12 @@ If it returns None, tell the user to connect Google in Settings.
 Sheets: whenever the user asks about spreadsheets, Google Sheets, or
 needs to import/export tabular data from Sheets, read the sheets skill:
   cat /skills/sheets/SKILL.md
+Then call google_token() to get the current OAuth token.
+If it returns None, tell the user to connect Google in Settings.
+
+Docs: whenever the user asks about Google Docs, document content, or
+needs to read/write documents, read the docs skill:
+  cat /skills/docs/SKILL.md
 Then call google_token() to get the current OAuth token.
 If it returns None, tell the user to connect Google in Settings.
 
