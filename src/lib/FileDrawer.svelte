@@ -1,11 +1,47 @@
 <script>
     import { uploadFiles, downloadFile, deleteFiles } from './agent.js'
     import { getCurrentCommit } from './sessions.js'
+    import { googleAuthStore } from './google-auth.js'
+    import { openPicker, isPickerAvailable, pickedFilesStore, removePickedFiles } from './google-picker.js'
     import FileModal from './FileModal.svelte'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void }} */
     let { open, onClose, files: rawFiles, onUpload, onDelete } = $props()
     let files = $derived(rawFiles ?? [])
+
+    let googleAuth = $state({ connected: false, token: null })
+    let pickedFiles = $state([])
+    let pickingFiles = $state(false)
+
+    $effect(() => {
+        const unsub1 = googleAuthStore.subscribe(s => googleAuth = s)
+        const unsub2 = pickedFilesStore.subscribe(f => pickedFiles = f)
+        return () => { unsub1(); unsub2() }
+    })
+
+    const showPicker = $derived(googleAuth.connected && isPickerAvailable())
+
+    async function handlePickFromDrive() {
+        if (!googleAuth.token || pickingFiles) return
+        pickingFiles = true
+        try {
+            await openPicker(googleAuth.token)
+        } catch (e) {
+            console.error('Picker failed:', e)
+        } finally {
+            pickingFiles = false
+        }
+    }
+
+    function handleRemovePicked(id) {
+        removePickedFiles([id])
+    }
+
+    const MIME_LABELS = {
+        'application/vnd.google-apps.document': 'Doc',
+        'application/vnd.google-apps.spreadsheet': 'Sheet',
+        'application/vnd.google-apps.presentation': 'Slides',
+    }
 
     let viewingFile = $state(null)
     let uploading = $state(false)
@@ -124,9 +160,16 @@
     >
         <div class="drawer-header">
             <h2>Files</h2>
-            <button class="upload-btn" onclick={() => fileInput.click()} disabled={uploading}>
-                {uploading ? 'Uploading...' : 'Upload'}
-            </button>
+            <div class="header-actions">
+                {#if showPicker}
+                    <button class="drive-btn" onclick={handlePickFromDrive} disabled={pickingFiles}>
+                        {pickingFiles ? 'Opening...' : 'Share from Drive'}
+                    </button>
+                {/if}
+                <button class="upload-btn" onclick={() => fileInput.click()} disabled={uploading}>
+                    {uploading ? 'Uploading...' : 'Upload'}
+                </button>
+            </div>
             <input
                 bind:this={fileInput}
                 type="file"
@@ -144,6 +187,19 @@
                     <button class="sel-btn del-btn" onclick={handleBatchDelete} disabled={operating} title="Delete selected">×</button>
                     <button class="sel-btn" onclick={clearSelection} title="Clear selection">Clear</button>
                 </div>
+            </div>
+        {/if}
+
+        {#if pickedFiles.length > 0}
+            <div class="picked-section">
+                <div class="picked-header">Google Drive</div>
+                {#each pickedFiles as pf}
+                    <div class="picked-row">
+                        <span class="picked-type">{MIME_LABELS[pf.mimeType] ?? 'File'}</span>
+                        <span class="picked-name" title={pf.name}>{pf.name}</span>
+                        <button class="picked-remove" onclick={() => handleRemovePicked(pf.id)} title="Remove">×</button>
+                    </div>
+                {/each}
             </div>
         {/if}
 
@@ -219,9 +275,35 @@
         margin-bottom: 1rem;
     }
 
+    .header-actions {
+        display: flex;
+        gap: 0.4rem;
+    }
+
     h2 {
         font-size: 1.1rem;
         font-weight: 600;
+    }
+
+    .drive-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        border-radius: 6px;
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .drive-btn:hover:not(:disabled) {
+        background: var(--surface-hover);
+        color: var(--text);
+    }
+
+    .drive-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     .upload-btn {
@@ -290,6 +372,68 @@
 
     .del-btn:hover:not(:disabled) {
         border-color: var(--error, #e53e3e);
+        color: var(--error, #e53e3e);
+    }
+
+    .picked-section {
+        margin-bottom: 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .picked-header {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+        padding: 0.4rem 0.6rem;
+        background: var(--surface-hover);
+    }
+
+    .picked-row {
+        display: flex;
+        align-items: center;
+        padding: 0.3rem 0.6rem;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .picked-row:not(:last-child) {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .picked-type {
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        background: var(--surface-hover);
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        flex-shrink: 0;
+    }
+
+    .picked-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text);
+    }
+
+    .picked-remove {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 0 0.2rem;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+
+    .picked-remove:hover {
         color: var(--error, #e53e3e);
     }
 
