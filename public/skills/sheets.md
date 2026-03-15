@@ -21,47 +21,29 @@ if token is None:
 The spreadsheet ID is the long string in the URL:
 `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
 
-## Reading Values
+## Reading a Sheet into a DataFrame
+
+**Always use `to_dataframe()` to read sheet data.** It handles header
+detection, row padding, and edge cases automatically. Do not manually
+build DataFrames from raw values.
 
 ```python
 import sheets
 
-# Read raw cell values
-rows = sheets.get_values("SPREADSHEET_ID", "Sheet1!A1:D10", token)
-# rows = [["Name", "Age"], ["Alice", "30"], ["Bob", "25"]]
-
-# Read an entire sheet
-rows = sheets.get_values("SPREADSHEET_ID", "Sheet1", token)
-```
-
-## Reading into a DataFrame
-
-```python
+# Read an entire sheet — first row becomes column headers
 df = sheets.to_dataframe("SPREADSHEET_ID", "Sheet1", token)
-# First row becomes column headers automatically
+
+# Read a specific range
+df = sheets.to_dataframe("SPREADSHEET_ID", "Sheet1!A1:D50", token)
 ```
 
-## Writing Values
+## Writing a DataFrame to a Sheet
 
-```python
-# Write raw values (overwrites the range)
-sheets.update_values("SPREADSHEET_ID", "Sheet1!A1", [
-    ["Name", "Age"],
-    ["Alice", "30"],
-    ["Bob", "25"],
-], token)
-
-# Append rows after existing data
-sheets.append_values("SPREADSHEET_ID", "Sheet1", [
-    ["Carol", "28"],
-], token)
-```
-
-## Writing a DataFrame
+**Always use `from_dataframe()` to write DataFrames.** It writes column
+headers as the first row followed by data rows.
 
 ```python
 sheets.from_dataframe(df, "SPREADSHEET_ID", "Sheet1!A1", token)
-# Writes column headers as first row, then data rows
 ```
 
 ## Spreadsheet Metadata
@@ -84,6 +66,27 @@ info = sheets.info("SPREADSHEET_ID", token)
 new_id = sheets.create("My Results", token)
 # Optionally specify sheet tab names:
 new_id = sheets.create("Report", token, sheet_names=["Data", "Charts"])
+```
+
+## Low-Level API
+
+Use these only when you need raw cell values without pandas, or for
+operations like appending rows.
+
+```python
+# Read raw cell values (list of lists)
+rows = sheets.get_values("SPREADSHEET_ID", "Sheet1!A1:D10", token)
+
+# Write raw values (overwrites the range)
+sheets.update_values("SPREADSHEET_ID", "Sheet1!A1", [
+    ["Name", "Age"],
+    ["Alice", "30"],
+], token)
+
+# Append rows after existing data
+sheets.append_values("SPREADSHEET_ID", "Sheet1", [
+    ["Carol", "28"],
+], token)
 ```
 
 ## Advanced: Batch Update
@@ -114,7 +117,7 @@ modules — pass it as a parameter.
 import sheets
 
 def load_data(spreadsheet_id, token):
-    return sheets.to_dataframe(spreadsheet_id, token=token, range="Sheet1")
+    return sheets.to_dataframe(spreadsheet_id, "Sheet1", token)
 
 def save_results(df, spreadsheet_id, token):
     sheets.from_dataframe(df, spreadsheet_id, "Results!A1", token)
@@ -130,13 +133,11 @@ const { df } = await query({
 
 ## Tips
 
-- `to_dataframe()` / `from_dataframe()` are the fastest path between
-  Sheets and pandas. Use them when working with tabular data.
-- `get_values()` and `update_values()` work with raw lists-of-lists
-  when you don't need pandas.
+- **Use `to_dataframe()` and `from_dataframe()`** — do not manually
+  construct DataFrames from `get_values()` output.
 - Values are strings by default (`FORMATTED_VALUE`). Pass
-  `value_render="UNFORMATTED_VALUE"` to `get_values()` or
-  `to_dataframe()` to get raw numbers.
+  `value_render="UNFORMATTED_VALUE"` to `to_dataframe()` to get raw
+  numbers.
 - `update_values()` uses `USER_ENTERED` input by default, so formulas
   (e.g. `"=SUM(A1:A10)"`) and number formats are interpreted.
-- `sheets.get_values()` is synchronous — no `await` needed.
+- All functions are synchronous — no `await` needed.
