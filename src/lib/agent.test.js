@@ -66,6 +66,15 @@ describe("initAgent", () => {
         expect(code).toContain("gmail.md");
     });
 
+    it("loads sheets module and registers skill", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain('_open_url("/sheets.py")');
+        expect(code).toContain('_sys.modules["sheets"] = _sheets_mod');
+        expect(code).toContain("sheets.md");
+    });
+
     it("mentions gmail in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 

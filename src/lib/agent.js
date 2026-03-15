@@ -130,11 +130,24 @@ _gmail_mod.__file__ = "/gmail.py"
 exec(_gmail_src, _gmail_mod.__dict__)
 _sys.modules["gmail"] = _gmail_mod
 _agent.module(_gmail_mod, visibility="low", network_access=True)
-del _gmail_src, _gmail_mod, _types, _sys
+del _gmail_src, _gmail_mod
+
+# -- Sheets module (loaded from static file, injected into sys.modules) --
+_sheets_src = _open_url("/sheets.py").read()
+_sheets_mod = _types.ModuleType("sheets")
+_sheets_mod.__file__ = "/sheets.py"
+exec(_sheets_src, _sheets_mod.__dict__)
+_sys.modules["sheets"] = _sheets_mod
+_agent.module(_sheets_mod, visibility="low", network_access=True)
+del _sheets_src, _sheets_mod, _types, _sys
 
 _gmail_skill_text = _open_url("/skills/gmail.md").read()
 _agent.skill(_gmail_skill_text.encode("utf-8"))
 del _gmail_skill_text
+
+_sheets_skill_text = _open_url("/skills/sheets.md").read()
+_agent.skill(_sheets_skill_text.encode("utf-8"))
+del _sheets_skill_text
 
 del _open_url
 
@@ -349,6 +362,12 @@ IANA timezone (e.g. "America/Los_Angeles") as the tz parameter for calgebra.
 Gmail: whenever the user asks about email, inbox, messages, or needs to
 send email, read the gmail skill first (if you haven't already):
   cat /skills/gmail/SKILL.md
+Then call google_token() to get the current OAuth token.
+If it returns None, tell the user to connect Google in Settings.
+
+Sheets: whenever the user asks about spreadsheets, Google Sheets, or
+needs to import/export tabular data from Sheets, read the sheets skill:
+  cat /skills/sheets/SKILL.md
 Then call google_token() to get the current OAuth token.
 If it returns None, tell the user to connect Google in Settings.
 
