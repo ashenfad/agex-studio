@@ -1,5 +1,9 @@
 """Google Sheets integration via direct REST API calls.
 
+NOTE: This module is currently used internally by drive_fs.py for
+read-only Sheet-to-CSV conversion. The write APIs are not exposed to
+agents but may be re-enabled in the future.
+
 Provides low-level cell operations and high-level DataFrame helpers.
 Designed to work in Pyodide/browser environments via synchronous
 XMLHttpRequest (available in Web Workers).

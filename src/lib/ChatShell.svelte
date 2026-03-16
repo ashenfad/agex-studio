@@ -11,9 +11,9 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
-    import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
-    import { cancelTask } from './pyodide.js'
-    import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
+    import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory, emitDriveShareEvent, driveMountPath } from './agent.js'
+    import { cancelTask, setDriveFiles } from './pyodide.js'
+    import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit, getDrivePicks, clearLegacyDrivePicks } from './sessions.js'
     import { tryRestore, refreshIfNeeded } from './google-auth.js'
     import { onMount } from 'svelte'
 
@@ -114,6 +114,11 @@
                 if (messages.length && messages[messages.length - 1].role === 'chaptering') {
                     tokenOverride = await estimateLogTokens()
                 }
+                // Clear pre-refactor localStorage picks
+                clearLegacyDrivePicks()
+                // Load session's Drive picks before file list so /drive/ mount is current
+                const picks = await getDrivePicks()
+                setDriveFiles(picks)
                 initStatus = 'Loading files...'
                 files = await listFiles()
                 agentReady = true
@@ -142,6 +147,9 @@
                 } else {
                     tokenOverride = null
                 }
+                // Load session's Drive picks before file list so /drive/ mount is current
+                const picks = await getDrivePicks()
+                setDriveFiles(picks)
                 files = await listFiles()
                 previewRefreshKey++
             })
@@ -310,6 +318,25 @@
         }]
     }
 
+    async function handleDriveShare(shared, commitHash) {
+        const paths = shared.map(driveMountPath)
+        const label = paths.length === 1
+            ? `**Uploaded:** \`${paths[0]}\``
+            : `**Uploaded ${paths.length} files:**\n${paths.map(n => `- \`${n}\``).join('\n')}`
+        try {
+            await emitDriveShareEvent(paths)
+        } catch (e) {
+            console.error('Drive share event failed:', e)
+        }
+        messages = [...messages, {
+            role: 'user',
+            content: label,
+            timestamp: new Date(),
+            isMarkdown: true,
+            commit_hash: commitHash,
+        }]
+    }
+
     function handleLoadMore() {
         if (historyChunks?.loadMore()) {
             messages = historyChunks.messages
@@ -326,6 +353,9 @@
         busy = true
         try {
             await undoToCommit(msg.commit_hash)
+            // Reload Drive picks before file list so /drive/ mount is current
+            const picks = await getDrivePicks()
+            setDriveFiles(picks)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
             files = await listFiles()
@@ -493,6 +523,8 @@
     {files}
     onUpload={handleUpload}
     onDelete={handleDelete}
+    onDriveShare={handleDriveShare}
+    onFilesChanged={(f) => files = f}
 />
 
 <SettingsDrawer

@@ -1,15 +1,19 @@
 <script>
     import { highlightCode } from './highlight.js'
+    import { renderMarkdown } from './markdown.js'
     import { readFile, downloadFile, fileSize } from './agent.js'
     import { tick } from 'svelte'
+    import Papa from 'papaparse'
 
     /** @type {{ path: string | null, onClose: () => void }} */
     let { path, onClose } = $props()
 
     const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.svg'])
+    const CSV_EXTS = new Set(['.csv', '.tsv'])
+    const MARKDOWN_EXTS = new Set(['.md', '.markdown'])
     const TEXT_EXTS = new Set([
         '.py', '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.json', '.css',
-        '.html', '.htm', '.xml', '.md', '.markdown', '.sh', '.bash', '.zsh',
+        '.html', '.htm', '.xml', '.sh', '.bash', '.zsh',
         '.yml', '.yaml', '.sql', '.svelte', '.txt', '.csv', '.tsv', '.log',
         '.cfg', '.ini', '.toml', '.env', '.gitignore', '.dockerfile',
         '.r', '.rs', '.go', '.java', '.c', '.cpp', '.h', '.hpp', '.rb',
@@ -32,15 +36,26 @@
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     }
 
-    /** @type {'text' | 'image' | 'pdf' | 'binary'} */
+    /** @type {'text' | 'markdown' | 'csv' | 'image' | 'pdf' | 'binary'} */
     let fileType = $derived.by(() => {
         if (!path) return 'binary'
         const ext = getExt(path)
         if (ext === '.pdf') return 'pdf'
         if (IMAGE_EXTS.has(ext)) return 'image'
+        if (CSV_EXTS.has(ext)) return 'csv'
+        if (MARKDOWN_EXTS.has(ext)) return 'markdown'
         if (TEXT_EXTS.has(ext)) return 'text'
         return 'binary'
     })
+
+    function parseCsv(text) {
+        if (!text) return null
+        const result = Papa.parse(text.trim(), { header: false, skipEmptyLines: true })
+        if (!result.data || result.data.length === 0) return null
+        return { header: result.data[0], rows: result.data.slice(1) }
+    }
+
+    let parsedCsv = $derived(fileType === 'csv' && content ? parseCsv(content) : null)
 
     let content = $state(null)
     let size = $state(null)
@@ -102,7 +117,7 @@
         const currentPath = path
         const type = fileType
 
-        if (type === 'text') {
+        if (type === 'text' || type === 'csv' || type === 'markdown') {
             readFile(currentPath)
                 .then(text => { if (path === currentPath) content = text })
                 .catch(e => { if (path === currentPath) error = e.message })
@@ -187,6 +202,29 @@
                     <div class="centered">Loading...</div>
                 {:else if error}
                     <div class="centered error">Error: {error}</div>
+                {:else if fileType === 'csv' && parsedCsv}
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    {#each parsedCsv.header as col}
+                                        <th>{col}</th>
+                                    {/each}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {#each parsedCsv.rows as row}
+                                    <tr>
+                                        {#each row as cell}
+                                            <td>{cell}</td>
+                                        {/each}
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                {:else if fileType === 'markdown' && content != null}
+                    <div class="markdown-body">{@html renderMarkdown(content)}</div>
                 {:else if fileType === 'text' && content != null}
                     <pre><code>{@html highlightCode(content, path)}</code></pre>
                 {:else if fileType === 'image' && content}
@@ -283,6 +321,41 @@
         line-height: 1.5;
     }
 
+    .table-container {
+        overflow: auto;
+        height: 100%;
+        padding: 0.5rem;
+    }
+
+    table {
+        border-collapse: collapse;
+        font-size: 0.75rem;
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        white-space: nowrap;
+        width: max-content;
+    }
+
+    th, td {
+        padding: 0.3rem 0.6rem;
+        border: 1px solid var(--border);
+        text-align: left;
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    th {
+        background: var(--surface-hover);
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    tr:hover td {
+        background: var(--surface-hover);
+    }
+
     .image-container {
         display: flex;
         align-items: center;
@@ -297,6 +370,77 @@
         max-height: 100%;
         object-fit: contain;
         border-radius: 4px;
+    }
+
+    .markdown-body {
+        padding: 1.25rem 1.5rem;
+        font-size: 0.88rem;
+        line-height: 1.65;
+        color: var(--text);
+    }
+
+    .markdown-body :global(h1),
+    .markdown-body :global(h2),
+    .markdown-body :global(h3),
+    .markdown-body :global(h4) {
+        margin: 1.25em 0 0.5em;
+        line-height: 1.3;
+    }
+
+    .markdown-body :global(h1) { font-size: 1.4em; }
+    .markdown-body :global(h2) { font-size: 1.2em; }
+    .markdown-body :global(h3) { font-size: 1.05em; }
+
+    .markdown-body :global(p) {
+        margin: 0.6em 0;
+    }
+
+    .markdown-body :global(ul),
+    .markdown-body :global(ol) {
+        margin: 0.5em 0;
+        padding-left: 1.5em;
+    }
+
+    .markdown-body :global(li) {
+        margin: 0.2em 0;
+    }
+
+    .markdown-body :global(code) {
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.85em;
+        background: var(--surface-hover);
+        padding: 0.15em 0.35em;
+        border-radius: 3px;
+    }
+
+    .markdown-body :global(pre) {
+        margin: 0.75em 0;
+        padding: 0.75rem 1rem;
+        background: var(--surface-hover);
+        border-radius: 6px;
+        overflow-x: auto;
+    }
+
+    .markdown-body :global(pre code) {
+        background: none;
+        padding: 0;
+    }
+
+    .markdown-body :global(blockquote) {
+        margin: 0.75em 0;
+        padding: 0.25em 1em;
+        border-left: 3px solid var(--border);
+        color: var(--text-muted);
+    }
+
+    .markdown-body :global(a) {
+        color: var(--accent);
+    }
+
+    .markdown-body :global(hr) {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 1em 0;
     }
 
     .pdf-container {

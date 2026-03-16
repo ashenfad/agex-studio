@@ -2,13 +2,13 @@
  * Google Drive Picker integration.
  *
  * Loads the Google Picker API and opens a file picker dialog.
- * Selected files are tracked in localStorage and exposed via a
- * Svelte-compatible store.
+ * Picked file persistence is handled by sessions.js (kvgit state).
  */
 
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || "";
-
-const PICKED_STORAGE_KEY = "agex-google-picked-files";
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+// App ID is the Cloud project number (numeric prefix of the client ID)
+const APP_ID = CLIENT_ID.split("-")[0] || "";
 
 /** @type {boolean} */
 let pickerApiLoaded = false;
@@ -19,76 +19,6 @@ let pickerApiLoaded = false;
  * @property {string} name - File name
  * @property {string} mimeType - MIME type
  */
-
-// ---------------------------------------------------------------------------
-// Picked files store (persisted to localStorage)
-// ---------------------------------------------------------------------------
-
-/** @type {((files: PickedFile[]) => void)[]} */
-let subscribers = [];
-
-/** @type {PickedFile[]} */
-let pickedFiles = loadPickedFiles();
-
-function loadPickedFiles() {
-    try {
-        const raw = localStorage.getItem(PICKED_STORAGE_KEY);
-        if (raw) return JSON.parse(raw);
-    } catch {}
-    return [];
-}
-
-function savePickedFiles() {
-    localStorage.setItem(PICKED_STORAGE_KEY, JSON.stringify(pickedFiles));
-}
-
-function notify() {
-    for (const fn of subscribers) fn(pickedFiles);
-}
-
-/** Svelte-compatible store for picked files. */
-export const pickedFilesStore = {
-    subscribe(fn) {
-        subscribers.push(fn);
-        fn(pickedFiles);
-        return () => {
-            subscribers = subscribers.filter((s) => s !== fn);
-        };
-    },
-};
-
-/**
- * Add files to the picked list (deduplicates by ID).
- * @param {PickedFile[]} files
- */
-export function addPickedFiles(files) {
-    const existing = new Set(pickedFiles.map((f) => f.id));
-    const newFiles = files.filter((f) => !existing.has(f.id));
-    if (newFiles.length === 0) return;
-    pickedFiles = [...pickedFiles, ...newFiles];
-    savePickedFiles();
-    notify();
-}
-
-/**
- * Remove files from the picked list by ID.
- * @param {string[]} ids
- */
-export function removePickedFiles(ids) {
-    const removeSet = new Set(ids);
-    pickedFiles = pickedFiles.filter((f) => !removeSet.has(f.id));
-    savePickedFiles();
-    notify();
-}
-
-/**
- * Clear all picked files.
- */
-export function clearPickedFiles() {
-    pickedFiles = [];
-    savePickedFiles();
-    notify();
-}
 
 // ---------------------------------------------------------------------------
 // Picker API loading and invocation
@@ -155,11 +85,15 @@ export async function openPicker(token) {
             .setIncludeFolders(false)
             .setSelectFolderEnabled(false);
 
-        const picker = new google.picker.PickerBuilder()
+        const builder = new google.picker.PickerBuilder()
             .addView(docsView)
             .setOAuthToken(token)
             .setDeveloperKey(API_KEY)
-            .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+            .enableFeature(google.picker.Feature.MULTISELECT_ENABLED);
+
+        if (APP_ID) builder.setAppId(APP_ID);
+
+        const picker = builder
             .setCallback((data) => {
                 if (data.action === google.picker.Action.PICKED) {
                     const files = data.docs.map((doc) => ({
@@ -167,7 +101,6 @@ export async function openPicker(token) {
                         name: doc.name,
                         mimeType: doc.mimeType,
                     }));
-                    addPickedFiles(files);
                     resolve(files);
                 } else if (data.action === google.picker.Action.CANCEL) {
                     resolve([]);

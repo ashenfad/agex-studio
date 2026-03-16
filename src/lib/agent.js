@@ -132,35 +132,33 @@ _sys.modules["gmail"] = _gmail_mod
 _agent.module(_gmail_mod, visibility="low", network_access=True)
 del _gmail_src, _gmail_mod
 
-# -- Sheets module (loaded from static file, injected into sys.modules) --
+# -- Sheets module (used internally by drive_fs, not exposed to agent) --
 _sheets_src = _open_url("/sheets.py").read()
 _sheets_mod = _types.ModuleType("sheets")
 _sheets_mod.__file__ = "/sheets.py"
 exec(_sheets_src, _sheets_mod.__dict__)
 _sys.modules["sheets"] = _sheets_mod
-_agent.module(_sheets_mod, visibility="low", network_access=True)
 del _sheets_src, _sheets_mod
 
-# -- Docs module (loaded from static file, injected into sys.modules) --
+# -- Docs module (used internally by drive_fs, not exposed to agent) --
 _docs_src = _open_url("/docs.py").read()
 _docs_mod = _types.ModuleType("docs")
 _docs_mod.__file__ = "/docs.py"
 exec(_docs_src, _docs_mod.__dict__)
 _sys.modules["docs"] = _docs_mod
-_agent.module(_docs_mod, visibility="low", network_access=True)
-del _docs_src, _docs_mod, _types, _sys
+del _docs_src, _docs_mod
+
+# -- Drive FS module (loaded from static file, injected into sys.modules) --
+_drive_fs_src = _open_url("/drive_fs.py").read()
+_drive_fs_mod = _types.ModuleType("drive_fs")
+_drive_fs_mod.__file__ = "/drive_fs.py"
+exec(_drive_fs_src, _drive_fs_mod.__dict__)
+_sys.modules["drive_fs"] = _drive_fs_mod
+del _drive_fs_src, _drive_fs_mod, _types, _sys
 
 _gmail_skill_text = _open_url("/skills/gmail.md").read()
 _agent.skill(_gmail_skill_text.encode("utf-8"))
 del _gmail_skill_text
-
-_sheets_skill_text = _open_url("/skills/sheets.md").read()
-_agent.skill(_sheets_skill_text.encode("utf-8"))
-del _sheets_skill_text
-
-_docs_skill_text = _open_url("/skills/docs.md").read()
-_agent.skill(_docs_skill_text.encode("utf-8"))
-del _docs_skill_text
 
 del _open_url
 
@@ -179,6 +177,37 @@ def google_token() -> str | None:
     return _google_access_token
 
 _agent.fn(google_token, visibility="low")
+
+# -- Drive virtual filesystem mount --
+from monkeyfs import MountFS
+from drive_fs import GoogleDriveFS
+
+_drive_fs = GoogleDriveFS([], google_token)
+
+# Monkey-patch _get_fs_backend to wrap the base FS in a MountFS with /drive/
+_original_get_fs_backend = _agent._get_fs_backend.__func__
+
+def _patched_get_fs_backend(self, session="default"):
+    base_fs, state = _original_get_fs_backend(self, session)
+    if base_fs is None:
+        return base_fs, state
+    mount_fs = MountFS(base_fs)
+    mount_fs.mount("/drive", _drive_fs)
+    # Delegate metadata snapshot to base FS for file event tracking
+    mount_fs.get_metadata_snapshot = base_fs.get_metadata_snapshot
+    return mount_fs, state
+
+import types as _types
+_agent._get_fs_backend = _types.MethodType(_patched_get_fs_backend, _agent)
+del _types
+
+def _update_drive_files(picked_files_json: str):
+    """Update the Drive mount with new picked files (called from JS)."""
+    import json
+    files = json.loads(picked_files_json)
+    _drive_fs.update_files(files)
+    _drive_fs._cache.clear()
+    _drive_fs._cache_time.clear()
 
 def local_timezone() -> str:
     """Returns the user's local IANA timezone (e.g. 'America/Los_Angeles').
@@ -340,6 +369,66 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
 
 _agent.fn(live_app, visibility="low")
 
+async def render_pdf(data, pages: list[int] | None = None, scale: float = 2) -> list:
+    """Render PDF pages to PIL Images.
+
+    Args:
+        data: PDF file path (str) or raw bytes.
+        pages: 0-indexed page numbers to render. Defaults to all (max 20).
+        scale: Resolution multiplier (default 2 for ~150 DPI).
+
+    Returns:
+        List of PIL.Image.Image objects (one per page).
+
+    Example:
+        images = await render_pdf("/path/to/file.pdf", pages=[0, 1])
+        await view_image(images[0])  # inspect first page
+    """
+    import base64 as _b64
+    import json as _json
+    from PIL import Image as _PILImage
+    import io as _io
+
+    if isinstance(data, str):
+        _fs = _agent.fs()
+        data = _fs.read(data)
+
+    _pdf_b64 = _b64.b64encode(data).decode("ascii")
+    _pages_json = _json.dumps(pages) if pages is not None else None
+    _results_json = await _js_render_pdf(_pdf_b64, _pages_json, scale)
+    _results = _json.loads(_results_json)
+
+    _images = []
+    for _b64_png in _results:
+        if _b64_png is None:
+            _images.append(None)
+        else:
+            _images.append(_PILImage.open(_io.BytesIO(_b64.b64decode(_b64_png))))
+    return _images
+
+_agent.fn(render_pdf, visibility="high")
+
+async def pdf_page_count(data) -> int:
+    """Get the number of pages in a PDF.
+
+    Args:
+        data: PDF file path (str) or raw bytes.
+
+    Returns:
+        Number of pages.
+    """
+    import base64 as _b64
+    import json as _json
+
+    if isinstance(data, str):
+        _fs = _agent.fs()
+        data = _fs.read(data)
+
+    _pdf_b64 = _b64.b64encode(data).decode("ascii")
+    return _json.loads(await _js_pdf_page_count(_pdf_b64))
+
+_agent.fn(pdf_page_count, visibility="high")
+
 _TASK_PRIMER = """Answer the user's message.
 
 You can respond with a simple string or a rich Response with multiple parts:
@@ -355,7 +444,10 @@ To inspect an image yourself (e.g. a PIL Image, matplotlib Figure, or Plotly
 Figure), call await view_image(img). This sends the image to your own vision —
 it does NOT display it to the user.
 
-pypdf is available for reading PDF files (e.g. extracting text, metadata, page count).
+PDF files: use render_pdf(path_or_bytes, pages=[0,1], scale=2) to render pages
+to PIL Images. Use pdf_page_count(path_or_bytes) to get page count. Use
+await view_image(img) to inspect rendered pages. pypdf is also available for
+text extraction and metadata.
 openpyxl is available — use pd.read_excel() to read .xlsx files.
 scipy and scikit-learn are available for statistics, optimization, and machine learning.
 
@@ -378,17 +470,12 @@ send email, read the gmail skill first (if you haven't already):
 Then call google_token() to get the current OAuth token.
 If it returns None, tell the user to connect Google in Settings.
 
-Sheets: whenever the user asks about spreadsheets, Google Sheets, or
-needs to import/export tabular data from Sheets, read the sheets skill:
-  cat /skills/sheets/SKILL.md
-Then call google_token() to get the current OAuth token.
-If it returns None, tell the user to connect Google in Settings.
-
-Docs: whenever the user asks about Google Docs, document content, or
-needs to read/write documents, read the docs skill:
-  cat /skills/docs/SKILL.md
-Then call google_token() to get the current OAuth token.
-If it returns None, tell the user to connect Google in Settings.
+Google Drive: users can share files from Google Drive. Shared files
+appear as read-only files under /drive/. Google Docs are converted to
+markdown (.md), Google Sheets become directories with one CSV per tab,
+Slides are exported as PDF, and other files appear as-is. Use standard
+file operations (open, read, os.listdir) to access them. Writing to
+/drive/ raises PermissionError.
 
 You are already in an async context — use await directly on async functions.
 Do not use asyncio.run() — it will fail (you are already in an event loop).
@@ -639,6 +726,43 @@ _fs = _agent.fs()
 _paths = _json.loads('${pathsJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')
 _fs.remove_many(_paths)
 _state = _agent.state("default")
+_state.commit()
+    `);
+}
+
+/**
+ * Map a picked Drive file to its virtual mount path.
+ * @param {{name: string, type: string}} f - file with name and type label
+ * @returns {string}
+ */
+export function driveMountPath(f) {
+    if (f.type === 'Doc') return `/drive/${f.name}.md`;
+    if (f.type === 'Sheet') return `/drive/${f.name}`;
+    if (f.type === 'Slides') return `/drive/${f.name}.pdf`;
+    return `/drive/${f.name}`;
+}
+
+/**
+ * Emit a FileEvent for Google Drive files shared via the picker.
+ * @param {string[]} paths - virtual mount paths
+ * @returns {Promise<void>}
+ */
+export async function emitDriveShareEvent(paths) {
+    const pathsJson = JSON.stringify(paths);
+    await runPython(`
+import json as _json
+from agex.agent.events import FileEvent
+from agex.state.log import add_event_to_log
+_paths = _json.loads('${pathsJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')
+_state = _agent.state("default")
+_event = FileEvent(
+    agent_name=_agent.name,
+    file_source="user",
+    added=_paths,
+    modified=[],
+    removed=[],
+)
+add_event_to_log(_state, _event)
 _state.commit()
     `);
 }

@@ -1,12 +1,19 @@
 <script>
-    import { uploadFiles, downloadFile, deleteFiles } from './agent.js'
-    import { getCurrentCommit } from './sessions.js'
+    import { uploadFiles, downloadFile, deleteFiles, listFiles } from './agent.js'
+    import { getCurrentCommit, drivePicksStore, getDrivePicks, setDrivePicks } from './sessions.js'
     import { googleAuthStore } from './google-auth.js'
-    import { openPicker, isPickerAvailable, pickedFilesStore, removePickedFiles } from './google-picker.js'
+    import { openPicker, isPickerAvailable } from './google-picker.js'
+    import { setDriveFiles } from './pyodide.js'
     import FileModal from './FileModal.svelte'
 
-    /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void }} */
-    let { open, onClose, files: rawFiles, onUpload, onDelete } = $props()
+    const MIME_LABELS = {
+        'application/vnd.google-apps.document': 'Doc',
+        'application/vnd.google-apps.spreadsheet': 'Sheet',
+        'application/vnd.google-apps.presentation': 'Slides',
+    }
+
+    /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onDriveShare?: (files: Array<{name: string, type: string}>, commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
+    let { open, onClose, files: rawFiles, onUpload, onDelete, onDriveShare, onFilesChanged } = $props()
     let files = $derived(rawFiles ?? [])
 
     let googleAuth = $state({ connected: false, token: null })
@@ -15,7 +22,7 @@
 
     $effect(() => {
         const unsub1 = googleAuthStore.subscribe(s => googleAuth = s)
-        const unsub2 = pickedFilesStore.subscribe(f => pickedFiles = f)
+        const unsub2 = drivePicksStore.subscribe(f => pickedFiles = f)
         return () => { unsub1(); unsub2() }
     })
 
@@ -25,22 +32,29 @@
         if (!googleAuth.token || pickingFiles) return
         pickingFiles = true
         try {
-            await openPicker(googleAuth.token)
+            const commitHash = await getCurrentCommit()
+            const picked = await openPicker(googleAuth.token)
+            if (picked.length > 0) {
+                const shared = picked.map(f => ({
+                    name: f.name,
+                    type: MIME_LABELS[f.mimeType] ?? 'File',
+                }))
+                // Emit file event FIRST so its commit_hash points to the pre-share commit
+                onDriveShare?.(shared, commitHash)
+                // Then persist picks (separate commit after the event)
+                const current = await getDrivePicks()
+                const existing = new Set(current.map(f => f.id))
+                const merged = [...current, ...picked.filter(f => !existing.has(f.id))]
+                setDriveFiles(merged)
+                await setDrivePicks(merged)
+                // Refresh file list so /drive/ entries appear
+                onFilesChanged?.(await listFiles())
+            }
         } catch (e) {
             console.error('Picker failed:', e)
         } finally {
             pickingFiles = false
         }
-    }
-
-    function handleRemovePicked(id) {
-        removePickedFiles([id])
-    }
-
-    const MIME_LABELS = {
-        'application/vnd.google-apps.document': 'Doc',
-        'application/vnd.google-apps.spreadsheet': 'Sheet',
-        'application/vnd.google-apps.presentation': 'Slides',
     }
 
     let viewingFile = $state(null)
@@ -91,9 +105,27 @@
         operating = true
         try {
             const commitHash = await getCurrentCommit()
-            await deleteFiles(names)
+            const driveNames = names.filter(n => n.startsWith('drive/'))
+            const regularNames = names.filter(n => !n.startsWith('drive/'))
+
+            // Unshare drive files by removing matching picks
+            if (driveNames.length) {
+                const current = await getDrivePicks()
+                // Match pick names against drive paths (drive/Name... → Name)
+                const unshareNames = new Set(driveNames.map(n => n.split('/')[1]))
+                const updated = current.filter(f => !unshareNames.has(f.name))
+                setDriveFiles(updated)
+                await setDrivePicks(updated)
+            }
+
+            // Delete regular files
+            if (regularNames.length) {
+                await deleteFiles(regularNames)
+            }
+
             onDelete?.(names, commitHash)
             selected = new Set()
+            onFilesChanged?.(await listFiles())
         } catch (e) {
             console.error('Delete failed:', e)
         } finally {
@@ -187,19 +219,6 @@
                     <button class="sel-btn del-btn" onclick={handleBatchDelete} disabled={operating} title="Delete selected">×</button>
                     <button class="sel-btn" onclick={clearSelection} title="Clear selection">Clear</button>
                 </div>
-            </div>
-        {/if}
-
-        {#if pickedFiles.length > 0}
-            <div class="picked-section">
-                <div class="picked-header">Google Drive</div>
-                {#each pickedFiles as pf}
-                    <div class="picked-row">
-                        <span class="picked-type">{MIME_LABELS[pf.mimeType] ?? 'File'}</span>
-                        <span class="picked-name" title={pf.name}>{pf.name}</span>
-                        <button class="picked-remove" onclick={() => handleRemovePicked(pf.id)} title="Remove">×</button>
-                    </div>
-                {/each}
             </div>
         {/if}
 
@@ -372,68 +391,6 @@
 
     .del-btn:hover:not(:disabled) {
         border-color: var(--error, #e53e3e);
-        color: var(--error, #e53e3e);
-    }
-
-    .picked-section {
-        margin-bottom: 0.75rem;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        overflow: hidden;
-    }
-
-    .picked-header {
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--text-muted);
-        padding: 0.4rem 0.6rem;
-        background: var(--surface-hover);
-    }
-
-    .picked-row {
-        display: flex;
-        align-items: center;
-        padding: 0.3rem 0.6rem;
-        gap: 0.4rem;
-        font-size: 0.8rem;
-    }
-
-    .picked-row:not(:last-child) {
-        border-bottom: 1px solid var(--border);
-    }
-
-    .picked-type {
-        font-size: 0.65rem;
-        font-weight: 600;
-        color: var(--text-muted);
-        background: var(--surface-hover);
-        padding: 0.1rem 0.35rem;
-        border-radius: 3px;
-        flex-shrink: 0;
-    }
-
-    .picked-name {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--text);
-    }
-
-    .picked-remove {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        cursor: pointer;
-        font-size: 0.85rem;
-        padding: 0 0.2rem;
-        flex-shrink: 0;
-        line-height: 1;
-    }
-
-    .picked-remove:hover {
         color: var(--error, #e53e3e);
     }
 

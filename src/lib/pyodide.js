@@ -89,6 +89,10 @@ export function startWorker() {
             if (p?.onToken) p.onToken(JSON.parse(msg.json));
         } else if (msg.type === "plotly-render") {
             renderPlotlyOffscreen(msg.figureJson, msg.id);
+        } else if (msg.type === "pdf-render") {
+            renderPdfPages(msg.pdfBase64, msg.pagesJson, msg.scale, msg.id);
+        } else if (msg.type === "pdf-page-count") {
+            getPdfPageCount(msg.pdfBase64, msg.id);
         } else if (msg.type === "test-app") {
             runTestApp(msg.appFilesJson, msg.actionsJson, msg.id);
         } else if (msg.type === "live-app") {
@@ -145,6 +149,107 @@ async function renderPlotlyOffscreen(figureJson, requestId) {
     } catch (e) {
         console.error("Plotly offscreen render failed:", e);
         worker.postMessage({ type: "plotly-rendered", id: requestId, base64: null });
+    }
+}
+
+/**
+ * Render PDF pages to base64 PNGs using pdf.js.
+ */
+async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
+    try {
+        // Ensure pdf.js is loaded
+        if (!window.pdfjsLib) {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
+                script.type = "module";
+                // pdf.js ES module — load via dynamic import instead
+                script.remove();
+                import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs")
+                    .then((mod) => {
+                        window.pdfjsLib = mod;
+                        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                            "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+                        resolve();
+                    })
+                    .catch(reject);
+            });
+        }
+
+        const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+        const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
+
+        const pages = pagesJson ? JSON.parse(pagesJson) : null;
+        const pageNums = pages || Array.from({ length: Math.min(pdf.numPages, 20) }, (_, i) => i);
+
+        const results = [];
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        for (const pageIdx of pageNums) {
+            if (pageIdx < 0 || pageIdx >= pdf.numPages) {
+                results.push(null);
+                continue;
+            }
+            const page = await pdf.getPage(pageIdx + 1); // pdf.js is 1-indexed
+            const viewport = page.getViewport({ scale: scale || 2 });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const dataUrl = canvas.toDataURL("image/png");
+            results.push(dataUrl.split(",")[1]);
+        }
+
+        canvas.remove();
+        worker.postMessage({
+            type: "pdf-rendered",
+            id: requestId,
+            pagesJson: JSON.stringify(results),
+        });
+    } catch (e) {
+        console.error("PDF render failed:", e);
+        worker.postMessage({
+            type: "pdf-rendered",
+            id: requestId,
+            pagesJson: JSON.stringify([]),
+        });
+    }
+}
+
+/**
+ * Get PDF page count using pdf.js.
+ */
+async function getPdfPageCount(pdfBase64, requestId) {
+    try {
+        if (!window.pdfjsLib) {
+            await new Promise((resolve, reject) => {
+                import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs")
+                    .then((mod) => {
+                        window.pdfjsLib = mod;
+                        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                            "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+                        resolve();
+                    })
+                    .catch(reject);
+            });
+        }
+
+        const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+        const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
+
+        // Reuse pagesJson field to return the count as a JSON string
+        worker.postMessage({
+            type: "pdf-rendered",
+            id: requestId,
+            pagesJson: JSON.stringify(pdf.numPages),
+        });
+    } catch (e) {
+        console.error("PDF page count failed:", e);
+        worker.postMessage({
+            type: "pdf-rendered",
+            id: requestId,
+            pagesJson: JSON.stringify(0),
+        });
     }
 }
 
@@ -624,6 +729,16 @@ async function runLiveApp(actionsJson, requestId) {
 export function setGoogleToken(token) {
     if (!worker || state.status !== "ready") return;
     worker.postMessage({ type: "set-google-token", token });
+}
+
+/**
+ * Push picked Google Drive files to the Pyodide worker.
+ * Updates the /drive/ virtual filesystem mount.
+ * @param {Array<{id: string, name: string, mimeType: string}>} files
+ */
+export function setDriveFiles(files) {
+    if (!worker || state.status !== "ready") return;
+    worker.postMessage({ type: "set-drive-files", files });
 }
 
 /**
