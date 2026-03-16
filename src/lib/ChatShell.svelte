@@ -75,6 +75,14 @@
 
     let tokenOverride = $state(null)
 
+    // Undo toast state
+    let undoToast = $state(null) // { preCommit, timer }
+
+    function dismissUndoToast() {
+        if (undoToast?.timer) clearTimeout(undoToast.timer)
+        undoToast = null
+    }
+
     let lastInputTokens = $derived.by(() => {
         if (tokenOverride != null) return tokenOverride
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -350,8 +358,10 @@
         const msg = messages[index]
         if (!msg?.commit_hash) return
         const undoneText = msg.content
+        dismissUndoToast()
         busy = true
         try {
+            const preCommit = await getCurrentCommit()
             await undoToCommit(msg.commit_hash)
             // Reload Drive picks before file list so /drive/ mount is current
             const picks = await getDrivePicks()
@@ -362,8 +372,33 @@
             previewRefreshKey++
             if (!msg.isMarkdown) inputPrefill = undoneText
             tokenOverride = await estimateLogTokens()
+            // Show toast with option to redo
+            const timer = setTimeout(dismissUndoToast, 5000)
+            undoToast = { preCommit, timer }
         } catch (e) {
             console.error('Undo failed:', e)
+        } finally {
+            busy = false
+        }
+    }
+
+    async function handleRedoFromToast() {
+        if (!undoToast || busy || !agentReady) return
+        const { preCommit } = undoToast
+        dismissUndoToast()
+        busy = true
+        try {
+            await undoToCommit(preCommit)
+            const picks = await getDrivePicks()
+            setDriveFiles(picks)
+            historyChunks = await loadHistoryChunked()
+            messages = historyChunks.messages
+            files = await listFiles()
+            previewRefreshKey++
+            inputPrefill = ''
+            tokenOverride = await estimateLogTokens()
+        } catch (e) {
+            console.error('Redo failed:', e)
         } finally {
             busy = false
         }
@@ -543,6 +578,14 @@
     onClose={() => chapterModalData = null}
 />
 
+{#if undoToast}
+    <div class="undo-toast">
+        <span>Undone</span>
+        <button class="undo-toast-btn" onclick={handleRedoFromToast}>Redo</button>
+        <button class="undo-toast-dismiss" onclick={dismissUndoToast}>&times;</button>
+    </div>
+{/if}
+
 {#if tokenModalOpen}
     <TokenModal
         tokens={tokenHistory}
@@ -589,5 +632,52 @@
 
     @keyframes spin {
         to { transform: rotate(360deg); }
+    }
+
+    .undo-toast {
+        position: fixed;
+        bottom: 5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.5rem 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.8rem;
+        color: var(--text);
+        z-index: 300;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .undo-toast-btn {
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0.25rem 0.6rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .undo-toast-btn:hover {
+        background: var(--accent-hover);
+    }
+
+    .undo-toast-dismiss {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1rem;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+    }
+
+    .undo-toast-dismiss:hover {
+        color: var(--text);
     }
 </style>
