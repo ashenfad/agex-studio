@@ -143,7 +143,6 @@ def _post_token(run_id, token_dict):
         // Register JS function for rendering Plotly figures via main thread.
         // Python awaits this function, which round-trips to the main
         // thread's Plotly.js and returns a base64 PNG string.
-        let _plotlyRenderId = 0;
         pyodide.globals.set("_js_render_plotly", (figureJson) => {
             return new Promise((resolve) => {
                 const id = ++_plotlyRenderId;
@@ -171,7 +170,6 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         // Register JS bridge for rendering PDF pages via main thread pdf.js.
         // Python awaits this function, which round-trips to the main thread
         // and returns a JSON array of base64 PNG strings.
-        let _pdfRenderId = 0;
         pyodide.globals.set("_js_render_pdf", (pdfBase64, pagesJson, scale) => {
             return new Promise((resolve) => {
                 const id = ++_pdfRenderId;
@@ -232,9 +230,11 @@ async function run(id, code) {
 
 // Pending Plotly render requests: id → resolve function
 const plotlyPending = new Map();
+let _plotlyRenderId = 0;
 
 // Pending PDF render requests: id → resolve function
 const pdfPending = new Map();
+let _pdfRenderId = 0;
 
 // Pending test-app requests: id → resolve function
 const testAppPending = new Map();

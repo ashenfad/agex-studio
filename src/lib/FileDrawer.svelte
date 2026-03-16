@@ -111,9 +111,12 @@
             // Unshare drive files by removing matching picks
             if (driveNames.length) {
                 const current = await getDrivePicks()
-                // Match pick names against drive paths (drive/Name... → Name)
-                const unshareNames = new Set(driveNames.map(n => n.split('/')[1]))
-                const updated = current.filter(f => !unshareNames.has(f.name))
+                // Match picks whose name appears as the path component after drive/
+                // Handles extensions: drive/Doc.md → pick name "Doc", drive/Slides.pdf → "Slides"
+                const driveParts = driveNames.map(n => n.slice('drive/'.length).split('/')[0])
+                const updated = current.filter(f =>
+                    !driveParts.some(p => p === f.name || p.startsWith(f.name + '.'))
+                )
                 setDriveFiles(updated)
                 await setDrivePicks(updated)
             }
