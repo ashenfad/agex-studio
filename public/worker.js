@@ -8,6 +8,7 @@
  *   { type: 'run', id, code }            — execute Python code
  *   { type: 'cancel' }                   — cancel the running task
  *   { type: 'set-google-token', token }  — push Google OAuth token
+ *   { type: 'set-drive-files', files }  — update Drive mount picked files
  *
  * Worker → Main:
  *   { type: 'progress', message, progress } — loading progress (0–1)
@@ -16,6 +17,7 @@
  *   { type: 'result', id, value }          — Python code result
  *   { type: 'run-error', id, message }     — Python code error
  *   { type: 'token', id, token }           — streaming token during run
+ *   { type: 'pdf-render', id, pdfBase64, pagesJson, scale } — render PDF pages
  */
 
 const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
@@ -60,7 +62,7 @@ async function init() {
         pyodide = await loadPyodide({ indexURL: PYODIDE_CDN });
 
         progress("Installing packages...", 0.15);
-        await pyodide.loadPackage("micropip");
+        await pyodide.loadPackage(["micropip", "Pillow"]);
 
         // Cache-bust PyPI index for our own packages so version bumps
         // take effect immediately. Only applied to OWN_DEPS to avoid
@@ -166,6 +168,27 @@ async def _async_vi_call(self, image, detail="high"):
 _ns_mod._ViewImage.__call__ = _async_vi_call
         `);
 
+        // Register JS bridge for rendering PDF pages via main thread pdf.js.
+        // Python awaits this function, which round-trips to the main thread
+        // and returns a JSON array of base64 PNG strings.
+        let _pdfRenderId = 0;
+        pyodide.globals.set("_js_render_pdf", (pdfBase64, pagesJson, scale) => {
+            return new Promise((resolve) => {
+                const id = ++_pdfRenderId;
+                pdfPending.set(id, resolve);
+                self.postMessage({ type: "pdf-render", id, pdfBase64, pagesJson, scale });
+            });
+        });
+
+        // Register JS bridge for getting PDF page count via main thread pdf.js.
+        pyodide.globals.set("_js_pdf_page_count", (pdfBase64) => {
+            return new Promise((resolve) => {
+                const id = ++_pdfRenderId;
+                pdfPending.set(id, resolve);
+                self.postMessage({ type: "pdf-page-count", id, pdfBase64 });
+            });
+        });
+
         // Register JS bridge for headless app testing.
         // Python awaits this, which round-trips to the main thread to build
         // a hidden iframe, run the app, and collect console messages.
@@ -210,6 +233,9 @@ async function run(id, code) {
 // Pending Plotly render requests: id → resolve function
 const plotlyPending = new Map();
 
+// Pending PDF render requests: id → resolve function
+const pdfPending = new Map();
+
 // Pending test-app requests: id → resolve function
 const testAppPending = new Map();
 let _testAppId = 0;
@@ -226,6 +252,11 @@ self.onmessage = (e) => {
         if (pyodide) {
             const val = e.data.token ? `"${e.data.token}"` : "None";
             pyodide.runPython(`_google_access_token = ${val}`);
+        }
+    } else if (type === "set-drive-files") {
+        if (pyodide) {
+            const json = JSON.stringify(e.data.files || []).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+            pyodide.runPython(`_update_drive_files('${json}')`);
         }
     } else if (type === "cancel") {
         if (pyodide) {
@@ -248,6 +279,12 @@ self.onmessage = (e) => {
         if (resolve) {
             plotlyPending.delete(e.data.id);
             resolve(e.data.base64);
+        }
+    } else if (type === "pdf-rendered") {
+        const resolve = pdfPending.get(e.data.id);
+        if (resolve) {
+            pdfPending.delete(e.data.id);
+            resolve(e.data.pagesJson);
         }
     } else if (type === "test-app-result") {
         const resolve = testAppPending.get(e.data.id);

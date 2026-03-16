@@ -283,3 +283,4 @@ export async function refreshIfNeeded() {
         tokenClient.requestAccessToken({ prompt: "" });
     });
 }
+

@@ -467,6 +467,67 @@ _json.dumps(_new)
     await refreshSessionList(branch);
 }
 
+// ---------------------------------------------------------------------------
+// Drive picks — per-session picked Google Drive files stored in kvgit state
+// ---------------------------------------------------------------------------
+
+const DRIVE_PICKS_KEY = "__drive_picks__";
+const DRIVE_MIGRATION_KEY = "agex-google-picked-files";
+
+/** @type {((files: Array<{id: string, name: string, mimeType: string}>) => void)[]} */
+let drivePicksSubs = [];
+
+/** @type {Array<{id: string, name: string, mimeType: string}>} */
+let drivePicks = [];
+
+function notifyDrivePicks() {
+    for (const fn of drivePicksSubs) fn(drivePicks);
+}
+
+/** Svelte-compatible store for the current session's Drive picks. */
+export const drivePicksStore = {
+    subscribe(fn) {
+        drivePicksSubs.push(fn);
+        fn(drivePicks);
+        return () => {
+            drivePicksSubs = drivePicksSubs.filter((s) => s !== fn);
+        };
+    },
+};
+
+/** Read picks from current session's kvgit state. */
+export async function getDrivePicks() {
+    const json = await runPython(`
+import json as _json
+_state = _agent.state("default")
+_raw = _state.peek("${DRIVE_PICKS_KEY}", branch=_state.current_branch)
+_json.dumps(_json.loads(_raw) if _raw else [])
+    `);
+    drivePicks = JSON.parse(json);
+    notifyDrivePicks();
+    return drivePicks;
+}
+
+/** Write picks to current session's kvgit state and commit. */
+export async function setDrivePicks(files) {
+    const escaped = JSON.stringify(files).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    await runPython(`
+import json as _json
+from datetime import datetime as _dt, timezone as _tz
+_state = _agent.state("default")
+_state["${DRIVE_PICKS_KEY}"] = '${escaped}'
+_state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+_state.commit()
+    `);
+    drivePicks = files;
+    notifyDrivePicks();
+}
+
+/** Clear any pre-refactor localStorage picks. */
+export function clearLegacyDrivePicks() {
+    localStorage.removeItem(DRIVE_MIGRATION_KEY);
+}
+
 /** Update session title and timestamp after a turn. Call with the last action title. */
 export async function persistSessionMeta(title) {
     const escaped = (title || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');

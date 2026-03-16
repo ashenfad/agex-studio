@@ -1,5 +1,9 @@
 """Google Docs integration via direct REST API calls.
 
+NOTE: This module is currently used internally by drive_fs.py for
+read-only Doc-to-Markdown conversion. The write APIs are not exposed
+to agents but may be re-enabled in the future.
+
 Provides read/write access to Google Docs with Markdown as the
 interchange format. Designed to work in Pyodide/browser environments
 via synchronous XMLHttpRequest (available in Web Workers).

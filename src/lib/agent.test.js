@@ -66,22 +66,43 @@ describe("initAgent", () => {
         expect(code).toContain("gmail.md");
     });
 
-    it("loads sheets module and registers skill", async () => {
+    it("loads sheets module without registering skill", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
         expect(code).toContain('_open_url("/sheets.py")');
         expect(code).toContain('_sys.modules["sheets"] = _sheets_mod');
-        expect(code).toContain("sheets.md");
+        expect(code).not.toContain("sheets.md");
     });
 
-    it("loads docs module and registers skill", async () => {
+    it("loads docs module without registering skill", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
         expect(code).toContain('_open_url("/docs.py")');
         expect(code).toContain('_sys.modules["docs"] = _docs_mod');
-        expect(code).toContain("docs.md");
+        expect(code).not.toContain("docs.md");
+    });
+
+    it("loads drive_fs module and mounts at /drive", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain('_open_url("/drive_fs.py")');
+        expect(code).toContain('_sys.modules["drive_fs"] = _drive_fs_mod');
+        expect(code).toContain("GoogleDriveFS");
+        expect(code).toContain("MountFS");
+        expect(code).toContain('mount("/drive"');
+        expect(code).toContain("_update_drive_files");
+    });
+
+    it("mentions drive in task primer", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("Google Drive");
+        expect(code).toContain("/drive/");
+        expect(code).not.toContain("drive.md");
     });
 
     it("mentions gmail in task primer", async () => {
@@ -121,6 +142,31 @@ describe("initAgent", () => {
         expect(code).toContain("_display_app_results");
         expect(code).toContain('_agent.fn(live_app, visibility="low")');
         expect(code).toContain("LAST COMMITTED");
+    });
+
+    it("registers render_pdf with high visibility", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("async def render_pdf(data");
+        expect(code).toContain("_js_render_pdf");
+        expect(code).toContain('_agent.fn(render_pdf, visibility="high")');
+    });
+
+    it("registers pdf_page_count with high visibility", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("def pdf_page_count(data");
+        expect(code).toContain('_agent.fn(pdf_page_count, visibility="high")');
+    });
+
+    it("mentions render_pdf in task primer", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        expect(code).toContain("render_pdf(");
+        expect(code).toContain("pdf_page_count(");
     });
 
     it("wires up setQueryHandler", async () => {
