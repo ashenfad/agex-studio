@@ -457,7 +457,7 @@ def _strip_inline_markdown(text):
     # Bold: **text** → text
     text = re.sub(r'\*{2}(.+?)\*{2}', r'\1', text)
     # Italic: *text* → text
-    text = re.sub(r'\*(.+?)\*', r'\1', text)
+    text = re.sub(r'(?<!\*)\*([^\*\n]+)\*(?!\*)', r'\1', text)
     # Strikethrough: ~~text~~ → text
     text = re.sub(r'~~(.+?)~~', r'\1', text)
     return text
