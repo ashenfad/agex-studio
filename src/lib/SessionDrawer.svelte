@@ -10,10 +10,12 @@
     let storageUsage = $state(null)
     let purgeConfirm = $state(false)
     let purging = $state(false)
+    let deleteConfirmBranch = $state(null)
 
     $effect(() => {
         if (open) {
             purgeConfirm = false
+            deleteConfirmBranch = null
             navigator.storage?.estimate?.().then(est => {
                 storageUsage = est.usage ?? null
             }).catch(() => {})
@@ -72,6 +74,11 @@
 
     async function handleDelete(e, branch) {
         e.stopPropagation()
+        if (deleteConfirmBranch !== branch) {
+            deleteConfirmBranch = branch
+            return
+        }
+        deleteConfirmBranch = null
         await deleteSession(branch)
     }
 
@@ -122,10 +129,11 @@
                             {#if sessions.length > 1}
                                 <button
                                     class="action-btn delete"
+                                    class:confirm={deleteConfirmBranch === s.branch}
                                     onclick={(e) => handleDelete(e, s.branch)}
                                     title="Delete session"
                                 >
-                                    &times;
+                                    {deleteConfirmBranch === s.branch ? 'delete?' : '\u00d7'}
                                 </button>
                             {/if}
                         </span>
@@ -281,6 +289,13 @@
 
     .action-btn.delete:hover {
         color: var(--error);
+    }
+
+    .action-btn.delete.confirm {
+        color: var(--error);
+        font-size: 0.65rem;
+        font-weight: 600;
+        opacity: 1;
     }
 
     .drawer-footer {
