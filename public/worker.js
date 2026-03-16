@@ -94,7 +94,7 @@ await micropip.install("icalendar", deps=False)
         progress("Installing agex...", 0.15 + (0.8 * (allDeps.length + 1)) / total);
         await pyodide.runPythonAsync(`
 import micropip
-await micropip.install("agex>=0.9.1", deps=False, index_urls="${freshIndex}")
+await micropip.install("agex>=0.9.2", deps=False, index_urls="${freshIndex}")
         `);
 
         progress("Installing calgebra...", 0.15 + (0.8 * (allDeps.length + 2)) / total);
