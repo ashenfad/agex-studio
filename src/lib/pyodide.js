@@ -152,29 +152,24 @@ async function renderPlotlyOffscreen(figureJson, requestId) {
     }
 }
 
+const PDFJS_CDN = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build";
+
+/**
+ * Ensure pdf.js is loaded (lazily, once).
+ */
+async function ensurePdfJs() {
+    if (window.pdfjsLib) return;
+    const mod = await import(`${PDFJS_CDN}/pdf.min.mjs`);
+    window.pdfjsLib = mod;
+    mod.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
+}
+
 /**
  * Render PDF pages to base64 PNGs using pdf.js.
  */
 async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
     try {
-        // Ensure pdf.js is loaded
-        if (!window.pdfjsLib) {
-            await new Promise((resolve, reject) => {
-                const script = document.createElement("script");
-                script.src = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-                script.type = "module";
-                // pdf.js ES module — load via dynamic import instead
-                script.remove();
-                import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs")
-                    .then((mod) => {
-                        window.pdfjsLib = mod;
-                        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-                            "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
-                        resolve();
-                    })
-                    .catch(reject);
-            });
-        }
+        await ensurePdfJs();
 
         const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
         const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
@@ -221,23 +216,11 @@ async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
  */
 async function getPdfPageCount(pdfBase64, requestId) {
     try {
-        if (!window.pdfjsLib) {
-            await new Promise((resolve, reject) => {
-                import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs")
-                    .then((mod) => {
-                        window.pdfjsLib = mod;
-                        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-                            "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
-                        resolve();
-                    })
-                    .catch(reject);
-            });
-        }
+        await ensurePdfJs();
 
         const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
         const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
 
-        // Reuse pagesJson field to return the count as a JSON string
         worker.postMessage({
             type: "pdf-rendered",
             id: requestId,
