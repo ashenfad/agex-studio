@@ -14,8 +14,10 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const DEFAULT_SCOPES = [
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.send",
+    // Gmail scopes (restricted) require CASA security assessment to leave
+    // testing mode. Disabled until app verification is complete.
+    // "https://www.googleapis.com/auth/gmail.readonly",
+    // "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive.file",

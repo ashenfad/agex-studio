@@ -121,16 +121,18 @@ _app_skill_text = _open_url("/skills/interactive-app.md").read()
 _agent.skill(_app_skill_text.encode("utf-8"))
 del _app_skill_text
 
-# -- Gmail module (loaded from static file, injected into sys.modules) --
+# -- Gmail module disabled until app verification (restricted scopes) --
+# import types as _types
+# import sys as _sys
+# _gmail_src = _open_url("/gmail.py").read()
+# _gmail_mod = _types.ModuleType("gmail")
+# _gmail_mod.__file__ = "/gmail.py"
+# exec(_gmail_src, _gmail_mod.__dict__)
+# _sys.modules["gmail"] = _gmail_mod
+# _agent.module(_gmail_mod, visibility="low", network_access=True)
+# del _gmail_src, _gmail_mod
 import types as _types
 import sys as _sys
-_gmail_src = _open_url("/gmail.py").read()
-_gmail_mod = _types.ModuleType("gmail")
-_gmail_mod.__file__ = "/gmail.py"
-exec(_gmail_src, _gmail_mod.__dict__)
-_sys.modules["gmail"] = _gmail_mod
-_agent.module(_gmail_mod, visibility="low", network_access=True)
-del _gmail_src, _gmail_mod
 
 # -- Sheets module (used internally by drive_fs, not exposed to agent) --
 _sheets_src = _open_url("/sheets.py").read()
@@ -156,9 +158,10 @@ exec(_drive_fs_src, _drive_fs_mod.__dict__)
 _sys.modules["drive_fs"] = _drive_fs_mod
 del _drive_fs_src, _drive_fs_mod, _types, _sys
 
-_gmail_skill_text = _open_url("/skills/gmail.md").read()
-_agent.skill(_gmail_skill_text.encode("utf-8"))
-del _gmail_skill_text
+# Gmail skill disabled until app verification (restricted scopes)
+# _gmail_skill_text = _open_url("/skills/gmail.md").read()
+# _agent.skill(_gmail_skill_text.encode("utf-8"))
+# del _gmail_skill_text
 
 del _open_url
 
@@ -463,12 +466,6 @@ If it returns None, tell the user to connect Google in Settings.
 local_timezone() and google_token() are registered globals — call them directly,
 do not import them from any module. Use local_timezone() to get the user's
 IANA timezone (e.g. "America/Los_Angeles") as the tz parameter for calgebra.
-
-Gmail: whenever the user asks about email, inbox, messages, or needs to
-send email, read the gmail skill first (if you haven't already):
-  cat /skills/gmail/SKILL.md
-Then call google_token() to get the current OAuth token.
-If it returns None, tell the user to connect Google in Settings.
 
 Google Drive: users can share files from Google Drive. Shared files
 appear as read-only files under /drive/. Google Docs are converted to
