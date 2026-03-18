@@ -167,9 +167,20 @@ function scheduleRefresh(expiresAt) {
 
 /**
  * Attempt silent re-auth (no user interaction).
+ * On failure, mark as needing refresh so the next user gesture can retry.
  */
 function silentRefresh() {
     if (!tokenClient) return;
+    pendingResolve = (response) => {
+        if (response.error) {
+            // Silent refresh failed — token is now stale.
+            // Mark for retry on next user gesture rather than leaving
+            // the session in a zombie "connected but expired" state.
+            needsRefresh = true;
+            update({ connected: false, token: null, expiresAt: null });
+            setGoogleToken(null);
+        }
+    };
     tokenClient.requestAccessToken({ prompt: "" });
 }
 
@@ -273,6 +284,10 @@ export async function tryRestore() {
  * @returns {Promise<boolean>} true if refreshed (or already valid)
  */
 export async function refreshIfNeeded() {
+    // Check if token expired while page was backgrounded (e.g. mobile)
+    if (!needsRefresh && state.connected && state.expiresAt && Date.now() >= state.expiresAt) {
+        needsRefresh = true;
+    }
     if (!needsRefresh) return state.connected;
     if (!tokenClient) return false;
 
