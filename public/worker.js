@@ -100,7 +100,7 @@ await micropip.install("agex>=0.9.2", deps=False, index_urls="${freshIndex}")
         progress("Installing calgebra...", 0.15 + (0.8 * (allDeps.length + 2)) / total);
         await pyodide.runPythonAsync(`
 import micropip
-await micropip.install("calgebra>=0.10.8", deps=False, index_urls="${freshIndex}")
+await micropip.install("calgebra>=0.10.10", deps=False, index_urls="${freshIndex}")
         `);
 
         progress("Verifying installation...", 0.95);
