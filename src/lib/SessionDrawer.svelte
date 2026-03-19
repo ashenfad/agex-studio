@@ -144,7 +144,7 @@
 
         <div class="drawer-footer">
             {#if storageUsage !== null}
-                <span class="storage-usage">{formatBytes(storageUsage)} used</span>
+                <span class="storage-usage" title="Includes cached packages">{formatBytes(storageUsage)} used (incl. cache)</span>
             {/if}
             <button
                 class="purge-btn"
