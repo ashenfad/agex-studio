@@ -134,20 +134,22 @@ del _app_skill_text
 import types as _types
 import sys as _sys
 
-# -- Sheets module (used internally by drive_fs, not exposed to agent) --
+# -- Sheets module (Google Sheets REST API) --
 _sheets_src = _open_url("/sheets.py").read()
 _sheets_mod = _types.ModuleType("sheets")
 _sheets_mod.__file__ = "/sheets.py"
 exec(_sheets_src, _sheets_mod.__dict__)
 _sys.modules["sheets"] = _sheets_mod
+_agent.module(_sheets_mod, visibility="low", network_access=True)
 del _sheets_src, _sheets_mod
 
-# -- Docs module (used internally by drive_fs, not exposed to agent) --
+# -- Docs module (Google Docs REST API) --
 _docs_src = _open_url("/docs.py").read()
 _docs_mod = _types.ModuleType("docs")
 _docs_mod.__file__ = "/docs.py"
 exec(_docs_src, _docs_mod.__dict__)
 _sys.modules["docs"] = _docs_mod
+_agent.module(_docs_mod, visibility="low", network_access=True)
 del _docs_src, _docs_mod
 
 # -- Drive FS module (loaded from static file, injected into sys.modules) --
