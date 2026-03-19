@@ -81,6 +81,15 @@ describe("initAgent", () => {
     });
 
 
+    it("handles fresh ImageAction without _png_bytes in serializer", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = runPythonCalls[0];
+        // Must use getattr for fresh ImageAction instances (not unpickled)
+        expect(code).toContain('getattr(part, "_png_bytes", None)');
+        expect(code).toContain("part.png_bytes()");
+    });
+
     it("mentions test_app auto-display in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 

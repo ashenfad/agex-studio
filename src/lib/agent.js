@@ -530,7 +530,12 @@ def _serialize_output_parts(event):
         if isinstance(part, _PrintAction):
             parts.append({"type": "text", "content": " ".join(str(item) for item in part)})
         elif isinstance(part, _ImageAction):
-            _png = part._png_bytes
+            _png = getattr(part, "_png_bytes", None)
+            if _png is None and hasattr(part, 'png_bytes'):
+                try:
+                    _png = part.png_bytes()
+                except Exception:
+                    pass
             if _png is not None:
                 parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
             elif isinstance(part.image, str):
