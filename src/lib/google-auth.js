@@ -18,8 +18,10 @@ const DEFAULT_SCOPES = [
     // testing mode. Disabled until app verification is complete.
     // "https://www.googleapis.com/auth/gmail.readonly",
     // "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/documents",
+    // Sheets/Docs API scopes disabled — /drive/ mount (via drive.file)
+    // handles read-only access. Re-enable for REST API write support.
+    // "https://www.googleapis.com/auth/spreadsheets",
+    // "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive.file",
 ];
 

@@ -20,14 +20,9 @@ as read-only files under `/drive/`. The format depends on the file type.
 
 ## Listing Shared Files
 
-```python
-import os
-
-# Top-level shared files/dirs
-os.listdir("/drive/")
-
-# Tabs in a shared spreadsheet
-os.listdir("/drive/MySheet/")
+```bash
+ls /drive/
+ls /drive/MySheet/   # tabs in a shared spreadsheet
 ```
 
 ## Reading Files
@@ -58,18 +53,24 @@ Google Sheets exported as CSV often have **irregular shapes**. Common issues:
 - **Empty rows or columns** used as visual separators.
 - **Multiple logical tables** in one sheet tab.
 
-**When CSV parsing fails, inspect the raw file first:**
+**When CSV parsing fails, inspect the raw file first** — terminal tools
+are often the fastest way:
 
-```python
-with open("/drive/Sheet/Sheet1.csv") as f:
-    lines = f.readlines()
+```bash
+# Quick look at structure
+head -5 "/drive/Sheet/Sheet1.csv"
 
-# Check line lengths
-for i, line in enumerate(lines[:10]):
-    print(f"Line {i}: {len(line.split(','))} fields — {line.rstrip()}")
+# Check field counts per line
+awk -F',' '{print NR": "NF" fields"}' "/drive/Sheet/Sheet1.csv" | head -10
+
+# Extract a specific column
+cut -d',' -f2 "/drive/Sheet/Sheet1.csv"
+
+# Search across shared files
+grep -r "keyword" /drive/
 ```
 
-Then adapt your approach:
+Then adapt your Python approach as needed:
 
 ```python
 # Flexible parsing — skip bad lines
@@ -89,10 +90,6 @@ with open(path) as f:
 - `/drive/` is **read-only** — writing raises `PermissionError`.
 - Files only appear after the user shares them via the Drive picker in
   the file drawer.
-- To write back to Google Sheets or Docs, or to access them by ID
-  rather than sharing via the picker, read the relevant skill:
-    cat /skills/sheets/SKILL.md
-    cat /skills/docs/SKILL.md
-  These use the Sheets/Docs REST API directly (requires `google_token()`).
+- Writing back to Google Sheets or Docs is not currently supported.
 - Shared Docs are converted to markdown — complex formatting (images,
   drawings, embedded charts) may not survive the conversion.

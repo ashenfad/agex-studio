@@ -58,30 +58,13 @@ describe("initAgent", () => {
 
     // Gmail module disabled until app verification (restricted scopes)
 
-    it("loads sheets module without registering skill", async () => {
+    // Sheets/Docs REST API modules disabled — scopes removed for minimal demo
+
+    it("installs drive_fs module and mounts at /drive", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
-        expect(code).toContain('_open_url("/sheets.py")');
-        expect(code).toContain('_sys.modules["sheets"] = _sheets_mod');
-        expect(code).toContain("sheets.md");
-    });
-
-    it("loads docs module and registers skill", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = runPythonCalls[0];
-        expect(code).toContain('_open_url("/docs.py")');
-        expect(code).toContain('_sys.modules["docs"] = _docs_mod');
-        expect(code).toContain("docs.md");
-    });
-
-    it("loads drive_fs module and mounts at /drive", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = runPythonCalls[0];
-        expect(code).toContain('_open_url("/drive_fs.py")');
-        expect(code).toContain('_sys.modules["drive_fs"] = _drive_fs_mod');
+        expect(code).toContain('_install_url_module("drive_fs", "/drive_fs.py")');
         expect(code).toContain("GoogleDriveFS");
         expect(code).toContain("MountFS");
         expect(code).toContain('mount("/drive"');

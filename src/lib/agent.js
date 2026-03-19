@@ -114,70 +114,40 @@ try:
 except Exception as _e:
     print(f"[skills] failed to register: {_e}")
 
-# -- Register skills from static files --
+# -- Load static .py modules onto the Python path --
 from pyodide.http import open_url as _open_url
+import importlib as _importlib
+_site_dir = _importlib.import_module("site").getsitepackages()[0]
 
-_app_skill_text = _open_url("/skills/interactive-app.md").read()
-_agent.skill(_app_skill_text.encode("utf-8"))
-del _app_skill_text
+def _install_url_module(name, url):
+    """Fetch a .py from the app server, write to site-packages, import it."""
+    with open(f"{_site_dir}/{name}.py", "w") as f:
+        f.write(_open_url(url).read())
+    return _importlib.import_module(name)
 
-# -- Gmail module disabled until app verification (restricted scopes) --
-# import types as _types
-# import sys as _sys
-# _gmail_src = _open_url("/gmail.py").read()
-# _gmail_mod = _types.ModuleType("gmail")
-# _gmail_mod.__file__ = "/gmail.py"
-# exec(_gmail_src, _gmail_mod.__dict__)
-# _sys.modules["gmail"] = _gmail_mod
-# _agent.module(_gmail_mod, visibility="low", network_access=True)
-# del _gmail_src, _gmail_mod
-import types as _types
-import sys as _sys
+# Sheets/Docs REST API modules disabled — scopes removed for minimal demo.
+# Re-enable when spreadsheets/documents scopes are restored.
+# _sheets = _install_url_module("sheets", "/sheets.py")
+# _agent.module(_sheets, visibility="low", network_access=True)
+# _docs = _install_url_module("docs", "/docs.py")
+# _agent.module(_docs, visibility="low", network_access=True)
 
-# -- Sheets module (Google Sheets REST API) --
-_sheets_src = _open_url("/sheets.py").read()
-_sheets_mod = _types.ModuleType("sheets")
-_sheets_mod.__file__ = "/sheets.py"
-exec(_sheets_src, _sheets_mod.__dict__)
-_sys.modules["sheets"] = _sheets_mod
-_agent.module(_sheets_mod, visibility="low", network_access=True)
-del _sheets_src, _sheets_mod
+_install_url_module("drive_fs", "/drive_fs.py")
 
-# -- Docs module (Google Docs REST API) --
-_docs_src = _open_url("/docs.py").read()
-_docs_mod = _types.ModuleType("docs")
-_docs_mod.__file__ = "/docs.py"
-exec(_docs_src, _docs_mod.__dict__)
-_sys.modules["docs"] = _docs_mod
-_agent.module(_docs_mod, visibility="low", network_access=True)
-del _docs_src, _docs_mod
+del _install_url_module, _site_dir, _importlib
 
-# -- Drive FS module (loaded from static file, injected into sys.modules) --
-_drive_fs_src = _open_url("/drive_fs.py").read()
-_drive_fs_mod = _types.ModuleType("drive_fs")
-_drive_fs_mod.__file__ = "/drive_fs.py"
-exec(_drive_fs_src, _drive_fs_mod.__dict__)
-_sys.modules["drive_fs"] = _drive_fs_mod
-del _drive_fs_src, _drive_fs_mod, _types, _sys
+# Gmail module disabled until app verification (restricted scopes)
 
-# Gmail skill disabled until app verification (restricted scopes)
-# _gmail_skill_text = _open_url("/skills/gmail.md").read()
-# _agent.skill(_gmail_skill_text.encode("utf-8"))
-# del _gmail_skill_text
+# -- Register skills from static files --
+for _skill_path in [
+    "/skills/interactive-app.md",
+    "/skills/drive.md",
+    # "/skills/sheets.md",  # disabled — scopes removed
+    # "/skills/docs.md",    # disabled — scopes removed
+]:
+    _agent.skill(_open_url(_skill_path).read().encode("utf-8"))
 
-_drive_skill_text = _open_url("/skills/drive.md").read()
-_agent.skill(_drive_skill_text.encode("utf-8"))
-del _drive_skill_text
-
-_sheets_skill_text = _open_url("/skills/sheets.md").read()
-_agent.skill(_sheets_skill_text.encode("utf-8"))
-del _sheets_skill_text
-
-_docs_skill_text = _open_url("/skills/docs.md").read()
-_agent.skill(_docs_skill_text.encode("utf-8"))
-del _docs_skill_text
-
-del _open_url
+del _open_url, _skill_path
 
 _OR_API_KEY = "${settings.apiKey}"
 
