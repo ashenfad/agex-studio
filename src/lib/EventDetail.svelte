@@ -65,7 +65,13 @@
         <div class="event-card error-card">
             <div class="section error">
                 <div class="section-label">Error</div>
-                <pre class="section-content"><code>{evt.message}</code></pre>
+                {#if evt.parts?.length}
+                    {#each evt.parts as part}
+                        <pre class="section-content"><code>{part.content}</code></pre>
+                    {/each}
+                {:else}
+                    <pre class="section-content"><code>{evt.message}</code></pre>
+                {/if}
             </div>
         </div>
     {:else if evt.type === 'output'}
