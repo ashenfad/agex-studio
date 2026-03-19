@@ -152,6 +152,8 @@
                 <span class="sep">&middot;</span>
                 <a href="/privacy.html" target="_blank">Privacy</a>
                 <span class="sep">&middot;</span>
+                <a href="/terms.html" target="_blank">Terms</a>
+                <span class="sep">&middot;</span>
                 <a href="https://github.com/ashenfad/agex-studio" target="_blank">GitHub</a>
             </div>
             <div class="version">v{__APP_VERSION__}</div>
