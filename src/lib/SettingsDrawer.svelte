@@ -59,6 +59,22 @@
     function handleGoogleDisconnect() {
         disconnect()
     }
+
+    let modalPage = $state(null) // { title, html }
+
+    async function openPage(url, title) {
+        try {
+            const resp = await fetch(url)
+            const text = await resp.text()
+            // Extract body content from the static HTML page
+            const match = text.match(/<body[^>]*>([\s\S]*)<\/body>/i)
+            const html = match ? match[1] : text
+            modalPage = { title, html }
+        } catch {
+            // Fallback: open in new tab if fetch fails
+            window.open(url, '_blank')
+        }
+    }
 </script>
 
 {#if open}
@@ -148,17 +164,30 @@
             </div>
 
             <div class="footer-links">
-                <a href="/about.html" target="_blank">About</a>
+                <button type="button" class="page-link" onclick={() => openPage('/about.html', 'About')}>About</button>
                 <span class="sep">&middot;</span>
-                <a href="/privacy.html" target="_blank">Privacy</a>
+                <button type="button" class="page-link" onclick={() => openPage('/privacy.html', 'Privacy')}>Privacy</button>
                 <span class="sep">&middot;</span>
-                <a href="/terms.html" target="_blank">Terms</a>
+                <button type="button" class="page-link" onclick={() => openPage('/terms.html', 'Terms')}>Terms</button>
                 <span class="sep">&middot;</span>
-                <a href="https://github.com/ashenfad/agex-studio" target="_blank">GitHub</a>
+                <a href="https://github.com/ashenfad/agex-studio" target="_blank" rel="noopener">GitHub</a>
             </div>
             <div class="version">v{__APP_VERSION__}</div>
         </form>
     </div>
+
+    {#if modalPage}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="page-overlay" onclick={() => modalPage = null} onkeydown={(e) => e.key === 'Escape' && (modalPage = null)}></div>
+        <div class="page-modal">
+            <div class="page-modal-header">
+                <button class="page-modal-close" onclick={() => modalPage = null}>&times;</button>
+            </div>
+            <div class="page-modal-body">
+                {@html modalPage.html}
+            </div>
+        </div>
+    {/if}
 {/if}
 
 <style>
@@ -360,12 +389,20 @@
         font-size: 0.75rem;
     }
 
-    .footer-links a {
+    .footer-links a,
+    .page-link {
         color: var(--text-muted);
         text-decoration: none;
+        background: none;
+        border: none;
+        font: inherit;
+        font-size: 0.75rem;
+        cursor: pointer;
+        padding: 0;
     }
 
-    .footer-links a:hover {
+    .footer-links a:hover,
+    .page-link:hover {
         color: var(--text);
     }
 
@@ -378,5 +415,68 @@
         text-align: center;
         font-size: 0.7rem;
         color: var(--text-muted);
+    }
+
+    .page-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 200;
+    }
+
+    .page-modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 640px;
+        max-width: 92vw;
+        max-height: 85vh;
+        background: #1a1a1a;
+        border-radius: 10px;
+        z-index: 201;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .page-modal-header {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.5rem 0.75rem 0;
+    }
+
+    .page-modal-close {
+        background: none;
+        border: none;
+        color: #888;
+        font-size: 1.4rem;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0.2rem;
+    }
+
+    .page-modal-close:hover {
+        color: #e0e0e0;
+    }
+
+    .page-modal-body {
+        padding: 0 1.5rem 1.5rem;
+        overflow-y: auto;
+        color: #e0e0e0;
+        line-height: 1.6;
+        font-size: 0.9rem;
+    }
+
+    .page-modal-body :global(h1) { font-size: 1.3rem; margin-bottom: 0.5rem; }
+    .page-modal-body :global(h2) { font-size: 1.05rem; margin-top: 1.5rem; }
+    .page-modal-body :global(a) { color: #7cacf8; }
+    .page-modal-body :global(.back) { display: none; }
+    .page-modal-body :global(.updated) { font-size: 0.8rem; color: #888; }
+    .page-modal-body :global(code) {
+        background: #2a2a2a;
+        padding: 0.15em 0.35em;
+        border-radius: 3px;
+        font-size: 0.9em;
     }
 </style>
