@@ -147,6 +147,13 @@
                 <button class="cancel" type="button" onclick={onClose}>Cancel</button>
             </div>
 
+            <div class="footer-links">
+                <a href="/about.html" target="_blank">About</a>
+                <span class="sep">&middot;</span>
+                <a href="/privacy.html" target="_blank">Privacy</a>
+                <span class="sep">&middot;</span>
+                <a href="https://github.com/ashenfad/agex-studio" target="_blank">GitHub</a>
+            </div>
             <div class="version">v{__APP_VERSION__}</div>
         </form>
     </div>
@@ -344,6 +351,25 @@
     .google-connect:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    .footer-links {
+        text-align: center;
+        font-size: 0.75rem;
+    }
+
+    .footer-links a {
+        color: var(--text-muted);
+        text-decoration: none;
+    }
+
+    .footer-links a:hover {
+        color: var(--text);
+    }
+
+    .footer-links .sep {
+        color: var(--text-muted);
+        margin: 0 0.3rem;
     }
 
     .version {
