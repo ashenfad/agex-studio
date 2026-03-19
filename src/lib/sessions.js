@@ -186,7 +186,7 @@ from agex.agent.events import (
     FileEvent as _FileEvent,
     CancelledEvent as _CancelledEvent,
 )
-# Helper functions (_is_error_output, _output_text, _serialize_output_parts,
+# Helper functions (_output_text, _serialize_output_parts, _split_output_events,
 # _serialize_file_actions, _serialize_chapter_events) and event types
 # (_ActionEvent, _OutputEvent, _ChapterEvent) are defined in initAgent
 
@@ -248,12 +248,7 @@ for _evt in _flat:
             "output_tokens": _evt.output_tokens,
         })
     elif isinstance(_evt, _OutputEvent):
-        _is_err = _is_error_output(_evt)
-        _current_events.append({
-            "type": "error" if _is_err else "output",
-            "message": _output_text(_evt),
-            "parts": _serialize_output_parts(_evt),
-        })
+        _current_events.extend(_split_output_events(_serialize_output_parts(_evt)))
     elif isinstance(_evt, _FileEvent) and _evt.file_source == "user":
         _parts = []
         _upload_items = []

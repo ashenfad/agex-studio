@@ -139,6 +139,8 @@ del _install_url_module, _site_dir, _importlib
 for _skill_path in [
     "/skills/interactive-app.md",
     "/skills/drive.md",
+    "/skills/calgebra.md",
+    "/skills/gcal.md",
     # "/skills/sheets.md",  # disabled — scopes removed
     # "/skills/docs.md",    # disabled — scopes removed
 ]:
@@ -449,17 +451,13 @@ openpyxl is available — use pd.read_excel() to read .xlsx files.
 scipy and scikit-learn are available for statistics, optimization, and machine learning.
 
 Calendars: whenever the user asks about calendars, scheduling, events,
-or .ics files, read the calgebra skill first (if you haven't already) —
-its API has non-obvious signatures you must not guess at:
+or .ics files, read the calgebra and gcal skills first (if you haven't
+already) — their APIs have non-obvious signatures you must not guess at:
   cat /skills/calgebra/SKILL.md
-calgebra handles both .ics files (file_to_timeline) and Google Calendar
-(via the gcal module). For Google Calendar work, also read:
   cat /skills/gcal/SKILL.md
-Then call google_token() to get the current OAuth token.
-If it returns None, tell the user to connect Google in Settings.
-local_timezone() and google_token() are registered globals — call them directly,
-do not import them from any module. Use local_timezone() to get the user's
-IANA timezone (e.g. "America/Los_Angeles") as the tz parameter for calgebra.
+google_token() and local_timezone() are registered globals — call them
+directly, do not import them. Always use at_tz(local_timezone()) for
+timeline slicing. Import transparency from calgebra.gcal, not calgebra.
 
 Google Drive: files shared via the picker appear read-only under /drive/.
 When working with these files or encountering CSV parsing errors from
@@ -515,20 +513,29 @@ from agex.eval.objects import PrintAction as _PrintAction, ImageAction as _Image
 
 _ERROR_KEYWORDS = ("💥",)
 
-def _is_error_output(event):
-    for part in event.parts:
-        if isinstance(part, _PrintAction):
-            content = " ".join(str(item) for item in part)
-            if any(kw in content for kw in _ERROR_KEYWORDS):
-                return True
-    return False
-
 def _serialize_output_parts(event):
     import base64 as _b64
     parts = []
     for part in event.parts:
         if isinstance(part, _PrintAction):
-            parts.append({"type": "text", "content": " ".join(str(item) for item in part)})
+            content = " ".join(str(item) for item in part)
+            if not any(kw in content for kw in _ERROR_KEYWORDS):
+                parts.append({"type": "text", "content": content})
+            else:
+                # Split into error vs non-error chunks by line
+                _NL = chr(10)
+                lines = content.split(_NL)
+                chunk = []
+                chunk_is_err = False
+                for line in lines:
+                    line_is_err = any(kw in line for kw in _ERROR_KEYWORDS)
+                    if chunk and line_is_err != chunk_is_err:
+                        parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
+                        chunk = []
+                    chunk_is_err = line_is_err
+                    chunk.append(line)
+                if chunk:
+                    parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
         elif isinstance(part, _ImageAction):
             _png = getattr(part, "_png_bytes", None)
             if _png is None and hasattr(part, 'png_bytes'):
@@ -554,6 +561,28 @@ def _output_text(event):
         else:
             lines.append(str(part))
     return "\\n".join(lines)
+
+def _split_output_events(all_parts):
+    """Split serialized parts into separate output and error event dicts."""
+    _NL = chr(10)
+    out_parts = [p for p in all_parts if p.get("type") != "error"]
+    err_parts = [p for p in all_parts if p.get("type") == "error"]
+    result = []
+    if out_parts:
+        result.append({
+            "type": "output",
+            "message": _NL.join(p.get("content", "") for p in out_parts),
+            "parts": out_parts,
+        })
+    if err_parts:
+        result.append({
+            "type": "error",
+            "message": _NL.join(p.get("content", "") for p in err_parts),
+            "parts": err_parts,
+        })
+    if not result:
+        result.append({"type": "output", "message": "", "parts": all_parts})
+    return result
 
 def _serialize_file_actions(actions):
     result = []
@@ -582,12 +611,9 @@ def _serialize_chapter_events(events_list, state=None):
                 "output_tokens": evt.output_tokens,
             })
         elif isinstance(evt, _OutputEvent):
-            _is_err = _is_error_output(evt)
-            result.append({
-                "type": "error" if _is_err else "output",
-                "message": _output_text(evt),
-                "parts": _serialize_output_parts(evt),
-            })
+            result.extend(_split_output_events(_serialize_output_parts(evt)))
+                    "parts": _all_parts,
+                })
         elif isinstance(evt, _ChapterEvent):
             _ch_item = {
                 "type": "chapter",
@@ -918,12 +944,7 @@ def _on_event(event):
             "output_tokens": event.output_tokens,
         })
     elif isinstance(event, _OutputEvent):
-        _is_err = _is_error_output(event)
-        _events_log.append({
-            "type": "error" if _is_err else "output",
-            "message": _output_text(event),
-            "parts": _serialize_output_parts(event),
-        })
+        _events_log.extend(_split_output_events(_serialize_output_parts(event)))
     elif isinstance(event, _ChapterEvent):
         _state = _agent.state("default")
         _events_log.append({
