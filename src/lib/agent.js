@@ -163,6 +163,18 @@ del _drive_fs_src, _drive_fs_mod, _types, _sys
 # _agent.skill(_gmail_skill_text.encode("utf-8"))
 # del _gmail_skill_text
 
+_drive_skill_text = _open_url("/skills/drive.md").read()
+_agent.skill(_drive_skill_text.encode("utf-8"))
+del _drive_skill_text
+
+_sheets_skill_text = _open_url("/skills/sheets.md").read()
+_agent.skill(_sheets_skill_text.encode("utf-8"))
+del _sheets_skill_text
+
+_docs_skill_text = _open_url("/skills/docs.md").read()
+_agent.skill(_docs_skill_text.encode("utf-8"))
+del _docs_skill_text
+
 del _open_url
 
 _OR_API_KEY = "${settings.apiKey}"
@@ -467,12 +479,10 @@ local_timezone() and google_token() are registered globals — call them directl
 do not import them from any module. Use local_timezone() to get the user's
 IANA timezone (e.g. "America/Los_Angeles") as the tz parameter for calgebra.
 
-Google Drive: users can share files from Google Drive. Shared files
-appear as read-only files under /drive/. Google Docs are converted to
-markdown (.md), Google Sheets become directories with one CSV per tab,
-Slides are exported as PDF, and other files appear as-is. Use standard
-file operations (open, read, os.listdir) to access them. Writing to
-/drive/ raises PermissionError.
+Google Drive: when working with files under /drive/ or encountering CSV
+parsing errors from shared Sheets, read the drive skill first:
+  cat /skills/drive/SKILL.md
+It covers file structure, CSV quirks, and how to handle irregular data.
 
 Error handling: when code throws an exception, DO NOT catch it and return an
 error message to the user. Instead, let the error propagate or call

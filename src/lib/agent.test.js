@@ -64,16 +64,16 @@ describe("initAgent", () => {
         const code = runPythonCalls[0];
         expect(code).toContain('_open_url("/sheets.py")');
         expect(code).toContain('_sys.modules["sheets"] = _sheets_mod');
-        expect(code).not.toContain("sheets.md");
+        expect(code).toContain("sheets.md");
     });
 
-    it("loads docs module without registering skill", async () => {
+    it("loads docs module and registers skill", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
         expect(code).toContain('_open_url("/docs.py")');
         expect(code).toContain('_sys.modules["docs"] = _docs_mod');
-        expect(code).not.toContain("docs.md");
+        expect(code).toContain("docs.md");
     });
 
     it("loads drive_fs module and mounts at /drive", async () => {
@@ -88,13 +88,13 @@ describe("initAgent", () => {
         expect(code).toContain("_update_drive_files");
     });
 
-    it("mentions drive in task primer", async () => {
+    it("registers drive skill and mentions in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
-        expect(code).toContain("Google Drive");
+        expect(code).toContain("drive.md");
         expect(code).toContain("/drive/");
-        expect(code).not.toContain("drive.md");
+        expect(code).toContain("cat /skills/drive/SKILL.md");
     });
 
 
