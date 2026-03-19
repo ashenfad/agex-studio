@@ -56,15 +56,7 @@ describe("initAgent", () => {
         expect(code).toContain("_agent.skill");
     });
 
-    it("loads gmail module and registers skill", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = runPythonCalls[0];
-        expect(code).toContain('_open_url("/gmail.py")');
-        expect(code).toContain('_sys.modules["gmail"] = _gmail_mod');
-        expect(code).toContain("network_access=True");
-        expect(code).toContain("gmail.md");
-    });
+    // Gmail module disabled until app verification (restricted scopes)
 
     it("loads sheets module without registering skill", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
@@ -105,13 +97,6 @@ describe("initAgent", () => {
         expect(code).not.toContain("drive.md");
     });
 
-    it("mentions gmail in task primer", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = runPythonCalls[0];
-        expect(code).toContain("cat /skills/gmail/SKILL.md");
-        expect(code).toContain("email, inbox, messages");
-    });
 
     it("mentions test_app auto-display in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
