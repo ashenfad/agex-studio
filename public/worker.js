@@ -24,7 +24,7 @@ const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
 
 // Our packages — cache-busted so version bumps take effect immediately
 const OWN_DEPS = [
-    "kvgit>=0.1.7",
+    "kvgit>=0.1.8",
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
     "sandtrap>=0.1.10",
@@ -82,7 +82,7 @@ async function init() {
         );
         const extraInstalls = [
             `micropip.install("icalendar", deps=False)`,
-            `micropip.install("agex>=0.9.2", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.9.3", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("calgebra>=0.10.10", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];

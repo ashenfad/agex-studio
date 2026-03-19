@@ -125,13 +125,10 @@ def _install_url_module(name, url):
         f.write(_open_url(url).read())
     return _importlib.import_module(name)
 
-# Sheets/Docs REST API modules disabled — scopes removed for minimal demo.
-# Re-enable when spreadsheets/documents scopes are restored.
-# _sheets = _install_url_module("sheets", "/sheets.py")
-# _agent.module(_sheets, visibility="low", network_access=True)
-# _docs = _install_url_module("docs", "/docs.py")
-# _agent.module(_docs, visibility="low", network_access=True)
-
+# Sheets/Docs modules installed (drive_fs depends on them at runtime)
+# but not registered with the agent — scopes removed for minimal demo.
+_install_url_module("sheets", "/sheets.py")
+_install_url_module("docs", "/docs.py")
 _install_url_module("drive_fs", "/drive_fs.py")
 
 del _install_url_module, _site_dir, _importlib
@@ -515,23 +512,18 @@ def _is_error_output(event):
 
 def _serialize_output_parts(event):
     import base64 as _b64
-    import io as _io
     parts = []
     for part in event.parts:
         if isinstance(part, _PrintAction):
             parts.append({"type": "text", "content": " ".join(str(item) for item in part)})
         elif isinstance(part, _ImageAction):
-            img = part.image
-            # Convert to base64 PNG if it's a PIL Image
-            if hasattr(img, 'save'):
-                buf = _io.BytesIO()
-                img.save(buf, format='PNG')
-                parts.append({"type": "image", "data": _b64.b64encode(buf.getvalue()).decode("ascii")})
-            elif isinstance(img, str):
-                # Already base64 or data URL
-                parts.append({"type": "image", "data": img})
+            _png = part._png_bytes
+            if _png is not None:
+                parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
+            elif isinstance(part.image, str):
+                parts.append({"type": "image", "data": part.image})
             else:
-                parts.append({"type": "text", "content": str(img)})
+                parts.append({"type": "text", "content": str(part.image)})
         else:
             parts.append({"type": "text", "content": str(part)})
     return parts
