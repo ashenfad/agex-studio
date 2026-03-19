@@ -612,8 +612,6 @@ def _serialize_chapter_events(events_list, state=None):
             })
         elif isinstance(evt, _OutputEvent):
             result.extend(_split_output_events(_serialize_output_parts(evt)))
-                    "parts": _all_parts,
-                })
         elif isinstance(evt, _ChapterEvent):
             _ch_item = {
                 "type": "chapter",
