@@ -4,7 +4,8 @@
 
     const MODELS = [
         { id: "openai/gpt-5.4", label: "GPT-5.4" },
-        { id: "openai/gpt-5.2", label: "GPT-5.2" },
+        { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
+        { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
         { id: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6" },
         { id: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
         { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
@@ -12,8 +13,6 @@
         { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
         { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
         { id: "qwen/qwen3-coder-next", label: "Qwen3 Coder Next" },
-        { id: "deepseek/deepseek-v3.2", label: "DeepSeek V3.2" },
-        { id: "deepseek/deepseek-r1", label: "DeepSeek R1" },
     ]
 
     /** @type {{ open: boolean, onClose: () => void }} */
