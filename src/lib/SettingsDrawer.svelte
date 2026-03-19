@@ -473,6 +473,13 @@
     .page-modal-body :global(a) { color: #7cacf8; }
     .page-modal-body :global(.back) { display: none; }
     .page-modal-body :global(.updated) { font-size: 0.8rem; color: #888; }
+    .page-modal-body :global(ul) {
+        padding-left: 1.5rem;
+        margin: 0.5rem 0;
+    }
+    .page-modal-body :global(li) {
+        margin: 0.3rem 0;
+    }
     .page-modal-body :global(code) {
         background: #2a2a2a;
         padding: 0.15em 0.35em;
