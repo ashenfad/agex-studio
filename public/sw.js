@@ -5,11 +5,15 @@
  * so that micropip.install() doesn't re-download on every page load.
  */
 
-const CACHE_NAME = "pypi-wheels-v2";
+const CACHE_NAME = "agex-assets-v1";
 
 /** @param {string} url */
-function isPyPI(url) {
-    return url.includes("files.pythonhosted.org");
+function isCacheable(url) {
+    // PyPI wheels
+    if (url.includes("files.pythonhosted.org")) return true;
+    // Pyodide CDN (runtime, stdlib, built-in packages)
+    if (url.includes("cdn.jsdelivr.net/pyodide/")) return true;
+    return false;
 }
 
 self.addEventListener("install", () => {
@@ -22,7 +26,7 @@ self.addEventListener("activate", (event) => {
         caches.keys().then((names) =>
             Promise.all(
                 names
-                    .filter((n) => n.startsWith("pypi-wheels-") && n !== CACHE_NAME)
+                    .filter((n) => n !== CACHE_NAME)
                     .map((n) => caches.delete(n))
             )
         )
@@ -31,7 +35,7 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-    if (!isPyPI(event.request.url)) return;
+    if (!isCacheable(event.request.url)) return;
 
     event.respondWith(
         caches.open(CACHE_NAME).then(async (cache) => {

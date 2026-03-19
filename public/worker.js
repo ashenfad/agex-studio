@@ -70,37 +70,26 @@ async function init() {
         const appVersion = new URL(self.location.href).searchParams.get("v") || "0";
         const freshIndex = `https://pypi.org/pypi/{package_name}/json?v=${appVersion}`;
 
-        const allDeps = [...OWN_DEPS, ...VENDOR_DEPS];
-        const total = allDeps.length + 3;
-        for (let i = 0; i < allDeps.length; i++) {
-            const pkg = allDeps[i];
-            const isOwn = i < OWN_DEPS.length;
-            progress(`Installing ${pkg}...`, 0.15 + (0.8 * i) / total);
-            await pyodide.runPythonAsync(`
-import micropip
-await micropip.install("${pkg}"${isOwn ? `, index_urls="${freshIndex}"` : ""})
-            `);
-        }
+        // Install all packages in parallel where possible.
+        // OWN_DEPS use cache-busted index; VENDOR_DEPS use default index.
+        progress("Installing packages...", 0.2);
 
-        // Install icalendar with deps=False — its deps (python-dateutil, tzdata)
-        // are already satisfied above or bundled with Pyodide.
-        progress("Installing icalendar...", 0.15 + (0.8 * allDeps.length) / total);
-        await pyodide.runPythonAsync(`
-import micropip
-await micropip.install("icalendar", deps=False)
-        `);
+        const ownInstalls = OWN_DEPS.map(
+            pkg => `micropip.install("${pkg}", index_urls="${freshIndex}")`
+        );
+        const vendorInstalls = VENDOR_DEPS.map(
+            pkg => `micropip.install("${pkg}")`
+        );
+        const extraInstalls = [
+            `micropip.install("icalendar", deps=False)`,
+            `micropip.install("agex>=0.9.2", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("calgebra>=0.10.10", deps=False, index_urls="${freshIndex}")`,
+        ];
+        const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
 
-        // Install agex and calgebra last (deps already satisfied above)
-        progress("Installing agex...", 0.15 + (0.8 * (allDeps.length + 1)) / total);
         await pyodide.runPythonAsync(`
-import micropip
-await micropip.install("agex>=0.9.2", deps=False, index_urls="${freshIndex}")
-        `);
-
-        progress("Installing calgebra...", 0.15 + (0.8 * (allDeps.length + 2)) / total);
-        await pyodide.runPythonAsync(`
-import micropip
-await micropip.install("calgebra>=0.10.10", deps=False, index_urls="${freshIndex}")
+import micropip, asyncio
+await asyncio.gather(${allInstalls.join(", ")})
         `);
 
         progress("Verifying installation...", 0.95);
