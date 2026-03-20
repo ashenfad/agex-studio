@@ -8,5 +8,6 @@ if ('serviceWorker' in navigator) {
 }
 
 const app = mount(App, { target: document.getElementById('app') })
+document.getElementById('static-footer')?.remove()
 
 export default app
