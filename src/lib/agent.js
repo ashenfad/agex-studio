@@ -541,8 +541,8 @@ def _serialize_output_parts(event):
             if _png is None and hasattr(part, 'png_bytes'):
                 try:
                     _png = part.png_bytes()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    print(f"--- Warning: failed to encode image: {_e} ---")
             if _png is not None:
                 parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
             elif isinstance(part.image, str):
