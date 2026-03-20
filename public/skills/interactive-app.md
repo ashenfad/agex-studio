@@ -577,6 +577,7 @@ Both functions accept `actions` — a list of interactions to perform:
 | `{"read": "#selector"}` | Read element text content |
 | `{"read": "#selector", "prop": "value"}` | Read a specific property |
 | `{"eval": "js expression"}` | Evaluate JS and capture result |
+| `{"screenshot": true}` | Capture a screenshot (sent via view_image) |
 
 The app settles (query() calls, re-renders) after each action.
 

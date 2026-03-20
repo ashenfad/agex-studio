@@ -273,6 +273,13 @@ def _display_app_results(_results, _label):
                 print(f"[eval error] {_clean_app_message(_r['error'])}")
             else:
                 print(f"[eval] {_r.get('value', '')}")
+        elif _r.get("type") == "screenshot":
+            import base64 as _b64
+            from PIL import Image as _Image
+            import io as _io
+            _img_data = _b64.b64decode(_r["data"])
+            _img = _Image.open(_io.BytesIO(_img_data))
+            await view_image(_img)
     if not _results:
         print(f"[{_label}] clean")
 
@@ -295,6 +302,7 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
+            - {"screenshot": true}          — capture a screenshot (sent via view_image)
             The app is given time to settle (query() calls, re-renders)
             after each action before proceeding to the next.
 
@@ -347,6 +355,7 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
+            - {"screenshot": true}          — capture a screenshot (sent via view_image)
 
     Returns:
         List of result dicts (also auto-displayed via print).

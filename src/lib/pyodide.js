@@ -582,11 +582,42 @@ function waitForIdle(iframe, maxMs = 15000) {
  * @param {Array<object>} actions
  * @returns {Promise<Array<object>>} action results (read/eval entries)
  */
+let _html2canvasPromise = null;
+async function loadHtml2Canvas() {
+    if (!_html2canvasPromise) {
+        _html2canvasPromise = import('https://esm.sh/html2canvas@1.4.1')
+            .then(m => m.default);
+    }
+    return _html2canvasPromise;
+}
+
+async function captureScreenshot(iframe) {
+    const html2canvas = await loadHtml2Canvas();
+    const body = iframe.contentDocument.body;
+    const canvas = await html2canvas(body, {
+        width: iframe.clientWidth || 800,
+        height: iframe.clientHeight || 600,
+        useCORS: true,
+        logging: false,
+    });
+    return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
+}
+
 async function executeActions(iframe, actions) {
     const results = [];
     for (const action of actions) {
         const doc = iframe.contentDocument;
-        if (action.click) {
+        if (action.screenshot) {
+            try {
+                const data = await captureScreenshot(iframe);
+                results.push({ type: 'screenshot', data });
+            } catch (e) {
+                results.push({
+                    type: 'log', level: 'error',
+                    message: `Screenshot failed: ${e.message}`,
+                });
+            }
+        } else if (action.click) {
             const el = doc.querySelector(action.click);
             if (el) el.click();
         } else if (action.type) {
