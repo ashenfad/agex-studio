@@ -252,11 +252,16 @@ async def search(query: str, deep: bool = False) -> str:
 
 _agent.fn(search, visibility="high")
 
+def _clean_app_message(msg):
+    """Strip data: URLs from stack traces to make them readable."""
+    import re
+    return re.sub(r'data:text/javascript;charset=utf-8,[^\s)]+', '<app>', msg)
+
 def _display_app_results(_results, _label):
     """Auto-display app test/interaction results."""
     for _r in _results:
         if _r.get("type") == "log":
-            print(f"[{_r.get('level', 'log')}] {_r.get('message', '')}")
+            print(f"[{_r.get('level', 'log')}] {_clean_app_message(_r.get('message', ''))}")
         elif _r.get("type") == "read":
             _val = _r.get("value")
             if _val is None:
@@ -265,7 +270,7 @@ def _display_app_results(_results, _label):
                 print(f"[read {_r.get('selector', '')}] {_val}")
         elif _r.get("type") == "eval":
             if "error" in _r:
-                print(f"[eval error] {_r['error']}")
+                print(f"[eval error] {_clean_app_message(_r['error'])}")
             else:
                 print(f"[eval] {_r.get('value', '')}")
     if not _results:
