@@ -337,6 +337,26 @@ function _escapeRegex(s) {
 }
 
 /**
+ * Resolve a relative import path against the importing file's directory.
+ * "./constants.js" from "game/logic.js" → "game/constants.js"
+ * "./utils/helpers.js" from "App.js" → "utils/helpers.js"
+ *
+ * @param {string} specifier - the relative path (after stripping "./")
+ * @param {string} baseDir - directory of the importing file (e.g. "game/")
+ * @returns {string} resolved relative path
+ */
+function _resolveRelative(specifier, baseDir) {
+    if (!baseDir) return specifier;
+    const parts = (baseDir + specifier).split('/');
+    const resolved = [];
+    for (const p of parts) {
+        if (p === '..') resolved.pop();
+        else if (p && p !== '.') resolved.push(p);
+    }
+    return resolved.join('/');
+}
+
+/**
  * Rewrite local relative import/export specifiers in JS code to use bare
  * prefixed specifiers that resolve via the import map.
  *
@@ -344,28 +364,48 @@ function _escapeRegex(s) {
  * ./components/Bar.js → __app/components/Bar.js
  *
  * Only rewrites specifiers whose target file exists in knownFiles.
+ * When baseDir is provided, relative paths are resolved against it
+ * (e.g. "./constants.js" from "game/" resolves to "game/constants.js").
  *
  * @param {string} code - JS source code
  * @param {Set<string>} knownFiles - set of relative paths (e.g. "App.js", "utils/helpers.js")
+ * @param {string} [baseDir=''] - directory of the importing file
  * @returns {string} rewritten code
  */
-export function _rewriteLocalImports(code, knownFiles) {
-    // Static import/export-from: import ... from './foo.js'  /  export ... from './foo.js'
+export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
+    // Helper: try to resolve a specifier and return the knownFiles key, or null
+    function resolve(specifier) {
+        // ./foo.js — relative to baseDir
+        if (specifier.startsWith('./')) {
+            const resolved = _resolveRelative(specifier.slice(2), baseDir);
+            return knownFiles.has(resolved) ? resolved : null;
+        }
+        // /app/foo.js — absolute path agents sometimes use
+        if (specifier.startsWith('/app/')) {
+            const resolved = specifier.slice(5);
+            return knownFiles.has(resolved) ? resolved : null;
+        }
+        return null;
+    }
+
+    // Static import/export-from: import ... from './foo.js' or '/app/foo.js'
     code = code.replace(
-        /((?:import|export)\s(?:[^'"]*?\s)?from\s*|import\s*)(['"])(\.\/([^'"]+))\2/g,
-        (match, before, quote, _specifier, relative) => {
-            if (knownFiles.has(relative)) {
-                return `${before}${quote}${APP_MODULE_PREFIX}${relative}${quote}`;
+        /((?:import|export)\s(?:[^'"]*?\s)?from\s*|import\s*)(['"])((?:\.\/|\/app\/)[^'"]+)\2/g,
+        (match, before, quote, specifier) => {
+            const resolved = resolve(specifier);
+            if (resolved) {
+                return `${before}${quote}${APP_MODULE_PREFIX}${resolved}${quote}`;
             }
             return match;
         },
     );
-    // Dynamic import: import('./foo.js')
+    // Dynamic import: import('./foo.js') or import('/app/foo.js')
     code = code.replace(
-        /import\s*\(\s*(['"])(\.\/([^'"]+))\1\s*\)/g,
-        (match, quote, _specifier, relative) => {
-            if (knownFiles.has(relative)) {
-                return `import(${quote}${APP_MODULE_PREFIX}${relative}${quote})`;
+        /import\s*\(\s*(['"])((?:\.\/|\/app\/)[^'"]+)\1\s*\)/g,
+        (match, quote, specifier) => {
+            const resolved = resolve(specifier);
+            if (resolved) {
+                return `import(${quote}${APP_MODULE_PREFIX}${resolved}${quote})`;
             }
             return match;
         },
@@ -411,7 +451,8 @@ function _resolveAppModules(appFiles, html) {
 
     if (knownFiles.size > 0) {
         for (const [name, content] of jsFiles) {
-            const rewritten = _rewriteLocalImports(content, knownFiles);
+            const dir = name.includes('/') ? name.replace(/[^/]+$/, '') : '';
+            const rewritten = _rewriteLocalImports(content, knownFiles, dir);
             const encoded = encodeURIComponent(rewritten);
             appImports[APP_MODULE_PREFIX + name] = `data:text/javascript;charset=utf-8,${encoded}`;
         }

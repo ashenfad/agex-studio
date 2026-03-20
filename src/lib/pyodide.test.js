@@ -340,6 +340,48 @@ describe("_rewriteLocalImports", () => {
         const result = _rewriteLocalImports(`import App from "./App.js";`, known);
         expect(result).toContain(`from "__app/App.js"`);
     });
+
+    it("resolves imports relative to importing file's directory", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["game/constants.js", "game/logic.js"]);
+        const code = `import { TILE_SIZE } from './constants.js';`;
+        const result = _rewriteLocalImports(code, known, "game/");
+        expect(result).toContain(`from '__app/game/constants.js'`);
+    });
+
+    it("resolves parent-relative imports from subdirectory", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js", "game/logic.js"]);
+        const code = `import { helper } from '../utils.js';`;
+        // ../utils.js from game/ should not match (we only handle ./ not ../)
+        const result = _rewriteLocalImports(code, known, "game/");
+        // ../ imports are not rewritten (not matched by the regex)
+        expect(result).toBe(code);
+    });
+
+    it("root-level imports still work without baseDir", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["game/constants.js"]);
+        const code = `import { X } from './game/constants.js';`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toContain(`from '__app/game/constants.js'`);
+    });
+
+    it("rewrites absolute /app/ imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["game/constants.js"]);
+        const code = `import { TILE_SIZE } from '/app/game/constants.js';`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toContain(`from '__app/game/constants.js'`);
+    });
+
+    it("rewrites dynamic absolute /app/ imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["game/logic.js"]);
+        const code = `const mod = await import('/app/game/logic.js');`;
+        const result = _rewriteLocalImports(code, known);
+        expect(result).toContain(`import('__app/game/logic.js')`);
+    });
 });
 
 describe("buildAppHtml multi-file", () => {
