@@ -130,6 +130,7 @@
                 initStatus = 'Loading files...'
                 files = await listFiles()
                 agentReady = true
+                document.getElementById('static-footer')?.remove()
                 // Silently restore Google token if previously connected
                 tryRestore().catch(() => {})
             }).catch((e) => {
