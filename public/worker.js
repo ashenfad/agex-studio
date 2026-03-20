@@ -82,8 +82,8 @@ async function init() {
         );
         const extraInstalls = [
             `micropip.install("icalendar", deps=False)`,
-            `micropip.install("agex>=0.9.3", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("calgebra>=0.10.10", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.9.4", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
 
