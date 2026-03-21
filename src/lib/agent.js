@@ -274,16 +274,7 @@ async def _display_app_results(_results, _label):
             else:
                 print(f"[eval] {_r.get('value', '')}")
         elif _r.get("type") == "screenshot":
-            import base64 as _b64
-            from PIL import Image as _Image
-            import io as _io
-            _img_data = _b64.b64decode(_r["data"])
-            _img = _Image.open(_io.BytesIO(_img_data))
-            # view_image is injected per-turn into the exec namespace,
-            # which setup-defined code can't see. Use _agent._current_outputs
-            # to append directly to the same list view_image uses.
-            from agex.eval.objects import ImageAction as _IA
-            _agent._current_outputs.append(_IA(image=_img))
+            print(f"__AGEX_IMAGE__:{_r['data']}")
     if not _results:
         print(f"[{_label}] clean")
 
@@ -306,7 +297,8 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
-            - {"screenshot": True}          — capture a screenshot (sent via view_image)
+            - {"screenshot": True}          — capture a full screenshot (via view_image)
+            - {"screenshot": "#selector"}   — screenshot a specific element
             The app is given time to settle (query() calls, re-renders)
             after each action before proceeding to the next.
 
@@ -359,7 +351,8 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
-            - {"screenshot": True}          — capture a screenshot (sent via view_image)
+            - {"screenshot": True}          — capture a full screenshot (via view_image)
+            - {"screenshot": "#selector"}   — screenshot a specific element
 
     Returns:
         List of result dicts (also auto-displayed via print).

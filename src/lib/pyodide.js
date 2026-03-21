@@ -591,16 +591,34 @@ async function loadHtml2Canvas() {
     return _html2canvasPromise;
 }
 
-async function captureScreenshot(iframe) {
+async function captureScreenshot(iframe, selector = null) {
     const html2canvas = await loadHtml2Canvas();
-    const body = iframe.contentDocument.body;
-    const canvas = await html2canvas(body, {
-        width: iframe.clientWidth || 800,
-        height: iframe.clientHeight || 600,
-        useCORS: true,
-        logging: false,
-    });
-    return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
+    const doc = iframe.contentDocument;
+    let target = selector ? doc.querySelector(selector) : doc.body;
+    if (!target) throw new Error(`Screenshot target not found: ${selector}`);
+
+    // html2canvas can't render raw SVG elements — wrap in a temporary div
+    let wrapper = null;
+    if (target.tagName === 'svg' || target.tagName === 'SVG') {
+        wrapper = doc.createElement('div');
+        target.parentNode.insertBefore(wrapper, target);
+        wrapper.appendChild(target);
+        target = wrapper;
+    }
+
+    try {
+        const canvas = await html2canvas(target, {
+            useCORS: true,
+            logging: false,
+        });
+        return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
+    } finally {
+        // Unwrap — restore the SVG to its original position
+        if (wrapper) {
+            wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
+            wrapper.remove();
+        }
+    }
 }
 
 async function executeActions(iframe, actions) {
@@ -609,7 +627,8 @@ async function executeActions(iframe, actions) {
         const doc = iframe.contentDocument;
         if (action.screenshot) {
             try {
-                const data = await captureScreenshot(iframe);
+                const selector = typeof action.screenshot === 'string' ? action.screenshot : null;
+                const data = await captureScreenshot(iframe, selector);
                 results.push({ type: 'screenshot', data });
             } catch (e) {
                 results.push({

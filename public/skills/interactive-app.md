@@ -526,6 +526,26 @@ await test_app(actions=[
 task_continue()  # MUST be task_continue — you need to SEE the results
 ```
 
+Use `{"screenshot": True}` to visually inspect the rendered app, or
+target a specific element with `{"screenshot": "#selector"}`:
+
+```python
+# Screenshot the full app after interacting
+await test_app(actions=[
+    {"click": "#start-btn"},
+    {"wait": 1000},
+    {"screenshot": True},
+])
+task_continue()
+
+# Screenshot just a specific component
+await test_app(actions=[
+    {"screenshot": "#game-canvas"},
+    {"screenshot": ".score-panel"},
+])
+task_continue()
+```
+
 A bare `await test_app()` only checks for console errors — it does NOT
 verify that data loaded, charts rendered, or controls work. **Always use
 actions** to interact with your app and read back results before finishing.
@@ -562,6 +582,10 @@ await live_app(actions=[
     {"read": "#results-count"},
 ])
 task_continue()
+
+# See what the live app looks like right now
+await live_app(actions=[{"screenshot": True}])
+task_continue()
 ```
 
 ### Shared Actions
@@ -577,7 +601,8 @@ Both functions accept `actions` — a list of interactions to perform:
 | `{"read": "#selector"}` | Read element text content |
 | `{"read": "#selector", "prop": "value"}` | Read a specific property |
 | `{"eval": "js expression"}` | Evaluate JS and capture result |
-| `{"screenshot": True}` | Capture a screenshot (sent via view_image) |
+| `{"screenshot": True}` | Capture a full screenshot (sent via view_image) |
+| `{"screenshot": "#selector"}` | Screenshot a specific element |
 
 The app settles (query() calls, re-renders) after each action.
 
