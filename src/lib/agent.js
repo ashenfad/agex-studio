@@ -257,7 +257,7 @@ def _clean_app_message(msg):
     import re
     return re.sub(r'data:text/javascript;charset=utf-8,[^\s)]+', '<app>', msg)
 
-def _display_app_results(_results, _label):
+async def _display_app_results(_results, _label):
     """Auto-display app test/interaction results."""
     for _r in _results:
         if _r.get("type") == "log":
@@ -322,12 +322,12 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
         pass
     if not _app_files:
         _r = [{"type": "log", "level": "error", "message": "No app files found in app/ directory"}]
-        _display_app_results(_r, "test_app")
+        await _display_app_results(_r, "test_app")
         return _r
     _actions_json = _json.dumps(actions) if actions else None
     _results_json = await _js_test_app(_json.dumps(_app_files), _actions_json)
     _results = _json.loads(_results_json)
-    _display_app_results(_results, "test_app")
+    await _display_app_results(_results, "test_app")
     return _results
 
 _agent.fn(test_app, visibility="low")
@@ -364,7 +364,7 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
     _actions_json = _json.dumps(actions) if actions else None
     _results_json = await _js_live_app(_actions_json)
     _results = _json.loads(_results_json)
-    _display_app_results(_results, "live_app")
+    await _display_app_results(_results, "live_app")
     return _results
 
 _agent.fn(live_app, visibility="low")
