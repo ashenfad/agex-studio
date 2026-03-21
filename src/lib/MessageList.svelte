@@ -315,6 +315,29 @@
         text-decoration: underline;
     }
 
+    .content.markdown :global(table) {
+        border-collapse: collapse;
+        margin: 0.5em 0;
+        width: 100%;
+        font-size: 0.88em;
+    }
+
+    .content.markdown :global(th),
+    .content.markdown :global(td) {
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 0.35em 0.6em;
+        text-align: left;
+    }
+
+    .content.markdown :global(th) {
+        background: rgba(255, 255, 255, 0.08);
+        font-weight: 600;
+    }
+
+    .content.markdown :global(tr:nth-child(even)) {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
     .content.markdown :global(blockquote) {
         border-left: 3px solid rgba(255, 255, 255, 0.2);
         background: rgba(255, 255, 255, 0.06);
