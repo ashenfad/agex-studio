@@ -279,17 +279,11 @@ async def _display_app_results(_results, _label):
             import io as _io
             _img_data = _b64.b64decode(_r["data"])
             _img = _Image.open(_io.BytesIO(_img_data))
-            # view_image is injected per-turn into the exec namespace.
-            # From setup-defined code we can't see it directly, but we
-            # can look it up through the sandbox's __builtins__ or the
-            # Pyodide global namespace which is shared.
-            import sys as _sys
-            _main = _sys.modules.get("__main__")
-            _vi = getattr(_main, "view_image", None) if _main else None
-            if _vi:
-                await _vi(_img)
-            else:
-                print("[screenshot] captured")
+            # view_image is injected per-turn into the exec namespace,
+            # which setup-defined code can't see. Use _agent._current_outputs
+            # to append directly to the same list view_image uses.
+            from agex.eval.objects import ImageAction as _IA
+            _agent._current_outputs.append(_IA(image=_img))
     if not _results:
         print(f"[{_label}] clean")
 
