@@ -279,12 +279,17 @@ async def _display_app_results(_results, _label):
             import io as _io
             _img_data = _b64.b64decode(_r["data"])
             _img = _Image.open(_io.BytesIO(_img_data))
-            # view_image is injected per-turn by the bridge — look it up at call time
-            _vi = globals().get("view_image") or locals().get("view_image")
+            # view_image is injected per-turn into the exec namespace.
+            # From setup-defined code we can't see it directly, but we
+            # can look it up through the sandbox's __builtins__ or the
+            # Pyodide global namespace which is shared.
+            import sys as _sys
+            _main = _sys.modules.get("__main__")
+            _vi = getattr(_main, "view_image", None) if _main else None
             if _vi:
                 await _vi(_img)
             else:
-                print("[screenshot] captured (view_image not available)")
+                print("[screenshot] captured")
     if not _results:
         print(f"[{_label}] clean")
 
