@@ -279,7 +279,12 @@ async def _display_app_results(_results, _label):
             import io as _io
             _img_data = _b64.b64decode(_r["data"])
             _img = _Image.open(_io.BytesIO(_img_data))
-            await view_image(_img)
+            # view_image is injected per-turn by the bridge — look it up at call time
+            _vi = globals().get("view_image") or locals().get("view_image")
+            if _vi:
+                await _vi(_img)
+            else:
+                print("[screenshot] captured (view_image not available)")
     if not _results:
         print(f"[{_label}] clean")
 
