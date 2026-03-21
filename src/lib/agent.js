@@ -307,7 +307,7 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
-            - {"screenshot": true}          — capture a screenshot (sent via view_image)
+            - {"screenshot": True}          — capture a screenshot (sent via view_image)
             The app is given time to settle (query() calls, re-renders)
             after each action before proceeding to the next.
 
@@ -360,7 +360,7 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
             - {"read": "#selector"}         — read element text content
             - {"read": "#selector", "prop": "value"} — read a property
             - {"eval": "js expression"}     — evaluate JS, capture result
-            - {"screenshot": true}          — capture a screenshot (sent via view_image)
+            - {"screenshot": True}          — capture a screenshot (sent via view_image)
 
     Returns:
         List of result dicts (also auto-displayed via print).
