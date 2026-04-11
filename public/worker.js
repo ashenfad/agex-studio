@@ -62,6 +62,17 @@ async function init() {
         progress("Loading Pyodide...", 0);
         pyodide = await loadPyodide({ indexURL: PYODIDE_CDN });
 
+        // Relay Python stdout/stderr to the main thread so debug prints
+        // (e.g. agex.llm.pyfetch_openai's DEBUG_RAW_STREAM) appear in the
+        // page console. Without this, prints land in the worker's
+        // dedicated console which is hidden by default in DevTools.
+        pyodide.setStdout({
+            batched: (msg) => self.postMessage({ type: "stdout", message: msg }),
+        });
+        pyodide.setStderr({
+            batched: (msg) => self.postMessage({ type: "stderr", message: msg }),
+        });
+
         progress("Installing packages...", 0.15);
         await pyodide.loadPackage(["micropip", "Pillow"]);
 

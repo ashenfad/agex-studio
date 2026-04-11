@@ -72,6 +72,10 @@ export function startWorker() {
             update({ status: "ready", message: "Ready", progress: 1 });
         } else if (msg.type === "init-error") {
             update({ status: "error", message: `Failed: ${msg.message}` });
+        } else if (msg.type === "stdout") {
+            console.log("[py]", msg.message);
+        } else if (msg.type === "stderr") {
+            console.warn("[py]", msg.message);
         } else if (msg.type === "result") {
             const p = pending.get(msg.id);
             if (p) {
