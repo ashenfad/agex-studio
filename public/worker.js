@@ -97,7 +97,7 @@ async function init() {
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("/wheels/kvgit-0.1.8-py3-none-any.whl", deps=False)`,
             `micropip.install("/wheels/termish-0.1.4-py3-none-any.whl", deps=False)`,
-            `micropip.install("/wheels/agex-0.9.8-py3-none-any.whl", deps=False)`,
+            `micropip.install("/wheels/agex-0.9.9-py3-none-any.whl", deps=False)`,
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
