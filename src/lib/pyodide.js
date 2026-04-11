@@ -717,6 +717,12 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
     let iframe = null;
     let blobUrl = null;
     let messageHandler = null;
+    // Promises for currently-running query handler invocations. The
+    // handler is an async arrow fired by a synchronous event listener,
+    // so the awaits inside it can outlive the executeActions loop. We
+    // drain this list before teardown so in-flight responses don't try
+    // to postMessage to a detached iframe.
+    let pendingHandlers = [];
 
     try {
         const appFiles = JSON.parse(appFilesJson);
@@ -729,21 +735,23 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
         iframe.sandbox = 'allow-scripts allow-same-origin';
 
         // Handle query() messages from the test iframe
-        messageHandler = async (event) => {
+        messageHandler = (event) => {
             if (!iframe || event.source !== iframe.contentWindow) return;
-            if (event.data?.type === 'agex-query') {
-                const { id, code, result } = event.data;
+            if (event.data?.type !== 'agex-query') return;
+            const { id, code, result } = event.data;
+            const p = (async () => {
                 try {
                     const data = queryHandler ? await queryHandler(code, result) : {};
-                    iframe.contentWindow.postMessage(
+                    iframe.contentWindow?.postMessage(
                         { type: 'agex-query-result', id, data, error: null }, '*');
                 } catch (err) {
-                    iframe.contentWindow.postMessage(
+                    iframe.contentWindow?.postMessage(
                         { type: 'agex-query-result', id, data: null,
                           error: err.message || String(err) }, '*');
                 }
                 iframe.__onQueryDone?.();
-            }
+            })();
+            pendingHandlers.push(p);
         };
         window.addEventListener('message', messageHandler);
 
@@ -756,6 +764,17 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
         await waitForIdle(iframe);
 
         const actionResults = await executeActions(iframe, actions);
+
+        // Drain any query handler promises that were spawned by the
+        // actions but haven't resolved yet (e.g. a long-running chunk
+        // generation kicked off by the final click). Handlers added
+        // while we're awaiting get picked up by the loop.
+        while (pendingHandlers.length > 0) {
+            const batch = pendingHandlers;
+            pendingHandlers = [];
+            await Promise.allSettled(batch);
+        }
+
         const results = collectResults(iframe, actionResults);
 
         worker.postMessage({
