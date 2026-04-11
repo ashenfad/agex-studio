@@ -20,3 +20,6 @@ __pycache__/
 
 # Pyodide local dist (downloaded at dev time)
 pyodide/
+
+# Local wheels for dev iteration against unreleased agex/kvgit/termish
+public/wheels/
