@@ -528,9 +528,11 @@
             onSettingsClick={() => settingsOpen = true}
             onSessionsClick={() => sessionsOpen = true}
             onFilesClick={() => filesOpen = true}
+            onAppReloadClick={() => previewRefreshKey++}
             onChapterClick={handleTokenClick}
             {configured}
             fileCount={files?.length ?? 0}
+            showAppReload={hasAppFiles}
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
         />

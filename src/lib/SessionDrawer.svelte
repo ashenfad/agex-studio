@@ -82,21 +82,33 @@
     }
 
     async function handleNew() {
-        await createSession()
-        onClose()
+        try {
+            await createSession()
+            onClose()
+        } catch (e) {
+            console.error('Failed to create session:', e)
+        }
     }
 
     async function handleFork(e, branch) {
         e.stopPropagation()
-        if (branch !== currentBranch) {
-            await switchSession(branch)
+        try {
+            if (branch !== currentBranch) {
+                await switchSession(branch)
+            }
+            await forkSession()
+        } catch (e) {
+            console.error('Failed to fork session:', e)
         }
-        await forkSession()
     }
 
     async function handleSwitch(branch) {
         if (branch === currentBranch) return
-        await switchSession(branch)
+        try {
+            await switchSession(branch)
+        } catch (e) {
+            console.error('Failed to switch session:', e)
+        }
     }
 
     async function handleDelete(e, branch) {
@@ -106,7 +118,11 @@
             return
         }
         deleteConfirmBranch = null
-        await deleteSession(branch)
+        try {
+            await deleteSession(branch)
+        } catch (e) {
+            console.error('Failed to delete session:', e)
+        }
     }
 
     function formatDate(iso) {

@@ -872,15 +872,72 @@ _json.dumps(_app_files)
   return JSON.parse(json);
 }
 
+// Serialize runQuery calls so a runaway app iframe (infinite render loop,
+// bad useEffect) can't flood the pyodide worker and starve foreground
+// operations like createSession / sendMessage. At most one query runs at
+// a time; the backlog is capped as defense-in-depth behind AppPreview's
+// rate-based freeze detection.
+const RUN_QUERY_MAX_BACKLOG = 16;
+let _runQueryChain = Promise.resolve();
+let _runQueryBacklog = 0;
+let _queriesEnabled = true;
+
+/**
+ * Disable the query bridge. Any query already in flight on the worker
+ * still finishes, but queued queries short-circuit without posting new
+ * runPython calls, so the worker drains fast and foreground operations
+ * regain their slot. Called by AppPreview when it detects a flood.
+ */
+export function disableQueries() {
+  _queriesEnabled = false;
+}
+
+/**
+ * Re-enable the query bridge. Called by AppPreview when the user reloads
+ * the preview (e.g. after the agent fixes its app).
+ */
+export function enableQueries() {
+  _queriesEnabled = true;
+}
+
 /**
  * Run Python code in the agent's sandbox and return requested variables.
  * If resultVars is null, returns all serializable namespace variables.
+ *
+ * Serialized: queries execute one at a time in the order received.
  *
  * @param {string} code - Python code to execute
  * @param {string[] | null} resultVars - Variable names to return, or null for all
  * @returns {Promise<Record<string, any>>}
  */
-export async function runQuery(code, resultVars) {
+export function runQuery(code, resultVars) {
+  if (!_queriesEnabled) {
+    return Promise.reject(new Error("query bridge disabled (preview paused)"));
+  }
+  if (_runQueryBacklog >= RUN_QUERY_MAX_BACKLOG) {
+    return Promise.reject(
+      new Error(
+        `query backlog full (${RUN_QUERY_MAX_BACKLOG}) — app is flooding the bridge`,
+      ),
+    );
+  }
+  _runQueryBacklog++;
+  const result = _runQueryChain.then(() => {
+    // Re-check on dequeue: if the preview was frozen while we waited in
+    // the chain, drop this query without posting to the worker.
+    if (!_queriesEnabled) {
+      throw new Error("query bridge disabled (preview paused)");
+    }
+    return _runQueryImpl(code, resultVars);
+  });
+  // Keep the chain alive even if this call rejects, so the next waiter runs.
+  _runQueryChain = result.catch(() => {}).finally(() => {
+    _runQueryBacklog--;
+  });
+  return result;
+}
+
+async function _runQueryImpl(code, resultVars) {
   const escapedCode = code
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")

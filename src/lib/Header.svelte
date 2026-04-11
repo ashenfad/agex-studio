@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, inputTokens?: number | null, chapteringTrigger?: number }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onChapterClick, configured, fileCount = 0, inputTokens = null, chapteringTrigger = 150000 } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000 } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -33,6 +33,18 @@
             title="Context usage"
         >
             {formatTokens(inputTokens)} / {formatTokens(chapteringTrigger)}
+        </button>
+    {/if}
+    {#if showAppReload}
+        <button
+            class="app-reload-btn"
+            onclick={onAppReloadClick}
+            title="Reload app preview"
+        >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
         </button>
     {/if}
     <button
@@ -127,6 +139,22 @@
     }
 
     .files-btn:hover {
+        color: var(--text);
+        background: var(--surface-hover);
+    }
+
+    .app-reload-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0.3rem;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+    }
+
+    .app-reload-btn:hover {
         color: var(--text);
         background: var(--surface-hover);
     }
