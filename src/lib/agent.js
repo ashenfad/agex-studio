@@ -947,11 +947,28 @@ async function _runQueryImpl(code, resultVars) {
   const json = await runPython(`
 import json as _json
 from agex.eval.bridge import aexecute_sandboxed as _aexecute_sandboxed
+from agex.state.live import Live as _Live
 
 _query_code = '${escapedCode}'
 _query_result_vars = ${resultArg}
 
-_query_state = _agent.state("default")
+# Queries run against a scratch Live state seeded with the chat
+# agent's user-visible variables. This lets the query read
+# dataframes / configs the agent has built up, while discarding any
+# writes (loop vars, transient bindings, explicit assignments) when
+# the Live goes out of scope. Without this, the query bridge would
+# persist its top-level locals into the chat agent's state and
+# silently shadow builtins or clobber chat vars on the next turn.
+_chat_state = _agent.state("default")
+_query_state = _Live()
+for _k in _chat_state.keys():
+    if _k.startswith("_"):
+        continue
+    try:
+        _query_state[_k] = _chat_state[_k]
+    except Exception:
+        pass
+
 _query_error = None
 
 try:
