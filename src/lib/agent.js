@@ -93,6 +93,7 @@ _agent = Agent(
     name="chat",
     primer="You are a helpful assistant.",
     llm=_llm,
+    max_iterations=30,
     state=connect_state(type="versioned", storage="indexeddb"),
     fs=connect_fs(type="virtual"),
     chaptering_trigger=${settings.chapteringTrigger},
@@ -103,6 +104,10 @@ register_stdlib(_agent)
 register_pandas(_agent)
 register_numpy(_agent)
 register_plotly(_agent)
+
+# Override stdlib's restricted random with full access
+import random as _random
+_agent.module(_random, visibility="low")
 
 import pypdf as _pypdf
 _agent.module(_pypdf, visibility="low", recursive=True)
@@ -116,9 +121,18 @@ _agent.module(_scipy, visibility="low", recursive=True)
 import sklearn as _sklearn
 _agent.module(_sklearn, visibility="low", recursive=True)
 
+import skimage as _skimage
+_agent.module(_skimage, visibility="low", recursive=True)
+
 # -- Register calgebra with network access for Google Calendar API --
 import calgebra as _calgebra
 _agent.module(_calgebra, visibility="low", recursive=True, network_access=True)
+
+try:
+    import PIL as _PIL
+    _agent.module(_PIL, visibility="low", recursive=True)
+except ImportError:
+    pass
 
 import asyncio as _asyncio
 _agent.module(_asyncio, include=["gather", "sleep", "wait", "as_completed"])
@@ -472,6 +486,11 @@ a Response to show figures, tables, and text to the user.
 To inspect an image yourself (e.g. a PIL Image, matplotlib Figure, or Plotly
 Figure), call await view_image(img). This sends the image to your own vision —
 it does NOT display it to the user.
+
+Plotly image export: kaleido is NOT available in this Pyodide environment.
+You cannot use fig.to_image() or fig.write_image(). To show a Plotly chart,
+include the go.Figure directly in a Response. To inspect it yourself, use
+await view_image(fig).
 
 PDF files: use render_pdf(path_or_bytes, pages=[0,1], scale=2) to render pages
 to PIL Images. Use pdf_page_count(path_or_bytes) to get page count. Use

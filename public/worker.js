@@ -28,7 +28,7 @@ const OWN_DEPS = [
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
     "sandtrap>=0.1.10",
-    "termish>=0.1.3",
+    // termish installed from local wheel below
 ];
 
 // Third-party packages — use default index (includes Pyodide built-ins)
@@ -42,6 +42,7 @@ const VENDOR_DEPS = [
     "openpyxl",
     "scipy",
     "scikit-learn",
+    "scikit-image",
     "python-dateutil",
     "sortedcontainers",
     "typing-extensions",
@@ -82,7 +83,10 @@ async function init() {
         );
         const extraInstalls = [
             `micropip.install("icalendar", deps=False)`,
-            `micropip.install("agex>=0.9.4", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("tabulate", deps=False)`,
+            `micropip.install("/wheels/kvgit-0.1.8-py3-none-any.whl", deps=False)`,
+            `micropip.install("/wheels/termish-0.1.4-py3-none-any.whl", deps=False)`,
+            `micropip.install("/wheels/agex-0.9.8-py3-none-any.whl", deps=False)`,
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
