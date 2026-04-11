@@ -31,6 +31,8 @@ describe("settingsStore", () => {
         expect(received).toEqual({
             apiKey: "",
             model: "google/gemini-3-flash-preview",
+            provider: "openai",
+            baseUrl: "",
             chapteringTrigger: 150000,
         });
         unsub();

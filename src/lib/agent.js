@@ -2,7 +2,12 @@
  * Agent bridge — sets up and calls an agex agent via the Pyodide worker.
  */
 
-import { runPython, runPythonStreaming, setQueryHandler, setLiveIframe } from "./pyodide.js";
+import {
+  runPython,
+  runPythonStreaming,
+  setQueryHandler,
+  setLiveIframe,
+} from "./pyodide.js";
 
 /**
  * Initialize the agent with the given settings.
@@ -11,8 +16,24 @@ import { runPython, runPythonStreaming, setQueryHandler, setLiveIframe } from ".
  * @param {{ apiKey: string, model: string }} settings
  */
 export async function initAgent(settings) {
-    const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    await runPython(`
+  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const providerName =
+    settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
+  const baseUrlLine = settings.baseUrl
+    ? `    base_url="${settings.baseUrl}",\n`
+    : "";
+  // OpenRouter-specific headers — only meaningful for pyfetch_openai.
+  const openrouterLines =
+    settings.provider === "anthropic"
+      ? ""
+      : `    app_url="https://agex.studio",\n    app_title="Agex Studio",\n`;
+  // Optional: print raw SSE text deltas to the browser console.
+  // Enable with: localStorage.setItem("agex-debug-raw-stream", "1")
+  const debugRawLines =
+    localStorage.getItem("agex-debug-raw-stream") === "1"
+      ? `import agex.llm.${providerName} as _pfmod\n_pfmod.DEBUG_RAW_STREAM = True\n`
+      : "";
+  await runPython(`
 from dataclasses import dataclass
 import pandas as pd
 import plotly.graph_objects as go
@@ -62,13 +83,11 @@ class Response:
                 result.append({"type": "text", "content": str(p)})
         return result
 
-_llm = connect_llm(
-    provider="pyfetch_openai",
+${debugRawLines}_llm = connect_llm(
+    provider="${providerName}",
     model="${settings.model}",
     api_key="${settings.apiKey}",
-    app_url="https://agex.studio",
-    app_title="Agex Studio",
-)
+${baseUrlLine}${openrouterLines})
 
 _agent = Agent(
     name="chat",
@@ -667,8 +686,8 @@ def _serialize_chapter_events(events_list, state=None):
     return result
     `);
 
-    // Wire up query handler for headless app testing
-    setQueryHandler(runQuery);
+  // Wire up query handler for headless app testing
+  setQueryHandler(runQuery);
 }
 
 /**
@@ -676,7 +695,7 @@ def _serialize_chapter_events(events_list, state=None):
  * @returns {Promise<string[]>}
  */
 export async function listFiles() {
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 _list_result = "[]"
 try:
@@ -689,7 +708,7 @@ except Exception as _e:
     _list_result = _json.dumps([])
 _list_result
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -698,14 +717,14 @@ _list_result
  * @returns {Promise<string>}
  */
 export async function readFile(path) {
-    const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const json = await runPython(`
+  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const json = await runPython(`
 import json as _json
 _fs = _agent.fs()
 _content = _fs.read("${escaped}")
 _json.dumps(_content.decode("utf-8", errors="replace"))
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -714,12 +733,12 @@ _json.dumps(_content.decode("utf-8", errors="replace"))
  * @returns {Promise<number>}
  */
 export async function fileSize(path) {
-    const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const result = await runPython(`
+  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const result = await runPython(`
 _fs = _agent.fs()
 len(_fs.read("${escaped}"))
     `);
-    return parseInt(result, 10);
+  return parseInt(result, 10);
 }
 
 /**
@@ -728,8 +747,8 @@ len(_fs.read("${escaped}"))
  * @returns {Promise<void>}
  */
 export async function uploadFiles(files) {
-    const filesJson = JSON.stringify(files);
-    await runPython(`
+  const filesJson = JSON.stringify(files);
+  await runPython(`
 import json as _json, base64 as _b64
 _fs = _agent.fs()
 _uploads = _json.loads('''${filesJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}''')
@@ -748,8 +767,8 @@ _state.commit()
  * @returns {Promise<void>}
  */
 export async function deleteFiles(paths) {
-    const pathsJson = JSON.stringify(paths);
-    await runPython(`
+  const pathsJson = JSON.stringify(paths);
+  await runPython(`
 import json as _json
 _fs = _agent.fs()
 _paths = _json.loads('${pathsJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')
@@ -765,10 +784,10 @@ _state.commit()
  * @returns {string}
  */
 export function driveMountPath(f) {
-    if (f.type === 'Doc') return `/drive/${f.name}.md`;
-    if (f.type === 'Sheet') return `/drive/${f.name}`;
-    if (f.type === 'Slides') return `/drive/${f.name}.pdf`;
-    return `/drive/${f.name}`;
+  if (f.type === "Doc") return `/drive/${f.name}.md`;
+  if (f.type === "Sheet") return `/drive/${f.name}`;
+  if (f.type === "Slides") return `/drive/${f.name}.pdf`;
+  return `/drive/${f.name}`;
 }
 
 /**
@@ -777,8 +796,8 @@ export function driveMountPath(f) {
  * @returns {Promise<void>}
  */
 export async function emitDriveShareEvent(paths) {
-    const pathsJson = JSON.stringify(paths);
-    await runPython(`
+  const pathsJson = JSON.stringify(paths);
+  await runPython(`
 import json as _json
 from agex.agent.events import FileEvent
 from agex.state.log import add_event_to_log
@@ -802,14 +821,14 @@ _state.commit()
  * @returns {Promise<string>} base64-encoded content
  */
 export async function downloadFile(path) {
-    const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const json = await runPython(`
+  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const json = await runPython(`
 import json as _json, base64 as _b64
 _fs = _agent.fs()
 _content = _fs.read("${escaped}")
 _json.dumps(_b64.b64encode(_content).decode("ascii"))
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -817,7 +836,7 @@ _json.dumps(_b64.b64encode(_content).decode("ascii"))
  * @returns {Promise<Record<string, string>>} Map of path -> content
  */
 export async function readAppFiles() {
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 _fs = _agent.fs()
 _app_files = {}
@@ -831,7 +850,7 @@ except Exception:
     pass
 _json.dumps(_app_files)
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -843,13 +862,13 @@ _json.dumps(_app_files)
  * @returns {Promise<Record<string, any>>}
  */
 export async function runQuery(code, resultVars) {
-    const escapedCode = code
-        .replace(/\\/g, "\\\\")
-        .replace(/'/g, "\\'")
-        .replace(/\n/g, "\\n");
-    const resultArg = resultVars ? JSON.stringify(resultVars) : "None";
+  const escapedCode = code
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, "\\n");
+  const resultArg = resultVars ? JSON.stringify(resultVars) : "None";
 
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 from agex.eval.bridge import aexecute_sandboxed as _aexecute_sandboxed
 
@@ -918,7 +937,7 @@ else:
 
 _json.dumps(_query_result)
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -930,12 +949,13 @@ _json.dumps(_query_result)
  * @returns {Promise<{ result: string, events: Array }>}
  */
 export async function sendMessage(message, onToken) {
-    const escaped = message
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, "\\n");
+  const escaped = message
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n");
 
-    const json = await runPythonStreaming(`
+  const json = await runPythonStreaming(
+    `
 import json as _json
 
 _events_log = []
@@ -1008,9 +1028,11 @@ def _serialize_result(r):
         return {"type": "text", "content": str(r) if r is not None else ""}
 
 _json.dumps({"result": _serialize_result(_result), "events": _events_log})
-    `, onToken);
+    `,
+    onToken,
+  );
 
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -1018,7 +1040,7 @@ _json.dumps({"result": _serialize_result(_result), "events": _events_log})
  * @returns {Promise<{ result: string }>}
  */
 export async function runChaptering() {
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 from agex.state.log import get_events_from_log as _get_log_events, replace_events_with_chapters as _replace_chapters
 from agex.agent.events import ErrorEvent as _ErrorEvent, ChapterEvent as _ChapterEvt
@@ -1069,7 +1091,7 @@ finally:
 
 _json.dumps({"result": _ch_result})
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -1077,7 +1099,7 @@ _json.dumps({"result": _ch_result})
  * @returns {Promise<number>} Estimated total tokens
  */
 export async function estimateLogTokens() {
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 from agex.render.token_count import estimate_log_tokens as _estimate
 
@@ -1085,7 +1107,7 @@ _state = _agent.state("default")
 _result = _estimate(_agent, _state)
 _json.dumps(_result["total"])
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }
 
 /**
@@ -1093,7 +1115,7 @@ _json.dumps(_result["total"])
  * @returns {Promise<number[]>} Array of input_tokens values in chronological order
  */
 export async function getTokenHistory() {
-    const json = await runPython(`
+  const json = await runPython(`
 import json as _json
 from agex import events as _get_events
 from agex.agent.events import ActionEvent as _AE, ChapterEvent as _CE, TaskStartEvent as _TaskStart
@@ -1122,5 +1144,5 @@ if _last_task == _CHAPTER_TASK:
 
 _json.dumps(_tokens)
     `);
-    return JSON.parse(json);
+  return JSON.parse(json);
 }

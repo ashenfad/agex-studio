@@ -21,6 +21,8 @@
     let apiKey = $state('')
     let model = $state('')
     let customModel = $state(false)
+    let provider = $state('openai')
+    let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
     let googleConnecting = $state(false)
 
@@ -31,6 +33,8 @@
             apiKey = s.apiKey
             model = s.model
             customModel = !MODELS.some(m => m.id === s.model)
+            provider = s.provider ?? 'openai'
+            baseUrl = s.baseUrl ?? ''
             chapteringTrigger = s.chapteringTrigger
         }
     })
@@ -39,6 +43,8 @@
         updateSettings({
             apiKey: apiKey.trim(),
             model: model.trim(),
+            provider,
+            baseUrl: baseUrl.trim(),
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
         })
         onClose()
@@ -114,6 +120,32 @@
                         Enter custom model
                     </button>
                 {/if}
+            </label>
+
+            <label>
+                <span>API format</span>
+                <div class="segmented">
+                    <button
+                        type="button"
+                        class:active={provider === 'openai'}
+                        onclick={() => provider = 'openai'}
+                    >OpenAI</button>
+                    <button
+                        type="button"
+                        class:active={provider === 'anthropic'}
+                        onclick={() => provider = 'anthropic'}
+                    >Anthropic</button>
+                </div>
+            </label>
+
+            <label>
+                <span>Custom base URL (optional)</span>
+                <input
+                    type="text"
+                    bind:value={baseUrl}
+                    placeholder={provider === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://openrouter.ai/api/v1'}
+                    autocomplete="off"
+                />
             </label>
 
             <div class="divider"></div>
@@ -259,6 +291,38 @@
 
     input::placeholder {
         color: var(--text-muted);
+    }
+
+    .segmented {
+        display: flex;
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .segmented button {
+        flex: 1;
+        background: var(--input-bg);
+        color: var(--text-muted);
+        border: none;
+        padding: 0.5rem 0.75rem;
+        font-family: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+    }
+
+    .segmented button + button {
+        border-left: 1px solid var(--border);
+    }
+
+    .segmented button:hover:not(.active) {
+        color: var(--text);
+    }
+
+    .segmented button.active {
+        background: var(--accent);
+        color: white;
     }
 
     .toggle-link {

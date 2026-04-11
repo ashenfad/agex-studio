@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// localStorage stub — agent.js reads debug flags at init time
+vi.stubGlobal("localStorage", {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+});
+
 // Mock runPython — capture calls and return a canned JSON response
 const runPythonCalls = [];
 const mockResponse = JSON.stringify({

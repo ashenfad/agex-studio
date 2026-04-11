@@ -7,6 +7,8 @@ const STORAGE_KEY = "agex-settings";
 const DEFAULTS = {
     apiKey: "",
     model: "google/gemini-3-flash-preview",
+    provider: "openai",
+    baseUrl: "",
     chapteringTrigger: 150000,
 };
 
@@ -17,6 +19,8 @@ let subscribers = [];
  * @typedef {Object} Settings
  * @property {string} apiKey
  * @property {string} model
+ * @property {"openai" | "anthropic"} provider
+ * @property {string} baseUrl
  * @property {number} chapteringTrigger
  */
 
