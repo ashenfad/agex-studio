@@ -188,6 +188,36 @@ Always put your data-fetching logic in a **helper module file** (e.g.
 `helpers/my_app.py`). Functions defined in your REPL will cause
 `NameError` when called from `query()`.
 
+## Module-Level Variables Don't Persist Across query() Calls
+
+Because modules are auto-reloaded on each import, **module-level variables
+reset on every `query()` call**. Do NOT store game state, session data, or
+counters in module globals — they will be lost.
+
+To persist state across `query()` calls, save it to a JSON file on the
+virtual filesystem (which is in-memory and fast):
+
+```python
+# helpers/session.py
+import json
+
+_STATE_FILE = '_my_app_state.json'
+
+def _save(state):
+    with open(_STATE_FILE, 'w') as f:
+        json.dump(state, f, separators=(',', ':'))
+
+def _load():
+    try:
+        with open(_STATE_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return None
+```
+
+Use relative paths (not `/tmp/` which may not exist). The VFS is in-memory
+so file I/O is fast.
+
 ## Registered Globals
 
 `local_timezone()`, `google_token()`, and other registered functions are

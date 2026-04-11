@@ -224,8 +224,11 @@
             }
         }
 
-        // Lazily create an action if tokens arrive before a title
+        // Lazily create an action if tokens arrive before a title.
+        // Skip done-only tokens with no content (e.g. the final usage-
+        // reporting token) — they're bookkeeping, not a new action.
         if (!currentAction) {
+            if (token.done && !token.content) return
             currentAction = {
                 type: 'action',
                 title: '',
@@ -269,6 +272,19 @@
                 currentEditContent = ''
             } else if (currentEditPath) {
                 currentEditContent += token.content
+            }
+        }
+
+        // End-of-action: <PYTHON> and <TERMINAL> are the action's final
+        // section, so a done=true on either means this iteration is complete.
+        // Flush the currentAction into streamingEvents so the next iteration
+        // starts fresh — even if the agent skips its <TITLE> on that turn.
+        if (token.done && (token.type === 'python' || token.type === 'terminal')) {
+            flushFileAction()
+            flushEditAction()
+            if (currentAction) {
+                streamingEvents = [...streamingEvents, { ...currentAction }]
+                currentAction = null
             }
         }
 

@@ -24,6 +24,12 @@ vi.stubGlobal("window", {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
 });
+// localStorage stub — pyodide.js reads debug flags in the token handler
+vi.stubGlobal("localStorage", {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+});
 
 beforeEach(() => {
     MockWorker.instances = [];
@@ -353,10 +359,90 @@ describe("_rewriteLocalImports", () => {
         const { _rewriteLocalImports } = await loadPyodide();
         const known = new Set(["utils.js", "game/logic.js"]);
         const code = `import { helper } from '../utils.js';`;
-        // ../utils.js from game/ should not match (we only handle ./ not ../)
+        // ../utils.js from game/ resolves to utils.js at root
         const result = _rewriteLocalImports(code, known, "game/");
-        // ../ imports are not rewritten (not matched by the regex)
+        expect(result).toContain(`from '__app/utils.js'`);
+    });
+
+    it("resolves parent-relative imports from nested subdirectory", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["js/config.js", "js/dungeon/generator.js"]);
+        const code = `import { CONFIG } from '../config.js';`;
+        // ../config.js from js/dungeon/ resolves to js/config.js
+        const result = _rewriteLocalImports(code, known, "js/dungeon/");
+        expect(result).toContain(`from '__app/js/config.js'`);
+    });
+
+    it("resolves multi-level parent-relative imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js", "js/dungeon/generator.js"]);
+        const code = `import { helper } from '../../utils.js';`;
+        // ../../utils.js from js/dungeon/ resolves to utils.js at root
+        const result = _rewriteLocalImports(code, known, "js/dungeon/");
+        expect(result).toContain(`from '__app/utils.js'`);
+    });
+
+    it("parent-relative path to unknown file is left unchanged", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["game/logic.js"]);
+        const code = `import { x } from '../missing.js';`;
+        const result = _rewriteLocalImports(code, known, "game/");
         expect(result).toBe(code);
+    });
+
+    it("rewrites parent-relative dynamic imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js", "game/logic.js"]);
+        const code = `const mod = await import('../utils.js');`;
+        const result = _rewriteLocalImports(code, known, "game/");
+        expect(result).toContain(`import('__app/utils.js')`);
+    });
+
+    it("rewrites parent-relative double-quoted imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js", "game/logic.js"]);
+        const code = `import { x } from "../utils.js";`;
+        const result = _rewriteLocalImports(code, known, "game/");
+        expect(result).toContain(`from "__app/utils.js"`);
+    });
+
+    it("rewrites parent-relative export-from", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["utils.js", "game/logic.js"]);
+        const code = `export { helper } from '../utils.js';`;
+        const result = _rewriteLocalImports(code, known, "game/");
+        expect(result).toContain(`from '__app/utils.js'`);
+    });
+
+    it("rewrites parent-relative side-effect imports", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["init.js", "game/logic.js"]);
+        const code = `import '../init.js';`;
+        const result = _rewriteLocalImports(code, known, "game/");
+        expect(result).toContain(`import '__app/init.js'`);
+    });
+
+    it("rewrites mixed ./ and ../ imports in same file", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set([
+            "js/config.js",
+            "js/dungeon/helpers.js",
+            "js/dungeon/generator.js",
+        ]);
+        const code =
+            `import { CONFIG } from '../config.js';\n` +
+            `import { helper } from './helpers.js';`;
+        const result = _rewriteLocalImports(code, known, "js/dungeon/");
+        expect(result).toContain(`from '__app/js/config.js'`);
+        expect(result).toContain(`from '__app/js/dungeon/helpers.js'`);
+    });
+
+    it("handles ../ into a sibling subdirectory", async () => {
+        const { _rewriteLocalImports } = await loadPyodide();
+        const known = new Set(["js/shop/items.js", "js/dungeon/generator.js"]);
+        const code = `import { items } from '../shop/items.js';`;
+        const result = _rewriteLocalImports(code, known, "js/dungeon/");
+        expect(result).toContain(`from '__app/js/shop/items.js'`);
     });
 
     it("root-level imports still work without baseDir", async () => {

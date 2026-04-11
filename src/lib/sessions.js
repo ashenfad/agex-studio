@@ -539,3 +539,51 @@ _state.commit()
 
     await refreshSessionList(state.currentBranch);
 }
+
+/**
+ * Get debug info for a session branch: commit count, keyset size, HEAD hash.
+ * @param {string} branch - branch name to inspect
+ * @returns {Promise<{ branch: string, commit: string, commits: number, keys_total: number, keys: string[] }>}
+ */
+export async function getSessionDebugInfo(branch) {
+    const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const json = await runPython(`
+import json as _json
+
+_state = _agent.state("default")
+_v = _state.versioned
+
+# Temporarily switch to the target branch to read its state
+_prev = _v.current_branch
+_v.switch_branch("${escaped}")
+
+_commits = list(_v.history())
+_all_keys = list(_v.keys())
+_user_keys = sorted(k for k in _all_keys if not k.startswith("__"))
+
+# Measure storage: sum raw byte sizes of all values at HEAD
+_values = _v.get_many(*_all_keys) if _all_keys else {}
+_total_bytes = sum(len(v) for v in _values.values())
+
+# Per-key sizes for the top consumers
+_key_sizes = {}
+for _k, _val in _values.items():
+    _key_sizes[_k] = len(_val)
+_top_keys = sorted(_key_sizes.items(), key=lambda x: -x[1])[:10]
+
+_result = _json.dumps({
+    "branch": "${escaped}",
+    "commit": _v.current_commit[:12] if _v.current_commit else None,
+    "commits": len(_commits),
+    "keys_total": len(_all_keys),
+    "keys": _user_keys,
+    "bytes": _total_bytes,
+    "top_keys": [{"key": k, "bytes": s} for k, s in _top_keys],
+})
+
+# Switch back
+_v.switch_branch(_prev)
+_result
+    `);
+    return JSON.parse(json);
+}

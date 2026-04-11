@@ -1,5 +1,5 @@
 <script>
-    import { sessionStore, createSession, switchSession, deleteSession, forkSession } from './sessions.js'
+    import { sessionStore, createSession, switchSession, deleteSession, forkSession, getSessionDebugInfo } from './sessions.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -11,16 +11,43 @@
     let purgeConfirm = $state(false)
     let purging = $state(false)
     let deleteConfirmBranch = $state(null)
+    let debugInfo = $state(null)
+    let debugOpen = $state(false)
 
     $effect(() => {
         if (open) {
             purgeConfirm = false
             deleteConfirmBranch = null
+            debugInfo = null
             navigator.storage?.estimate?.().then(est => {
                 storageUsage = est.usage ?? null
             }).catch(() => {})
         }
     })
+
+    // Re-fetch debug info when the active session changes
+    $effect(() => {
+        if (debugOpen && currentBranch) {
+            debugInfo = null
+            getSessionDebugInfo(currentBranch).then(info => {
+                debugInfo = info
+            }).catch(e => {
+                debugInfo = { error: e.message }
+            })
+        }
+    })
+
+    async function toggleDebug() {
+        debugOpen = !debugOpen
+        if (debugOpen && currentBranch) {
+            debugInfo = null
+            try {
+                debugInfo = await getSessionDebugInfo(currentBranch)
+            } catch (e) {
+                debugInfo = { error: e.message }
+            }
+        }
+    }
 
     function formatBytes(bytes) {
         if (bytes < 1024) return `${bytes} B`
@@ -140,6 +167,46 @@
                     </div>
                 </div>
             {/each}
+        </div>
+
+        <div class="debug-section">
+            <button class="debug-toggle" onclick={toggleDebug}>
+                {debugOpen ? '▾' : '▸'} Debug
+            </button>
+            {#if debugOpen}
+                <div class="debug-panel">
+                    {#if debugInfo?.error}
+                        <div class="debug-row error">{debugInfo.error}</div>
+                    {:else if debugInfo}
+                        <div class="debug-row"><span class="debug-label">Branch</span> <span class="debug-value mono">{debugInfo.branch}</span></div>
+                        <div class="debug-row"><span class="debug-label">HEAD</span> <span class="debug-value mono">{debugInfo.commit ?? '(none)'}</span></div>
+                        <div class="debug-row"><span class="debug-label">Commits</span> <span class="debug-value">{debugInfo.commits}</span></div>
+                        <div class="debug-row"><span class="debug-label">Keys (total)</span> <span class="debug-value">{debugInfo.keys_total}</span></div>
+                        <div class="debug-row"><span class="debug-label">HEAD size</span> <span class="debug-value">{formatBytes(debugInfo.bytes)}</span></div>
+                        {#if debugInfo.top_keys?.length > 0}
+                            <div class="debug-row" style="margin-top: 0.3rem"><span class="debug-label">Top keys by size</span></div>
+                            <div class="debug-top-keys">
+                                {#each debugInfo.top_keys as entry}
+                                    <div class="debug-row">
+                                        <span class="debug-value mono" style="flex:1; text-align:left">{entry.key}</span>
+                                        <span class="debug-value">{formatBytes(entry.bytes)}</span>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                        {#if debugInfo.keys.length > 0}
+                            <div class="debug-row" style="margin-top: 0.3rem"><span class="debug-label">User keys</span></div>
+                            <div class="debug-keys">
+                                {#each debugInfo.keys as key}
+                                    <span class="debug-key">{key}</span>
+                                {/each}
+                            </div>
+                        {/if}
+                    {:else}
+                        <div class="debug-row">Loading...</div>
+                    {/if}
+                </div>
+            {/if}
         </div>
 
         <div class="drawer-footer">
@@ -296,6 +363,82 @@
         font-size: 0.65rem;
         font-weight: 600;
         opacity: 1;
+    }
+
+    .debug-section {
+        border-top: 1px solid var(--border);
+        padding-top: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .debug-toggle {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    .debug-toggle:hover {
+        color: var(--text);
+    }
+
+    .debug-panel {
+        margin-top: 0.4rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .debug-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+    }
+
+    .debug-row.error {
+        color: var(--error);
+    }
+
+    .debug-label {
+        font-weight: 500;
+    }
+
+    .debug-value {
+        text-align: right;
+    }
+
+    .debug-value.mono {
+        font-family: monospace;
+        font-size: 0.65rem;
+    }
+
+    .debug-top-keys {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        max-height: 160px;
+        overflow-y: auto;
+    }
+
+    .debug-keys {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.2rem;
+        margin-top: 0.15rem;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+
+    .debug-key {
+        font-size: 0.6rem;
+        font-family: monospace;
+        background: var(--input-bg);
+        padding: 0.1rem 0.3rem;
+        border-radius: 3px;
+        color: var(--text-muted);
     }
 
     .drawer-footer {

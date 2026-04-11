@@ -75,18 +75,24 @@ export function startWorker() {
         } else if (msg.type === "result") {
             const p = pending.get(msg.id);
             if (p) {
-                pending.delete(msg.id);
                 p.resolve(msg.value);
+                // Defer cleanup so late-arriving token messages still
+                // find their pending entry and reach onToken.
+                setTimeout(() => pending.delete(msg.id), 0);
             }
         } else if (msg.type === "run-error") {
             const p = pending.get(msg.id);
             if (p) {
-                pending.delete(msg.id);
                 p.reject(new Error(msg.message));
+                setTimeout(() => pending.delete(msg.id), 0);
             }
         } else if (msg.type === "token") {
             const p = pending.get(msg.id);
-            if (p?.onToken) p.onToken(JSON.parse(msg.json));
+            const tok = JSON.parse(msg.json);
+            if (localStorage.getItem("agex-debug-tokens") === "1") {
+                console.log("[llm token]", tok);
+            }
+            if (p?.onToken) p.onToken(tok);
         } else if (msg.type === "plotly-render") {
             renderPlotlyOffscreen(msg.figureJson, msg.id);
         } else if (msg.type === "pdf-render") {
@@ -375,9 +381,11 @@ function _resolveRelative(specifier, baseDir) {
 export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
     // Helper: try to resolve a specifier and return the knownFiles key, or null
     function resolve(specifier) {
-        // ./foo.js — relative to baseDir
-        if (specifier.startsWith('./')) {
-            const resolved = _resolveRelative(specifier.slice(2), baseDir);
+        // Relative paths (./foo.js, ../foo.js, ../../foo.js) — resolved
+        // against baseDir.  _resolveRelative handles `..` segment traversal.
+        if (specifier.startsWith('./') || specifier.startsWith('../')) {
+            const relPath = specifier.startsWith('./') ? specifier.slice(2) : specifier;
+            const resolved = _resolveRelative(relPath, baseDir);
             return knownFiles.has(resolved) ? resolved : null;
         }
         // /app/foo.js — absolute path agents sometimes use
@@ -388,9 +396,9 @@ export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
         return null;
     }
 
-    // Static import/export-from: import ... from './foo.js' or '/app/foo.js'
+    // Static import/export-from: import ... from './foo.js', '../foo.js', or '/app/foo.js'
     code = code.replace(
-        /((?:import|export)\s(?:[^'"]*?\s)?from\s*|import\s*)(['"])((?:\.\/|\/app\/)[^'"]+)\2/g,
+        /((?:import|export)\s(?:[^'"]*?\s)?from\s*|import\s*)(['"])((?:\.{1,2}\/|\/app\/)[^'"]+)\2/g,
         (match, before, quote, specifier) => {
             const resolved = resolve(specifier);
             if (resolved) {
@@ -399,9 +407,9 @@ export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
             return match;
         },
     );
-    // Dynamic import: import('./foo.js') or import('/app/foo.js')
+    // Dynamic import: import('./foo.js'), import('../foo.js'), or import('/app/foo.js')
     code = code.replace(
-        /import\s*\(\s*(['"])((?:\.\/|\/app\/)[^'"]+)\1\s*\)/g,
+        /import\s*\(\s*(['"])((?:\.{1,2}\/|\/app\/)[^'"]+)\1\s*\)/g,
         (match, quote, specifier) => {
             const resolved = resolve(specifier);
             if (resolved) {
