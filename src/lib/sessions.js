@@ -237,16 +237,25 @@ for _evt in _flat:
                 "commit_hash": getattr(_evt, "commit_hash", None) or "",
             })
     elif isinstance(_evt, _ActionEvent):
+        _report_text = getattr(_evt, "report", "") or ""
         _current_events.append({
             "type": "action",
             "title": _evt.title or "",
             "thinking": _evt.thinking or "",
+            "report": _report_text,
             "code": _evt.code,
             "terminal": _evt.terminal,
             "file_actions": _serialize_file_actions(_evt.file_actions),
             "input_tokens": _evt.input_tokens,
             "output_tokens": _evt.output_tokens,
         })
+        if _report_text:
+            _messages.append({
+                "role": "agent",
+                "content": _report_text,
+                "isReport": True,
+                "timestamp": _evt.timestamp.isoformat(),
+            })
     elif isinstance(_evt, _OutputEvent):
         _current_events.extend(_split_output_events(_serialize_output_parts(_evt)))
     elif isinstance(_evt, _FileEvent) and _evt.file_source == "user":

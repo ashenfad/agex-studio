@@ -128,8 +128,17 @@
             </div>
         {/if}
 
-        {#if msg.streaming}
+        {#if msg.streaming && !msg.isReport}
             <!-- Activity panel shows the pulsing dot; no extra indicator needed -->
+        {:else if msg.streaming && msg.isReport}
+            <!-- Streaming report: render the content live as it accumulates -->
+            {#if msg.content}
+                <div class="message agent">
+                    <div class="bubble">
+                        <div class="content markdown">{@html renderMarkdown(msg.content)}</div>
+                    </div>
+                </div>
+            {/if}
         {:else if msg.cancelled}
             <div class="cancelled-band">Stopped</div>
         {:else if msg.role === 'agent' && typeof msg.content === 'object'}
