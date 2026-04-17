@@ -33,6 +33,12 @@
                     </blockquote>
                 </div>
             {/if}
+            {#if evt.report}
+                <div class="section">
+                    <div class="section-label report-label">Report</div>
+                    <div class="report-content">{@html renderMarkdown(evt.report)}</div>
+                </div>
+            {/if}
             {#if evt.file_actions?.length}
                 {#each evt.file_actions as fa}
                     {#if fa.kind === 'file'}
@@ -171,6 +177,18 @@
         font-weight: 600;
         color: var(--text);
     }
+
+    .report-label { color: var(--success); }
+
+    .report-content {
+        padding: 0.5rem 0.75rem;
+        border-left: 2px solid var(--success);
+        font-size: 0.82rem;
+    }
+
+    .report-content :global(p) { margin: 0.3em 0; }
+    .report-content :global(p:first-child) { margin-top: 0; }
+    .report-content :global(p:last-child) { margin-bottom: 0; }
 
     pre.section-content {
         background: var(--surface);

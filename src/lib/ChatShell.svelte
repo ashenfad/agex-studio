@@ -168,6 +168,8 @@
     // Streaming state — accumulates tokens into events for live display
     let streamingEvents = $state([])
     let currentAction = $state(null)
+    // Report streaming accumulator — null when no report is being streamed
+    let activeReportText = $state(null)
     // File/edit streaming accumulators
     let currentFilePath = $state(null)
     let currentFileContent = $state('')
@@ -218,6 +220,7 @@
                 type: 'action',
                 title: '',
                 thinking: '',
+                report: '',
                 code: null,
                 terminal: null,
                 file_actions: [],
@@ -233,6 +236,7 @@
                 type: 'action',
                 title: '',
                 thinking: '',
+                report: '',
                 code: null,
                 terminal: null,
                 file_actions: [],
@@ -243,6 +247,37 @@
             currentAction = { ...currentAction, title: currentAction.title + token.content }
         } else if (token.type === 'thinking') {
             currentAction = { ...currentAction, thinking: currentAction.thinking + token.content }
+        } else if (token.type === 'report') {
+            if (token.start) {
+                activeReportText = ''
+            }
+            if (!token.done) {
+                activeReportText = (activeReportText || '') + token.content
+                currentAction = { ...currentAction, report: activeReportText }
+            } else {
+                // Commit the finished report as a permanent chat message
+                const finalText = activeReportText || ''
+                if (finalText) {
+                    currentAction = { ...currentAction, report: finalText }
+                    const committedMsg = {
+                        role: 'agent',
+                        content: finalText,
+                        isReport: true,
+                        timestamp: new Date(),
+                    }
+                    const insertIdx = messages.findIndex(m => m.streaming)
+                    if (insertIdx === -1) {
+                        messages = [...messages, committedMsg]
+                    } else {
+                        messages = [
+                            ...messages.slice(0, insertIdx),
+                            committedMsg,
+                            ...messages.slice(insertIdx),
+                        ]
+                    }
+                }
+                activeReportText = null
+            }
         } else if (token.type === 'python') {
             currentAction = { ...currentAction, code: (currentAction.code || '') + token.content }
         } else if (token.type === 'terminal') {
@@ -300,19 +335,28 @@
         const allEvents = liveAction
             ? [...streamingEvents, liveAction]
             : [...streamingEvents]
-        const streamMsg = {
+
+        // Rebuild the tail of messages: strip all streaming messages, then
+        // re-add current streaming state (optional report + activity).
+        const nonStreaming = messages.filter(m => !m.streaming)
+        const streamParts = []
+        if (activeReportText !== null) {
+            streamParts.push({
+                role: 'agent',
+                content: activeReportText,
+                isReport: true,
+                streaming: true,
+                timestamp: new Date(),
+            })
+        }
+        streamParts.push({
             role: 'agent',
             content: '',
             events: allEvents,
             timestamp: new Date(),
             streaming: true,
-        }
-        const lastMsg = messages[messages.length - 1]
-        if (lastMsg?.streaming) {
-            messages = [...messages.slice(0, -1), streamMsg]
-        } else {
-            messages = [...messages, streamMsg]
-        }
+        })
+        messages = [...nonStreaming, ...streamParts]
     }
 
     async function handleUpload(names, commitHash) {
@@ -463,6 +507,7 @@
         busy = true
         streamingEvents = []
         currentAction = null
+        activeReportText = null
         currentFilePath = null
         currentFileContent = ''
         currentFileMode = 'write'
@@ -513,6 +558,7 @@
             cancelling = false
             streamingEvents = []
             currentAction = null
+            activeReportText = null
         }
     }
 
