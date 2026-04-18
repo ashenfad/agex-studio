@@ -105,6 +105,9 @@ register_pandas(_agent)
 register_numpy(_agent)
 register_plotly(_agent)
 
+from agex.git_cli import register_git
+register_git(_agent)
+
 # Override stdlib's restricted random with full access
 import random as _random
 _agent.module(_random, visibility="low")
