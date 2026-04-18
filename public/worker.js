@@ -97,7 +97,7 @@ async function init() {
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("agex>=0.10.0", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.10.1", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
