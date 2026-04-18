@@ -251,10 +251,13 @@
             if (token.start) {
                 activeReportText = ''
             }
-            if (!token.done) {
+            // Always accumulate content before checking done — the final
+            // token may carry both content and done=true.
+            if (token.content) {
                 activeReportText = (activeReportText || '') + token.content
                 currentAction = { ...currentAction, report: activeReportText }
-            } else {
+            }
+            if (token.done) {
                 // Commit the finished report as a permanent chat message
                 const finalText = activeReportText || ''
                 if (finalText) {
