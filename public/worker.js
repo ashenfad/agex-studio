@@ -95,9 +95,9 @@ async function init() {
         const extraInstalls = [
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
-            `micropip.install("/wheels/kvgit-0.1.8-py3-none-any.whl", deps=False)`,
-            `micropip.install("/wheels/termish-0.1.4-py3-none-any.whl", deps=False)`,
-            `micropip.install("/wheels/agex-0.9.8-py3-none-any.whl", deps=False)`,
+            `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.10.0", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
