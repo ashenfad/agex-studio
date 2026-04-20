@@ -286,8 +286,11 @@ async def search(query: str, deep: bool = False) -> str:
         ],
     }
     try:
+        # Use the LLM's configured base_url so a user pointing at a
+        # different OpenAI-compatible endpoint (local LLM, corporate
+        # gateway, etc.) routes search calls to the same place.
         _data = await _llm._adapter.fetch_json(
-            "https://openrouter.ai/api/v1/chat/completions",
+            f"{_llm._base_url}/chat/completions",
             headers={"Content-Type": "application/json"},
             body=_body,
         )
