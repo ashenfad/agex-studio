@@ -200,6 +200,28 @@ Estimated a few days of focused work. Not trivial, but bounded — all action ty
 
 ### Phase 4: BYO-bucket / Shape 3 (URL sharing)
 
+Detailed plan: [PHASE_4_PLAN.md](PHASE_4_PLAN.md). Summary below.
+
+Phase 4 has two interlocking halves:
+
+1. **Security hardening for stranger-facing deployment** (because Phase 4 starts shipping artifacts to recipients the publisher doesn't personally know)
+2. **Publishing mechanics** (GitHub App integration, URL pattern, repo layout)
+
+The security half has been deliberated extensively; the landed approach keeps agex-studio's single-origin simplicity and the agent-app entanglement thesis intact:
+
+- **LLM bridge via adapter seam in agex.** Add an optional `fetch_adapter` parameter to `pyfetch_openai` / `pyfetch_anthropic` clients in agex. agex-studio passes a `JsBridgeAdapter` that routes network calls through main-thread JS, where the OpenRouter key lives in `localStorage` and never enters Python scope. Applies to all sessions, not just external — general defense.
+- **External session concept.** Sessions opened via `agex.studio/run/?src=...` carry an `external: true` flag. Persistent for the session lifetime.
+- **Google OAuth auto-disconnect for external sessions.** No Drive mount, no `_google_access_token` wired up. Drive features unavailable when opening external artifacts.
+- **Disclosure splash** on first external-artifact open: informs the visitor that the artifact can read (but not exfiltrate to arbitrary origins) data from their other sessions; suggests a private window for full isolation.
+- **Keep `img-src` permissive** (preserve the Pokémon-style external-image case). The exfil channel this theoretically opens is slow, GET-based, bandwidth-limited, and — after the LLM bridge — targets only unstructured IndexedDB contents with no clear monetization path. Disclosure handles the residual.
+- **No domain split.** Rejected earlier because it fractures the workspace UX and defeats the entanglement thesis that makes agex-studio distinctive.
+
+Post-LLM-bridge threat surface: a malicious pickle in a published artifact cannot steal the visitor's OpenRouter key, Google OAuth, or other credentials (none are in Python scope). It can potentially read other sessions' IndexedDB contents but cannot exfiltrate at speed; visitors concerned about this open in a private window. This is the "hobby-scale with honest disclosure" posture.
+
+**LLM bridge is independently valuable** and can ship before the rest of Phase 4 as standalone hardening. The remaining items (external session, auto-disconnect, disclosure) are only meaningful once URL-opened artifacts exist.
+
+**Publishing mechanics (GitHub App details):**
+
 **Recipient-facing URL pattern:** `agex.studio/run/?src=<artifact-url>`. The runtime fetches the bundle from the user-provided URL, rehydrates a fresh local kvgit session, opens the app. Same runtime serves any artifact from any host — agex.studio stays static.
 
 **First storage backend: GitHub via a GitHub App (not classic OAuth App).** Reasons:
