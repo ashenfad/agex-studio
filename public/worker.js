@@ -97,7 +97,7 @@ async function init() {
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("agex>=0.10.1", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.10.2", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ];
         const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
@@ -211,6 +211,28 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
             });
         });
 
+        // LLM bridge — non-streaming. Main thread reads the API key
+        // from localStorage, injects Authorization, does the fetch,
+        // returns a JSON-serialized { ok, data? , status?, error? }.
+        // Python (JsBridgeAdapter.fetch_json) unwraps the envelope.
+        pyodide.globals.set("_js_llm_fetch", (requestJson) => {
+            return new Promise((resolve) => {
+                const id = ++_llmRequestId;
+                llmFetchPending.set(id, resolve);
+                self.postMessage({ type: "llm-fetch", id, requestJson });
+            });
+        });
+
+        // LLM bridge — streaming. Python passes three proxied callbacks
+        // (chunk/done/error). Main thread does a streaming fetch and
+        // postMessages back chunks / done / error tagged with the id.
+        // We look up the callbacks by id and invoke accordingly.
+        pyodide.globals.set("_js_llm_stream", (requestJson, onChunk, onDone, onError) => {
+            const id = ++_llmStreamId;
+            llmStreamPending.set(id, { onChunk, onDone, onError });
+            self.postMessage({ type: "llm-stream", id, requestJson });
+        });
+
         self.postMessage({ type: "ready" });
     } catch (e) {
         self.postMessage({ type: "init-error", message: e.message });
@@ -247,6 +269,17 @@ let _testAppId = 0;
 // Pending live-app requests: id → resolve function
 const liveAppPending = new Map();
 let _liveAppId = 0;
+
+// Pending LLM fetch (non-streaming) requests: id → resolve function
+const llmFetchPending = new Map();
+let _llmRequestId = 0;
+
+// Pending LLM stream requests: id → { onChunk, onDone, onError } proxies.
+// Python destroys the proxies in a finally block after done/error fires,
+// so the main thread should not invoke them further once the stream is
+// terminated.
+const llmStreamPending = new Map();
+let _llmStreamId = 0;
 
 self.onmessage = (e) => {
     const { type } = e.data;
@@ -301,6 +334,27 @@ self.onmessage = (e) => {
         if (resolve) {
             liveAppPending.delete(e.data.id);
             resolve(e.data.resultsJson);
+        }
+    } else if (type === "llm-fetch-result") {
+        const resolve = llmFetchPending.get(e.data.id);
+        if (resolve) {
+            llmFetchPending.delete(e.data.id);
+            resolve(e.data.resultJson);
+        }
+    } else if (type === "llm-stream-chunk") {
+        const entry = llmStreamPending.get(e.data.id);
+        if (entry) entry.onChunk(e.data.chunk);
+    } else if (type === "llm-stream-done") {
+        const entry = llmStreamPending.get(e.data.id);
+        if (entry) {
+            llmStreamPending.delete(e.data.id);
+            entry.onDone();
+        }
+    } else if (type === "llm-stream-error") {
+        const entry = llmStreamPending.get(e.data.id);
+        if (entry) {
+            llmStreamPending.delete(e.data.id);
+            entry.onError(e.data.error || "Unknown error");
         }
     }
 };

@@ -34,15 +34,18 @@ beforeEach(() => {
 });
 
 describe("initAgent", () => {
-    it("sends Python setup code with correct model and key", async () => {
+    it("sends Python setup code with correct model and adapter (no api_key in scope)", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         expect(runPythonCalls).toHaveLength(1);
         const code = runPythonCalls[0];
         expect(code).toContain('model="openai/gpt-5.4"');
-        expect(code).toContain('api_key="sk-test-123"');
+        // Key never enters Python scope — adapter routes to main thread
+        expect(code).not.toContain('api_key="sk-test-123"');
+        expect(code).toContain('api_key=""');
+        expect(code).toContain("JsBridgeAdapter");
+        expect(code).toContain("PyfetchOpenAI");
         expect(code).toContain("clear_agent_registry()");
-        expect(code).toContain("connect_llm");
     });
 
     it("registers test_app function with auto-display", async () => {

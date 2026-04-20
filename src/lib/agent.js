@@ -33,11 +33,16 @@ export async function initAgent(settings) {
     localStorage.getItem("agex-debug-raw-stream") === "1"
       ? `import agex.llm.${providerName} as _pfmod\n_pfmod.DEBUG_RAW_STREAM = True\n`
       : "";
+  // LLM client class — instantiated directly so we can pass fetch_adapter
+  // without going through connect_llm's config-resolution machinery, and
+  // the JS bridge can inject auth on the main thread.
+  const llmClass =
+    settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
   await runPython(`
 from dataclasses import dataclass
 import pandas as pd
 import plotly.graph_objects as go
-from agex import Agent, connect_llm, connect_state, connect_fs, clear_agent_registry
+from agex import Agent, connect_state, connect_fs, clear_agent_registry
 from agex.helpers import register_pandas, register_numpy, register_plotly, register_stdlib
 
 clear_agent_registry()
@@ -83,11 +88,28 @@ class Response:
                 result.append({"type": "text", "content": str(p)})
         return result
 
-${debugRawLines}_llm = connect_llm(
-    provider="${providerName}",
+${debugRawLines}
+# Install the JS-bridge LLM adapter: routes LLM HTTP calls through the
+# main thread so the API key lives in localStorage (never in Python scope).
+# Must happen before the LLM client is constructed.
+from pyodide.http import open_url as _open_url_llm
+import importlib as _importlib_llm, site as _site_llm
+_site_dir_llm = _site_llm.getsitepackages()[0]
+with open(f"{_site_dir_llm}/bridge_llm.py", "w") as _f:
+    _f.write(_open_url_llm("/bridge_llm.py").read())
+_importlib_llm.import_module("bridge_llm")
+del _open_url_llm, _importlib_llm, _site_llm, _site_dir_llm
+
+from bridge_llm import JsBridgeAdapter as _JsBridgeAdapter
+from agex.llm.pyfetch_openai import PyfetchOpenAI
+from agex.llm.pyfetch_anthropic import PyfetchAnthropic
+
+# api_key left empty; adapter injects Authorization on the main thread.
+_llm = ${llmClass}(
     model="${settings.model}",
-    api_key="${settings.apiKey}",
-${baseUrlLine}${openrouterLines})
+    api_key="",
+${baseUrlLine}${openrouterLines}    fetch_adapter=_JsBridgeAdapter(),
+)
 
 _agent = Agent(
     name="chat",
@@ -183,8 +205,6 @@ for _skill_path in [
 
 del _open_url, _skill_path
 
-_OR_API_KEY = "${settings.apiKey}"
-
 # Google access token — set/refreshed by the main thread via worker message.
 try:
     _google_access_token
@@ -254,34 +274,25 @@ async def search(query: str, deep: bool = False) -> str:
             search("topic C"),
         )
     """
-    import json as _json
-    from pyodide.http import pyfetch as _pyfetch
-
+    # Route through the same JS bridge the chat LLM uses, so the
+    # OpenRouter key stays in main-thread localStorage and never enters
+    # Python scope. _llm._adapter is the JsBridgeAdapter set up above.
     _model = "perplexity/sonar-pro-search" if deep else "perplexity/sonar"
-    _body = _json.dumps({
+    _body = {
         "model": _model,
         "messages": [
             {"role": "system", "content": "Answer the user's question using web search. Be thorough and include source URLs."},
             {"role": "user", "content": query},
         ],
-    })
-    _resp = await _pyfetch(
-        "https://openrouter.ai/api/v1/chat/completions",
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {_OR_API_KEY}",
-        },
-        body=_body,
-    )
-    if _resp.status >= 400:
-        try:
-            _err = await _resp.json()
-            _msg = _err.get("error", {}).get("message", str(_err))
-        except Exception:
-            _msg = f"HTTP {_resp.status}"
-        raise RuntimeError(f"Search failed: {_msg}")
-    _data = await _resp.json()
+    }
+    try:
+        _data = await _llm._adapter.fetch_json(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Content-Type": "application/json"},
+            body=_body,
+        )
+    except Exception as _e:
+        raise RuntimeError(f"Search failed: {_e}")
     return _data["choices"][0]["message"]["content"]
 
 _agent.fn(search, visibility="high")

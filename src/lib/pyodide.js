@@ -114,6 +114,10 @@ export function startWorker() {
             runTestApp(msg.appFilesJson, msg.actionsJson, msg.id);
         } else if (msg.type === "live-app") {
             runLiveApp(msg.actionsJson, msg.id);
+        } else if (msg.type === "llm-fetch") {
+            handleLlmFetch(msg.requestJson, msg.id);
+        } else if (msg.type === "llm-stream") {
+            handleLlmStream(msg.requestJson, msg.id);
         }
     };
 
@@ -250,6 +254,148 @@ async function getPdfPageCount(pdfBase64, requestId) {
             id: requestId,
             pagesJson: JSON.stringify(0),
         });
+    }
+}
+
+// --- LLM bridge: main-thread fetch with key from localStorage ---
+
+const SETTINGS_STORAGE_KEY = "agex-settings";
+
+/**
+ * Read the OpenRouter / Anthropic API key from localStorage.
+ * Done per-request so key rotation via the Settings drawer takes effect
+ * immediately without requiring a worker restart.
+ */
+function _readApiKey() {
+    try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (!raw) return "";
+        const settings = JSON.parse(raw);
+        return settings.apiKey || "";
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * Choose the auth header shape based on the request URL's host.
+ * OpenRouter / OpenAI-compatible endpoints use `Authorization: Bearer`;
+ * Anthropic's direct API uses `x-api-key`.
+ */
+function _injectAuth(headers, url) {
+    const key = _readApiKey();
+    if (!key) return headers;
+    if (url.includes("api.anthropic.com")) {
+        headers["x-api-key"] = key;
+    } else {
+        headers["Authorization"] = `Bearer ${key}`;
+    }
+    return headers;
+}
+
+/**
+ * Handle non-streaming LLM fetch request from the worker.
+ * Reads key from localStorage, does fetch, posts JSON-serialized
+ * { ok, data?, status?, error? } envelope back to the worker.
+ */
+async function handleLlmFetch(requestJson, requestId) {
+    const send = (result) => worker.postMessage({
+        type: "llm-fetch-result",
+        id: requestId,
+        resultJson: JSON.stringify(result),
+    });
+
+    let req;
+    try {
+        req = JSON.parse(requestJson);
+    } catch (e) {
+        send({ ok: false, status: 0, error: `Bad request envelope: ${e.message}` });
+        return;
+    }
+
+    try {
+        const headers = _injectAuth({ ...req.headers }, req.url);
+        const resp = await fetch(req.url, {
+            method: req.method || "POST",
+            headers,
+            body: req.body,
+        });
+        if (!resp.ok) {
+            let errorMsg;
+            try {
+                const errBody = await resp.json();
+                errorMsg = errBody?.error?.message || JSON.stringify(errBody);
+            } catch {
+                errorMsg = `HTTP ${resp.status}`;
+            }
+            send({ ok: false, status: resp.status, error: errorMsg });
+            return;
+        }
+        const data = await resp.json();
+        send({ ok: true, data });
+    } catch (e) {
+        send({ ok: false, status: 0, error: e.message || String(e) });
+    }
+}
+
+/**
+ * Handle streaming LLM request from the worker.
+ * Pipes SSE-style text chunks back to the worker as they arrive, then
+ * sends either `llm-stream-done` on success or `llm-stream-error` on
+ * failure. The worker's JS side invokes Python callbacks for each chunk.
+ */
+async function handleLlmStream(requestJson, requestId) {
+    const sendChunk = (chunk) => worker.postMessage({
+        type: "llm-stream-chunk", id: requestId, chunk,
+    });
+    const sendDone = () => worker.postMessage({
+        type: "llm-stream-done", id: requestId,
+    });
+    const sendError = (msg) => worker.postMessage({
+        type: "llm-stream-error", id: requestId, error: msg,
+    });
+
+    let req;
+    try {
+        req = JSON.parse(requestJson);
+    } catch (e) {
+        sendError(`Bad request envelope: ${e.message}`);
+        return;
+    }
+
+    try {
+        const headers = _injectAuth({ ...req.headers }, req.url);
+        const resp = await fetch(req.url, {
+            method: req.method || "POST",
+            headers,
+            body: req.body,
+        });
+        if (!resp.ok) {
+            let errorMsg;
+            try {
+                const errBody = await resp.json();
+                errorMsg = errBody?.error?.message || JSON.stringify(errBody);
+            } catch {
+                errorMsg = `HTTP ${resp.status}`;
+            }
+            sendError(`API error (${resp.status}): ${errorMsg}`);
+            return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            // stream: true to retain incomplete multi-byte sequences
+            const text = decoder.decode(value, { stream: true });
+            if (text) sendChunk(text);
+        }
+        // Flush trailing bytes
+        const final = decoder.decode();
+        if (final) sendChunk(final);
+        sendDone();
+    } catch (e) {
+        sendError(e.message || String(e));
     }
 }
 
