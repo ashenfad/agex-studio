@@ -736,11 +736,10 @@ _list_result
  * @returns {Promise<string>}
  */
 export async function readFile(path) {
-  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const json = await runPython(`
 import json as _json
 _fs = _agent.fs()
-_content = _fs.read("${escaped}")
+_content = _fs.read(${JSON.stringify(path)})
 _json.dumps(_content.decode("utf-8", errors="replace"))
     `);
   return JSON.parse(json);
@@ -752,10 +751,9 @@ _json.dumps(_content.decode("utf-8", errors="replace"))
  * @returns {Promise<number>}
  */
 export async function fileSize(path) {
-  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const result = await runPython(`
 _fs = _agent.fs()
-len(_fs.read("${escaped}"))
+len(_fs.read(${JSON.stringify(path)}))
     `);
   return parseInt(result, 10);
 }
@@ -770,7 +768,7 @@ export async function uploadFiles(files) {
   await runPython(`
 import json as _json, base64 as _b64
 _fs = _agent.fs()
-_uploads = _json.loads('''${filesJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}''')
+_uploads = _json.loads(${JSON.stringify(filesJson)})
 _files_dict = {}
 for _f in _uploads:
     _files_dict[_f["name"]] = _b64.b64decode(_f["data"])
@@ -790,7 +788,7 @@ export async function deleteFiles(paths) {
   await runPython(`
 import json as _json
 _fs = _agent.fs()
-_paths = _json.loads('${pathsJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')
+_paths = _json.loads(${JSON.stringify(pathsJson)})
 _fs.remove_many(_paths)
 _state = _agent.state("default")
 _state.commit()
@@ -820,7 +818,7 @@ export async function emitDriveShareEvent(paths) {
 import json as _json
 from agex.agent.events import FileEvent
 from agex.state.log import add_event_to_log
-_paths = _json.loads('${pathsJson.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')
+_paths = _json.loads(${JSON.stringify(pathsJson)})
 _state = _agent.state("default")
 _event = FileEvent(
     agent_name=_agent.name,
@@ -840,11 +838,10 @@ _state.commit()
  * @returns {Promise<string>} base64-encoded content
  */
 export async function downloadFile(path) {
-  const escaped = path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const json = await runPython(`
 import json as _json, base64 as _b64
 _fs = _agent.fs()
-_content = _fs.read("${escaped}")
+_content = _fs.read(${JSON.stringify(path)})
 _json.dumps(_b64.b64encode(_content).decode("ascii"))
     `);
   return JSON.parse(json);
@@ -938,10 +935,6 @@ export function runQuery(code, resultVars) {
 }
 
 async function _runQueryImpl(code, resultVars) {
-  const escapedCode = code
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\n/g, "\\n");
   const resultArg = resultVars ? JSON.stringify(resultVars) : "None";
 
   const json = await runPython(`
@@ -949,7 +942,7 @@ import json as _json
 from agex.eval.bridge import aexecute_sandboxed as _aexecute_sandboxed
 from agex.state.live import Live as _Live
 
-_query_code = '${escapedCode}'
+_query_code = ${JSON.stringify(code)}
 _query_result_vars = ${resultArg}
 
 # Queries run against a scratch Live state seeded with the chat
@@ -1042,11 +1035,6 @@ _json.dumps(_query_result)
  * @returns {Promise<{ result: string, events: Array }>}
  */
 export async function sendMessage(message, onToken) {
-  const escaped = message
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n");
-
   const json = await runPythonStreaming(
     `
 import json as _json
@@ -1092,7 +1080,7 @@ import asyncio as _asyncio
 _agex_running_task = _asyncio.current_task()
 
 try:
-    _result = await chat("${escaped}", on_event=_on_event, on_token=_on_token)
+    _result = await chat(${JSON.stringify(message)}, on_event=_on_event, on_token=_on_token)
 except TaskCancelled:
     _result = None
     _events_log.append({"type": "cancelled"})
