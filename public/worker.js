@@ -215,23 +215,33 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         // from localStorage, injects Authorization, does the fetch,
         // returns a JSON-serialized { ok, data? , status?, error? }.
         // Python (JsBridgeAdapter.fetch_json) unwraps the envelope.
-        pyodide.globals.set("_js_llm_fetch", (requestJson) => {
+        //
+        // Attached to `self` (worker globalThis) so Python code in
+        // imported modules can `from js import _js_llm_fetch`.
+        // pyodide.globals.set only exposes the name to inline Python
+        // running in __main__, which wouldn't reach a module like
+        // bridge_llm.py.
+        const llmFetchFn = (requestJson) => {
             return new Promise((resolve) => {
                 const id = ++_llmRequestId;
                 llmFetchPending.set(id, resolve);
                 self.postMessage({ type: "llm-fetch", id, requestJson });
             });
-        });
+        };
+        self._js_llm_fetch = llmFetchFn;
+        pyodide.globals.set("_js_llm_fetch", llmFetchFn);
 
         // LLM bridge — streaming. Python passes three proxied callbacks
         // (chunk/done/error). Main thread does a streaming fetch and
         // postMessages back chunks / done / error tagged with the id.
         // We look up the callbacks by id and invoke accordingly.
-        pyodide.globals.set("_js_llm_stream", (requestJson, onChunk, onDone, onError) => {
+        const llmStreamFn = (requestJson, onChunk, onDone, onError) => {
             const id = ++_llmStreamId;
             llmStreamPending.set(id, { onChunk, onDone, onError });
             self.postMessage({ type: "llm-stream", id, requestJson });
-        });
+        };
+        self._js_llm_stream = llmStreamFn;
+        pyodide.globals.set("_js_llm_stream", llmStreamFn);
 
         self.postMessage({ type: "ready" });
     } catch (e) {
