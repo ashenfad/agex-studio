@@ -1,5 +1,5 @@
 <script>
-    import { sessionStore, createSession, switchSession, deleteSession, forkSession, getSessionDebugInfo } from './sessions.js'
+    import { sessionStore, createSession, switchSession, deleteSession, forkSession, getSessionDebugInfo, setSessionMeta } from './sessions.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -13,6 +13,13 @@
     let deleteConfirmBranch = $state(null)
     let debugInfo = $state(null)
     let debugOpen = $state(false)
+
+    /** Session being edited in the meta modal, or null when closed. */
+    let editingSession = $state(null)
+    /** Current draft values in the meta modal. */
+    let editName = $state('')
+    let editDescription = $state('')
+    let savingMeta = $state(false)
 
     $effect(() => {
         if (open) {
@@ -125,6 +132,37 @@
         }
     }
 
+    function handleEdit(e, session) {
+        e.stopPropagation()
+        editingSession = session
+        editName = session.name || ''
+        editDescription = session.description || ''
+    }
+
+    function closeEdit() {
+        editingSession = null
+        editName = ''
+        editDescription = ''
+    }
+
+    async function handleSaveMeta(e) {
+        e?.preventDefault?.()
+        if (!editingSession || savingMeta) return
+        savingMeta = true
+        try {
+            await setSessionMeta(
+                editingSession.branch,
+                editName.trim(),
+                editDescription.trim(),
+            )
+            closeEdit()
+        } catch (err) {
+            console.error('Failed to save session meta:', err)
+        } finally {
+            savingMeta = false
+        }
+    }
+
     function formatDate(iso) {
         if (!iso) return ''
         const d = new Date(iso)
@@ -158,10 +196,23 @@
                     role="button"
                     tabindex="0"
                 >
-                    <div class="session-title">{s.title}</div>
+                    <div class="session-title">
+                        {s.name || s.title}
+                        {#if s.name}<span class="custom-name-marker" title="Custom name">*</span>{/if}
+                    </div>
+                    {#if s.description}
+                        <div class="session-description" title={s.description}>{s.description}</div>
+                    {/if}
                     <div class="session-meta">
                         <span class="session-date">{formatDate(s.updated)}</span>
                         <span class="session-actions">
+                            <button
+                                class="action-btn"
+                                onclick={(e) => handleEdit(e, s)}
+                                title="Edit name and description"
+                            >
+                                edit
+                            </button>
                             <button
                                 class="action-btn"
                                 onclick={(e) => handleFork(e, s.branch)}
@@ -247,6 +298,45 @@
     </div>
 {/if}
 
+{#if editingSession}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-overlay" onclick={closeEdit} onkeydown={(e) => e.key === 'Escape' && closeEdit()}></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <form onsubmit={handleSaveMeta}>
+            <div class="modal-header">
+                <h3>Edit Session</h3>
+            </div>
+            <div class="modal-body">
+                <label class="field">
+                    <span class="field-label">Name</span>
+                    <input
+                        type="text"
+                        bind:value={editName}
+                        placeholder={editingSession.title}
+                        autofocus
+                    />
+                    <div class="field-hint">Custom label for this session. If blank, the agent-generated title ({editingSession.title}) is used.</div>
+                </label>
+                <label class="field">
+                    <span class="field-label">Description</span>
+                    <textarea
+                        bind:value={editDescription}
+                        placeholder="What is this session for?"
+                        rows="4"
+                    ></textarea>
+                    <div class="field-hint">Shown when sharing this session as an artifact.</div>
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" onclick={closeEdit}>Cancel</button>
+                <button type="submit" class="btn-save" disabled={savingMeta}>
+                    {savingMeta ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+        </form>
+    </div>
+{/if}
+
 <style>
     .overlay {
         position: fixed;
@@ -326,6 +416,22 @@
     .session-title {
         font-size: 0.85rem;
         font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .custom-name-marker {
+        color: var(--accent, var(--text-muted));
+        font-weight: normal;
+        margin-left: 0.2rem;
+        opacity: 0.6;
+    }
+
+    .session-description {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.15rem;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -497,5 +603,113 @@
     .purge-btn:disabled {
         opacity: 0.5;
         cursor: default;
+    }
+
+    /* -- Edit session modal -- */
+
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 200;
+    }
+
+    .modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(440px, calc(100% - 2rem));
+        max-height: calc(100% - 2rem);
+        overflow: auto;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        z-index: 201;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-header {
+        padding: 0.9rem 1.1rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .modal-header h3 {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    .modal-body {
+        padding: 1.1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .field-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .field input,
+    .field textarea {
+        padding: 0.5rem 0.6rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 0.85rem;
+        font-family: inherit;
+        resize: vertical;
+    }
+
+    .field-hint {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        line-height: 1.35;
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        padding: 0.9rem 1.1rem;
+        border-top: 1px solid var(--border);
+    }
+
+    .btn-cancel,
+    .btn-save {
+        padding: 0.45rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 0.82rem;
+        cursor: pointer;
+    }
+
+    .btn-save {
+        background: var(--accent, var(--text));
+        color: var(--bg);
+        border-color: var(--accent, var(--text));
+    }
+
+    .btn-save:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .btn-cancel:hover:not(:disabled),
+    .btn-save:hover:not(:disabled) {
+        filter: brightness(1.1);
     }
 </style>

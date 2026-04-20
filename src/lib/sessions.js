@@ -89,12 +89,16 @@ for _b in _branches:
     _sessions.append({
         "branch": _b,
         "title": _state.peek("__session_title__", branch=_b) or "New Chat",
+        "name": _state.peek("__session_name__", branch=_b) or "",
+        "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
     })
 if _current not in [s["branch"] for s in _sessions]:
     _sessions.append({
         "branch": _current,
         "title": "New Chat",
+        "name": "",
+        "description": "",
         "updated": _state.peek("__session_updated__", branch=_current) or "",
     })
 
@@ -414,6 +418,8 @@ for _b in _branches:
     _sessions.append({
         "branch": _b,
         "title": _state.peek("__session_title__", branch=_b) or "New Chat",
+        "name": _state.peek("__session_name__", branch=_b) or "",
+        "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
@@ -491,6 +497,45 @@ if _title:
     _state["__session_title__"] = _title
 _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
 _state.commit()
+    `);
+
+    await refreshSessionList(state.currentBranch);
+}
+
+/**
+ * Set the user-curated name + description for a session branch.
+ * Both fields are optional and independent of the agent-generated
+ * __session_title__ (which continues to track the last action title).
+ * Display logic prefers `name` over `title` when set.
+ *
+ * @param {string} branch - branch name (session id)
+ * @param {string} name
+ * @param {string} description
+ */
+export async function setSessionMeta(branch, name, description) {
+    await runPython(`
+from datetime import datetime as _dt, timezone as _tz
+
+_state = _agent.state("default")
+_branch = ${JSON.stringify(branch)}
+_name = ${JSON.stringify(name || "")}
+_desc = ${JSON.stringify(description || "")}
+
+# Edits target the specified branch — temporarily switch if it's not current
+_cur = _state.current_branch
+_switched = False
+if _branch != _cur:
+    _state.switch_branch(_branch)
+    _switched = True
+
+try:
+    _state["__session_name__"] = _name
+    _state["__session_description__"] = _desc
+    _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+    _state.commit()
+finally:
+    if _switched:
+        _state.switch_branch(_cur)
     `);
 
     await refreshSessionList(state.currentBranch);
