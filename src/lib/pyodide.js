@@ -695,7 +695,7 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
         blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
         iframe = document.createElement('iframe');
         iframe.style.cssText = 'position:absolute;left:-9999px;width:800px;height:600px;';
-        iframe.sandbox = 'allow-scripts allow-same-origin';
+        iframe.sandbox = 'allow-scripts';
 
         // Handle query() messages from the test iframe
         messageHandler = (event) => {

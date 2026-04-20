@@ -253,7 +253,7 @@
         <iframe
             bind:this={iframe}
             src={blobUrl}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts"
             title="App Preview"
         ></iframe>
     {/if}
