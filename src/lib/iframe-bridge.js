@@ -12,43 +12,32 @@
  * use in the iframe.
  */
 
-let _html2canvasPromise = null;
-async function loadHtml2Canvas() {
-    if (!_html2canvasPromise) {
-        _html2canvasPromise = import('https://esm.sh/html2canvas@1.4.1').then(m => m.default);
+let _htmlToImagePromise = null;
+async function loadHtmlToImage() {
+    // Use html-to-image (SVG foreignObject-based) rather than html2canvas.
+    // html2canvas creates a render iframe internally, which under opaque-
+    // origin sandbox gets a *different* opaque origin than ours and can't
+    // be read back cross-origin. html-to-image serializes to an inline
+    // SVG foreignObject embedded as a data URI — no iframes involved.
+    if (!_htmlToImagePromise) {
+        _htmlToImagePromise = import('https://esm.sh/html-to-image@1.11.11');
     }
-    return _html2canvasPromise;
+    return _htmlToImagePromise;
 }
 
 /**
- * Render a DOM target to a base64 PNG. Handles bare <svg> targets by
- * wrapping them in a temporary <div> (html2canvas can't render raw SVG).
+ * Render a DOM target to a base64 PNG.
  * @param {Document} doc
  * @param {string|null} selector
  * @returns {Promise<string>} base64-encoded PNG (no data URI prefix)
  */
 async function captureScreenshot(doc, selector) {
-    const html2canvas = await loadHtml2Canvas();
-    let target = selector ? doc.querySelector(selector) : doc.body;
+    const { toPng } = await loadHtmlToImage();
+    const target = selector ? doc.querySelector(selector) : doc.body;
     if (!target) throw new Error(`Screenshot target not found: ${selector}`);
 
-    let wrapper = null;
-    if (target.tagName === 'svg' || target.tagName === 'SVG') {
-        wrapper = doc.createElement('div');
-        target.parentNode.insertBefore(wrapper, target);
-        wrapper.appendChild(target);
-        target = wrapper;
-    }
-
-    try {
-        const canvas = await html2canvas(target, { useCORS: true, logging: false });
-        return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
-    } finally {
-        if (wrapper) {
-            wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
-            wrapper.remove();
-        }
-    }
+    const dataUrl = await toPng(target, { cacheBust: true });
+    return dataUrl.replace(/^data:image\/png;base64,/, '');
 }
 
 /**
