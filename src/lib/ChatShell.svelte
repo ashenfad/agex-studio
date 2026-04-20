@@ -11,10 +11,9 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
-    import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory, emitDriveShareEvent, driveMountPath } from './agent.js'
-    import { cancelTask, setDriveFiles } from './pyodide.js'
-    import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit, getDrivePicks, clearLegacyDrivePicks } from './sessions.js'
-    import { tryRestore, refreshIfNeeded } from './google-auth.js'
+    import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
+    import { cancelTask } from './pyodide.js'
+    import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
     import { onMount } from 'svelte'
 
     // Refresh stale Google token on first user interaction (click/key)
@@ -29,11 +28,6 @@
         document.addEventListener('keydown', onFirstGesture, { once: true })
         // Clicking inside the iframe doesn't bubble to document, but blurs the parent window
         window.addEventListener('blur', onFirstGesture, { once: true })
-
-        // Refresh app preview when Google auth completes (e.g. after re-auth)
-        function onGoogleToken() { previewRefreshKey++ }
-        window.addEventListener('google-auth-token', onGoogleToken)
-        return () => window.removeEventListener('google-auth-token', onGoogleToken)
     })
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
@@ -122,17 +116,10 @@
                 if (messages.length && messages[messages.length - 1].role === 'chaptering') {
                     tokenOverride = await estimateLogTokens()
                 }
-                // Clear pre-refactor localStorage picks
-                clearLegacyDrivePicks()
-                // Load session's Drive picks before file list so /drive/ mount is current
-                const picks = await getDrivePicks()
-                setDriveFiles(picks)
                 initStatus = 'Loading files...'
                 files = await listFiles()
                 agentReady = true
                 document.getElementById('static-footer')?.remove()
-                // Silently restore Google token if previously connected
-                tryRestore().catch(() => {})
             }).catch((e) => {
                 console.error('Agent init failed:', e)
                 initError = e.message || String(e)
@@ -156,9 +143,6 @@
                 } else {
                     tokenOverride = null
                 }
-                // Load session's Drive picks before file list so /drive/ mount is current
-                const picks = await getDrivePicks()
-                setDriveFiles(picks)
                 files = await listFiles()
                 previewRefreshKey++
             })
@@ -390,25 +374,6 @@
         }]
     }
 
-    async function handleDriveShare(shared, commitHash) {
-        const paths = shared.map(driveMountPath)
-        const label = paths.length === 1
-            ? `**Uploaded:** \`${paths[0]}\``
-            : `**Uploaded ${paths.length} files:**\n${paths.map(n => `- \`${n}\``).join('\n')}`
-        try {
-            await emitDriveShareEvent(paths)
-        } catch (e) {
-            console.error('Drive share event failed:', e)
-        }
-        messages = [...messages, {
-            role: 'user',
-            content: label,
-            timestamp: new Date(),
-            isMarkdown: true,
-            commit_hash: commitHash,
-        }]
-    }
-
     function handleLoadMore() {
         if (historyChunks?.loadMore()) {
             messages = historyChunks.messages
@@ -427,9 +392,6 @@
         try {
             const preCommit = await getCurrentCommit()
             await undoToCommit(msg.commit_hash)
-            // Reload Drive picks before file list so /drive/ mount is current
-            const picks = await getDrivePicks()
-            setDriveFiles(picks)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
             files = await listFiles()
@@ -453,8 +415,6 @@
         busy = true
         try {
             await undoToCommit(preCommit)
-            const picks = await getDrivePicks()
-            setDriveFiles(picks)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
             files = await listFiles()
@@ -626,7 +586,6 @@
     {files}
     onUpload={handleUpload}
     onDelete={handleDelete}
-    onDriveShare={handleDriveShare}
     onFilesChanged={(f) => files = f}
 />
 

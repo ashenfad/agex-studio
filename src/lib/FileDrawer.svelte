@@ -1,59 +1,28 @@
 <script>
     import { uploadFiles, downloadFile, deleteFiles, listFiles } from './agent.js'
-    import { getCurrentCommit, drivePicksStore, getDrivePicks, setDrivePicks } from './sessions.js'
-    import { googleAuthStore } from './google-auth.js'
-    import { openPicker, isPickerAvailable } from './google-picker.js'
-    import { setDriveFiles } from './pyodide.js'
+    import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
     import FileModal from './FileModal.svelte'
 
-    const MIME_LABELS = {
-        'application/vnd.google-apps.document': 'Doc',
-        'application/vnd.google-apps.spreadsheet': 'Sheet',
-        'application/vnd.google-apps.presentation': 'Slides',
-    }
-
-    /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onDriveShare?: (files: Array<{name: string, type: string}>, commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
-    let { open, onClose, files: rawFiles, onUpload, onDelete, onDriveShare, onFilesChanged } = $props()
+    /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
+    let { open, onClose, files: rawFiles, onUpload, onDelete, onFilesChanged } = $props()
     let files = $derived(rawFiles ?? [])
 
-    let googleAuth = $state({ connected: false, token: null })
-    let pickedFiles = $state([])
-    let pickingFiles = $state(false)
+    let importing = $state(false)
+    const showDriveImport = $derived(isDriveImportAvailable())
 
-    $effect(() => {
-        const unsub1 = googleAuthStore.subscribe(s => googleAuth = s)
-        const unsub2 = drivePicksStore.subscribe(f => pickedFiles = f)
-        return () => { unsub1(); unsub2() }
-    })
-
-    const showPicker = $derived(googleAuth.connected && isPickerAvailable())
-
-    async function handlePickFromDrive() {
-        if (!googleAuth.token || pickingFiles) return
-        pickingFiles = true
+    async function handleImportFromDrive() {
+        if (importing) return
+        importing = true
         try {
-            const commitHash = await getCurrentCommit()
-            const picked = await openPicker(googleAuth.token)
-            if (picked.length > 0) {
-                const shared = picked.map(f => ({
-                    name: f.name,
-                    type: MIME_LABELS[f.mimeType] ?? 'File',
-                }))
-                // Emit file event FIRST so its commit_hash points to the pre-share commit
-                onDriveShare?.(shared, commitHash)
-                // Then persist picks (separate commit after the event)
-                const current = await getDrivePicks()
-                const existing = new Set(current.map(f => f.id))
-                const merged = [...current, ...picked.filter(f => !existing.has(f.id))]
-                setDriveFiles(merged)
-                await setDrivePicks(merged)
-                // Refresh file list so /drive/ entries appear
+            const written = await importFromDrive()
+            if (written.length > 0) {
+                // Refresh the file list so /downloads/... appear
                 onFilesChanged?.(await listFiles())
             }
         } catch (e) {
-            console.error('Picker failed:', e)
+            console.error('Drive import failed:', e)
         } finally {
-            pickingFiles = false
+            importing = false
         }
     }
 
@@ -196,9 +165,9 @@
         <div class="drawer-header">
             <h2>Files</h2>
             <div class="header-actions">
-                {#if showPicker}
-                    <button class="drive-btn" onclick={handlePickFromDrive} disabled={pickingFiles}>
-                        {pickingFiles ? 'Opening...' : 'Share from Drive'}
+                {#if showDriveImport}
+                    <button class="drive-btn" onclick={handleImportFromDrive} disabled={importing}>
+                        {importing ? 'Importing...' : 'Import from Drive'}
                     </button>
                 {/if}
                 <button class="upload-btn" onclick={() => fileInput.click()} disabled={uploading}>

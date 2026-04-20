@@ -182,15 +182,7 @@ def _install_url_module(name, url):
         f.write(_open_url(url).read())
     return _importlib.import_module(name)
 
-# Sheets/Docs modules installed (drive_fs depends on them at runtime)
-# but not registered with the agent — scopes removed for minimal demo.
-_install_url_module("sheets", "/sheets.py")
-_install_url_module("docs", "/docs.py")
-_install_url_module("drive_fs", "/drive_fs.py")
-
 del _install_url_module, _site_dir, _importlib
-
-# Gmail module disabled until app verification (restricted scopes)
 
 # -- Register skills from static files --
 for _skill_path in [
@@ -204,50 +196,6 @@ for _skill_path in [
     _agent.skill(_open_url(_skill_path).read().encode("utf-8"))
 
 del _open_url, _skill_path
-
-# Google access token — set/refreshed by the main thread via worker message.
-try:
-    _google_access_token
-except NameError:
-    _google_access_token = None
-
-def google_token() -> str | None:
-    """Internal token accessor used by GoogleDriveFS.
-    Held in closure by the FS so it never enters agent state; not registered
-    with the agent.
-    """
-    return _google_access_token
-
-# -- Drive virtual filesystem mount --
-from monkeyfs import MountFS
-from drive_fs import GoogleDriveFS
-
-_drive_fs = GoogleDriveFS([], google_token)
-
-# Monkey-patch _get_fs_backend to wrap the base FS in a MountFS with /drive/
-_original_get_fs_backend = _agent._get_fs_backend.__func__
-
-def _patched_get_fs_backend(self, session="default"):
-    base_fs, state = _original_get_fs_backend(self, session)
-    if base_fs is None:
-        return base_fs, state
-    mount_fs = MountFS(base_fs)
-    mount_fs.mount("/drive", _drive_fs)
-    # Delegate metadata snapshot to base FS for file event tracking
-    mount_fs.get_metadata_snapshot = base_fs.get_metadata_snapshot
-    return mount_fs, state
-
-import types as _types
-_agent._get_fs_backend = _types.MethodType(_patched_get_fs_backend, _agent)
-del _types
-
-def _update_drive_files(picked_files_json: str):
-    """Update the Drive mount with new picked files (called from JS)."""
-    import json
-    files = json.loads(picked_files_json)
-    _drive_fs.update_files(files)
-    _drive_fs._cache.clear()
-    _drive_fs._cache_time.clear()
 
 def local_timezone() -> str:
     """Returns the user's local IANA timezone (e.g. 'America/Los_Angeles').
@@ -521,9 +469,9 @@ its API has non-obvious signatures you must not guess at:
 local_timezone() is a registered global — call it directly, do not import.
 Always use at_tz(local_timezone()) for timeline slicing.
 
-Google Drive: files shared via the picker appear read-only under /drive/.
-When working with these files or encountering CSV parsing errors from
-shared Sheets, read the drive skill first:
+Google Drive: files the user imports via the file drawer land under
+/downloads/ as normal VFS files (txt for Docs, xlsx for Sheets, pdf for
+Slides). When working with these files, read the drive skill first:
   cat /skills/drive/SKILL.md
 
 Error handling: when code throws an exception, DO NOT catch it and return an
@@ -805,43 +753,6 @@ _fs = _agent.fs()
 _paths = _json.loads(${JSON.stringify(pathsJson)})
 _fs.remove_many(_paths)
 _state = _agent.state("default")
-_state.commit()
-    `);
-}
-
-/**
- * Map a picked Drive file to its virtual mount path.
- * @param {{name: string, type: string}} f - file with name and type label
- * @returns {string}
- */
-export function driveMountPath(f) {
-  if (f.type === "Doc") return `/drive/${f.name}.md`;
-  if (f.type === "Sheet") return `/drive/${f.name}`;
-  if (f.type === "Slides") return `/drive/${f.name}.pdf`;
-  return `/drive/${f.name}`;
-}
-
-/**
- * Emit a FileEvent for Google Drive files shared via the picker.
- * @param {string[]} paths - virtual mount paths
- * @returns {Promise<void>}
- */
-export async function emitDriveShareEvent(paths) {
-  const pathsJson = JSON.stringify(paths);
-  await runPython(`
-import json as _json
-from agex.agent.events import FileEvent
-from agex.state.log import add_event_to_log
-_paths = _json.loads(${JSON.stringify(pathsJson)})
-_state = _agent.state("default")
-_event = FileEvent(
-    agent_name=_agent.name,
-    file_source="user",
-    added=_paths,
-    modified=[],
-    removed=[],
-)
-add_event_to_log(_state, _event)
 _state.commit()
     `);
 }

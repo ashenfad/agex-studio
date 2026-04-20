@@ -7,8 +7,8 @@
  *   { type: 'init' }                      — load Pyodide and install packages
  *   { type: 'run', id, code }            — execute Python code
  *   { type: 'cancel' }                   — cancel the running task
- *   { type: 'set-google-token', token }  — push Google OAuth token
- *   { type: 'set-drive-files', files }  — update Drive mount picked files
+ *   { type: 'write-downloaded-file', id, path, bytes }  — write main-
+ *       thread-fetched bytes (e.g. Drive import) into the agent's VFS
  *
  * Worker → Main:
  *   { type: 'progress', message, progress } — loading progress (0–1)
@@ -295,15 +295,33 @@ self.onmessage = (e) => {
     const { type } = e.data;
     if (type === "init") {
         init();
-    } else if (type === "set-google-token") {
+    } else if (type === "write-downloaded-file") {
+        // Drive imports (or any main-thread-fetched files) land here.
+        // Main thread supplies bytes as a Uint8Array; we write them
+        // into the VFS at the given path and acknowledge completion.
         if (pyodide) {
-            const val = e.data.token ? `"${e.data.token}"` : "None";
-            pyodide.runPython(`_google_access_token = ${val}`);
-        }
-    } else if (type === "set-drive-files") {
-        if (pyodide) {
-            const json = JSON.stringify(e.data.files || []).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-            pyodide.runPython(`_update_drive_files('${json}')`);
+            (async () => {
+                const { id, path, bytes } = e.data;
+                try {
+                    pyodide.globals.set("_dl_path", path);
+                    pyodide.globals.set("_dl_bytes", bytes);
+                    await pyodide.runPythonAsync(`
+_fs = _agent.fs()
+_bytes = bytes(_dl_bytes.to_py())
+_fs.write(_dl_path, _bytes)
+_state = _agent.state("default")
+_state.commit()
+del _dl_path, _dl_bytes, _bytes
+                    `);
+                    self.postMessage({ type: "write-downloaded-file-result", id });
+                } catch (err) {
+                    self.postMessage({
+                        type: "write-downloaded-file-result",
+                        id,
+                        error: err.message || String(err),
+                    });
+                }
+            })();
         }
     } else if (type === "cancel") {
         if (pyodide) {
