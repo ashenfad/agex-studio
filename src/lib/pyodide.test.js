@@ -242,35 +242,10 @@ describe("cancelTask", () => {
     });
 });
 
-describe("setGoogleToken", () => {
-    it("does nothing when worker is not ready", async () => {
-        const { setGoogleToken } = await loadPyodide();
-        expect(() => setGoogleToken("tok")).not.toThrow();
-    });
-
-    it("sends token to worker when ready", async () => {
-        const { startWorker, setGoogleToken } = await loadPyodide();
-        startWorker();
-        const w = MockWorker.instances[0];
-        w._receive({ type: "ready" });
-
-        setGoogleToken("my-token");
-        const msg = w.posted.find((m) => m.type === "set-google-token");
-        expect(msg).toBeDefined();
-        expect(msg.token).toBe("my-token");
-    });
-
-    it("sends null token for revocation", async () => {
-        const { startWorker, setGoogleToken } = await loadPyodide();
-        startWorker();
-        const w = MockWorker.instances[0];
-        w._receive({ type: "ready" });
-
-        setGoogleToken(null);
-        const msg = w.posted.find((m) => m.type === "set-google-token");
-        expect(msg.token).toBeNull();
-    });
-});
+// setGoogleToken tests removed — the /drive/ live mount was replaced
+// with on-demand Drive imports (see drive-import.js). The OAuth token
+// now lives only in main-thread scope during picker + download, never
+// crosses into the Pyodide worker.
 
 describe("_rewriteLocalImports", () => {
     it("rewrites static import-from specifiers for known files", async () => {

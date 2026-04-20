@@ -70,23 +70,28 @@ describe("initAgent", () => {
 
     // Sheets/Docs REST API modules disabled — scopes removed for minimal demo
 
-    it("installs drive_fs module and mounts at /drive", async () => {
+    it("no longer installs drive_fs live-mount code", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
-        expect(code).toContain('_install_url_module("drive_fs", "/drive_fs.py")');
-        expect(code).toContain("GoogleDriveFS");
-        expect(code).toContain("MountFS");
-        expect(code).toContain('mount("/drive"');
-        expect(code).toContain("_update_drive_files");
+        // Drive is now a download-to-VFS flow, not a live /drive/ mount.
+        expect(code).not.toContain("drive_fs.py");
+        expect(code).not.toContain("GoogleDriveFS");
+        expect(code).not.toContain("_update_drive_files");
+        expect(code).not.toContain('mount("/drive"');
+        // And no OAuth token in Python scope
+        expect(code).not.toContain("_google_access_token");
+        expect(code).not.toContain("google_token()");
     });
 
-    it("registers drive skill and mentions in task primer", async () => {
+    it("registers drive skill and mentions /downloads in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = runPythonCalls[0];
         expect(code).toContain("drive.md");
-        expect(code).toContain("/drive/");
+        // Primer now references /downloads/ (where imported files land),
+        // not /drive/ (the old live mount).
+        expect(code).toContain("/downloads/");
         expect(code).toContain("cat /skills/drive/SKILL.md");
     });
 

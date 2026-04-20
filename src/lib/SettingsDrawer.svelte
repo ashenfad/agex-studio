@@ -1,6 +1,5 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
-    import { googleAuthStore, isGoogleAvailable, connect, disconnect } from './google-auth.js'
 
     const MODELS = [
         { id: "openai/gpt-5.4", label: "GPT-5.4" },
@@ -24,7 +23,6 @@
     let provider = $state('openai')
     let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
-    let googleConnecting = $state(false)
 
     // Sync local state from store whenever drawer opens
     $effect(() => {
@@ -48,21 +46,6 @@
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
         })
         onClose()
-    }
-
-    async function handleGoogleConnect() {
-        googleConnecting = true
-        try {
-            await connect()
-        } catch (e) {
-            console.error('Google auth failed:', e)
-        } finally {
-            googleConnecting = false
-        }
-    }
-
-    function handleGoogleDisconnect() {
-        disconnect()
     }
 
     let modalPage = $state(null) // { title, html }
@@ -161,33 +144,6 @@
                     step="1000"
                 />
             </label>
-
-            {#if isGoogleAvailable()}
-                <div class="divider"></div>
-
-                <div class="section-label">Integrations</div>
-
-                <div class="google-status">
-                    {#if $googleAuthStore.connected}
-                        <div class="connected">
-                            <span class="dot"></span>
-                            <span class="email">Connected</span>
-                            <button type="button" class="disconnect-link" onclick={handleGoogleDisconnect}>
-                                Disconnect
-                            </button>
-                        </div>
-                    {:else}
-                        <button
-                            type="button"
-                            class="google-connect"
-                            onclick={handleGoogleConnect}
-                            disabled={googleConnecting}
-                        >
-                            {googleConnecting ? 'Connecting...' : 'Connect Google'}
-                        </button>
-                    {/if}
-                </div>
-            {/if}
 
             <div class="actions">
                 <button class="save" type="submit">Save</button>
@@ -384,67 +340,6 @@
         color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.05em;
-    }
-
-    .google-status {
-        display: flex;
-        align-items: center;
-    }
-
-    .connected {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.8rem;
-    }
-
-    .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #34a853;
-        flex-shrink: 0;
-    }
-
-    .email {
-        color: var(--text);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .disconnect-link {
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-        cursor: pointer;
-        padding: 0;
-        margin-left: auto;
-        flex-shrink: 0;
-    }
-
-    .disconnect-link:hover {
-        color: var(--text);
-    }
-
-    .google-connect {
-        padding: 0.4rem 0.75rem;
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        background: var(--surface);
-        color: var(--text);
-        font-size: 0.8rem;
-        cursor: pointer;
-    }
-
-    .google-connect:hover:not(:disabled) {
-        background: var(--surface-hover);
-    }
-
-    .google-connect:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
     }
 
     .footer-links {

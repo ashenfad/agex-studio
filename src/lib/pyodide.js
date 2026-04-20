@@ -118,6 +118,13 @@ export function startWorker() {
             handleLlmFetch(msg.requestJson, msg.id);
         } else if (msg.type === "llm-stream") {
             handleLlmStream(msg.requestJson, msg.id);
+        } else if (msg.type === "write-downloaded-file-result") {
+            const entry = downloadWritePending.get(msg.id);
+            if (entry) {
+                downloadWritePending.delete(msg.id);
+                if (msg.error) entry.reject(new Error(msg.error));
+                else entry.resolve();
+            }
         }
     };
 
@@ -932,24 +939,32 @@ async function runLiveApp(actionsJson, requestId) {
 }
 
 /**
- * Push a Google access token to the Pyodide worker.
- * Called by google-auth.js when the token changes or is revoked.
- * @param {string|null} token
+ * Write a downloaded file (e.g. from Drive import) to the agent's VFS.
+ * The main thread fetches bytes and passes them here; the worker does
+ * the actual VFS write. Returns when the write is confirmed.
+ *
+ * @param {string} path - VFS-relative path (e.g. "downloads/foo.xlsx")
+ * @param {Uint8Array} bytes
+ * @returns {Promise<void>}
  */
-export function setGoogleToken(token) {
-    if (!worker || state.status !== "ready") return;
-    worker.postMessage({ type: "set-google-token", token });
+export function writeDownloadedFile(path, bytes) {
+    if (!worker || state.status !== "ready") {
+        return Promise.reject(new Error("Worker not ready"));
+    }
+    return new Promise((resolve, reject) => {
+        const id = ++_downloadWriteId;
+        downloadWritePending.set(id, { resolve, reject });
+        // Transfer the buffer to avoid copying — faster for large files
+        worker.postMessage(
+            { type: "write-downloaded-file", id, path, bytes },
+            [bytes.buffer],
+        );
+    });
 }
 
-/**
- * Push picked Google Drive files to the Pyodide worker.
- * Updates the /drive/ virtual filesystem mount.
- * @param {Array<{id: string, name: string, mimeType: string}>} files
- */
-export function setDriveFiles(files) {
-    if (!worker || state.status !== "ready") return;
-    worker.postMessage({ type: "set-drive-files", files });
-}
+/** @type {Map<number, {resolve: Function, reject: Function}>} */
+const downloadWritePending = new Map();
+let _downloadWriteId = 0;
 
 /**
  * Run Python code in the worker and return the result.
