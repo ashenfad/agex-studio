@@ -169,6 +169,8 @@ Both tracks ship value independently of the rest of v1.
 
 ### Phase 2: iframe origin isolation (prerequisite for stranger-authored artifacts)
 
+Detailed plan: [PHASE_2_PLAN.md](PHASE_2_PLAN.md). Summary below.
+
 The app preview iframe currently uses `sandbox="allow-scripts allow-same-origin"`. `allow-same-origin` defeats the isolation: the iframe gets agex.studio's origin and can read parent's `localStorage`, OAuth tokens, and IndexedDB. For the current PoC (user's own tab, user's own agent) this is acceptable. **For Phase 4+ where strangers open stranger-authored artifacts, it's not.**
 
 The fix is to remove `allow-same-origin`, but that breaks `test_app` / `live_app`:
