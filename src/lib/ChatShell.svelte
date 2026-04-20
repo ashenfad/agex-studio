@@ -14,21 +14,6 @@
     import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
     import { cancelTask } from './pyodide.js'
     import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
-    import { onMount } from 'svelte'
-
-    // Refresh stale Google token on first user interaction (click/key)
-    onMount(() => {
-        function onFirstGesture() {
-            refreshIfNeeded().catch(() => {})
-            document.removeEventListener('click', onFirstGesture)
-            document.removeEventListener('keydown', onFirstGesture)
-            window.removeEventListener('blur', onFirstGesture)
-        }
-        document.addEventListener('click', onFirstGesture, { once: true })
-        document.addEventListener('keydown', onFirstGesture, { once: true })
-        // Clicking inside the iframe doesn't bubble to document, but blurs the parent window
-        window.addEventListener('blur', onFirstGesture, { once: true })
-    })
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
