@@ -6,6 +6,12 @@
  * for executing Python code.
  */
 
+// Iframe control bridge source — injected verbatim into the app preview
+// iframe as an inline module script. Factored as its own module so the
+// dispatch logic can be unit-tested against jsdom/happy-dom. See
+// src/lib/iframe-bridge.js and its tests.
+import _iframeBridgeSource from './iframe-bridge.js?raw';
+
 /** @type {Worker | null} */
 let worker = null;
 
@@ -323,6 +329,19 @@ window.query = function(opts) {
 };
 <\/script>`;
 
+// Agent control bridge — receives postMessage action commands from the
+// parent (click/type/read/eval/screenshot/get-logs) and dispatches them
+// against the iframe's own DOM. Required so executeActions/collectResults
+// work when the iframe has an opaque origin (sandbox without
+// allow-same-origin). The dispatch logic lives in ./iframe-bridge.js;
+// this is just the inline-module shim that imports it by text and wires
+// to the iframe's window.
+export const AGENT_CONTROL_BRIDGE_SCRIPT = `
+<script type="module">
+${_iframeBridgeSource}
+installControlBridge(window);
+<\/script>`;
+
 const CDN_IMPORTS = {
     "preact": "https://esm.sh/preact@10.25.4",
     "preact/": "https://esm.sh/preact@10.25.4/",
@@ -529,14 +548,19 @@ export function buildAppHtml(appFiles) {
         const cdnScripts = importMapTag + '\n' + PLOTLY_SCRIPT;
 
         if (!html.includes('agex-query')) {
-            html = html.replace('<head>', '<head>' + CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + cdnScripts);
+            const injected = CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+            html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
-                html = CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + cdnScripts + html;
+                html = injected + html;
             }
         } else {
-            html = html.replace('<head>', '<head>' + CONSOLE_INTERCEPTOR);
+            // HTML already includes the query bridge (pre-built bundle);
+            // still inject the console interceptor and control bridge so
+            // test_app / live_app work.
+            const injected = CONSOLE_INTERCEPTOR + AGENT_CONTROL_BRIDGE_SCRIPT;
+            html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
-                html = CONSOLE_INTERCEPTOR + html;
+                html = injected + html;
             }
         }
     } else {
@@ -546,6 +570,7 @@ export function buildAppHtml(appFiles) {
 <html><head><meta charset="utf-8">
 ${CONSOLE_INTERCEPTOR}
 ${QUERY_BRIDGE_SCRIPT}
+${AGENT_CONTROL_BRIDGE_SCRIPT}
 ${importMapTag}
 ${PLOTLY_SCRIPT}
 <style>
