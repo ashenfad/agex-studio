@@ -11,6 +11,7 @@
 // dispatch logic can be unit-tested against jsdom/happy-dom. See
 // src/lib/iframe-bridge.js and its tests.
 import _iframeBridgeSource from './iframe-bridge.js?raw';
+import { sendControl } from './iframe-bridge.js';
 
 /** @type {Worker | null} */
 let worker = null;
@@ -615,104 +616,34 @@ function waitForIdle(iframe, maxMs = 15000) {
  * Execute actions against an iframe and collect results.
  * Shared by runTestApp and runLiveApp.
  *
+ * Action dispatch happens inside the iframe via the control bridge
+ * (see iframe-bridge.js). This avoids reaching into iframe.contentDocument
+ * from the parent, which would fail once the iframe has an opaque origin.
+ *
  * @param {HTMLIFrameElement} iframe
  * @param {Array<object>} actions
- * @returns {Promise<Array<object>>} action results (read/eval entries)
+ * @returns {Promise<Array<object>>} action results (read/eval/screenshot entries)
  */
-let _html2canvasPromise = null;
-async function loadHtml2Canvas() {
-    if (!_html2canvasPromise) {
-        _html2canvasPromise = import('https://esm.sh/html2canvas@1.4.1')
-            .then(m => m.default);
-    }
-    return _html2canvasPromise;
-}
-
-async function captureScreenshot(iframe, selector = null) {
-    const html2canvas = await loadHtml2Canvas();
-    const doc = iframe.contentDocument;
-    let target = selector ? doc.querySelector(selector) : doc.body;
-    if (!target) throw new Error(`Screenshot target not found: ${selector}`);
-
-    // html2canvas can't render raw SVG elements — wrap in a temporary div
-    let wrapper = null;
-    if (target.tagName === 'svg' || target.tagName === 'SVG') {
-        wrapper = doc.createElement('div');
-        target.parentNode.insertBefore(wrapper, target);
-        wrapper.appendChild(target);
-        target = wrapper;
-    }
-
-    try {
-        const canvas = await html2canvas(target, {
-            useCORS: true,
-            logging: false,
-        });
-        return canvas.toDataURL('image/png').replace('data:image/png;base64,', '');
-    } finally {
-        // Unwrap — restore the SVG to its original position
-        if (wrapper) {
-            wrapper.parentNode.insertBefore(wrapper.firstChild, wrapper);
-            wrapper.remove();
-        }
-    }
-}
-
 async function executeActions(iframe, actions) {
     const results = [];
     for (const action of actions) {
-        const doc = iframe.contentDocument;
-        if (action.screenshot) {
+        if (action.wait) {
+            // Pure parent-side delay; no bridge call needed
+            await new Promise(r => setTimeout(r, action.wait));
+        } else {
             try {
-                const selector = typeof action.screenshot === 'string' ? action.screenshot : null;
-                const data = await captureScreenshot(iframe, selector);
-                results.push({ type: 'screenshot', data });
+                const data = await sendControl(iframe, action);
+                if (data != null) {
+                    results.push(data);
+                }
             } catch (e) {
+                // Bridge-level errors (unknown action, bridge not installed,
+                // etc.) surface here. Sub-errors (eval that threw,
+                // screenshot target missing) are captured into the data
+                // payload by dispatchAction and resolve normally.
                 results.push({
                     type: 'log', level: 'error',
-                    message: `Screenshot failed: ${e.message}`,
-                });
-            }
-        } else if (action.click) {
-            const el = doc.querySelector(action.click);
-            if (el) el.click();
-        } else if (action.type) {
-            const el = doc.querySelector(action.type);
-            if (el) {
-                el.value = action.value || '';
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else if (action.select) {
-            const el = doc.querySelector(action.select);
-            if (el) {
-                el.value = action.value || '';
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else if (action.wait) {
-            await new Promise(r => setTimeout(r, action.wait));
-        } else if (action.read) {
-            const el = doc.querySelector(action.read);
-            const prop = action.prop || 'textContent';
-            results.push({
-                type: 'read',
-                selector: action.read,
-                value: el ? String(el[prop] ?? '') : null,
-            });
-        } else if (action.eval) {
-            try {
-                const val = iframe.contentWindow.eval(action.eval);
-                results.push({
-                    type: 'eval',
-                    expr: action.eval,
-                    value: val != null ? String(val) : null,
-                });
-            } catch (e) {
-                results.push({
-                    type: 'eval',
-                    expr: action.eval,
-                    value: null,
-                    error: e.message,
+                    message: `Action failed: ${e.message}`,
                 });
             }
         }
@@ -724,17 +655,20 @@ async function executeActions(iframe, actions) {
 
 /**
  * Collect console logs and action results from an iframe.
+ * Logs are fetched from inside the iframe via the control bridge.
+ *
  * @param {HTMLIFrameElement} iframe
  * @param {Array<object>} actionResults
- * @returns {Array<object>}
+ * @returns {Promise<Array<object>>}
  */
-function collectResults(iframe, actionResults) {
+async function collectResults(iframe, actionResults) {
     let logs = [];
     try {
-        logs = (iframe.contentWindow.__agex_logs || []).map(
+        const data = await sendControl(iframe, { 'get-logs': true });
+        logs = (data?.logs || []).map(
             (e) => ({ type: 'log', level: e.level, message: e.message })
         );
-    } catch { /* ignore */ }
+    } catch { /* ignore — collecting logs is best-effort */ }
     return [...logs, ...actionResults].slice(0, 200);
 }
 
@@ -804,7 +738,7 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
             await Promise.allSettled(batch);
         }
 
-        const results = collectResults(iframe, actionResults);
+        const results = await collectResults(iframe, actionResults);
 
         worker.postMessage({
             type: 'test-app-result', id: requestId,
@@ -837,7 +771,7 @@ async function runLiveApp(actionsJson, requestId) {
 
         const actions = actionsJson ? JSON.parse(actionsJson) : [];
         const actionResults = await executeActions(liveIframe, actions);
-        const results = collectResults(liveIframe, actionResults);
+        const results = await collectResults(liveIframe, actionResults);
 
         worker.postMessage({
             type: 'live-app-result', id: requestId,
