@@ -2,6 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com https://accounts.google.com https://apis.google.com https://esm.sh;
+      worker-src 'self' blob:;
+      style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob: https:;
+      font-src 'self' data: https:;
+      connect-src 'self' blob: data:
+        https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh
+        https://pypi.org https://files.pythonhosted.org
+        https://openrouter.ai https://api.anthropic.com
+        https://*.googleapis.com https://*.googleusercontent.com https://accounts.google.com
+        http://localhost:* http://127.0.0.1:*;
+      frame-src 'self' blob: https://*.google.com https://*.googleusercontent.com https://accounts.google.com;
+      object-src 'none';
+      base-uri 'self';
+    ">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <title>agex studio</title>

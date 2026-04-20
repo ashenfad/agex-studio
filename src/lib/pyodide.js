@@ -169,7 +169,7 @@ const PDFJS_CDN = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build";
  */
 async function ensurePdfJs() {
     if (window.pdfjsLib) return;
-    const mod = await import(`${PDFJS_CDN}/pdf.min.mjs`);
+    const mod = await import(/* @vite-ignore */ `${PDFJS_CDN}/pdf.min.mjs`);
     window.pdfjsLib = mod;
     mod.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
 }

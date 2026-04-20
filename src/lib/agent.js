@@ -145,7 +145,6 @@ try:
     import pathlib as _pathlib
     _calgebra_pkg = _pathlib.Path(__import__("calgebra").__file__).parent
     _agent.skill(_calgebra_pkg / "skills" / "calgebra" / "SKILL.md")
-    _agent.skill(_calgebra_pkg / "skills" / "gcal" / "SKILL.md")
     del _calgebra_pkg, _pathlib
 except Exception as _e:
     print(f"[skills] failed to register: {_e}")
@@ -176,7 +175,7 @@ for _skill_path in [
     "/skills/interactive-app.md",
     "/skills/drive.md",
     "/skills/calgebra.md",
-    "/skills/gcal.md",
+    # "/skills/gcal.md",    # disabled — Google Calendar scope removed
     # "/skills/sheets.md",  # disabled — scopes removed
     # "/skills/docs.md",    # disabled — scopes removed
 ]:
@@ -193,12 +192,11 @@ except NameError:
     _google_access_token = None
 
 def google_token() -> str | None:
-    """Returns the current Google OAuth access token, or None if not connected.
-    Use with calgebra.gcal: Calendar(access_token=google_token())
+    """Internal token accessor used by GoogleDriveFS.
+    Held in closure by the FS so it never enters agent state; not registered
+    with the agent.
     """
     return _google_access_token
-
-_agent.fn(google_token, visibility="low")
 
 # -- Drive virtual filesystem mount --
 from monkeyfs import MountFS
@@ -503,13 +501,11 @@ openpyxl is available — use pd.read_excel() to read .xlsx files.
 scipy and scikit-learn are available for statistics, optimization, and machine learning.
 
 Calendars: whenever the user asks about calendars, scheduling, events,
-or .ics files, read the calgebra and gcal skills first (if you haven't
-already) — their APIs have non-obvious signatures you must not guess at:
+or .ics files, read the calgebra skill first (if you haven't already) —
+its API has non-obvious signatures you must not guess at:
   cat /skills/calgebra/SKILL.md
-  cat /skills/gcal/SKILL.md
-google_token() and local_timezone() are registered globals — call them
-directly, do not import them. Always use at_tz(local_timezone()) for
-timeline slicing. Import transparency from calgebra.gcal, not calgebra.
+local_timezone() is a registered global — call it directly, do not import.
+Always use at_tz(local_timezone()) for timeline slicing.
 
 Google Drive: files shared via the picker appear read-only under /drive/.
 When working with these files or encountering CSV parsing errors from
