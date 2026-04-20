@@ -176,3 +176,52 @@ export function installControlBridge(win) {
         event.source?.postMessage(response, '*');
     });
 }
+
+// ---------------------------------------------------------------------------
+// Parent side: sendControl — post an action to an iframe and await its result.
+// ---------------------------------------------------------------------------
+
+let _controlIdCounter = 0;
+
+/**
+ * Send a control action to an iframe and await the response.
+ *
+ * Parent-side counterpart to installControlBridge. The iframe must have
+ * the bridge installed (via AGENT_CONTROL_BRIDGE_SCRIPT) for this to
+ * resolve.
+ *
+ * Resolves with the action's data payload (may be `null` for
+ * click/type/select which produce no result entry). Rejects on error
+ * responses from the bridge (unknown action shape, etc.). Does NOT
+ * reject on sub-errors captured into the data payload itself (e.g., an
+ * eval that threw — that's returned as `data.error`).
+ *
+ * Does not validate `event.origin` — opaque-origin iframes post with
+ * `origin === 'null'`. Identity check on `event.source` is sufficient
+ * to ensure the response came from the expected iframe.
+ *
+ * @param {HTMLIFrameElement | {contentWindow: any}} iframe
+ * @param {object} action
+ * @returns {Promise<any>}
+ */
+export function sendControl(iframe, action) {
+    const id = `ctrl-${++_controlIdCounter}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve, reject) => {
+        function handler(event) {
+            if (event.source !== iframe.contentWindow) return;
+            const data = event.data;
+            if (data?.type !== 'agex-control-result' || data.id !== id) return;
+            window.removeEventListener('message', handler);
+            if (data.error) {
+                reject(new Error(data.error));
+            } else {
+                resolve(data.data);
+            }
+        }
+        window.addEventListener('message', handler);
+        iframe.contentWindow?.postMessage(
+            { type: 'agex-control', id, action },
+            '*',
+        );
+    });
+}
