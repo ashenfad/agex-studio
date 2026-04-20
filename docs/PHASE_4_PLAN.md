@@ -13,20 +13,16 @@ This plan covers both halves: the security prep *and* the publishing mechanics.
 
 ## Threat model (landed after extensive deliberation)
 
-### What we defend
+### What we structurally prevent
 
 When a visitor opens a published artifact at `agex.studio/run/?src=<url>`:
 
 - **Credentials never enter Python scope** (LLM bridge) — malicious pickle can't steal API keys
 - **Google OAuth not wired up** for external sessions — can't steal Google credentials because there are none in that context
-- **CSP `connect-src` allowlist** blocks fast exfil via fetch/XHR/WebSocket to arbitrary origins
+- **CSP `connect-src` allowlist** blocks exfil via fetch/XHR/WebSocket to arbitrary origins
+- **CSP `img-src` tightened** to `'self' data: blob:` — closes the `<img src>` GET-exfil side channel. External images in HTML don't work; users provide assets via the file drawer, which travel with the artifact bundle (nicer self-contained story anyway)
 
-### What we disclose (accept)
-
-- A malicious pickle CAN read the visitor's other agex-studio sessions from IndexedDB (browser storage is per-origin; same-origin IndexedDB isolation within a single origin is structurally impossible without domain-splitting)
-- It can theoretically exfiltrate that data via `img-src` GET requests (slow, bandwidth-limited, suspicious in Network tab)
-- Visitors are informed via a disclosure splash on first external-artifact open
-- Visitors seeking full isolation can open the artifact in a private browsing window (fresh IndexedDB)
+With these in place, a malicious pickle in the worker has no credentials to steal and no channel to exfiltrate IndexedDB contents. The security story becomes uniform — no per-visitor calibration, no warnings, no "for full isolation use a private window" escape hatch needed.
 
 ### What we explicitly chose against
 
@@ -34,14 +30,19 @@ When a visitor opens a published artifact at `agex.studio/run/?src=<url>`:
 - Fractures the user workspace ("forks of external things live somewhere else")
 - Defeats the entanglement thesis (artifact = agent + app + state in one workspace)
 - Requires migrating off GitHub Pages or running two deployments
-- Solves a theoretical attack (IndexedDB grab-bag exfil) at disproportionate product cost
+- Unnecessary given LLM bridge + tight img-src already close the practical exfil channels
 
 **Per-artifact runtime isolation in a sandboxed iframe** — rejected because it:
 - Costs per-artifact Pyodide cold start (degrades Shape 3 amortization)
 - Requires an inter-frame coordination protocol
-- Is architectural surgery for a threat the LLM bridge already addresses structurally
+- Is architectural surgery for a threat the simpler fixes already address
 
-The calibration: defend what's concrete and valuable (credentials); disclose what's theoretical (IndexedDB mining at scale); trust users to make the final call for their own context. This matches hobby-scale product economics.
+**Broad `img-src` + disclosure splash** — earlier draft kept `img-src https:` for external-image use cases, paired with a warning. Rejected because:
+- Warnings get habitually dismissed; a poor structural defense
+- Users uploading assets via the file drawer is a cleaner workflow anyway — explicit, deterministic, transferable
+- Uploaded assets travel with published artifacts (fully self-contained, no broken hot-links)
+
+The calibration: close exfil channels structurally; no warnings, no escape hatches, no special behavior per session type. This matches hobby-scale product economics and keeps the security story uniform and legible.
 
 ## Security hardening (Half 1)
 
@@ -109,37 +110,11 @@ When `external === true`:
 
 Visitors' *other* (non-external) sessions are unaffected. Their authoring workflow retains full Drive support.
 
-### 4. Disclosure splash
+### 4. Tighten `img-src` to close the exfil side channel
 
-On first external-artifact open in a browser (per-origin, not per-session), show a dismissible modal:
+Change CSP `img-src` from `'self' data: blob: https:` to `'self' data: blob:`. Closes the `<img src>` GET-exfil channel structurally. App HTML can no longer hot-link external images; users upload assets via the file drawer, which travel with published artifacts (self-contained). No disclosure needed.
 
-```
-Opening an external artifact
-
-This artifact's code will run in your browser.
-For your safety:
-- Your OpenRouter API key stays in this browser and is NOT accessible to the artifact
-- Google Drive is disconnected for external artifacts
-- The artifact can read data from your other agex-studio sessions in this browser
-  but cannot send that data to arbitrary sites
-
-For full isolation, open this URL in a private browsing window.
-
-[ ] Don't show this again
-[Continue]  [Cancel]
-```
-
-Store dismissal state in `localStorage` under a key like `agex-external-disclosure-acked`. If a visitor clears browser data or uses a new browser, they see it again. Cancel returns them to the author home.
-
-### 5. CSP adjustments
-
-None needed. Current CSP is correct for this approach:
-- `connect-src` allowlist remains tight (blocks fetch exfil to arbitrary origins)
-- `img-src https:` remains permissive (Pokémon case preserved; exfil channel documented but accepted)
-- `frame-src` remains narrow
-- All Phase 0 allowlists stay in place
-
-Phase 4 adds to `connect-src`: `raw.githubusercontent.com`, `*.github.io`, `github.com`, `api.github.com` for the GitHub App flows.
+Phase 4 also adds to `connect-src`: `raw.githubusercontent.com`, `*.github.io`, `github.com`, `api.github.com` for the GitHub App flows.
 
 ## Publishing mechanics (Half 2)
 
@@ -199,8 +174,7 @@ GitHub App installation token lives in a closure inside the publish service on t
 - Inspect Pyodide worker globals: confirm no `_OR_API_KEY`, no `_google_access_token`
 - Send a chat message: confirm it routes through the JS bridge (network tab shows fetch from main thread, not from worker)
 - Attempt a Drive operation: fails cleanly with "Drive not available in external session"
-- Disclosure appears on first external artifact, not on subsequent ones
-- Opening an artifact in a private window: fresh IndexedDB, no cross-session access
+- Attempt `<img src="https://external.example/pic.png">` in an app — should be blocked by CSP img-src (uploaded or data-URL images still work)
 
 ## Commit plan
 
@@ -235,11 +209,13 @@ GitHub App installation token lives in a closure inside the publish service on t
 - Google token never set in external sessions
 - Drive panel in UI indicates "not available in external session"
 
-### Commit 5: `feat(preview): disclosure splash on first external-artifact open`
+### Commit 5: `chore(csp): tighten img-src to close exfil side channel`
 
-- Modal with disclosure copy + "don't show again" checkbox
-- Once-per-origin state in localStorage
-- Cancel action returns to author home
+- Change `img-src` from `'self' data: blob: https:` to `'self' data: blob:`
+- External image hot-links in app HTML no longer work
+- Users provide image assets via file-drawer upload; agent embeds as
+  data URLs or serves from VFS
+- No disclosure UX needed — closed structurally
 
 ### Commit 6: `feat(publish): GitHub App integration for URL publishing`
 
@@ -249,7 +225,7 @@ GitHub App installation token lives in a closure inside the publish service on t
 - Return shareable URL to user
 - Tests for publish mechanics (mockable GitHub API)
 
-Commits 1 and 2 can ship before 3-5 (LLM bridge is independently valuable). Commits 3-5 should land together (external session concept + its protections + its disclosure). Commit 6 is the Phase 4 user-facing feature that depends on the others.
+Commits 1 and 2 can ship before 3-5 (LLM bridge is independently valuable). Commits 3-5 should land together (external session + Drive gating + img-src tighten). Commit 6 is the Phase 4 user-facing feature that depends on the others.
 
 ## Effort estimate
 
@@ -257,7 +233,7 @@ Commits 1 and 2 can ship before 3-5 (LLM bridge is independently valuable). Comm
 - **Commit 2** (JS bridge + streaming): ~6 hours. Streaming protocol is the bulk.
 - **Commit 3** (external session concept): ~3 hours
 - **Commit 4** (Drive disabled for external): ~2 hours
-- **Commit 5** (disclosure splash): ~2 hours
+- **Commit 5** (tighten img-src): ~30 minutes — one-line CSP change + asset-upload primer note
 - **Commit 6** (GitHub publishing): ~8 hours including install-flow UX
 - **Testing and polish**: +4-6 hours total
 
@@ -268,14 +244,13 @@ Commits 1 and 2 can ship before 3-5 (LLM bridge is independently valuable). Comm
 1. **Streaming robustness**: SSE parsing, cancellation, back-pressure, partial tokens, network errors mid-stream. Budget a full day for making streaming solid.
 2. **OpenRouter key rotation**: JS side must read from localStorage per-request (not cache) to pick up key changes.
 3. **Error propagation through adapter layers**: LLM → adapter → JS fetch → JS error → postMessage → Python exception → agex loop → UI. End-to-end test with intentionally bad inputs (invalid key, 429, network drop, malformed SSE).
-4. **Disclosure wording iteration**: First draft will feel too scary or too casual. Budget time for 2-3 iterations.
-5. **External session discoverability**: users may be confused why Drive is disabled. Clear UI indication is important.
+4. **External session discoverability**: users may be confused why Drive is disabled. Clear UI indication is important.
+5. **External-image UX**: agents may reflexively try `<img src="https://...">`. Worth a note in the agent primer or interactive-app skill: "external images don't load via URL; users upload assets through the file drawer and you embed them as data URLs or reference VFS paths."
 6. **agex version management**: Commit 1 requires an agex release to PyPI + update the pinned version in `worker.js`. Coordinate release.
 7. **GitHub App setup**: creating the App itself is a one-time config (manifest, install URLs, webhook endpoints). Budget time for getting this right.
 
 ## Post-phase followup (v2+)
 
-- **Tighten `img-src`** if abuse becomes a real concern
 - **Per-artifact runtime isolation** if product grows beyond hobby scale
 - **Alternative storage backends** (S3, R2, generic) for users who want artifacts on their own infrastructure
 - **Publish approval workflow** if teams start using agex-studio for internal-tool sharing
