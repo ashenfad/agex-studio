@@ -362,7 +362,7 @@
         {/if}
 
         <div class="session-list">
-            {#each sessions as s}
+            {#each sessions as s (s.branch)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="session-item"
@@ -374,7 +374,6 @@
                 >
                     <div class="session-title">
                         {s.name || s.title}
-                        {#if s.name}<span class="custom-name-marker" title="Custom name">*</span>{/if}
                     </div>
                     {#if s.description}
                         <div class="session-description" title={s.description}>{s.description}</div>
@@ -515,15 +514,8 @@
                 <div class="preview-field">
                     <span class="field-label">Contents</span>
                     <div class="preview-value preview-stats">
-                        {exportState.stats.commits} commits ·
-                        {exportState.stats.blobs} blobs ·
-                        {exportState.stats.nodes} nodes
+                        {exportState.stats.commits} commits{#if exportState.stats.app_storage_bytes > 0} · {formatBytes(exportState.stats.app_storage_bytes)} app save data{/if}
                     </div>
-                    {#if exportState.stats.app_storage_bytes > 0}
-                        <div class="preview-value preview-stats">
-                            App save data: {formatBytes(exportState.stats.app_storage_bytes)}
-                        </div>
-                    {/if}
                 </div>
                 <div class="preview-hint">
                     Downloads a self-contained <code>.agex</code> bundle you can share, archive, or re-import as a new session.
@@ -905,13 +897,6 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-    }
-
-    .custom-name-marker {
-        color: var(--accent, var(--text-muted));
-        font-weight: normal;
-        margin-left: 0.2rem;
-        opacity: 0.6;
     }
 
     .session-description {

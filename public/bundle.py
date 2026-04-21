@@ -79,10 +79,14 @@ def _walk_reachable(versioned, head, progress=_noop):
 
 
 def bundle_stats(versioned, branch):
-    """Cheap preview: walk the subgraph and return counts + display metadata.
+    """Cheap preview: just the commit count + app-storage size.
 
-    Runs the same walk ``export_bundle`` does but skips zip packing and
-    base64 encoding. Fast enough for an on-open modal preview.
+    Deliberately skips the HAMT walk that ``export_bundle`` does — on
+    a session with hundreds of commits, walking every keyset to count
+    unique blobs/nodes adds seconds of latency to what should be an
+    instant modal open. The accurate full stats are produced during
+    the actual export (``export_bundle``'s manifest) and surfaced in
+    the progress/done UI.
     """
     store = versioned.store
     head_raw = store.get(BRANCH_HEAD % branch)
@@ -92,13 +96,11 @@ def bundle_stats(versioned, branch):
     if not isinstance(head, str):
         raise ValueError(f"malformed branch head for {branch}")
 
-    commits, nodes, blobs = _walk_reachable(versioned, head)
+    commits = sum(1 for _ in versioned.history(commit_hash=head, all_parents=True))
     return {
         "branch": branch,
         "head": head,
-        "commits": len(commits),
-        "nodes": len(nodes),
-        "blobs": len(blobs),
+        "commits": commits,
         "app_storage_bytes": _app_storage.size(versioned, branch),
     }
 
