@@ -1,6 +1,7 @@
 <script>
     import { readAppFiles, runQuery, disableQueries, enableQueries } from './agent.js'
     import { buildAppHtml, setLiveIframe } from './pyodide.js'
+    import { sessionStore, getAppStorage, flushAppStorage } from './sessions.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
@@ -10,6 +11,30 @@
     let blobUrl = $state(null)
     let loading = $state(false)
     let error = $state('')
+
+    // The branch this iframe was built against. App-storage writes
+    // posted from the iframe are persisted under this branch, not the
+    // live $sessionStore.currentBranch — preserves correct routing if
+    // the user switches sessions mid-flight.
+    let appBranch = ''
+    let pendingStorageData = null
+    let storageFlushTimer = null
+    const STORAGE_FLUSH_MS = 300
+
+    function scheduleStorageFlush(branch, data) {
+        pendingStorageData = data
+        if (storageFlushTimer) return
+        storageFlushTimer = setTimeout(async () => {
+            const toWrite = pendingStorageData
+            pendingStorageData = null
+            storageFlushTimer = null
+            try {
+                await flushAppStorage(branch, toWrite)
+            } catch (err) {
+                console.warn('[agex] app storage flush failed:', err)
+            }
+        }, STORAGE_FLUSH_MS)
+    }
 
     // Flood detection: trip if we see more than FLOOD_THRESHOLD agex-query
     // messages within FLOOD_WINDOW_MS. 30 in 2s (15/sec sustained) is well
@@ -137,7 +162,11 @@
                 return
             }
 
-            const html = buildAppHtml(appFiles)
+            appBranch = $sessionStore.currentBranch
+            const seed = appBranch ? await getAppStorage(appBranch) : {}
+            const html = buildAppHtml(appFiles, {
+                appStorage: { seed, writeable: true },
+            })
 
             // Revoke previous blob
             if (blobUrl) URL.revokeObjectURL(blobUrl)
@@ -150,10 +179,16 @@
         }
     }
 
-    // Handle query messages from the iframe
+    // Handle query + app-storage messages from the iframe
     function handleMessage(event) {
         if (frozen) return
         if (!iframe || event.source !== iframe.contentWindow) return
+
+        if (event.data?.type === 'agex-app-storage') {
+            if (appBranch) scheduleStorageFlush(appBranch, event.data.data || {})
+            return
+        }
+
         if (event.data?.type !== 'agex-query') return
 
         const { id, code, result } = event.data
@@ -196,6 +231,16 @@
             window.removeEventListener('message', handleMessage)
             setLiveIframe(null)
             if (blobUrl) URL.revokeObjectURL(blobUrl)
+            // Flush any pending storage writes synchronously-ish so the
+            // user doesn't lose the last few writes on unmount/reload.
+            if (storageFlushTimer) {
+                clearTimeout(storageFlushTimer)
+                storageFlushTimer = null
+                if (pendingStorageData !== null && appBranch) {
+                    flushAppStorage(appBranch, pendingStorageData).catch(() => {})
+                }
+                pendingStorageData = null
+            }
         }
     })
 

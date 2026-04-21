@@ -182,6 +182,16 @@ def _install_url_module(name, url):
         f.write(_open_url(url).read())
     return _importlib.import_module(name)
 
+# App-storage shim backing store — per-branch, non-versioned.
+# Installed here so sessions.js can read/write without round-tripping
+# through agent init again. Must come before bundle, which imports it.
+_install_url_module("app_storage", "/app_storage.py")
+
+# Bundle export/import — available to internal callers (sessions.js);
+# not registered on _agent, since only the host app orchestrates
+# session-level export/import, not the LLM agent.
+_install_url_module("bundle", "/bundle.py")
+
 del _install_url_module, _site_dir, _importlib
 
 # -- Register skills from static files --
@@ -317,7 +327,14 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
         await _display_app_results(_r, "test_app")
         return _r
     _actions_json = _json.dumps(actions) if actions else None
-    _results_json = await _js_test_app(_json.dumps(_app_files), _actions_json)
+    # Seed the iframe's localStorage shim with whatever is persisted for
+    # this session so tests see the real user state. Read-only on the
+    # test path — writes during test_app are discarded so speculative
+    # tests don't clobber the user's live save.
+    import app_storage as _as_mod
+    _state_for_seed = _agent.state("default")
+    _seed_json = _json.dumps(_as_mod.read(_state_for_seed.versioned, _state_for_seed.current_branch))
+    _results_json = await _js_test_app(_json.dumps(_app_files), _actions_json, _seed_json)
     _results = _json.loads(_results_json)
     await _display_app_results(_results, "test_app")
     return _results
