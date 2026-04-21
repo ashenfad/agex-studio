@@ -5,7 +5,7 @@
  * timestamp) is stored as special keys in the branch's state.
  */
 
-import { runPython } from "./pyodide.js";
+import { runPython, runPythonStreaming } from "./pyodide.js";
 
 const CURRENT_BRANCH_KEY = "agex-current-branch";
 
@@ -58,6 +58,7 @@ export async function initSessions() {
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
+import app_storage as _app_storage
 
 _state = _agent.state("default")
 _branches = _state.list_branches()
@@ -92,6 +93,7 @@ for _b in _branches:
         "name": _state.peek("__session_name__", branch=_b) or "",
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
+        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
     })
 if _current not in [s["branch"] for s in _sessions]:
     _sessions.append({
@@ -100,6 +102,7 @@ if _current not in [s["branch"] for s in _sessions]:
         "name": "",
         "description": "",
         "updated": _state.peek("__session_updated__", branch=_current) or "",
+        "app_storage_bytes": _app_storage.size(_state.versioned, _current),
     })
 
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
@@ -151,6 +154,7 @@ export async function deleteSession(branch) {
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
+import app_storage as _app_storage
 
 _state = _agent.state("default")
 
@@ -170,6 +174,7 @@ else:
     _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
     _state.commit()
 _state.delete_branch("${escaped}")
+_app_storage.delete(_state.versioned, "${escaped}")
 _json.dumps(_current)
     `);
 
@@ -408,6 +413,7 @@ export async function loadHistoryChunked() {
 async function refreshSessionList(currentBranch) {
     const json = await runPython(`
 import json as _json
+import app_storage as _app_storage
 
 _state = _agent.state("default")
 _branches = _state.list_branches()
@@ -421,6 +427,7 @@ for _b in _branches:
         "name": _state.peek("__session_name__", branch=_b) or "",
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
+        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
 _json.dumps(_sessions)
@@ -458,6 +465,7 @@ export async function forkSession() {
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
+import app_storage as _app_storage
 
 _state = _agent.state("default")
 _cur = _state.current_branch
@@ -465,6 +473,9 @@ _old_title = _state.peek("__session_title__", branch=_cur) or "New Chat"
 _new = f"chat-{_uuid.uuid4().hex[:8]}"
 _state.create_branch(_new)
 _state.switch_branch(_new)
+
+# Snapshot-copy app storage so each branch mutates its own copy.
+_app_storage.copy(_state.versioned, _cur, _new)
 
 _state["__session_title__"] = _old_title + " (fork)"
 _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
@@ -475,6 +486,197 @@ _json.dumps(_new)
     const branch = JSON.parse(json);
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     await refreshSessionList(branch);
+}
+
+/**
+ * Read the full app-storage dict for a branch. Used as the seed dict
+ * inlined into the iframe when the app boots.
+ *
+ * @param {string} branch
+ * @returns {Promise<Record<string,string>>}
+ */
+export async function getAppStorage(branch) {
+    const json = await runPython(`
+import json as _json
+import app_storage as _app_storage
+_state = _agent.state("default")
+_json.dumps(_app_storage.read(_state.versioned, ${JSON.stringify(branch)}))
+    `);
+    return JSON.parse(json);
+}
+
+/**
+ * Persist a flat {str: str} dict to the branch's app_storage. Writes
+ * directly to the raw kvgit store; does not advance HEAD or commit.
+ *
+ * @param {string} branch
+ * @param {Record<string,string>} data
+ */
+export async function flushAppStorage(branch, data) {
+    const payload = JSON.stringify(data || {});
+    // Stash into a Python string and decode inside, so arbitrarily
+    // large payloads don't need to be re-escaped into the source.
+    const json = await runPython(`
+import json as _json
+import app_storage as _app_storage
+_state = _agent.state("default")
+_raw = ${JSON.stringify(payload)}
+_app_storage.write(_state.versioned, ${JSON.stringify(branch)}, _json.loads(_raw))
+_json.dumps(_app_storage.size(_state.versioned, ${JSON.stringify(branch)}))
+    `);
+    const newSize = JSON.parse(json);
+    // Patch just this branch's size in the local store so the drawer
+    // badge updates live without a full session-list rebuild per flush.
+    update({
+        sessions: state.sessions.map((s) =>
+            s.branch === branch ? { ...s, app_storage_bytes: newSize } : s,
+        ),
+    });
+}
+
+/**
+ * Clear the non-versioned app-storage blob for a branch. Does not
+ * create a commit. The next iframe boot for this branch seeds an
+ * empty storage dict.
+ *
+ * @param {string} branch
+ */
+export async function resetAppStorage(branch) {
+    await runPython(`
+import app_storage as _app_storage
+_state = _agent.state("default")
+_app_storage.delete(_state.versioned, ${JSON.stringify(branch)})
+    `);
+    await refreshSessionList(state.currentBranch);
+}
+
+/**
+ * Serialized byte size of a branch's app storage. Zero if unset.
+ *
+ * @param {string} branch
+ * @returns {Promise<number>}
+ */
+export async function getAppStorageSize(branch) {
+    const json = await runPython(`
+import json as _json
+import app_storage as _app_storage
+_state = _agent.state("default")
+_json.dumps(_app_storage.size(_state.versioned, ${JSON.stringify(branch)}))
+    `);
+    return JSON.parse(json);
+}
+
+/**
+ * Cheap preview of what a bundle export would contain — walks the
+ * reachable subgraph but skips the zip/base64 step. Fast enough to run
+ * when the export modal opens.
+ *
+ * @param {string} branch
+ * @returns {Promise<{ branch: string, head: string, commits: number, nodes: number, blobs: number, name: string, description: string, title: string }>}
+ */
+export async function getBundleStats(branch) {
+    const json = await runPython(`
+import json as _json
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_branch = ${JSON.stringify(branch)}
+_stats = _bundle.bundle_stats(_v, _branch)
+_stats["name"] = _state.peek("__session_name__", branch=_branch) or ""
+_stats["description"] = _state.peek("__session_description__", branch=_branch) or ""
+_stats["title"] = _state.peek("__session_title__", branch=_branch) or ""
+_json.dumps(_stats)
+    `);
+    return JSON.parse(json);
+}
+
+/**
+ * Export a session branch as a self-contained bundle (ZIP bytes).
+ * Walks the full reachable subgraph from the branch HEAD. Optionally
+ * streams progress via ``onProgress({ phase, done, total })`` as the
+ * Python side walks, packs, and finalizes the archive.
+ *
+ * @param {string} branch
+ * @param {(p: { phase: string, done: number, total: number }) => void} [onProgress]
+ * @returns {Promise<{ bytes: Uint8Array, manifest: object }>}
+ */
+export async function exportBundle(branch, onProgress) {
+    const code = `
+import json as _json, base64 as _b64
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_branch = ${JSON.stringify(branch)}
+_name = _state.peek("__session_name__", branch=_branch) or ""
+_desc = _state.peek("__session_description__", branch=_branch) or ""
+_title = _state.peek("__session_title__", branch=_branch) or ""
+_display = _name or _title
+
+def _progress(phase, done, total):
+    _post_token(_run_id, {"phase": phase, "done": done, "total": total})
+
+_data = _bundle.export_bundle(_v, _branch, name=_display, description=_desc, progress=_progress)
+_manifest = _bundle.inspect_bundle(_data)
+_json.dumps({"b64": _b64.b64encode(_data).decode(), "manifest": _manifest})
+    `;
+    const json = await runPythonStreaming(code, (token) => {
+        if (onProgress && token && typeof token.phase === "string") {
+            onProgress(token);
+        }
+    });
+    const obj = JSON.parse(json);
+    const bin = atob(obj.b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, manifest: obj.manifest };
+}
+
+/**
+ * Import a bundle (ZIP bytes) as a new session. Creates a fresh branch;
+ * the underlying commits/nodes/blobs are content-addressed, so repeated
+ * imports are idempotent at the store layer.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {Promise<{ branch: string, manifest: object }>}
+ */
+export async function importBundle(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    const b64 = btoa(bin);
+    const json = await runPython(`
+import json as _json, base64 as _b64
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_data = _b64.b64decode(${JSON.stringify(b64)})
+_branch, _manifest = _bundle.import_bundle(_v, _data)
+_state.switch_branch(_branch)
+_json.dumps({"branch": _branch, "manifest": _manifest})
+    `);
+    const result = JSON.parse(json);
+    localStorage.setItem(CURRENT_BRANCH_KEY, result.branch);
+    await refreshSessionList(result.branch);
+    return result;
+}
+
+/**
+ * Inspect a bundle's manifest without importing it. Useful for preview
+ * UI before the user commits to adding the session.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {Promise<object>}
+ */
+export async function inspectBundle(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    const b64 = btoa(bin);
+    const json = await runPython(`
+import json as _json, base64 as _b64
+import bundle as _bundle
+_data = _b64.b64decode(${JSON.stringify(b64)})
+_json.dumps(_bundle.inspect_bundle(_data))
+    `);
+    return JSON.parse(json);
 }
 
 // ---------------------------------------------------------------------------

@@ -542,6 +542,84 @@ describe("buildAppHtml multi-file", () => {
     });
 });
 
+describe("buildAppStorageShim", () => {
+    it("injects the seed dict as literal JSON", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({ seed: { score: "42", name: "alice" } });
+        expect(shim).toContain('"score":"42"');
+        expect(shim).toContain('"name":"alice"');
+    });
+
+    it("defaults to writeable=true", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({ seed: {} });
+        // `__writeable = true` assigned verbatim in the shim source
+        expect(shim).toContain("__writeable = true");
+    });
+
+    it("respects writeable=false for read-only mode", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({ seed: {}, writeable: false });
+        expect(shim).toContain("__writeable = false");
+    });
+
+    it("escapes </script sequences in the seed to prevent HTML breakout", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({
+            seed: { evil: "</script><script>alert(1)</script>" },
+        });
+        // Exactly one </script> should remain — the shim's own closing
+        // tag. Any from the seed payload must be neutralized, otherwise
+        // the browser would close the shim element early and execute
+        // the injected payload.
+        const matches = shim.match(/<\/script>/g) || [];
+        expect(matches.length).toBe(1);
+        expect(shim).toContain('alert(1)');  // payload is still there, just neutered
+        expect(shim).toContain('<\\/script');  // escaped form
+    });
+
+    it("installs localStorage, sessionStorage, and indexedDB", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({ seed: {} });
+        expect(shim).toContain("'localStorage'");
+        expect(shim).toContain("'sessionStorage'");
+        expect(shim).toContain("'indexedDB'");
+    });
+
+    it("includes a quota that matches the Python side (~5MB)", async () => {
+        const { buildAppStorageShim } = await loadPyodide();
+        const shim = buildAppStorageShim({ seed: {} });
+        expect(shim).toContain("5 * 1024 * 1024");
+    });
+});
+
+describe("buildAppHtml with appStorage", () => {
+    it("injects the shim before the query bridge", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml(
+            { 'app/index.html': '<html><head></head><body></body></html>' },
+            { appStorage: { seed: { k: "v" } } },
+        );
+        // Seed must be present, and the shim must precede the query bridge
+        // so app modules see localStorage before they start making queries.
+        expect(result).toContain('"k":"v"');
+        const shimIdx = result.indexOf('__writeable');
+        const queryIdx = result.indexOf('window.query');
+        expect(shimIdx).toBeGreaterThan(-1);
+        expect(queryIdx).toBeGreaterThan(-1);
+        expect(shimIdx).toBeLessThan(queryIdx);
+    });
+
+    it("still injects a shim (empty seed) when no appStorage option provided", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body></body></html>',
+        });
+        expect(result).toContain("__writeable");
+        expect(result).toContain("'localStorage'");
+    });
+});
+
 describe("setQueryHandler", () => {
     it("exports setQueryHandler", async () => {
         const mod = await loadPyodide();

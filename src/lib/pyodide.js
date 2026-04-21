@@ -111,7 +111,7 @@ export function startWorker() {
         } else if (msg.type === "pdf-page-count") {
             getPdfPageCount(msg.pdfBase64, msg.id);
         } else if (msg.type === "test-app") {
-            runTestApp(msg.appFilesJson, msg.actionsJson, msg.id);
+            runTestApp(msg.appFilesJson, msg.actionsJson, msg.seedJson, msg.id);
         } else if (msg.type === "live-app") {
             runLiveApp(msg.actionsJson, msg.id);
         } else if (msg.type === "llm-fetch") {
@@ -483,6 +483,113 @@ window.query = function(opts) {
 };
 <\/script>`;
 
+/**
+ * Build the localStorage/sessionStorage/indexedDB shim script tag,
+ * with the branch's current app-storage dict baked into the HTML so
+ * the shim is synchronously seeded before app modules execute.
+ *
+ * `writeable=true` makes the shim post `agex-app-storage` messages on
+ * every mutation; the parent debounces and persists them. Pass
+ * `false` for ephemeral iframes (e.g. test_app) that shouldn't write
+ * back to the session.
+ *
+ * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
+ * @returns {string}
+ */
+export function buildAppStorageShim(opts = {}) {
+    const seed = opts.seed || {};
+    const writeable = opts.writeable !== false;
+    // JSON.stringify is safe inside a script tag as long as we escape
+    // the "</" sequence that would otherwise close the element.
+    const seedJson = JSON.stringify(seed).replace(/<\/script/gi, '<\\/script');
+    return `
+<script>
+(function() {
+    var __seed = ${seedJson};
+    var __writeable = ${writeable};
+    var QUOTA = 5 * 1024 * 1024;
+
+    function buildStore(persist, seed) {
+        var data = Object.assign({}, seed || {});
+        function size() {
+            try { return JSON.stringify(data).length; } catch (e) { return 0; }
+        }
+        function notify() {
+            if (!persist || !__writeable) return;
+            try {
+                window.parent.postMessage({
+                    type: 'agex-app-storage',
+                    data: JSON.parse(JSON.stringify(data)),
+                }, '*');
+            } catch (e) { /* parent gone — swallow */ }
+        }
+        return {
+            get length() { return Object.keys(data).length; },
+            key: function(i) {
+                var k = Object.keys(data);
+                return i >= 0 && i < k.length ? k[i] : null;
+            },
+            getItem: function(k) {
+                var s = String(k);
+                return Object.prototype.hasOwnProperty.call(data, s) ? data[s] : null;
+            },
+            setItem: function(k, v) {
+                var sk = String(k), sv = String(v);
+                var had = Object.prototype.hasOwnProperty.call(data, sk);
+                var prev = data[sk];
+                data[sk] = sv;
+                if (size() > QUOTA) {
+                    if (had) data[sk] = prev; else delete data[sk];
+                    var err = new Error('app storage quota exceeded (' + QUOTA + ' bytes)');
+                    err.name = 'QuotaExceededError';
+                    throw err;
+                }
+                notify();
+            },
+            removeItem: function(k) {
+                var sk = String(k);
+                if (Object.prototype.hasOwnProperty.call(data, sk)) {
+                    delete data[sk];
+                    notify();
+                }
+            },
+            clear: function() {
+                if (Object.keys(data).length === 0) return;
+                data = {};
+                notify();
+            },
+        };
+    }
+
+    function install(name, store) {
+        try {
+            Object.defineProperty(window, name, {
+                value: store, configurable: true, writable: false, enumerable: true,
+            });
+        } catch (e) {
+            try { window[name] = store; } catch (_) { /* give up */ }
+        }
+    }
+
+    install('localStorage', buildStore(true, __seed));
+    install('sessionStorage', buildStore(false, {}));
+
+    // IndexedDB is not supported inside agex artifacts. Stub every
+    // access with a clear error so agents see the contract violation
+    // immediately rather than debugging a silent no-op.
+    var idbErr = function() {
+        throw new Error('IndexedDB is not supported in agex artifacts — use localStorage instead');
+    };
+    var idbStub = new Proxy(function() { idbErr(); }, {
+        get: function() { return idbErr; },
+        apply: idbErr,
+        construct: idbErr,
+    });
+    install('indexedDB', idbStub);
+})();
+<\/script>`;
+}
+
 // Agent control bridge — receives postMessage action commands from the
 // parent (click/type/read/eval/screenshot/get-logs) and dispatches them
 // against the iframe's own DOM. Required so executeActions/collectResults
@@ -690,9 +797,11 @@ function _buildImportMapTag(appImports) {
  * multi-file app projects (JS via import map with data URIs, CSS inlined).
  *
  * @param {Record<string, string>} appFiles - map of filename → content
+ * @param {{ appStorage?: { seed?: Record<string,string>, writeable?: boolean } }} [opts]
  * @returns {string} complete HTML document
  */
-export function buildAppHtml(appFiles) {
+export function buildAppHtml(appFiles, opts = {}) {
+    const storageShim = buildAppStorageShim(opts.appStorage || {});
     let html = appFiles['app/index.html'] || appFiles['index.html'];
     if (html) {
         // Resolve multi-file references (JS import map, CSS inlining)
@@ -702,16 +811,20 @@ export function buildAppHtml(appFiles) {
         const cdnScripts = importMapTag + '\n' + PLOTLY_SCRIPT;
 
         if (!html.includes('agex-query')) {
-            const injected = CONSOLE_INTERCEPTOR + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+            // Storage shim must run before app code (including the CDN
+            // scripts below — a CDN library might poke localStorage on
+            // import) and before the query bridge (which the shim could
+            // one day use). Keep it right after the console interceptor.
+            const injected = CONSOLE_INTERCEPTOR + storageShim + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
             }
         } else {
             // HTML already includes the query bridge (pre-built bundle);
-            // still inject the console interceptor and control bridge so
-            // test_app / live_app work.
-            const injected = CONSOLE_INTERCEPTOR + AGENT_CONTROL_BRIDGE_SCRIPT;
+            // still inject the console interceptor, storage shim, and
+            // control bridge so test_app / live_app work.
+            const injected = CONSOLE_INTERCEPTOR + storageShim + AGENT_CONTROL_BRIDGE_SCRIPT;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
@@ -723,6 +836,7 @@ export function buildAppHtml(appFiles) {
         html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 ${CONSOLE_INTERCEPTOR}
+${storageShim}
 ${QUERY_BRIDGE_SCRIPT}
 ${AGENT_CONTROL_BRIDGE_SCRIPT}
 ${importMapTag}
@@ -829,7 +943,7 @@ async function collectResults(iframe, actionResults) {
  * Run a headless app test: build a hidden iframe, optionally interact,
  * and collect console output + action results.
  */
-async function runTestApp(appFilesJson, actionsJson, requestId) {
+async function runTestApp(appFilesJson, actionsJson, seedJson, requestId) {
     let iframe = null;
     let blobUrl = null;
     let messageHandler = null;
@@ -843,8 +957,16 @@ async function runTestApp(appFilesJson, actionsJson, requestId) {
     try {
         const appFiles = JSON.parse(appFilesJson);
         const actions = actionsJson ? JSON.parse(actionsJson) : [];
+        let seed = {};
+        if (seedJson) {
+            try { seed = JSON.parse(seedJson) || {}; } catch { seed = {}; }
+        }
 
-        const html = buildAppHtml(appFiles);
+        // Read-only: test_app shouldn't write speculative state back to
+        // the user's session — keeps tests isolated and deterministic.
+        const html = buildAppHtml(appFiles, {
+            appStorage: { seed, writeable: false },
+        });
         blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
         iframe = document.createElement('iframe');
         iframe.style.cssText = 'position:absolute;left:-9999px;width:800px;height:600px;';

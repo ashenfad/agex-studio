@@ -194,11 +194,11 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         // Register JS bridge for headless app testing.
         // Python awaits this, which round-trips to the main thread to build
         // a hidden iframe, run the app, and collect console messages.
-        pyodide.globals.set("_js_test_app", (appFilesJson, actionsJson) => {
+        pyodide.globals.set("_js_test_app", (appFilesJson, actionsJson, seedJson) => {
             return new Promise((resolve) => {
                 const id = ++_testAppId;
                 testAppPending.set(id, resolve);
-                self.postMessage({ type: "test-app", id, appFilesJson, actionsJson });
+                self.postMessage({ type: "test-app", id, appFilesJson, actionsJson, seedJson });
             });
         });
 

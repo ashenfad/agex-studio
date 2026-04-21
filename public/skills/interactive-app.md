@@ -63,6 +63,7 @@ render(html`<${App} />`, document.getElementById('app'))
   to `localStorage` so they survive page reloads (see Persisting UI State)
 - **Namespace storage keys** — prefix with a random compound name
   (e.g., `"coral-panda-startDate"`) to avoid collisions with other apps
+  in the same session
 
 ## Multi-File Apps
 
@@ -360,10 +361,10 @@ Plotly.react(div, fig.figure.data, fig.figure.layout)
 
 ## Persisting UI State
 
-Use `localStorage` to save filter selections, date ranges, and other
-control state so they survive page reloads. Pick a random compound name
-(e.g., `"coral-panda"`) as your app's namespace prefix to avoid
-collisions with other apps:
+Use `localStorage` to save filter selections, date ranges, UI toggles,
+and any other small state that should survive reloads. Pick a random
+compound name (e.g., `"coral-panda"`) as the app's namespace prefix to
+avoid collisions with other apps in the same session:
 
 ```js
 const APP = 'coral-panda'
@@ -374,6 +375,72 @@ const [startDate, setStartDate] = useState(
   localStorage.getItem(APP + '-startDate') || '2025-01-01'
 )
 ```
+
+### Persistence contract (read this before building save/load)
+
+`localStorage` inside the iframe is a shim backed by the current
+session's storage. The API matches the standard
+(`getItem/setItem/removeItem/clear/key/length`) but a few semantics
+are worth knowing:
+
+- **Scoped to the current session.** Each session has its own
+  isolated storage; switching sessions shows that session's data.
+- **Persists across your turns.** Data written in one turn is still
+  there the next time the app loads.
+- **Quota is ~5MB** (matches browser norms). `setItem` throws
+  `QuotaExceededError` on overflow — be defensive for large blobs.
+- **String values only.** `JSON.stringify` complex data yourself.
+
+### What does NOT work
+
+These APIs are available on the open web but are **not supported**
+inside the iframe. Don't reach for them:
+
+- **`indexedDB`** — throws with a clear error on any access. For
+  structured or larger data, use the `query()` bridge to Python
+  (DataFrames, JSON files under `helpers/`, etc.). Pyodide has a
+  real filesystem and can handle anything `localStorage` can't.
+- **Cookies** — blocked by the sandbox.
+- **`OPFS`, `Cache API`, `FileSystem Access API`** — none available.
+- **`sessionStorage`** — *does* work, but it's ephemeral: it resets
+  every time the iframe reloads. Fine for in-tab state, bad for
+  anything the user expects to survive.
+
+### Schema migrations
+
+Because stored data persists across turns, changing the shape of what
+you save to `localStorage` can leave old data behind that the new code
+can't read. Handle it explicitly on mount with a schema version:
+
+```js
+const APP = 'coral-panda'
+const SCHEMA = 3
+
+// Check schema version on app init — migrate or reset if out of date
+const stored = Number(localStorage.getItem(APP + '-schema') || 0)
+if (stored !== SCHEMA) {
+  // Option A: migrate old keys forward if the mapping is simple
+  // Option B: clear the namespace and start fresh
+  Object.keys(localStorage)
+    .filter(k => k.startsWith(APP + '-'))
+    .forEach(k => localStorage.removeItem(k))
+  localStorage.setItem(APP + '-schema', String(SCHEMA))
+}
+```
+
+Bump `SCHEMA` whenever you change the on-disk shape so apps built in
+earlier turns cleanly migrate or reset instead of crashing on stale
+data.
+
+### test_app sees real save data, read-only
+
+`test_app()` seeds the hidden test iframe with the current session's
+`localStorage` contents, so you can verify load-from-save paths work
+correctly. Writes performed during `test_app()` are **discarded** — the
+agent's speculative tests can't overwrite the user's live save data.
+To test a cold-start path, either bump the schema version (the
+migration branch above will wipe old keys) or add a ``?fresh=1`` flag
+your app honors by clearing its own keys.
 
 ## Common Patterns
 
@@ -672,7 +739,7 @@ Both functions also return the list of result dicts if you need them:
 - Use `Plotly.react()` for efficient chart updates (not `Plotly.newPlot()`)
 - Files are accessible via the sandbox filesystem
 - The iframe is sandboxed — no access to parent page DOM
-- Use `localStorage` with a random compound-name prefix to persist UI state across reloads
+- Use `localStorage` with a compound-name prefix for persistent UI state — it's session-scoped and persists across turns. `indexedDB` is not supported — use `query()` for structured data. See Persisting UI State.
 - `test_app()` tests uncommitted app files in a hidden iframe — use after writing/editing
 - `live_app()` reads from or interacts with the live preview the user sees
 - Both auto-display results and return them — capture the return value only when needed
