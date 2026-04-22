@@ -14,7 +14,7 @@ import {
  * share them. Returns the pieces that get interpolated into the Python
  * template strings below.
  *
- * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number }} settings
+ * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number, toolUseWireFormat?: boolean }} settings
  */
 function _settingsConstants(settings) {
   const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -39,7 +39,24 @@ function _settingsConstants(settings) {
   // the JS bridge can inject auth on the main thread.
   const llmClass =
     settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
-  return { userTz, baseUrlLine, openrouterLines, debugRawLines, llmClass };
+  // Wire-format selection. Default XmlWireFormat ⇒ no extra import/kwarg.
+  // ToolUseWireFormat pulls actions through the provider's native function
+  // calling (tool_calls on OpenAI, tool_use blocks on Anthropic).
+  const wireFormatImport = settings.toolUseWireFormat
+    ? "from agex.llm.formats import ToolUseWireFormat\n"
+    : "";
+  const wireFormatLine = settings.toolUseWireFormat
+    ? "    wire_format=ToolUseWireFormat(),\n"
+    : "";
+  return {
+    userTz,
+    baseUrlLine,
+    openrouterLines,
+    debugRawLines,
+    llmClass,
+    wireFormatImport,
+    wireFormatLine,
+  };
 }
 
 /**
@@ -50,8 +67,14 @@ function _settingsConstants(settings) {
  * @param {{ apiKey: string, model: string }} settings
  */
 export async function initAgentBasics(settings) {
-  const { baseUrlLine, openrouterLines, debugRawLines, llmClass } =
-    _settingsConstants(settings);
+  const {
+    baseUrlLine,
+    openrouterLines,
+    debugRawLines,
+    llmClass,
+    wireFormatImport,
+    wireFormatLine,
+  } = _settingsConstants(settings);
   await runPython(`
 from dataclasses import dataclass
 import pandas as pd
@@ -116,12 +139,12 @@ del _open_url_llm, _importlib_llm, _site_llm, _site_dir_llm
 from bridge_llm import JsBridgeAdapter as _JsBridgeAdapter
 from agex.llm.pyfetch_openai import PyfetchOpenAI
 from agex.llm.pyfetch_anthropic import PyfetchAnthropic
-
+${wireFormatImport}
 # api_key left empty; adapter injects Authorization on the main thread.
 _llm = ${llmClass}(
     model="${settings.model}",
     api_key="",
-${baseUrlLine}${openrouterLines}    fetch_adapter=_JsBridgeAdapter(),
+${baseUrlLine}${openrouterLines}${wireFormatLine}    fetch_adapter=_JsBridgeAdapter(),
 )
 
 _agent = Agent(

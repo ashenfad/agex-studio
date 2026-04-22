@@ -23,6 +23,7 @@
     let provider = $state('openai')
     let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
+    let toolUseWireFormat = $state(false)
 
     // Sync local state from store whenever drawer opens
     $effect(() => {
@@ -34,6 +35,7 @@
             provider = s.provider ?? 'openai'
             baseUrl = s.baseUrl ?? ''
             chapteringTrigger = s.chapteringTrigger
+            toolUseWireFormat = s.toolUseWireFormat ?? false
         }
     })
 
@@ -44,6 +46,7 @@
             provider,
             baseUrl: baseUrl.trim(),
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
+            toolUseWireFormat,
         })
         onClose()
     }
@@ -119,6 +122,17 @@
                         onclick={() => provider = 'anthropic'}
                     >Anthropic</button>
                 </div>
+            </label>
+
+            <label class="checkbox-row">
+                <input
+                    type="checkbox"
+                    bind:checked={toolUseWireFormat}
+                />
+                <span class="checkbox-label">
+                    Use provider-native tool calling (beta)
+                    <span class="hint">Actions go through the provider's function-calling API instead of XML tags.</span>
+                </span>
             </label>
 
             <label>
@@ -279,6 +293,37 @@
     .segmented button.active {
         background: var(--accent);
         color: white;
+    }
+
+    .checkbox-row {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 0.55rem;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+        margin-top: 0.15rem;
+        width: 1rem;
+        height: 1rem;
+        padding: 0;
+        flex: 0 0 auto;
+    }
+
+    .checkbox-label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        color: var(--text);
+        font-size: 0.85rem;
+        font-weight: 500;
+        line-height: 1.25;
+    }
+
+    .checkbox-label .hint {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-weight: 400;
     }
 
     .toggle-link {

@@ -10,6 +10,7 @@ const DEFAULTS = {
     provider: "openai",
     baseUrl: "",
     chapteringTrigger: 150000,
+    toolUseWireFormat: false,
 };
 
 /** @type {((s: Settings) => void)[]} */
@@ -22,6 +23,9 @@ let subscribers = [];
  * @property {"openai" | "anthropic"} provider
  * @property {string} baseUrl
  * @property {number} chapteringTrigger
+ * @property {boolean} toolUseWireFormat — when true, the agex LLM client
+ *     is configured with ToolUseWireFormat (provider-native function
+ *     calling) instead of the default XmlWireFormat (XML tags in text).
  */
 
 /** @type {Settings} */
