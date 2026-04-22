@@ -1074,12 +1074,34 @@ def _on_event(event):
         })
 
 def _on_token(token):
-    _post_token(_run_id, {
+    _payload = {
         "type": token.type,
         "content": token.content,
         "start": getattr(token, "start", False),
         "done": token.done,
-    })
+    }
+    # Tool-use wire format emits a single "file_action" token carrying a
+    # fully built FileAction/EditAction — forward it as a serialized dict
+    # so the UI can render the file op without re-assembling it from
+    # streamed tokens.
+    _action = getattr(token, "action", None)
+    if _action is not None:
+        if isinstance(_action, _FileAction):
+            _payload["action"] = {
+                "kind": "file",
+                "path": _action.path,
+                "content": _action.content,
+                "mode": _action.mode,
+            }
+        elif isinstance(_action, _EditAction):
+            _payload["action"] = {
+                "kind": "edit",
+                "path": _action.path,
+                "search": _action.search,
+                "content": _action.content,
+                "operation": _action.operation,
+            }
+    _post_token(_run_id, _payload)
 
 from agex import TaskFail, TaskClarify, TaskCancelled
 import asyncio as _asyncio
