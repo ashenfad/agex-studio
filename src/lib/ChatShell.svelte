@@ -11,8 +11,8 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
-    import { initAgent, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
-    import { cancelTask } from './pyodide.js'
+    import { initAgentBasics, initAgentRich, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
+    import { cancelTask, pyodideStore, startWave3 } from './pyodide.js'
     import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
@@ -81,37 +81,111 @@
         if (!configured) settingsOpen = true
     })
 
-    // Re-init agent when settings change
+    // historyReady flips once Wave 2 init + history load have completed.
+    // Lets us show real chat earlier than agentReady (which waits for
+    // the full Wave 3 registration before Send becomes enabled).
+    let historyReady = $state(false)
+
+    // Re-init agent when settings change AND Pyodide has reached at
+    // least the history-ready stage. Two-phase: Wave-2 init unlocks
+    // history; Wave-3 init unlocks Send.
     let lastKey = ''
     let lastModel = ''
     $effect(() => {
         const s = $settingsStore
-        if (s.apiKey && (s.apiKey !== lastKey || s.model !== lastModel)) {
-            lastKey = s.apiKey
-            lastModel = s.model
-            agentReady = false
-            initError = ''
-            initStatus = 'Setting up agent...'
-            initAgent(s).then(async () => {
-                initStatus = 'Loading sessions...'
-                await initSessions()
-                initStatus = 'Loading history...'
-                historyChunks = await loadHistoryChunked()
-                messages = historyChunks.messages
-                if (messages.length && messages[messages.length - 1].role === 'chaptering') {
-                    tokenOverride = await estimateLogTokens()
-                }
-                initStatus = 'Loading files...'
-                files = await listFiles()
-                agentReady = true
-                document.getElementById('static-footer')?.remove()
-            }).catch((e) => {
-                console.error('Agent init failed:', e)
-                initError = e.message || String(e)
-                initStatus = ''
-            })
-        }
+        // Read pyodideStore so this effect re-runs when stage advances.
+        void $pyodideStore.stage
+        if (!s.apiKey) return
+        if (s.apiKey === lastKey && s.model === lastModel) return
+        lastKey = s.apiKey
+        lastModel = s.model
+        runStartup(s)
     })
+
+    async function runStartup(s) {
+        historyReady = false
+        agentReady = false
+        initError = ''
+        try {
+            initStatus = 'Loading core packages...'
+            await waitForStage('history-ready')
+
+            initStatus = 'Setting up agent...'
+            await initAgentBasics(s)
+            initStatus = 'Loading sessions...'
+            await initSessions()
+            initStatus = 'Loading history...'
+            historyChunks = await loadHistoryChunked()
+            messages = historyChunks.messages
+            if (messages.length && messages[messages.length - 1].role === 'chaptering') {
+                tokenOverride = await estimateLogTokens()
+            }
+            initStatus = 'Loading files...'
+            files = await listFiles()
+            historyReady = true
+            document.getElementById('static-footer')?.remove()
+
+            // Now safe to install Wave 3 packages. Doing it earlier
+            // would have blocked basics behind it (Pyodide serializes
+            // runPythonAsync calls and Wave 3 wheels don't yield often).
+            initStatus = 'Loading capabilities...'
+            startWave3()
+            await waitForStage('send-ready')
+            await initAgentRich(s)
+            agentReady = true
+            initStatus = ''
+        } catch (e) {
+            console.error('Agent init failed:', e)
+            initError = e.message || String(e)
+            initStatus = ''
+        }
+    }
+
+    /** Resolve once pyodide reaches `target` (or higher). */
+    function waitForStage(target) {
+        const order = ['idle', 'loading', 'history-ready', 'send-ready']
+        const targetIdx = order.indexOf(target)
+        return new Promise((resolve, reject) => {
+            // Svelte stores invoke the subscriber synchronously during
+            // `subscribe(...)`, before `unsub` has been assigned. Stash
+            // the resolution and call `unsub` after we have it.
+            let settled = false
+            let unsub = () => { settled = true }
+            const handler = (p) => {
+                if (settled) return
+                if (p.status === 'error') {
+                    settled = true
+                    unsub()
+                    reject(new Error(p.message || 'Pyodide failed'))
+                    return
+                }
+                if (order.indexOf(p.stage) >= targetIdx) {
+                    settled = true
+                    unsub()
+                    resolve()
+                }
+            }
+            unsub = pyodideStore.subscribe(handler)
+            // If the initial sync call already settled, the temporary
+            // no-op `unsub` was used — re-call the real one now.
+            if (settled) unsub()
+        })
+    }
+
+    // Combined warming message — surfaces whichever phase is active so
+    // the user has some signal that things are happening behind the
+    // scenes. Empty string once the agent is fully ready.
+    let warmingMessage = $derived.by(() => {
+        if (agentReady) return ''
+        const py = $pyodideStore
+        if (py.status === 'error') return ''  // shown as an error notice instead
+        if (py.status !== 'ready') return py.message || 'Loading...'
+        return initStatus || 'Initializing agent...'
+    })
+
+    let pyodideError = $derived(
+        $pyodideStore.status === 'error' ? $pyodideStore.message : ''
+    )
 
     // Reload history when session changes
     let lastBranch = ''
@@ -531,27 +605,53 @@
             chapteringTrigger={$settingsStore.chapteringTrigger}
         />
 
-        {#if !configured}
-            <div class="notice">
-                <p>Set your OpenRouter API key to get started.</p>
+        {#if historyReady}
+            <MessageList {messages} {busy} {scrollKey} onUndo={handleUndo} hasMore={historyChunks?.hasMore ?? false} onLoadMore={handleLoadMore} onActionOpen={(i) => actionModalIndex = i} onChapterOpen={(msg) => chapterModalData = msg} />
+            {#if !agentReady && warmingMessage}
+                <div class="status-row">
+                    <span class="spinner"></span>
+                    <p>{warmingMessage}</p>
+                </div>
+            {/if}
+            <ChatInput
+                onSend={handleSend}
+                onCancel={handleCancel}
+                {busy}
+                {cancelling}
+                sendDisabled={busy || !agentReady}
+                prefill={inputPrefill}
+            />
+        {:else if !configured}
+            <div class="warming-area">
+                <p>Set your OpenRouter API key in settings to get started.</p>
+            </div>
+        {:else if pyodideError}
+            <div class="warming-area error">
+                <p>Pyodide failed to load: {pyodideError}</p>
             </div>
         {:else if initError}
-            <div class="notice error">
+            <div class="warming-area error">
                 <p>Agent setup failed: {initError}</p>
             </div>
-        {:else if !agentReady}
-            <div class="notice">
-                <span class="spinner"></span>
-                <p>{initStatus || 'Initializing...'}</p>
-            </div>
         {:else}
-            <MessageList {messages} {busy} {scrollKey} onUndo={handleUndo} hasMore={historyChunks?.hasMore ?? false} onLoadMore={handleLoadMore} onActionOpen={(i) => actionModalIndex = i} onChapterOpen={(msg) => chapterModalData = msg} />
-            <ChatInput onSend={handleSend} onCancel={handleCancel} {busy} {cancelling} disabled={busy || !agentReady} prefill={inputPrefill} />
+            <div class="warming-area">
+                <span class="spinner"></span>
+                <p>{warmingMessage || 'Loading...'}</p>
+            </div>
         {/if}
     </div>
 {/snippet}
 
-<SplitPane collapsed={!hasAppFiles} {mobileView} onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}>
+<!--
+  Keep the preview pane collapsed until the agent is fully ready (Wave
+  3 + rich init). `hasAppFiles` flips at Wave 2, so without this guard
+  the iframe would mount and start making query() calls that hit the
+  sandtrap policy *before* initAgentRich has registered modules like
+  `random`, `pandas`, `plotly`. The agent catalog being empty there
+  means every `import X` call from the app fails with
+  "Import of 'X' is not allowed".
+-->
+<SplitPane collapsed={!hasAppFiles || !agentReady} {mobileView} onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}>
     {#snippet children()}
         {@render chatContent()}
     {/snippet}
@@ -618,19 +718,41 @@
         margin: 0 auto;
     }
 
-    .notice {
+    .warming-area {
         flex: 1;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: 0.6rem;
         color: var(--text-muted);
-        font-size: 0.85rem;
-        gap: 0.5rem;
+        font-size: 0.9rem;
+        padding: 1rem;
+        text-align: center;
     }
 
-    .notice.error {
+    .warming-area p {
+        margin: 0;
+    }
+
+    .warming-area.error {
         color: #e74c3c;
+    }
+
+    .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.35rem 1rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .status-row p {
+        margin: 0;
     }
 
     .spinner {

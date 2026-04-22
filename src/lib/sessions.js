@@ -373,21 +373,25 @@ const CHUNK_SIZE = 8;
 export async function loadHistoryChunked() {
     const all = await loadHistory();
 
-    // Group into "units": a user message + its following agent response
+    // Group into "units": a user message + everything that follows it
+    // until the next user message. A single task often produces several
+    // agent messages (intermediate reports + the final success), and
+    // they all belong to the same conversational turn. Closing a unit
+    // on the first agent message (as we did before) turned a multi-
+    // report task into N units and could push the user prompt off the
+    // visible chunk window.
     const units = [];
     let current = null;
     for (const msg of all) {
         if (msg.role === 'user') {
             if (current) units.push(current);
             current = [msg];
+        } else if (current) {
+            current.push(msg);
         } else {
-            if (current) {
-                current.push(msg);
-                units.push(current);
-                current = null;
-            } else {
-                units.push([msg]);
-            }
+            // Trailing or orphan agent message with no preceding user —
+            // treat as its own unit so it still renders.
+            units.push([msg]);
         }
     }
     if (current) units.push(current);

@@ -33,12 +33,21 @@ beforeEach(() => {
     runPythonCalls.length = 0;
 });
 
+// Helper: initAgent runs basics + rich (two runPython calls). Most
+// assertions don't care which phase a snippet lives in — they just
+// want to know the substring appears somewhere in the setup code.
+const allInitCode = () => runPythonCalls.join("\n---\n");
+
 describe("initAgent", () => {
+    it("runs basics + rich as two runPython calls", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+        expect(runPythonCalls).toHaveLength(2);
+    });
+
     it("sends Python setup code with correct model and adapter (no api_key in scope)", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        expect(runPythonCalls).toHaveLength(1);
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain('model="openai/gpt-5.4"');
         // Key never enters Python scope — adapter routes to main thread
         expect(code).not.toContain('api_key="sk-test-123"');
@@ -51,7 +60,7 @@ describe("initAgent", () => {
     it("registers test_app function with auto-display", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("async def test_app(actions");
         expect(code).toContain("_js_test_app");
         expect(code).toContain("_display_app_results");
@@ -61,7 +70,7 @@ describe("initAgent", () => {
     it("registers interactive app skill", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("interactive-app.md");
         expect(code).toContain("_agent.skill");
     });
@@ -73,7 +82,7 @@ describe("initAgent", () => {
     it("no longer installs drive_fs live-mount code", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         // Drive is now a download-to-VFS flow, not a live /drive/ mount.
         expect(code).not.toContain("drive_fs.py");
         expect(code).not.toContain("GoogleDriveFS");
@@ -87,7 +96,7 @@ describe("initAgent", () => {
     it("registers drive skill and mentions /downloads in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("drive.md");
         // Primer now references /downloads/ (where imported files land),
         // not /drive/ (the old live mount).
@@ -99,7 +108,7 @@ describe("initAgent", () => {
     it("handles fresh ImageAction without _png_bytes in serializer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         // Must use getattr for fresh ImageAction instances (not unpickled)
         expect(code).toContain('getattr(part, "_png_bytes", None)');
         expect(code).toContain("part.png_bytes()");
@@ -108,7 +117,7 @@ describe("initAgent", () => {
     it("mentions test_app auto-display in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("test_app()");
         expect(code).toContain("auto-displayed");
         expect(code).toContain("query() calls in the app work during testing");
@@ -118,7 +127,7 @@ describe("initAgent", () => {
     it("defines _display_app_results helper", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("def _display_app_results(");
         expect(code).toContain('[read ');
         expect(code).toContain('[eval error]');
@@ -128,7 +137,7 @@ describe("initAgent", () => {
     it("registers live_app function with auto-display", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("async def live_app(actions");
         expect(code).toContain("_js_live_app");
         expect(code).toContain("_display_app_results");
@@ -139,7 +148,7 @@ describe("initAgent", () => {
     it("registers render_pdf with high visibility", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("async def render_pdf(data");
         expect(code).toContain("_js_render_pdf");
         expect(code).toContain('_agent.fn(render_pdf, visibility="high")');
@@ -148,7 +157,7 @@ describe("initAgent", () => {
     it("registers pdf_page_count with high visibility", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("def pdf_page_count(data");
         expect(code).toContain('_agent.fn(pdf_page_count, visibility="high")');
     });
@@ -156,7 +165,7 @@ describe("initAgent", () => {
     it("mentions render_pdf in task primer", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
-        const code = runPythonCalls[0];
+        const code = allInitCode();
         expect(code).toContain("render_pdf(");
         expect(code).toContain("pdf_page_count(");
     });
@@ -166,6 +175,28 @@ describe("initAgent", () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         expect(setQueryHandler).toHaveBeenCalled();
+    });
+
+    it("basics constructs Agent + LLM and defines event helpers", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+        const basics = runPythonCalls[0];
+        // Wave-2 capabilities — agent constructed, history-readable.
+        expect(basics).toContain("clear_agent_registry()");
+        expect(basics).toContain("_agent = Agent(");
+        expect(basics).toContain("_serialize_chapter_events");
+        // No module/skill/task registration in basics.
+        expect(basics).not.toContain("register_pandas");
+        expect(basics).not.toContain("@_agent.task");
+    });
+
+    it("rich registers modules + skills + chat task", async () => {
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+        const rich = runPythonCalls[1];
+        expect(rich).toContain("register_pandas(_agent)");
+        expect(rich).toContain("register_plotly(_agent)");
+        expect(rich).toContain("@_agent.task(primer=_TASK_PRIMER)");
+        // Reuses _agent created in basics; doesn't reconstruct.
+        expect(rich).not.toContain("_agent = Agent(");
     });
 });
 
