@@ -10,12 +10,13 @@ import {
 } from "./pyodide.js";
 
 /**
- * Initialize the agent with the given settings.
- * Must be called before sendMessage. Safe to call again to reconfigure.
+ * Derive the settings-related Python literals once so basics + rich can
+ * share them. Returns the pieces that get interpolated into the Python
+ * template strings below.
  *
- * @param {{ apiKey: string, model: string }} settings
+ * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number }} settings
  */
-export async function initAgent(settings) {
+function _settingsConstants(settings) {
   const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const providerName =
     settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
@@ -38,12 +39,24 @@ export async function initAgent(settings) {
   // the JS bridge can inject auth on the main thread.
   const llmClass =
     settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
+  return { userTz, baseUrlLine, openrouterLines, debugRawLines, llmClass };
+}
+
+/**
+ * Wave-2 init: enough Python state for the host to read history and
+ * stand the agent up, but no module/skill/task registration. Pairs with
+ * ``initAgentRich`` which finishes the wiring once Wave 3 is installed.
+ *
+ * @param {{ apiKey: string, model: string }} settings
+ */
+export async function initAgentBasics(settings) {
+  const { baseUrlLine, openrouterLines, debugRawLines, llmClass } =
+    _settingsConstants(settings);
   await runPython(`
 from dataclasses import dataclass
 import pandas as pd
 import plotly.graph_objects as go
 from agex import Agent, connect_state, connect_fs, clear_agent_registry
-from agex.helpers import register_pandas, register_numpy, register_plotly, register_stdlib
 
 clear_agent_registry()
 
@@ -121,7 +134,191 @@ _agent = Agent(
     chaptering_trigger=${settings.chapteringTrigger},
 )
 
+# -- Install host-side helper modules onto the Python path --
+# Done in basics because sessions.js (which runs at history-ready)
+# imports both app_storage and bundle. bundle imports app_storage at
+# module load, so order matters.
+from pyodide.http import open_url as _open_url_basics
+import importlib as _importlib_basics
+_site_dir_basics = _importlib_basics.import_module("site").getsitepackages()[0]
+
+def _install_url_module_basics(name, url):
+    with open(f"{_site_dir_basics}/{name}.py", "w") as f:
+        f.write(_open_url_basics(url).read())
+    return _importlib_basics.import_module(name)
+
+_install_url_module_basics("app_storage", "/app_storage.py")
+_install_url_module_basics("bundle", "/bundle.py")
+del _install_url_module_basics, _open_url_basics, _importlib_basics, _site_dir_basics
+
+# -- Event helpers used by sessions.js loadHistory --
+# Defined in basics so the host can render existing chat history while
+# Wave 3 is still installing in the background.
+from agex.agent.events import ActionEvent as _ActionEvent, OutputEvent as _OutputEvent, ChapterEvent as _ChapterEvent
+from agex.agent.events import TaskStartEvent as _TaskStart, SuccessEvent as _SuccessEvent
+from agex.agent.datatypes import FileAction as _FileAction, EditAction as _EditAction
+from agex.eval.objects import PrintAction as _PrintAction, ImageAction as _ImageAction
+
+_ERROR_KEYWORDS = ("\u{1F4A5}",)
+
+def _serialize_output_parts(event):
+    import base64 as _b64
+    parts = []
+    for part in event.parts:
+        if isinstance(part, _PrintAction):
+            content = " ".join(str(item) for item in part)
+            if not any(kw in content for kw in _ERROR_KEYWORDS):
+                parts.append({"type": "text", "content": content})
+            else:
+                _NL = chr(10)
+                lines = content.split(_NL)
+                chunk = []
+                chunk_is_err = False
+                for line in lines:
+                    line_is_err = any(kw in line for kw in _ERROR_KEYWORDS)
+                    if chunk and line_is_err != chunk_is_err:
+                        parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
+                        chunk = []
+                    chunk_is_err = line_is_err
+                    chunk.append(line)
+                if chunk:
+                    parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
+        elif isinstance(part, _ImageAction):
+            _png = getattr(part, "_png_bytes", None)
+            if _png is None and hasattr(part, 'png_bytes'):
+                try:
+                    _png = part.png_bytes()
+                except Exception as _e:
+                    print(f"--- Warning: failed to encode image: {_e} ---")
+            if _png is not None:
+                parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
+            elif isinstance(part.image, str):
+                parts.append({"type": "image", "data": part.image})
+            else:
+                parts.append({"type": "text", "content": str(part.image)})
+        else:
+            parts.append({"type": "text", "content": str(part)})
+    return parts
+
+def _output_text(event):
+    lines = []
+    for part in event.parts:
+        if isinstance(part, _PrintAction):
+            lines.append(" ".join(str(item) for item in part))
+        else:
+            lines.append(str(part))
+    return "\\n".join(lines)
+
+def _split_output_events(all_parts):
+    """Split serialized parts into separate output and error event dicts."""
+    _NL = chr(10)
+    out_parts = [p for p in all_parts if p.get("type") != "error"]
+    err_parts = [p for p in all_parts if p.get("type") == "error"]
+    result = []
+    if out_parts:
+        result.append({
+            "type": "output",
+            "message": _NL.join(p.get("content", "") for p in out_parts),
+            "parts": out_parts,
+        })
+    if err_parts:
+        result.append({
+            "type": "error",
+            "message": _NL.join(p.get("content", "") for p in err_parts),
+            "parts": err_parts,
+        })
+    if not result:
+        result.append({"type": "output", "message": "", "parts": all_parts})
+    return result
+
+def _serialize_file_actions(actions):
+    result = []
+    for a in actions:
+        if isinstance(a, _FileAction):
+            result.append({"kind": "file", "path": a.path, "content": a.content, "mode": a.mode})
+        elif isinstance(a, _EditAction):
+            result.append({"kind": "edit", "path": a.path, "search": a.search, "content": a.content, "operation": a.operation})
+    return result
+
+def _serialize_chapter_events(events_list, state=None):
+    """Recursively serialize events nested inside a ChapterEvent."""
+    result = []
+    _cur_task = None
+    _unassigned = []
+    for evt in events_list:
+        if isinstance(evt, _ActionEvent):
+            result.append({
+                "type": "action",
+                "title": evt.title or "",
+                "thinking": evt.thinking or "",
+                "report": getattr(evt, "report", "") or "",
+                "code": evt.code,
+                "terminal": evt.terminal,
+                "file_actions": _serialize_file_actions(evt.file_actions),
+                "input_tokens": evt.input_tokens,
+                "output_tokens": evt.output_tokens,
+            })
+        elif isinstance(evt, _OutputEvent):
+            result.extend(_split_output_events(_serialize_output_parts(evt)))
+        elif isinstance(evt, _ChapterEvent):
+            _ch_item = {
+                "type": "chapter",
+                "name": evt.name,
+                "message": evt.message,
+                "events": _serialize_chapter_events(evt.resolve_events(state) if state else [], state),
+            }
+            result.append(_ch_item)
+            _unassigned.append(_ch_item)
+        elif isinstance(evt, _TaskStart):
+            _cur_task = evt.task_name
+            if evt.task_name == "__chapter__":
+                result.append({"type": "chaptering", "chapters": []})
+            else:
+                result.append({
+                    "type": "task_start",
+                    "message": evt.inputs.get("message", str(evt.inputs)),
+                })
+        elif isinstance(evt, _SuccessEvent):
+            if _cur_task == "__chapter__":
+                _n = 0
+                if isinstance(evt.result, list):
+                    _n = sum(1 for _ch in evt.result if hasattr(_ch, 'name'))
+                _take = min(_n, len(_unassigned))
+                if _take > 0:
+                    for _bm in reversed(result):
+                        if _bm.get("type") == "chaptering":
+                            _bm["chapters"] = [
+                                {"name": _uc["name"], "message": _uc["message"], "events": _uc.get("events", [])}
+                                for _uc in _unassigned[:_take]
+                            ]
+                            break
+                    _unassigned = _unassigned[_take:]
+                _cur_task = None
+            else:
+                r = evt.result
+                if hasattr(r, "normalize") and hasattr(r, "parts"):
+                    _rd = {"type": "response", "parts": r.normalize()}
+                else:
+                    _rd = {"type": "text", "content": str(r) if r is not None else ""}
+                result.append({"type": "success", "result": _rd})
+    return result
+    `);
+}
+
+/**
+ * Wave-3 init: registers framework helpers + agent modules, installs
+ * static skills and helper functions, defines the chat task.
+ * Required before ``sendMessage`` can run.
+ *
+ * @param {{ apiKey: string, model: string }} settings
+ */
+export async function initAgentRich(settings) {
+  const { userTz } = _settingsConstants(settings);
+  await runPython(`
+from agex.helpers import register_pandas, register_numpy, register_plotly, register_stdlib
+
 _agent.cls(Response)
+
 register_stdlib(_agent)
 register_pandas(_agent)
 register_numpy(_agent)
@@ -172,27 +369,11 @@ except Exception as _e:
     print(f"[skills] failed to register: {_e}")
 
 # -- Load static .py modules onto the Python path --
+# (app_storage and bundle were installed in basics so sessions.js can
+# use them while Wave 3 is still installing.)
 from pyodide.http import open_url as _open_url
 import importlib as _importlib
 _site_dir = _importlib.import_module("site").getsitepackages()[0]
-
-def _install_url_module(name, url):
-    """Fetch a .py from the app server, write to site-packages, import it."""
-    with open(f"{_site_dir}/{name}.py", "w") as f:
-        f.write(_open_url(url).read())
-    return _importlib.import_module(name)
-
-# App-storage shim backing store — per-branch, non-versioned.
-# Installed here so sessions.js can read/write without round-tripping
-# through agent init again. Must come before bundle, which imports it.
-_install_url_module("app_storage", "/app_storage.py")
-
-# Bundle export/import — available to internal callers (sessions.js);
-# not registered on _agent, since only the host app orchestrates
-# session-level export/import, not the LLM agent.
-_install_url_module("bundle", "/bundle.py")
-
-del _install_url_module, _site_dir, _importlib
 
 # -- Register skills from static files --
 for _skill_path in [
@@ -205,7 +386,7 @@ for _skill_path in [
 ]:
     _agent.skill(_open_url(_skill_path).read().encode("utf-8"))
 
-del _open_url, _skill_path
+del _open_url, _skill_path, _site_dir, _importlib
 
 def local_timezone() -> str:
     """Returns the user's local IANA timezone (e.g. 'America/Los_Angeles').
@@ -531,161 +712,23 @@ Examples:
 @_agent.task(primer=_TASK_PRIMER)
 async def chat(message: str) -> str | Response:
     ...
-
-# -- Shared helpers for event processing (used by sendMessage and loadHistory) --
-from agex.agent.events import ActionEvent as _ActionEvent, OutputEvent as _OutputEvent, ChapterEvent as _ChapterEvent
-from agex.agent.events import TaskStartEvent as _TaskStart, SuccessEvent as _SuccessEvent
-from agex.agent.datatypes import FileAction as _FileAction, EditAction as _EditAction
-from agex.eval.objects import PrintAction as _PrintAction, ImageAction as _ImageAction
-
-_ERROR_KEYWORDS = ("💥",)
-
-def _serialize_output_parts(event):
-    import base64 as _b64
-    parts = []
-    for part in event.parts:
-        if isinstance(part, _PrintAction):
-            content = " ".join(str(item) for item in part)
-            if not any(kw in content for kw in _ERROR_KEYWORDS):
-                parts.append({"type": "text", "content": content})
-            else:
-                # Split into error vs non-error chunks by line
-                _NL = chr(10)
-                lines = content.split(_NL)
-                chunk = []
-                chunk_is_err = False
-                for line in lines:
-                    line_is_err = any(kw in line for kw in _ERROR_KEYWORDS)
-                    if chunk and line_is_err != chunk_is_err:
-                        parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
-                        chunk = []
-                    chunk_is_err = line_is_err
-                    chunk.append(line)
-                if chunk:
-                    parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
-        elif isinstance(part, _ImageAction):
-            _png = getattr(part, "_png_bytes", None)
-            if _png is None and hasattr(part, 'png_bytes'):
-                try:
-                    _png = part.png_bytes()
-                except Exception as _e:
-                    print(f"--- Warning: failed to encode image: {_e} ---")
-            if _png is not None:
-                parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
-            elif isinstance(part.image, str):
-                parts.append({"type": "image", "data": part.image})
-            else:
-                parts.append({"type": "text", "content": str(part.image)})
-        else:
-            parts.append({"type": "text", "content": str(part)})
-    return parts
-
-def _output_text(event):
-    lines = []
-    for part in event.parts:
-        if isinstance(part, _PrintAction):
-            lines.append(" ".join(str(item) for item in part))
-        else:
-            lines.append(str(part))
-    return "\\n".join(lines)
-
-def _split_output_events(all_parts):
-    """Split serialized parts into separate output and error event dicts."""
-    _NL = chr(10)
-    out_parts = [p for p in all_parts if p.get("type") != "error"]
-    err_parts = [p for p in all_parts if p.get("type") == "error"]
-    result = []
-    if out_parts:
-        result.append({
-            "type": "output",
-            "message": _NL.join(p.get("content", "") for p in out_parts),
-            "parts": out_parts,
-        })
-    if err_parts:
-        result.append({
-            "type": "error",
-            "message": _NL.join(p.get("content", "") for p in err_parts),
-            "parts": err_parts,
-        })
-    if not result:
-        result.append({"type": "output", "message": "", "parts": all_parts})
-    return result
-
-def _serialize_file_actions(actions):
-    result = []
-    for a in actions:
-        if isinstance(a, _FileAction):
-            result.append({"kind": "file", "path": a.path, "content": a.content, "mode": a.mode})
-        elif isinstance(a, _EditAction):
-            result.append({"kind": "edit", "path": a.path, "search": a.search, "content": a.content, "operation": a.operation})
-    return result
-
-def _serialize_chapter_events(events_list, state=None):
-    """Recursively serialize events nested inside a ChapterEvent."""
-    result = []
-    _cur_task = None
-    _unassigned = []
-    for evt in events_list:
-        if isinstance(evt, _ActionEvent):
-            result.append({
-                "type": "action",
-                "title": evt.title or "",
-                "thinking": evt.thinking or "",
-                "report": getattr(evt, "report", "") or "",
-                "code": evt.code,
-                "terminal": evt.terminal,
-                "file_actions": _serialize_file_actions(evt.file_actions),
-                "input_tokens": evt.input_tokens,
-                "output_tokens": evt.output_tokens,
-            })
-        elif isinstance(evt, _OutputEvent):
-            result.extend(_split_output_events(_serialize_output_parts(evt)))
-        elif isinstance(evt, _ChapterEvent):
-            _ch_item = {
-                "type": "chapter",
-                "name": evt.name,
-                "message": evt.message,
-                "events": _serialize_chapter_events(evt.resolve_events(state) if state else [], state),
-            }
-            result.append(_ch_item)
-            _unassigned.append(_ch_item)
-        elif isinstance(evt, _TaskStart):
-            _cur_task = evt.task_name
-            if evt.task_name == "__chapter__":
-                result.append({"type": "chaptering", "chapters": []})
-            else:
-                result.append({
-                    "type": "task_start",
-                    "message": evt.inputs.get("message", str(evt.inputs)),
-                })
-        elif isinstance(evt, _SuccessEvent):
-            if _cur_task == "__chapter__":
-                _n = 0
-                if isinstance(evt.result, list):
-                    _n = sum(1 for _ch in evt.result if hasattr(_ch, 'name'))
-                _take = min(_n, len(_unassigned))
-                if _take > 0:
-                    for _bm in reversed(result):
-                        if _bm.get("type") == "chaptering":
-                            _bm["chapters"] = [
-                                {"name": _uc["name"], "message": _uc["message"], "events": _uc.get("events", [])}
-                                for _uc in _unassigned[:_take]
-                            ]
-                            break
-                    _unassigned = _unassigned[_take:]
-                _cur_task = None
-            else:
-                r = evt.result
-                if hasattr(r, "normalize") and hasattr(r, "parts"):
-                    _rd = {"type": "response", "parts": r.normalize()}
-                else:
-                    _rd = {"type": "text", "content": str(r) if r is not None else ""}
-                result.append({"type": "success", "result": _rd})
-    return result
     `);
 
   // Wire up query handler for headless app testing
   setQueryHandler(runQuery);
+}
+
+/**
+ * Convenience wrapper: runs basics then rich. Useful for tests and
+ * any caller that just wants "fully ready"; production startup goes
+ * through ChatShell which calls each phase as the worker reaches the
+ * matching stage.
+ *
+ * @param {{ apiKey: string, model: string }} settings
+ */
+export async function initAgent(settings) {
+  await initAgentBasics(settings);
+  await initAgentRich(settings);
 }
 
 /**

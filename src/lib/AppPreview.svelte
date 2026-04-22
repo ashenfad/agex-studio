@@ -12,6 +12,13 @@
     let loading = $state(false)
     let error = $state('')
 
+    // True once the iframe fires `onload` (HTML parsed + initial
+    // scripts executed) or the app sends its first postMessage,
+    // whichever happens first. Used to keep a spinner overlay visible
+    // while the iframe is still blank-white during its own boot.
+    let iframeReady = $state(false)
+    let iframeReadyTimer = null
+
     // The branch this iframe was built against. App-storage writes
     // posted from the iframe are persisted under this branch, not the
     // live $sessionStore.currentBranch — preserves correct routing if
@@ -150,6 +157,11 @@
     }
 
     async function loadPreview() {
+        iframeReady = false
+        if (iframeReadyTimer) {
+            clearTimeout(iframeReadyTimer)
+            iframeReadyTimer = null
+        }
         resetTracking()
         enableQueries()
 
@@ -190,6 +202,9 @@
         }
 
         if (event.data?.type !== 'agex-query') return
+
+        // Any postMessage from the iframe means app JS is running.
+        if (!iframeReady) iframeReady = true
 
         const { id, code, result } = event.data
         const countInWindow = recordQuery(code || '')
@@ -295,12 +310,25 @@
     {:else if error}
         <div class="preview-notice error">{error}</div>
     {:else if blobUrl}
-        <iframe
-            bind:this={iframe}
-            src={blobUrl}
-            sandbox="allow-scripts"
-            title="App Preview"
-        ></iframe>
+        <div class="iframe-wrap">
+            <iframe
+                bind:this={iframe}
+                src={blobUrl}
+                sandbox="allow-scripts"
+                title="App Preview"
+                onload={() => {
+                    // Fallback signal in case the app never sends a
+                    // query() (static HTML, CSS-only demos, etc).
+                    if (iframeReadyTimer) clearTimeout(iframeReadyTimer)
+                    iframeReadyTimer = setTimeout(() => { iframeReady = true }, 100)
+                }}
+            ></iframe>
+            {#if !iframeReady}
+                <div class="iframe-overlay">
+                    <span class="spinner"></span>
+                </div>
+            {/if}
+        </div>
     {/if}
 </div>
 
@@ -311,11 +339,27 @@
         background: var(--bg);
     }
 
+    .iframe-wrap {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+
     iframe {
         width: 100%;
         height: 100%;
         border: none;
-        background: white;
+        background: transparent;
+    }
+
+    .iframe-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        pointer-events: none;
     }
 
     .preview-notice {

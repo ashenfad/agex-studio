@@ -26,6 +26,12 @@ let subscribers = [];
 /**
  * @typedef {Object} LoadingState
  * @property {'idle'|'loading'|'ready'|'error'} status
+ *     ``ready`` corresponds to Wave 3 finished — full agent capability.
+ * @property {'idle'|'loading'|'history-ready'|'send-ready'} stage
+ *     Finer-grained boot progress. `history-ready` fires after Wave 2
+ *     (agex + pandas/plotly installed and bridges wired). `send-ready`
+ *     fires after Wave 3 (calgebra/scipy/sklearn/skimage installed) and
+ *     is equivalent to `status === 'ready'`.
  * @property {string} message
  * @property {number} progress - 0 to 1
  */
@@ -33,6 +39,7 @@ let subscribers = [];
 /** @type {LoadingState} */
 let state = {
     status: "idle",
+    stage: "idle",
     message: "",
     progress: 0,
 };
@@ -66,7 +73,12 @@ export const pyodideStore = {
 export function startWorker() {
     if (state.status === "loading" || state.status === "ready") return;
 
-    update({ status: "loading", message: "Starting worker...", progress: 0 });
+    update({
+        status: "loading",
+        stage: "loading",
+        message: "Starting worker...",
+        progress: 0,
+    });
 
     worker = new Worker(`/worker.js?v=${__APP_VERSION__}`);
 
@@ -75,8 +87,18 @@ export function startWorker() {
 
         if (msg.type === "progress") {
             update({ message: msg.message, progress: msg.progress });
+        } else if (msg.type === "stage") {
+            // Worker emits intermediate stage events. Today only
+            // `history-ready` is sent between Wave 2 and Wave 3; the
+            // final transition lands via the `ready` message below.
+            update({ stage: msg.stage });
         } else if (msg.type === "ready") {
-            update({ status: "ready", message: "Ready", progress: 1 });
+            update({
+                status: "ready",
+                stage: "send-ready",
+                message: "Ready",
+                progress: 1,
+            });
         } else if (msg.type === "init-error") {
             update({ status: "error", message: `Failed: ${msg.message}` });
         } else if (msg.type === "stdout") {
@@ -420,6 +442,16 @@ export function setQueryHandler(fn) {
     queryHandler = fn;
 }
 
+/**
+ * Tell the worker it's safe to begin Wave 3 (calgebra/scipy/sklearn/
+ * skimage) installs. Called once by the host after Wave-2 work
+ * (basics init + history load) has finished — Pyodide serializes
+ * runPythonAsync calls, so deferring Wave 3 keeps basics fast.
+ */
+export function startWave3() {
+    if (worker) worker.postMessage({ type: "start-wave3" });
+}
+
 /** @type {HTMLIFrameElement | null} */
 let liveIframe = null;
 
@@ -613,7 +645,61 @@ const CDN_IMPORTS = {
     "dompurify": "https://esm.sh/dompurify@3.3.3",
 };
 
-const PLOTLY_SCRIPT = `<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>`;
+const PLOTLY_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js";
+const PLOTLY_SCRIPT_FALLBACK = `<script src="${PLOTLY_URL}"><\/script>`;
+
+// Sandboxed iframes have an opaque origin — Chrome's HTTP cache
+// partitions by origin, so every session switch re-downloads Plotly.js
+// from the CDN (3–4s on a slow connection). Fetch it once on the
+// parent origin (which caches normally) and hand each iframe a `data:`
+// URL pointing at the bytes. blob URLs won't work here — opaque-origin
+// iframes can't access parent-origin blobs. data URLs are embedded,
+// so they sidestep both the HTTP cache partitioning *and* the
+// cross-origin blob restriction, and there's no `</script>` escaping
+// hazard (the content is base64-encoded).
+let _plotlyDataUrl = null;
+let _plotlyPreloadPromise = null;
+
+/**
+ * Kick off a background fetch of Plotly.js. Safe to call multiple times
+ * (second call reuses the in-flight promise). Called early from the
+ * app shell so the script is ready by the time the first iframe builds.
+ */
+export function preloadPlotly() {
+    if (_plotlyDataUrl) return Promise.resolve();
+    if (_plotlyPreloadPromise) return _plotlyPreloadPromise;
+    _plotlyPreloadPromise = fetch(PLOTLY_URL)
+        .then((r) => {
+            if (!r.ok) throw new Error(`Plotly fetch ${r.status}`);
+            return r.blob();
+        })
+        .then((blob) => new Promise((resolve, reject) => {
+            // FileReader.readAsDataURL is the fast path — native
+            // base64 encode, no stack overflow on 3MB like
+            // String.fromCharCode(...bytes) would have.
+            const fr = new FileReader();
+            fr.onload = () => {
+                _plotlyDataUrl = /** @type {string} */ (fr.result);
+                resolve();
+            };
+            fr.onerror = () => reject(fr.error);
+            fr.readAsDataURL(blob);
+        }))
+        .catch((e) => {
+            console.warn("[plotly] preload failed; falling back to <script src>", e);
+            _plotlyDataUrl = null;
+        });
+    return _plotlyPreloadPromise;
+}
+
+/** Serve plotly via a data URL if preload succeeded; otherwise fall
+ *  back to the CDN URL directly. */
+function _plotlyScriptTag() {
+    if (_plotlyDataUrl) {
+        return `<script src="${_plotlyDataUrl}"><\/script>`;
+    }
+    return PLOTLY_SCRIPT_FALLBACK;
+}
 
 /** Prefix used for bare specifiers in the import map for local app files. */
 const APP_MODULE_PREFIX = '__app/';
@@ -808,7 +894,7 @@ export function buildAppHtml(appFiles, opts = {}) {
         const resolved = _resolveAppModules(appFiles, html);
         html = resolved.html;
         const importMapTag = _buildImportMapTag(resolved.importMap);
-        const cdnScripts = importMapTag + '\n' + PLOTLY_SCRIPT;
+        const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
 
         if (!html.includes('agex-query')) {
             // Storage shim must run before app code (including the CDN
@@ -840,7 +926,7 @@ ${storageShim}
 ${QUERY_BRIDGE_SCRIPT}
 ${AGENT_CONTROL_BRIDGE_SCRIPT}
 ${importMapTag}
-${PLOTLY_SCRIPT}
+${_plotlyScriptTag()}
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
@@ -1089,13 +1175,28 @@ const downloadWritePending = new Map();
 let _downloadWriteId = 0;
 
 /**
+ * Stages at which the worker is ready to accept Python runs. We allow
+ * `history-ready` (Wave 2 done — agex + pandas/plotly installed) so
+ * the host can run `initAgentBasics` + `loadHistory` while Wave 3 is
+ * still installing in the background. The worker queues run() calls
+ * fine in that interval; pyodide's asyncio event loop interleaves
+ * them with the in-flight Wave 3 install.
+ */
+function _runReady() {
+    return (
+        worker &&
+        (state.stage === "history-ready" || state.stage === "send-ready")
+    );
+}
+
+/**
  * Run Python code in the worker and return the result.
  *
  * @param {string} code - Python code to execute
  * @returns {Promise<string | null>}
  */
 export function runPython(code) {
-    if (!worker || state.status !== "ready") {
+    if (!_runReady()) {
         return Promise.reject(new Error("Pyodide not ready"));
     }
 
@@ -1116,7 +1217,10 @@ export function runPython(code) {
  * @returns {Promise<string | null>}
  */
 export function runPythonStreaming(code, onToken) {
-    if (!worker || state.status !== "ready") {
+    // Streaming is only triggered by sendMessage / app exports, both of
+    // which are gated on `agentReady` (== Wave 3 done). The same
+    // history-ready threshold as runPython is fine here too.
+    if (!_runReady()) {
         return Promise.reject(new Error("Pyodide not ready"));
     }
 

@@ -22,17 +22,19 @@
 
 const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
 
-// Our packages — cache-busted so version bumps take effect immediately
-const OWN_DEPS = [
+// Wave 2: everything the chat needs to read history and operate the
+// agent — installed first so the UI can become history-ready as fast
+// as possible. pandas + plotly stay in this wave because chat events
+// can hold pickled DataFrames / Figures that won't deserialize without
+// them.
+const WAVE2_OWN = [
     "kvgit>=0.1.8",
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
     "sandtrap>=0.1.10",
     // termish installed from local wheel below
 ];
-
-// Third-party packages — use default index (includes Pyodide built-ins)
-const VENDOR_DEPS = [
+const WAVE2_VENDOR = [
     "pydantic",
     "pygments",
     "pandas",
@@ -40,18 +42,31 @@ const VENDOR_DEPS = [
     "plotly",
     "pypdf",
     "openpyxl",
-    "scipy",
-    "scikit-learn",
-    "scikit-image",
     "python-dateutil",
     "sortedcontainers",
     "typing-extensions",
     "tzdata",
 ];
 
+// Wave 3: heavier capabilities that aren't on the critical path for
+// reading history or sending most chats. Installed in the background
+// after Wave 2; Send + app preview wait until Wave 3 finishes so the
+// agent never tries to import a Wave 3 module before it's ready.
+const WAVE3_VENDOR = [
+    "scipy",
+    "scikit-learn",
+    "scikit-image",
+];
+
 importScripts(`${PYODIDE_CDN}pyodide.js`);
 
 let pyodide = null;
+
+// One-shot signal: Wave 3 install waits for the host to tell us that
+// basics + history have loaded. Resolved exactly once, by a
+// `start-wave3` message from the main thread.
+let _startWave3 = null;
+const _wave3Started = new Promise((resolve) => { _startWave3 = resolve; });
 
 function progress(message, value) {
     self.postMessage({ type: "progress", message, progress: value });
@@ -82,32 +97,34 @@ async function init() {
         const appVersion = new URL(self.location.href).searchParams.get("v") || "0";
         const freshIndex = `https://pypi.org/pypi/{package_name}/json?v=${appVersion}`;
 
-        // Install all packages in parallel where possible.
         // OWN_DEPS use cache-busted index; VENDOR_DEPS use default index.
-        progress("Installing packages...", 0.2);
+        const buildInstallCalls = (own, vendor, extras) => [
+            ...own.map(pkg => `micropip.install("${pkg}", index_urls="${freshIndex}")`),
+            ...vendor.map(pkg => `micropip.install("${pkg}")`),
+            ...extras,
+        ];
 
-        const ownInstalls = OWN_DEPS.map(
-            pkg => `micropip.install("${pkg}", index_urls="${freshIndex}")`
-        );
-        const vendorInstalls = VENDOR_DEPS.map(
-            pkg => `micropip.install("${pkg}")`
-        );
-        const extraInstalls = [
+        const wave2Calls = buildInstallCalls(WAVE2_OWN, WAVE2_VENDOR, [
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("agex>=0.10.2", deps=False, index_urls="${freshIndex}")`,
+            // Local wheel for the lazy-imports work — swap back to the
+            // PyPI install line once a release is cut.
+            `micropip.install("/wheels/agex-0.10.2-py3-none-any.whl", deps=False)`,
+        ]);
+        const wave3Calls = buildInstallCalls([], WAVE3_VENDOR, [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
-        ];
-        const allInstalls = [...ownInstalls, ...vendorInstalls, ...extraInstalls];
+        ]);
 
+        // ── Wave 2: minimum needed for history + agent baseline ──
+        progress("Installing core packages...", 0.2);
         await pyodide.runPythonAsync(`
 import micropip, asyncio
-await asyncio.gather(${allInstalls.join(", ")})
+await asyncio.gather(${wave2Calls.join(", ")})
         `);
 
-        progress("Verifying installation...", 0.95);
+        progress("Verifying installation...", 0.55);
         await pyodide.runPythonAsync("import agex");
 
         // Patch cancellation to use an in-memory flag (set from JS via
@@ -243,6 +260,22 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         self._js_llm_stream = llmStreamFn;
         pyodide.globals.set("_js_llm_stream", llmStreamFn);
 
+        // Wave 2 done — history is now reachable. Block here until the
+        // main thread tells us to start Wave 3. Pyodide serializes
+        // runPythonAsync calls, so running Wave 3 concurrently with
+        // basics + history loading would just stall basics behind it.
+        // The host kicks off Wave 3 only after basics + history have
+        // landed, so users see chat as soon as Wave 2 is ready.
+        progress("Loading session...", 0.7);
+        self.postMessage({ type: "stage", stage: "history-ready" });
+        await _wave3Started;
+
+        // ── Wave 3: heavier capabilities ──
+        progress("Installing additional capabilities...", 0.8);
+        await pyodide.runPythonAsync(`
+await asyncio.gather(${wave3Calls.join(", ")})
+        `);
+
         self.postMessage({ type: "ready" });
     } catch (e) {
         self.postMessage({ type: "init-error", message: e.message });
@@ -295,6 +328,10 @@ self.onmessage = (e) => {
     const { type } = e.data;
     if (type === "init") {
         init();
+    } else if (type === "start-wave3") {
+        // Host signals "history is loaded; safe to install heavy
+        // packages now without stalling basics."
+        _startWave3?.();
     } else if (type === "write-downloaded-file") {
         // Drive imports (or any main-thread-fetched files) land here.
         // Main thread supplies bytes as a Uint8Array; we write them

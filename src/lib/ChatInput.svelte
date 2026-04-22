@@ -1,6 +1,15 @@
 <script>
-    /** @type {{ onSend: (text: string) => void, onCancel?: () => void, busy?: boolean, cancelling?: boolean, disabled: boolean, prefill?: string }} */
-    let { onSend, onCancel, busy = false, cancelling = false, disabled, prefill = '' } = $props()
+    /**
+     * @type {{
+     *   onSend: (text: string) => void,
+     *   onCancel?: () => void,
+     *   busy?: boolean,
+     *   cancelling?: boolean,
+     *   sendDisabled: boolean,
+     *   prefill?: string,
+     * }}
+     */
+    let { onSend, onCancel, busy = false, cancelling = false, sendDisabled, prefill = '' } = $props()
 
     let text = $state('')
 
@@ -13,7 +22,7 @@
     let textarea
 
     function send() {
-        if (!text.trim() || disabled) return
+        if (!text.trim() || sendDisabled) return
         onSend(text.trim())
         text = ''
         // Refocus after send
@@ -23,7 +32,7 @@
     function handleKeydown(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            send()
+            if (!sendDisabled) send()
         }
     }
 
@@ -37,14 +46,13 @@
         onkeydown={handleKeydown}
         placeholder="Ask the agent..."
         rows="1"
-        {disabled}
     ></textarea>
     {#if busy}
         <button class="stop" onclick={onCancel} disabled={cancelling}>
             {cancelling ? 'Stopping...' : 'Stop'}
         </button>
     {:else}
-        <button onclick={send} disabled={disabled || !text.trim()}>
+        <button onclick={send} disabled={sendDisabled || !text.trim()}>
             Send
         </button>
     {/if}
