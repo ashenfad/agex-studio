@@ -354,6 +354,43 @@
             } else if (currentEditPath) {
                 currentEditContent += token.content
             }
+        } else if (token.type === 'file_action') {
+            // Tool-use wire format emits a single already-structured
+            // action token (no streaming assembly needed). It may arrive
+            // before the title, between thinking/code, or even after the
+            // main python/terminal action has flushed — handle all three.
+            if (!token.action) { /* no-op */ }
+            else if (currentAction) {
+                currentAction = {
+                    ...currentAction,
+                    file_actions: [...currentAction.file_actions, token.action],
+                }
+            } else if (
+                streamingEvents.length &&
+                streamingEvents[streamingEvents.length - 1].type === 'action'
+            ) {
+                // Main action has already been committed to streamingEvents
+                // (e.g. python_action finished before write_file's
+                // tool-call end). Attach to that same action.
+                const last = streamingEvents[streamingEvents.length - 1]
+                const updated = {
+                    ...last,
+                    file_actions: [...(last.file_actions || []), token.action],
+                }
+                streamingEvents = [...streamingEvents.slice(0, -1), updated]
+            } else {
+                // Stray file_action with no surrounding action — stand up a
+                // minimal one so it has a home.
+                currentAction = {
+                    type: 'action',
+                    title: '',
+                    thinking: '',
+                    report: '',
+                    code: null,
+                    terminal: null,
+                    file_actions: [token.action],
+                }
+            }
         }
 
         // End-of-action: <PYTHON> and <TERMINAL> are the action's final
