@@ -148,8 +148,47 @@ summary[:100]
         log(`summarize FAILED: ${lines[lines.length - 1]}`, "error");
     }
 
-    // --- Test 4: Full agent loop (funcy_async) ---
-    console.log("\n--- Test 4: full agent loop ---");
+    // --- Test 4: Streaming with ToolUseWireFormat ---
+    console.log("\n--- Test 4: acomplete_stream with ToolUseWireFormat ---");
+
+    try {
+        const result = await pyodide.runPythonAsync(`
+from agex.llm.pyfetch_openai import PyfetchOpenAI
+from agex.llm.formats import ToolUseWireFormat
+from agex.llm.core import ResponseBuilder
+from agex.agent.events import TaskStartEvent
+
+client = PyfetchOpenAI(
+    model="openai/gpt-4.1-nano",
+    api_key="${OPENROUTER_KEY}",
+    wire_format=ToolUseWireFormat(),
+)
+
+events = [TaskStartEvent(
+    agent_name="test",
+    task_name="test",
+    inputs={},
+    message="Write a one-line python hello world and call task_success with the printed string.",
+)]
+
+builder = ResponseBuilder(agent_name="test")
+async for token in client.acomplete_stream(
+    system="You are a helpful coding assistant.",
+    events=events,
+):
+    builder.process_token(token)
+
+resp = builder.build()
+f"code_len={len(resp.code or '')} title={resp.title!r} tokens_in={resp.input_tokens} tokens_out={resp.output_tokens}"
+        `);
+        log(`tool-use streaming: ${result}`, "ok");
+    } catch (e) {
+        const lines = e.message.split("\n").filter(l => l.trim());
+        log(`tool-use streaming FAILED: ${lines[lines.length - 1]}`, "error");
+    }
+
+    // --- Test 5: Full agent loop (funcy_async) ---
+    console.log("\n--- Test 5: full agent loop ---");
 
     try {
         const result = await pyodide.runPythonAsync(`
