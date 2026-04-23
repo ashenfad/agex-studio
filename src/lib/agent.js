@@ -468,7 +468,15 @@ def _clean_app_message(msg):
     return re.sub(r'data:text/javascript;charset=utf-8,[^\s)]+', '<app>', msg)
 
 async def _display_app_results(_results, _label):
-    """Auto-display app test/interaction results."""
+    """Auto-display app test/interaction results.
+
+    Screenshot side effect: raw base64 is emitted via the
+    __AGEX_IMAGE__: marker so agex converts it to an ImageAction on
+    the way back in.  The CALLER is responsible for stripping the
+    'data' field from the returned dict before handing the list to
+    the agent — if it survives into task_continue(result) it inflates
+    the next prompt by ~1MB per screenshot.
+    """
     for _r in _results:
         if _r.get("type") == "log":
             print(f"[{_r.get('level', 'log')}] {_clean_app_message(_r.get('message', ''))}")
@@ -487,6 +495,27 @@ async def _display_app_results(_results, _label):
             print(f"__AGEX_IMAGE__:{_r['data']}")
     if not _results:
         print(f"[{_label}] clean")
+
+def _strip_screenshot_payload(_results):
+    """Return a copy of the results list with screenshot base64 removed.
+
+    The screenshot has already been delivered to the agent as an
+    ImageAction via the __AGEX_IMAGE__: marker, so the raw data is
+    redundant in the return value.  Leaving it inline would blow up
+    the next turn's prompt (a single PNG screenshot is commonly
+    200k–1M chars).  Replace 'data' with a short marker so the caller
+    can still see that a screenshot happened and iterate over results
+    without surprises.
+    """
+    _stripped = []
+    for _r in _results:
+        if _r.get("type") == "screenshot" and "data" in _r:
+            _copy = dict(_r)
+            _copy["data"] = "<shown via view_image>"
+            _stripped.append(_copy)
+        else:
+            _stripped.append(_r)
+    return _stripped
 
 async def test_app(actions: list[dict] | None = None) -> list[dict]:
     """Test the current app by loading it in a hidden browser iframe.
@@ -541,7 +570,7 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
     _results_json = await _js_test_app(_json.dumps(_app_files), _actions_json, _seed_json)
     _results = _json.loads(_results_json)
     await _display_app_results(_results, "test_app")
-    return _results
+    return _strip_screenshot_payload(_results)
 
 _agent.fn(test_app, visibility="low")
 
@@ -579,7 +608,7 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
     _results_json = await _js_live_app(_actions_json)
     _results = _json.loads(_results_json)
     await _display_app_results(_results, "live_app")
-    return _results
+    return _strip_screenshot_payload(_results)
 
 _agent.fn(live_app, visibility="low")
 

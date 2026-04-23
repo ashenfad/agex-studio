@@ -134,6 +134,20 @@ describe("initAgent", () => {
         expect(code).toContain('[eval]');
     });
 
+    it("strips screenshot base64 from returned results", async () => {
+        // Regression: the screenshot is already delivered as an ImageAction
+        // via the __AGEX_IMAGE__: marker.  Leaving raw base64 in the return
+        // value caused task_continue(result) to inflate the next prompt by
+        // a megabyte per screenshot.
+        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
+
+        const code = allInitCode();
+        expect(code).toContain("def _strip_screenshot_payload(");
+        // Both helpers must route through the stripper before returning.
+        expect(code).toContain("return _strip_screenshot_payload(_results)");
+        expect(code).toContain('"<shown via view_image>"');
+    });
+
     it("registers live_app function with auto-display", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
