@@ -34,7 +34,7 @@ describe("settingsStore", () => {
             provider: "openai",
             baseUrl: "",
             chapteringTrigger: 150000,
-            toolUseWireFormat: false,
+            toolUseWireFormat: true,
         });
         unsub();
     });

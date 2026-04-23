@@ -10,7 +10,7 @@ const DEFAULTS = {
     provider: "openai",
     baseUrl: "",
     chapteringTrigger: 150000,
-    toolUseWireFormat: false,
+    toolUseWireFormat: true,
 };
 
 /** @type {((s: Settings) => void)[]} */
