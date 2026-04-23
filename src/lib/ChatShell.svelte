@@ -270,6 +270,52 @@
             }
         }
 
+        // file_action is a structured one-shot token (done=true, content='',
+        // action payload attached). Handle it BEFORE the lazy-create gate
+        // below — that gate's "drop done tokens with no content" rule is
+        // meant for the LLM client's final-usage bookkeeping token, not
+        // for tool-use file actions, which we'd otherwise lose.
+        if (token.type === 'file_action') {
+            if (token.action) {
+                if (currentAction) {
+                    currentAction = {
+                        ...currentAction,
+                        file_actions: [...currentAction.file_actions, token.action],
+                    }
+                } else if (
+                    streamingEvents.length &&
+                    streamingEvents[streamingEvents.length - 1].type === 'action'
+                ) {
+                    // Main action has already been committed (e.g. python_action
+                    // finished before write_file's tool-call end). Attach to it.
+                    const last = streamingEvents[streamingEvents.length - 1]
+                    const updated = {
+                        ...last,
+                        file_actions: [...(last.file_actions || []), token.action],
+                    }
+                    streamingEvents = [...streamingEvents.slice(0, -1), updated]
+                } else {
+                    // Stray file_action with no surrounding action — stand up
+                    // a minimal one so the action object has a home.
+                    currentAction = {
+                        type: 'action',
+                        title: '',
+                        thinking: '',
+                        report: '',
+                        code: null,
+                        terminal: null,
+                        file_actions: [token.action],
+                    }
+                }
+            }
+            // Skip the type-dispatch and end-of-action flush below;
+            // file_action carries no streamed text and doesn't end a turn.
+            // Fall through to the messages rebuild at the bottom so the
+            // UI picks up the new action immediately.
+            rebuildStreamingMessages()
+            return
+        }
+
         // Lazily create an action if tokens arrive before a title.
         // Skip done-only tokens with no content (e.g. the final usage-
         // reporting token) — they're bookkeeping, not a new action.
@@ -354,44 +400,10 @@
             } else if (currentEditPath) {
                 currentEditContent += token.content
             }
-        } else if (token.type === 'file_action') {
-            // Tool-use wire format emits a single already-structured
-            // action token (no streaming assembly needed). It may arrive
-            // before the title, between thinking/code, or even after the
-            // main python/terminal action has flushed — handle all three.
-            if (!token.action) { /* no-op */ }
-            else if (currentAction) {
-                currentAction = {
-                    ...currentAction,
-                    file_actions: [...currentAction.file_actions, token.action],
-                }
-            } else if (
-                streamingEvents.length &&
-                streamingEvents[streamingEvents.length - 1].type === 'action'
-            ) {
-                // Main action has already been committed to streamingEvents
-                // (e.g. python_action finished before write_file's
-                // tool-call end). Attach to that same action.
-                const last = streamingEvents[streamingEvents.length - 1]
-                const updated = {
-                    ...last,
-                    file_actions: [...(last.file_actions || []), token.action],
-                }
-                streamingEvents = [...streamingEvents.slice(0, -1), updated]
-            } else {
-                // Stray file_action with no surrounding action — stand up a
-                // minimal one so it has a home.
-                currentAction = {
-                    type: 'action',
-                    title: '',
-                    thinking: '',
-                    report: '',
-                    code: null,
-                    terminal: null,
-                    file_actions: [token.action],
-                }
-            }
         }
+        // (file_action is handled at the top of this function, before
+        // the lazy-create gate, so it doesn't get dropped as a
+        // "done with no content" bookkeeping token.)
 
         // End-of-action: <PYTHON> and <TERMINAL> are the action's final
         // section, so a done=true on either means this iteration is complete.
@@ -406,6 +418,10 @@
             }
         }
 
+        rebuildStreamingMessages()
+    }
+
+    function rebuildStreamingMessages() {
         // Build streaming file_actions including in-progress ones
         let liveFileActions = [...(currentAction?.file_actions || [])]
         if (currentFilePath) {
