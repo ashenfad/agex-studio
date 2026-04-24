@@ -201,6 +201,14 @@
             return
         }
 
+        if (event.data?.type === 'agex-iframe-resource-error') {
+            console.warn(
+                `[iframe resource error] <${event.data.tag} ${event.data.attr}="${event.data.url}">`,
+                { outerHTML: event.data.outerHTML },
+            )
+            return
+        }
+
         if (event.data?.type !== 'agex-query') return
 
         // Any postMessage from the iframe means app JS is running.

@@ -67,7 +67,7 @@ class JsBridgeAdapter(FetchAdapter):
         headers: dict[str, str],
         body: dict,
     ) -> AsyncIterator[str]:
-        from js import _js_llm_stream
+        from js import _js_llm_stream, _js_llm_stream_cancel
         from pyodide.ffi import create_proxy
 
         queue: asyncio.Queue = asyncio.Queue()
@@ -84,6 +84,7 @@ class JsBridgeAdapter(FetchAdapter):
         chunk_proxy = create_proxy(on_chunk)
         done_proxy = create_proxy(on_done)
         error_proxy = create_proxy(on_error)
+        stream_id = None
         try:
             request_json = json.dumps(
                 {
@@ -93,9 +94,19 @@ class JsBridgeAdapter(FetchAdapter):
                     "body": json.dumps(body),
                 }
             )
-            # Fire-and-forget: JS side drives the stream and invokes our
-            # callbacks as chunks arrive, then either on_done or on_error.
-            _js_llm_stream(request_json, chunk_proxy, done_proxy, error_proxy)
+            # JS drives the stream and invokes our callbacks as chunks
+            # arrive; the returned id lets us cancel the upstream fetch
+            # when *we* decide we're done consuming — critical when the
+            # caller breaks out of the generator early (e.g. agex's
+            # XML tokenizer exits after </PYTHON>) while the LLM is
+            # still emitting trailing keep-alive / [DONE] / usage
+            # frames. Without this cancel, the main thread keeps
+            # reading and posting chunks at a consumer that's
+            # destroyed its callbacks, tripping PyProxy "already
+            # destroyed" errors.
+            stream_id = _js_llm_stream(
+                request_json, chunk_proxy, done_proxy, error_proxy
+            )
 
             while True:
                 tag, value = await queue.get()
@@ -106,11 +117,15 @@ class JsBridgeAdapter(FetchAdapter):
                 else:  # "error"
                     raise RuntimeError(value)
         finally:
-            # Safe to destroy after done/error because JS won't invoke
-            # the chunk callback again. If the generator is closed early
-            # (GeneratorExit), we still clean up; JS-side fetch may keep
-            # running but future chunk/done/error calls hit destroyed
-            # proxies and error silently (caller gone).
+            # Tell JS to abort the fetch FIRST so no more chunk messages
+            # are produced; then it's safe to destroy the callback
+            # proxies. Cancel is idempotent — no-op if JS already
+            # completed/errored this stream.
+            if stream_id is not None:
+                try:
+                    _js_llm_stream_cancel(stream_id)
+                except Exception:
+                    pass
             chunk_proxy.destroy()
             done_proxy.destroy()
             error_proxy.destroy()
