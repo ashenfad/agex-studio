@@ -137,8 +137,8 @@ describe("initAgent", () => {
     it("strips screenshot base64 from returned results", async () => {
         // Regression: the screenshot is already delivered as an ImageAction
         // via the __AGEX_IMAGE__: marker.  Leaving raw base64 in the return
-        // value caused task_continue(result) to inflate the next prompt by
-        // a megabyte per screenshot.
+        // value would inflate the next prompt by a megabyte per screenshot
+        // once the result lands in the event log.
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = allInitCode();

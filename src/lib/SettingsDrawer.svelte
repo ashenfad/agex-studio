@@ -130,8 +130,12 @@
                     bind:checked={toolUseWireFormat}
                 />
                 <span class="checkbox-label">
-                    Use provider-native tool calling (beta)
-                    <span class="hint">Actions go through the provider's function-calling API instead of XML tags.</span>
+                    Enable native model reasoning
+                    <span class="hint">
+                        Uses the provider's built-in reasoning: Claude extended thinking,
+                        Gemini thought parts, OpenAI Responses, OpenRouter reasoning_details.
+                        Uncheck for non-reasoning models to fall back to narration-in-schema.
+                    </span>
                 </span>
             </label>
 

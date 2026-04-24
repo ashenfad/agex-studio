@@ -23,9 +23,11 @@ let subscribers = [];
  * @property {"openai" | "anthropic"} provider
  * @property {string} baseUrl
  * @property {number} chapteringTrigger
- * @property {boolean} toolUseWireFormat — when true, the agex LLM client
- *     is configured with ToolUseWireFormat (provider-native function
- *     calling) instead of the default XmlWireFormat (XML tags in text).
+ * @property {boolean} toolUseWireFormat — when true (default), the
+ *     agex LLM client uses native model reasoning (Claude extended
+ *     thinking, Gemini thought parts, OpenAI Responses, OpenRouter
+ *     reasoning_details).  Set false for non-reasoning models / routes
+ *     to fall back to narration-in-schema thinking.
  */
 
 /** @type {Settings} */

@@ -246,18 +246,9 @@ for _evt in _flat:
                 "commit_hash": getattr(_evt, "commit_hash", None) or "",
             })
     elif isinstance(_evt, _ActionEvent):
-        _report_text = getattr(_evt, "report", "") or ""
-        _current_events.append({
-            "type": "action",
-            "title": _evt.title or "",
-            "thinking": _evt.thinking or "",
-            "report": _report_text,
-            "code": _evt.code,
-            "terminal": _evt.terminal,
-            "file_actions": _serialize_file_actions(_evt.file_actions),
-            "input_tokens": _evt.input_tokens,
-            "output_tokens": _evt.output_tokens,
-        })
+        _action_dict = _synthesize_action(_evt)
+        _report_text = _action_dict.get("report", "") or ""
+        _current_events.append(_action_dict)
         if _report_text:
             _messages.append({
                 "role": "agent",

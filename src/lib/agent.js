@@ -39,15 +39,19 @@ function _settingsConstants(settings) {
   // the JS bridge can inject auth on the main thread.
   const llmClass =
     settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
-  // Wire-format selection. Default XmlWireFormat ⇒ no extra import/kwarg.
-  // ToolUseWireFormat pulls actions through the provider's native function
-  // calling (tool_calls on OpenAI, tool_use blocks on Anthropic).
+  // Wire-format selection.  The retool shipped with ``native_thinking=True``
+  // as the client default, so the "on" branch (recommended, reasoning
+  // models) just lets the client default apply — no kwarg needed.  The
+  // "off" branch is an explicit opt-out for users on non-reasoning
+  // models (old Claude, non-GPT-5 OpenAI, OpenRouter routes without
+  // reasoning support) — pass ``ToolUseWireFormat(native_thinking=False)``
+  // so the primer + schema include the narration-in-schema path.
   const wireFormatImport = settings.toolUseWireFormat
-    ? "from agex.llm.formats import ToolUseWireFormat\n"
-    : "";
+    ? ""
+    : "from agex.llm.formats import ToolUseWireFormat\n";
   const wireFormatLine = settings.toolUseWireFormat
-    ? "    wire_format=ToolUseWireFormat(),\n"
-    : "";
+    ? ""
+    : "    wire_format=ToolUseWireFormat(native_thinking=False),\n";
   return {
     userTz,
     baseUrlLine,
@@ -179,7 +183,14 @@ del _install_url_module_basics, _open_url_basics, _importlib_basics, _site_dir_b
 # Wave 3 is still installing in the background.
 from agex.agent.events import ActionEvent as _ActionEvent, OutputEvent as _OutputEvent, ChapterEvent as _ChapterEvent
 from agex.agent.events import TaskStartEvent as _TaskStart, SuccessEvent as _SuccessEvent
-from agex.agent.datatypes import FileAction as _FileAction, EditAction as _EditAction
+from agex.agent.emissions import (
+    FileWriteEmission as _FileWriteEmission,
+    FileEditEmission as _FileEditEmission,
+    PythonEmission as _PythonEmission,
+    TerminalEmission as _TerminalEmission,
+    TextEmission as _TextEmission,
+    ThinkingEmission as _ThinkingEmission,
+)
 from agex.eval.objects import PrintAction as _PrintAction, ImageAction as _ImageAction
 
 _ERROR_KEYWORDS = ("\u{1F4A5}",)
@@ -254,14 +265,77 @@ def _split_output_events(all_parts):
         result.append({"type": "output", "message": "", "parts": all_parts})
     return result
 
-def _serialize_file_actions(actions):
+def _serialize_file_actions(emissions):
+    """Pick out FileWrite / FileEdit emissions from the flat emission
+    list and return the dict shape the UI already understands.
+    operation is hard-coded to "replace" — edit_file only supports
+    replace after the retool, and the UI's computeDiff helper
+    already treats that as the default."""
     result = []
-    for a in actions:
-        if isinstance(a, _FileAction):
-            result.append({"kind": "file", "path": a.path, "content": a.content, "mode": a.mode})
-        elif isinstance(a, _EditAction):
-            result.append({"kind": "edit", "path": a.path, "search": a.search, "content": a.content, "operation": a.operation})
+    for a in emissions:
+        if isinstance(a, _FileWriteEmission):
+            result.append({
+                "kind": "file",
+                "path": a.path,
+                "content": a.content,
+                "mode": a.mode,
+            })
+        elif isinstance(a, _FileEditEmission):
+            result.append({
+                "kind": "edit",
+                "path": a.path,
+                "search": a.search,
+                "content": a.content,
+                "operation": "replace",
+            })
     return result
+
+def _synthesize_action(evt):
+    """Collapse an emission-list ActionEvent into the flat-field
+    shape the studio UI still consumes (title / thinking / report /
+    code / terminal / file_actions).  Multi-emission turns get their
+    python / terminal / thinking / text fields concatenated so
+    nothing is lost; file emissions stay list-shaped as before.  The
+    UI can progressively adopt the richer emission list later;
+    keeping the flat shape is the minimal retool-restore change."""
+    _titles = []
+    _thinking_bits = []
+    _report_bits = []
+    _code_bits = []
+    _term_bits = []
+    for _em in evt.emissions:
+        if isinstance(_em, _PythonEmission):
+            if _em.title:
+                _titles.append(_em.title)
+            if _em.thinking:
+                _thinking_bits.append(_em.thinking)
+            if _em.code:
+                _code_bits.append(_em.code)
+        elif isinstance(_em, _TerminalEmission):
+            if _em.title:
+                _titles.append(_em.title)
+            if _em.thinking:
+                _thinking_bits.append(_em.thinking)
+            if _em.commands:
+                _term_bits.append(_em.commands)
+        elif isinstance(_em, _ThinkingEmission):
+            if _em.text and not _em.redacted:
+                _thinking_bits.append(_em.text)
+        elif isinstance(_em, _TextEmission):
+            if _em.text:
+                _report_bits.append(_em.text)
+    _NL2 = chr(10) + chr(10)
+    return {
+        "type": "action",
+        "title": _titles[0] if _titles else "",
+        "thinking": _NL2.join(_thinking_bits),
+        "report": _NL2.join(_report_bits),
+        "code": _NL2.join(_code_bits) or None,
+        "terminal": _NL2.join(_term_bits) or None,
+        "file_actions": _serialize_file_actions(evt.emissions),
+        "input_tokens": evt.input_tokens,
+        "output_tokens": evt.output_tokens,
+    }
 
 def _serialize_chapter_events(events_list, state=None):
     """Recursively serialize events nested inside a ChapterEvent."""
@@ -270,17 +344,7 @@ def _serialize_chapter_events(events_list, state=None):
     _unassigned = []
     for evt in events_list:
         if isinstance(evt, _ActionEvent):
-            result.append({
-                "type": "action",
-                "title": evt.title or "",
-                "thinking": evt.thinking or "",
-                "report": getattr(evt, "report", "") or "",
-                "code": evt.code,
-                "terminal": evt.terminal,
-                "file_actions": _serialize_file_actions(evt.file_actions),
-                "input_tokens": evt.input_tokens,
-                "output_tokens": evt.output_tokens,
-            })
+            result.append(_synthesize_action(evt))
         elif isinstance(evt, _OutputEvent):
             result.extend(_split_output_events(_serialize_output_parts(evt)))
         elif isinstance(evt, _ChapterEvent):
@@ -474,8 +538,8 @@ async def _display_app_results(_results, _label):
     __AGEX_IMAGE__: marker so agex converts it to an ImageAction on
     the way back in.  The CALLER is responsible for stripping the
     'data' field from the returned dict before handing the list to
-    the agent — if it survives into task_continue(result) it inflates
-    the next prompt by ~1MB per screenshot.
+    the agent — if it survives into the event log it inflates the
+    next prompt by ~1MB per screenshot.
     """
     for _r in _results:
         if _r.get("type") == "log":
@@ -522,9 +586,10 @@ async def test_app(actions: list[dict] | None = None) -> list[dict]:
     Reads files from app/, renders the HTML, waits for initialization
     (including any query() calls), and returns console messages.
 
-    Results are auto-displayed — just await and call task_continue()
-    to see the output. You can also capture the return value if you
-    need to branch on the results.
+    Results are auto-displayed — the print output lands in the next
+    turn's observation so you can read it without extra calls.  You
+    can also capture the return value if you need to branch on the
+    results.
 
     Args:
         actions: Optional list of UI interactions to perform after the
@@ -580,9 +645,10 @@ async def live_app(actions: list[dict] | None = None) -> list[dict]:
     Use this to read what the user has selected/entered in the app,
     inspect DOM state, or programmatically interact with the live UI.
 
-    Results are auto-displayed — just await and call task_continue()
-    to see the output. You can also capture the return value if you
-    need to branch on the results.
+    Results are auto-displayed — the print output lands in the next
+    turn's observation so you can read it without extra calls.  You
+    can also capture the return value if you need to branch on the
+    results.
 
     IMPORTANT: The live preview shows the LAST COMMITTED app files —
     any file changes you make during this turn won't appear until after
@@ -725,20 +791,20 @@ Slides). When working with these files, read the drive skill first:
   cat /skills/drive/SKILL.md
 
 Error handling: when code throws an exception, DO NOT catch it and return an
-error message to the user. Instead, let the error propagate or call
-task_continue() with the traceback so you can diagnose and fix the issue.
+error message to the user. Let the error propagate — the traceback lands in
+your next turn's observation so you can diagnose and fix the issue.
 Exceptions are opportunities to debug, not to give up.
 
 You are already in an async context — use await directly on async functions.
 Do not use asyncio.run() — it will fail (you are already in an event loop).
 Use asyncio.gather() to run multiple async calls in parallel:
   results = await asyncio.gather(search("topic A"), search("topic B"))
-  task_continue(str(results))
+  print(results)
 Single search:
   results = await search("your query")
-  task_continue(results)
-Always call task_continue() after search() so you can read the results
-before deciding your next step.
+  print(results)
+Print (or let the result auto-display) so the values land in your next
+turn and you can read them before deciding your next step.
 
 Interactive Apps: when the user wants dashboards, data explorers, filter
 widgets, or any interactive UI, read the interactive-app skill first:
@@ -747,7 +813,7 @@ It covers Preact+HTM, Plotly, the query() bridge for calling Python from
 the app, and common patterns. Write app/index.html and the preview panel
 appears automatically. After writing or editing app files, call
 await test_app() to verify — results are auto-displayed (errors, logs,
-read values). Just call task_continue() after to see the output.
+read values) on your next turn.
 query() calls in the app work during testing.
 Pass actions=[{"click": "#btn"}, {"read": "#output"}, ...] to simulate
 user interactions and inspect DOM state. Capture the return value if you
@@ -1080,17 +1146,7 @@ _events_log = []
 
 def _on_event(event):
     if isinstance(event, _ActionEvent):
-        _events_log.append({
-            "type": "action",
-            "title": event.title or "",
-            "thinking": event.thinking or "",
-            "report": getattr(event, "report", "") or "",
-            "code": event.code,
-            "terminal": event.terminal,
-            "file_actions": _serialize_file_actions(event.file_actions),
-            "input_tokens": event.input_tokens,
-            "output_tokens": event.output_tokens,
-        })
+        _events_log.append(_synthesize_action(event))
     elif isinstance(event, _OutputEvent):
         _events_log.extend(_split_output_events(_serialize_output_parts(event)))
     elif isinstance(event, _ChapterEvent):
@@ -1103,34 +1159,80 @@ def _on_event(event):
         })
 
 def _on_token(token):
-    _payload = {
-        "type": token.type,
+    _ttype = token.type
+    # Map the retool's richer token vocabulary back to the legacy
+    # shape the UI already handles (title / thinking / report /
+    # python / terminal / file_action).  Keeping the wire stable for
+    # now so the UI can progressively adopt the new text / file_path
+    # / emission token types later.
+    if _ttype == "text":
+        _ttype = "report"
+    elif _ttype in ("signature", "tool_start", "file_path", "file_search", "file_content"):
+        # Invisible markers (signature / tool_start) and streamed
+        # file-arg deltas (file_path / file_search / file_content).
+        # The UI reads the final emission token for the built
+        # FileWrite/FileEdit; the streaming args are skipped here so
+        # the UI doesn't have to know about them yet.
+        return
+
+    # Prebuilt "emission" tokens carry a fully built Emission object
+    # (file write/edit, standalone thinking, standalone text).  Route
+    # file emissions into the existing file_action envelope; route
+    # text and thinking emissions as synthetic report / thinking
+    # token bursts so the UI accumulator picks them up.
+    if _ttype == "emission":
+        _em = getattr(token, "emission", None)
+        if isinstance(_em, _FileWriteEmission):
+            _post_token(_run_id, {
+                "type": "file_action",
+                "content": "",
+                "start": False,
+                "done": True,
+                "action": {
+                    "kind": "file",
+                    "path": _em.path,
+                    "content": _em.content,
+                    "mode": _em.mode,
+                },
+            })
+            return
+        if isinstance(_em, _FileEditEmission):
+            _post_token(_run_id, {
+                "type": "file_action",
+                "content": "",
+                "start": False,
+                "done": True,
+                "action": {
+                    "kind": "edit",
+                    "path": _em.path,
+                    "search": _em.search,
+                    "content": _em.content,
+                    "operation": "replace",
+                },
+            })
+            return
+        if isinstance(_em, _TextEmission):
+            _text = _em.text or ""
+            if _text:
+                _post_token(_run_id, {"type": "report", "content": "", "start": True, "done": False})
+                _post_token(_run_id, {"type": "report", "content": _text, "start": False, "done": False})
+                _post_token(_run_id, {"type": "report", "content": "", "start": False, "done": True})
+            return
+        if isinstance(_em, _ThinkingEmission):
+            _text = (_em.text or "").strip()
+            if _text and not _em.redacted:
+                _post_token(_run_id, {"type": "thinking", "content": _text, "start": True, "done": False})
+                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True})
+            return
+        # Unknown emission payload — drop it rather than mis-render.
+        return
+
+    _post_token(_run_id, {
+        "type": _ttype,
         "content": token.content,
         "start": getattr(token, "start", False),
         "done": token.done,
-    }
-    # Tool-use wire format emits a single "file_action" token carrying a
-    # fully built FileAction/EditAction — forward it as a serialized dict
-    # so the UI can render the file op without re-assembling it from
-    # streamed tokens.
-    _action = getattr(token, "action", None)
-    if _action is not None:
-        if isinstance(_action, _FileAction):
-            _payload["action"] = {
-                "kind": "file",
-                "path": _action.path,
-                "content": _action.content,
-                "mode": _action.mode,
-            }
-        elif isinstance(_action, _EditAction):
-            _payload["action"] = {
-                "kind": "edit",
-                "path": _action.path,
-                "search": _action.search,
-                "content": _action.content,
-                "operation": _action.operation,
-            }
-    _post_token(_run_id, _payload)
+    })
 
 from agex import TaskFail, TaskClarify, TaskCancelled
 import asyncio as _asyncio
