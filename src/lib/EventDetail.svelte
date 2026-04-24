@@ -20,7 +20,76 @@
 </script>
 
 {#each visibleEvents as evt}
-    {#if evt.type === 'action'}
+    {#if evt.type === 'action' && evt.emissions?.length}
+        <!-- Emission-list rendering: each emission is its own section,
+             in the order the model produced them.  Preserves
+             interleaving of thinking / tool calls the way native
+             reasoning models actually emit. -->
+        <div class="event-card">
+            {#if evt.title}
+                <div class="event-title">{evt.title}</div>
+            {/if}
+            {#each evt.emissions as em (em.idx)}
+                {#if em.kind === 'thinking' && em.text && !em.redacted}
+                    <div class="section">
+                        <div class="section-label">Thinking</div>
+                        <blockquote class="thinking">
+                            <div class="thinking-content">{@html renderThinking(em.text)}</div>
+                        </blockquote>
+                    </div>
+                {:else if em.kind === 'text' && em.text}
+                    <div class="section">
+                        <div class="section-label report-label">Report</div>
+                        <div class="report-content">{@html renderMarkdown(em.text)}</div>
+                    </div>
+                {:else if em.kind === 'python'}
+                    {#if em.thinking}
+                        <div class="section">
+                            <div class="section-label">Thinking</div>
+                            <blockquote class="thinking">
+                                <div class="thinking-content">{@html renderThinking(em.thinking)}</div>
+                            </blockquote>
+                        </div>
+                    {/if}
+                    {#if em.code}
+                        <div class="section code">
+                            <div class="section-label">Code{em.title ? ' — ' + em.title : ''}</div>
+                            <pre class="section-content"><code>{@html highlightTrimmed(em.code)}</code></pre>
+                        </div>
+                    {/if}
+                {:else if em.kind === 'terminal'}
+                    {#if em.thinking}
+                        <div class="section">
+                            <div class="section-label">Thinking</div>
+                            <blockquote class="thinking">
+                                <div class="thinking-content">{@html renderThinking(em.thinking)}</div>
+                            </blockquote>
+                        </div>
+                    {/if}
+                    {#if em.commands}
+                        <div class="section terminal">
+                            <div class="section-label">Terminal{em.title ? ' — ' + em.title : ''}</div>
+                            <pre class="section-content"><code>{trim(em.commands)}</code></pre>
+                        </div>
+                    {/if}
+                {:else if em.kind === 'file_write'}
+                    <div class="section file-action">
+                        <div class="section-label">{em.mode === 'append' ? 'Append' : 'Write'} <span class="filename">- {em.path}</span></div>
+                        <pre class="section-content"><code>{@html highlightCode(trim(em.content || ''), em.path)}</code></pre>
+                    </div>
+                {:else if em.kind === 'file_edit'}
+                    <div class="section edit-action">
+                        <div class="section-label">Edit{em.match_all ? ' (all)' : ''} <span class="filename">- {em.path}</span></div>
+                        <pre class="section-content diff"><code>{#each computeDiff(em.search || '', em.content || '', 'replace') as line}<span class="diff-{line.type}">{line.type === 'removed' ? '−' : line.type === 'added' ? '+' : ' '} {line.text}</span>{/each}</code></pre>
+                    </div>
+                {/if}
+            {/each}
+        </div>
+    {:else if evt.type === 'action'}
+        <!-- Legacy flat-fields rendering: fallback for events that
+             came in before Wave 2 (the Python serializer always ships
+             ``emissions`` now, so this branch is hit only for
+             pre-retool history dumps or synthesized events). -->
         <div class="event-card">
             {#if evt.title}
                 <div class="event-title">{evt.title}</div>

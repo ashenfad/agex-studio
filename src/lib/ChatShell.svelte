@@ -213,12 +213,22 @@
     let currentAction = $state(null)
     // Report streaming accumulator — null when no report is being streamed
     let activeReportText = $state(null)
-    // File/edit streaming accumulators
+    // Legacy file/edit streaming accumulators (XML wire format — kept as
+    // a fallback for pre-retool routes that still emit `file` / `edit`
+    // tokens).  The current retool path uses the streamingFilesByIdx
+    // map below instead.
     let currentFilePath = $state(null)
     let currentFileContent = $state('')
     let currentFileMode = $state('write')
     let currentEditPath = $state(null)
     let currentEditContent = $state('')
+    // Retool streaming: write_file / edit_file args stream as
+    // file_path / file_search / file_content tokens grouped by
+    // emission_index.  Track each partial file action here until its
+    // final ``file_action`` (prebuilt) token lands with the complete
+    // content, at which point the entry is dropped and the committed
+    // action joins currentAction.file_actions.
+    let streamingFilesByIdx = $state({})
 
     function flushFileAction() {
         if (currentFilePath && currentAction) {
@@ -256,6 +266,11 @@
         if (token.start && token.type === 'title') {
             flushFileAction()
             flushEditAction()
+            // Any streaming-file partials without a matching final
+            // file_action by this point are stragglers (shouldn't
+            // happen, but clear as a safety net so they don't linger
+            // across turns).
+            streamingFilesByIdx = {}
             if (currentAction) {
                 streamingEvents = [...streamingEvents, { ...currentAction }]
             }
@@ -277,6 +292,13 @@
         // for tool-use file actions, which we'd otherwise lose.
         if (token.type === 'file_action') {
             if (token.action) {
+                // Retool streaming: the emission_index on the final
+                // action matches the streaming entries it replaces.
+                const eidx = token.emission_index
+                if (eidx !== undefined && streamingFilesByIdx[eidx]) {
+                    const { [eidx]: _dropped, ...rest } = streamingFilesByIdx
+                    streamingFilesByIdx = rest
+                }
                 if (currentAction) {
                     currentAction = {
                         ...currentAction,
@@ -312,6 +334,49 @@
             // file_action carries no streamed text and doesn't end a turn.
             // Fall through to the messages rebuild at the bottom so the
             // UI picks up the new action immediately.
+            rebuildStreamingMessages()
+            return
+        }
+
+        // Retool streaming file args (file_path / file_search /
+        // file_content) come in one delta at a time, grouped by
+        // emission_index.  Accumulate into the partial action so the
+        // UI can show the write happening live, and drop the partial
+        // when the final ``file_action`` token for the same index
+        // lands (handled above).
+        if (
+            token.type === 'file_path' ||
+            token.type === 'file_search' ||
+            token.type === 'file_content'
+        ) {
+            const eidx = token.emission_index ?? 0
+            // ``done`` markers carry no content — skip them.  Also
+            // skip lazy-create: partials don't imply a full action
+            // turn boundary, they're orthogonal to python/terminal.
+            if (token.done && !token.content) {
+                rebuildStreamingMessages()
+                return
+            }
+            const existing = streamingFilesByIdx[eidx] || {
+                kind: 'file',
+                path: '',
+                search: '',
+                content: '',
+                mode: 'write',
+            }
+            let updated = { ...existing }
+            if (token.type === 'file_path') {
+                updated.path = (existing.path || '') + (token.content || '')
+            } else if (token.type === 'file_search') {
+                // Presence of a search field flips this partial to an
+                // edit — the retool parser only emits file_search for
+                // edit_file calls.
+                updated.kind = 'edit'
+                updated.search = (existing.search || '') + (token.content || '')
+            } else {
+                updated.content = (existing.content || '') + (token.content || '')
+            }
+            streamingFilesByIdx = { ...streamingFilesByIdx, [eidx]: updated }
             rebuildStreamingMessages()
             return
         }
@@ -422,10 +487,34 @@
     }
 
     function rebuildStreamingMessages() {
-        // Build streaming file_actions including in-progress ones
+        // Build streaming file_actions including in-progress ones.
+        // Two partial sources: the legacy XML accumulator
+        // (currentFilePath) and the retool's per-emission streaming
+        // map (streamingFilesByIdx).
         let liveFileActions = [...(currentAction?.file_actions || [])]
         if (currentFilePath) {
             liveFileActions.push({ kind: 'file', path: currentFilePath, content: currentFileContent, mode: currentFileMode })
+        }
+        for (const eidx of Object.keys(streamingFilesByIdx).sort((a, b) => Number(a) - Number(b))) {
+            const partial = streamingFilesByIdx[eidx]
+            if (partial.kind === 'edit') {
+                liveFileActions.push({
+                    kind: 'edit',
+                    path: partial.path || '…',
+                    search: partial.search || '',
+                    content: partial.content || '',
+                    operation: 'replace',
+                    streaming: true,
+                })
+            } else {
+                liveFileActions.push({
+                    kind: 'file',
+                    path: partial.path || '…',
+                    content: partial.content || '',
+                    mode: partial.mode || 'write',
+                    streaming: true,
+                })
+            }
         }
 
         const liveAction = currentAction
