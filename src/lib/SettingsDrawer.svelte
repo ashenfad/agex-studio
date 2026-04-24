@@ -5,7 +5,7 @@
         { id: "openai/gpt-5.4", label: "GPT-5.4" },
         { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
         { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
-        { id: "anthropic/claude-opus-4.6", label: "Claude Opus 4.6" },
+        { id: "anthropic/claude-opus-4.7", label: "Claude Opus 4.7" },
         { id: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
         { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
         { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
@@ -23,7 +23,8 @@
     let provider = $state('openai')
     let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
-    let toolUseWireFormat = $state(false)
+    let toolUseWireFormat = $state(true)
+    let reasoningEffort = $state('medium')
 
     // Sync local state from store whenever drawer opens
     $effect(() => {
@@ -35,7 +36,8 @@
             provider = s.provider ?? 'openai'
             baseUrl = s.baseUrl ?? ''
             chapteringTrigger = s.chapteringTrigger
-            toolUseWireFormat = s.toolUseWireFormat ?? false
+            toolUseWireFormat = s.toolUseWireFormat ?? true
+            reasoningEffort = s.reasoningEffort ?? 'medium'
         }
     })
 
@@ -47,6 +49,7 @@
             baseUrl: baseUrl.trim(),
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
             toolUseWireFormat,
+            reasoningEffort,
         })
         onClose()
     }
@@ -136,6 +139,20 @@
                         Gemini thought parts, OpenAI Responses, OpenRouter reasoning_details.
                         Uncheck for non-reasoning models to fall back to narration-in-schema.
                     </span>
+                </span>
+            </label>
+
+            <label>
+                <span>Reasoning effort</span>
+                <select bind:value={reasoningEffort} disabled={!toolUseWireFormat}>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                </select>
+                <span class="hint">
+                    How hard the model should think per turn. Maps to OpenRouter's
+                    reasoning effort and to Anthropic's budget_tokens
+                    (1024 / 2048 / 4096). Ignored when native reasoning is off.
                 </span>
             </label>
 

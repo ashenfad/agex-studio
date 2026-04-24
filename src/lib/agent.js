@@ -52,6 +52,32 @@ function _settingsConstants(settings) {
   const wireFormatLine = settings.toolUseWireFormat
     ? ""
     : "    wire_format=ToolUseWireFormat(native_thinking=False),\n";
+  // Reasoning effort → kwarg on the LLM client constructor.  Only
+  // meaningful when native reasoning is enabled; otherwise neither
+  // client injects its reasoning/thinking request kwarg.
+  //
+  // Dispatch by underlying provider rather than by our transport.
+  // OpenRouter's unified ``reasoning`` config accepts EITHER
+  // ``effort`` OR ``max_tokens`` but not both, and its effort→budget
+  // conversion silently disables reasoning on the Anthropic route.
+  // We pick the provider-native shape instead:
+  //   - Anthropic direct (PyfetchAnthropic): thinking={type, budget_tokens}
+  //   - OpenRouter → Anthropic / Google backend: reasoning={enabled, max_tokens}
+  //   - OpenRouter → OpenAI (o-series / GPT-5) backend: reasoning={enabled, effort}
+  const effort = settings.reasoningEffort ?? "medium";
+  const budget = { low: 1024, medium: 2048, high: 4096 }[effort] ?? 2048;
+  let reasoningKwargLine = "";
+  if (settings.toolUseWireFormat) {
+    if (settings.provider === "anthropic") {
+      reasoningKwargLine = `    thinking={"type": "enabled", "budget_tokens": ${budget}},\n`;
+    } else {
+      const modelPrefix = (settings.model || "").toLowerCase().split("/")[0];
+      const takesBudget = modelPrefix === "anthropic" || modelPrefix === "google";
+      reasoningKwargLine = takesBudget
+        ? `    reasoning={"enabled": True, "max_tokens": ${budget}},\n`
+        : `    reasoning={"enabled": True, "effort": "${effort}"},\n`;
+    }
+  }
   return {
     userTz,
     baseUrlLine,
@@ -60,6 +86,7 @@ function _settingsConstants(settings) {
     llmClass,
     wireFormatImport,
     wireFormatLine,
+    reasoningKwargLine,
   };
 }
 
@@ -78,6 +105,7 @@ export async function initAgentBasics(settings) {
     llmClass,
     wireFormatImport,
     wireFormatLine,
+    reasoningKwargLine,
   } = _settingsConstants(settings);
   await runPython(`
 from dataclasses import dataclass
@@ -148,7 +176,7 @@ ${wireFormatImport}
 _llm = ${llmClass}(
     model="${settings.model}",
     api_key="",
-${baseUrlLine}${openrouterLines}${wireFormatLine}    fetch_adapter=_JsBridgeAdapter(),
+${baseUrlLine}${openrouterLines}${wireFormatLine}${reasoningKwargLine}    fetch_adapter=_JsBridgeAdapter(),
 )
 
 _agent = Agent(
@@ -160,6 +188,17 @@ _agent = Agent(
     fs=connect_fs(type="virtual"),
     chaptering_trigger=${settings.chapteringTrigger},
 )
+
+# Register VFS-aware IO modules NOW so they're baked into the first
+# system_message.  Without this, the sandbox bridge's per-action
+# auto-register would be what adds them, but the bridge call runs
+# *after* _build_system_message has already been evaluated for the
+# first task — so task 1's system message wouldn't include io/os/
+# json/etc. descriptions, but task 2's would, causing a prompt-cache
+# miss at the task boundary.  register_io is idempotent.
+from agex.helpers.stdlib import register_io as _register_io
+_register_io(_agent)
+del _register_io
 
 # -- Install host-side helper modules onto the Python path --
 # Done in basics because sessions.js (which runs at history-ready)
@@ -500,7 +539,15 @@ except ImportError:
     pass
 
 import asyncio as _asyncio
-_agent.module(_asyncio, include=["gather", "sleep", "wait", "as_completed"])
+# Low-viz: the task primer already documents how to use
+# asyncio.gather / sleep / wait / as_completed, so we don't need to
+# spend primer tokens redescribing their signatures here.  Registration
+# still lets the sandbox import and call them.
+_agent.module(
+    _asyncio,
+    include=["gather", "sleep", "wait", "as_completed"],
+    visibility="low",
+)
 
 # -- Register skills from installed packages --
 try:
@@ -1284,15 +1331,18 @@ def _on_token(token):
         if isinstance(_em, _TextEmission):
             _text = _em.text or ""
             if _text:
-                _post_token(_run_id, {"type": "report", "content": "", "start": True, "done": False})
-                _post_token(_run_id, {"type": "report", "content": _text, "start": False, "done": False})
-                _post_token(_run_id, {"type": "report", "content": "", "start": False, "done": True})
+                _post_token(_run_id, {"type": "report", "content": "", "start": True, "done": False, "emission_index": _eidx})
+                _post_token(_run_id, {"type": "report", "content": _text, "start": False, "done": False, "emission_index": _eidx})
+                _post_token(_run_id, {"type": "report", "content": "", "start": False, "done": True, "emission_index": _eidx})
             return
         if isinstance(_em, _ThinkingEmission):
             _text = (_em.text or "").strip()
             if _text and not _em.redacted:
-                _post_token(_run_id, {"type": "thinking", "content": _text, "start": True, "done": False})
-                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True})
+                _post_token(_run_id, {"type": "thinking", "content": _text, "start": True, "done": False, "emission_index": _eidx})
+                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True, "emission_index": _eidx})
+            elif _em.redacted:
+                _post_token(_run_id, {"type": "thinking", "content": "[redacted thinking]", "start": True, "done": False, "emission_index": _eidx})
+                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True, "emission_index": _eidx})
             return
         # Unknown emission payload — drop it rather than mis-render.
         return

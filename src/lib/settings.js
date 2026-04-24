@@ -11,6 +11,7 @@ const DEFAULTS = {
     baseUrl: "",
     chapteringTrigger: 150000,
     toolUseWireFormat: true,
+    reasoningEffort: "medium",
 };
 
 /** @type {((s: Settings) => void)[]} */
@@ -28,6 +29,11 @@ let subscribers = [];
  *     thinking, Gemini thought parts, OpenAI Responses, OpenRouter
  *     reasoning_details).  Set false for non-reasoning models / routes
  *     to fall back to narration-in-schema thinking.
+ * @property {"low" | "medium" | "high"} reasoningEffort — how hard the
+ *     model should think per turn when native reasoning is on.  Maps to
+ *     OpenRouter's ``reasoning.effort`` and to an Anthropic
+ *     ``budget_tokens`` (1024 / 2048 / 4096).  Ignored when
+ *     toolUseWireFormat is false.
  */
 
 /** @type {Settings} */
