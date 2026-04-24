@@ -1203,6 +1203,18 @@ _events_log = []
 def _on_event(event):
     if isinstance(event, _ActionEvent):
         _events_log.append(_synthesize_action(event))
+        # Deterministic turn-boundary signal for the live UI.  Tokens
+        # within one turn carry monotonically increasing emission_index
+        # values but can still arrive interleaved across emissions
+        # (esp. OpenAI Chat Completions tool_calls).  The UI groups
+        # streaming tokens by emission_index; this marker tells it
+        # "that was everything for this turn, commit the blocks".
+        _post_token(_run_id, {
+            "type": "turn_complete",
+            "content": "",
+            "start": False,
+            "done": True,
+        })
     elif isinstance(event, _OutputEvent):
         _events_log.extend(_split_output_events(_serialize_output_parts(event)))
     elif isinstance(event, _ChapterEvent):

@@ -208,214 +208,216 @@
         }
     })
 
-    // Streaming state — accumulates tokens into events for live display
+    // Streaming state — accumulates tokens into events for live display.
+    //
+    // The retool gives every token an ``emission_index`` (one per
+    // emission in the turn: python / terminal / file_write /
+    // file_edit / text / thinking).  Tokens for different emissions
+    // can arrive interleaved on some providers (esp. OpenAI Chat
+    // Completions), so we group strictly by emission_index rather
+    // than by the older "title-start means new action" heuristic
+    // which silently scrambled multi-emission turns.
+    //
+    // ``currentTurn``: Map of emission_index → partial block built
+    //   from streaming tokens.  Finalized into a single action event
+    //   (with an ``emissions`` list preserving order) when Python
+    //   emits the ``turn_complete`` marker via ``_on_event``.
+    // ``streamingEvents``: committed turns, shown in the live chat
+    //   feed while subsequent turns stream.
     let streamingEvents = $state([])
-    let currentAction = $state(null)
-    // Report streaming accumulator — null when no report is being streamed
+    let currentTurn = $state(null)
+    // Report streaming accumulator — null when no TextEmission is
+    // currently building.  Lifted out of currentTurn so the
+    // committed-chat-message flow (insert on done) stays simple.
     let activeReportText = $state(null)
-    // Legacy file/edit streaming accumulators (XML wire format — kept as
-    // a fallback for pre-retool routes that still emit `file` / `edit`
-    // tokens).  The current retool path uses the streamingFilesByIdx
-    // map below instead.
-    let currentFilePath = $state(null)
-    let currentFileContent = $state('')
-    let currentFileMode = $state('write')
-    let currentEditPath = $state(null)
-    let currentEditContent = $state('')
-    // Retool streaming: write_file / edit_file args stream as
-    // file_path / file_search / file_content tokens grouped by
-    // emission_index.  Track each partial file action here until its
-    // final ``file_action`` (prebuilt) token lands with the complete
-    // content, at which point the entry is dropped and the committed
-    // action joins currentAction.file_actions.
-    let streamingFilesByIdx = $state({})
+    let activeReportIdx = $state(null)
 
-    function flushFileAction() {
-        if (currentFilePath && currentAction) {
-            const fa = { kind: 'file', path: currentFilePath, content: currentFileContent, mode: currentFileMode }
-            currentAction = { ...currentAction, file_actions: [...currentAction.file_actions, fa] }
+    function ensureBlock(eidx, kindHint = null) {
+        if (!currentTurn) {
+            currentTurn = { blocks: {}, order: [] }
         }
-        currentFilePath = null
-        currentFileContent = ''
-        currentFileMode = 'write'
-    }
-
-    function flushEditAction() {
-        if (currentEditPath && currentAction) {
-            // Parse SEARCH/REPLACE from accumulated XML content
-            const searchMatch = currentEditContent.match(/<SEARCH>([\s\S]*?)<\/SEARCH>/)
-            const replaceMatch = currentEditContent.match(/<REPLACE>([\s\S]*?)<\/REPLACE>/)
-            const insertAfterMatch = currentEditContent.match(/<INSERT-AFTER>([\s\S]*?)<\/INSERT-AFTER>/)
-            const insertBeforeMatch = currentEditContent.match(/<INSERT-BEFORE>([\s\S]*?)<\/INSERT-BEFORE>/)
-            const search = searchMatch ? searchMatch[1] : ''
-            let content = ''
-            let operation = 'replace'
-            if (replaceMatch) { content = replaceMatch[1]; operation = 'replace' }
-            else if (insertAfterMatch) { content = insertAfterMatch[1]; operation = 'insert-after' }
-            else if (insertBeforeMatch) { content = insertBeforeMatch[1]; operation = 'insert-before' }
-            const ea = { kind: 'edit', path: currentEditPath, search, content, operation }
-            currentAction = { ...currentAction, file_actions: [...currentAction.file_actions, ea] }
-        }
-        currentEditPath = null
-        currentEditContent = ''
-    }
-
-    function handleToken(token) {
-        // Only a new title signals a new action iteration — everything else
-        // (thinking, code, terminal, file, edit) accumulates into the current one.
-        if (token.start && token.type === 'title') {
-            flushFileAction()
-            flushEditAction()
-            // Any streaming-file partials without a matching final
-            // file_action by this point are stragglers (shouldn't
-            // happen, but clear as a safety net so they don't linger
-            // across turns).
-            streamingFilesByIdx = {}
-            if (currentAction) {
-                streamingEvents = [...streamingEvents, { ...currentAction }]
-            }
-            currentAction = {
-                type: 'action',
+        if (currentTurn.blocks[eidx] === undefined) {
+            currentTurn.blocks[eidx] = {
+                idx: eidx,
+                kind: kindHint,
                 title: '',
                 thinking: '',
-                report: '',
-                code: null,
-                terminal: null,
-                file_actions: [],
-            }
-        }
-
-        // file_action is a structured one-shot token (done=true, content='',
-        // action payload attached). Handle it BEFORE the lazy-create gate
-        // below — that gate's "drop done tokens with no content" rule is
-        // meant for the LLM client's final-usage bookkeeping token, not
-        // for tool-use file actions, which we'd otherwise lose.
-        if (token.type === 'file_action') {
-            if (token.action) {
-                // Retool streaming: the emission_index on the final
-                // action matches the streaming entries it replaces.
-                const eidx = token.emission_index
-                if (eidx !== undefined && streamingFilesByIdx[eidx]) {
-                    const { [eidx]: _dropped, ...rest } = streamingFilesByIdx
-                    streamingFilesByIdx = rest
-                }
-                if (currentAction) {
-                    currentAction = {
-                        ...currentAction,
-                        file_actions: [...currentAction.file_actions, token.action],
-                    }
-                } else if (
-                    streamingEvents.length &&
-                    streamingEvents[streamingEvents.length - 1].type === 'action'
-                ) {
-                    // Main action has already been committed (e.g. python_action
-                    // finished before write_file's tool-call end). Attach to it.
-                    const last = streamingEvents[streamingEvents.length - 1]
-                    const updated = {
-                        ...last,
-                        file_actions: [...(last.file_actions || []), token.action],
-                    }
-                    streamingEvents = [...streamingEvents.slice(0, -1), updated]
-                } else {
-                    // Stray file_action with no surrounding action — stand up
-                    // a minimal one so the action object has a home.
-                    currentAction = {
-                        type: 'action',
-                        title: '',
-                        thinking: '',
-                        report: '',
-                        code: null,
-                        terminal: null,
-                        file_actions: [token.action],
-                    }
-                }
-            }
-            // Skip the type-dispatch and end-of-action flush below;
-            // file_action carries no streamed text and doesn't end a turn.
-            // Fall through to the messages rebuild at the bottom so the
-            // UI picks up the new action immediately.
-            rebuildStreamingMessages()
-            return
-        }
-
-        // Retool streaming file args (file_path / file_search /
-        // file_content) come in one delta at a time, grouped by
-        // emission_index.  Accumulate into the partial action so the
-        // UI can show the write happening live, and drop the partial
-        // when the final ``file_action`` token for the same index
-        // lands (handled above).
-        if (
-            token.type === 'file_path' ||
-            token.type === 'file_search' ||
-            token.type === 'file_content'
-        ) {
-            const eidx = token.emission_index ?? 0
-            // ``done`` markers carry no content — skip them.  Also
-            // skip lazy-create: partials don't imply a full action
-            // turn boundary, they're orthogonal to python/terminal.
-            if (token.done && !token.content) {
-                rebuildStreamingMessages()
-                return
-            }
-            const existing = streamingFilesByIdx[eidx] || {
-                kind: 'file',
+                code: '',
+                commands: '',
+                text: '',
                 path: '',
                 search: '',
                 content: '',
                 mode: 'write',
+                match_all: false,
+                streaming: true,
             }
-            let updated = { ...existing }
-            if (token.type === 'file_path') {
-                updated.path = (existing.path || '') + (token.content || '')
-            } else if (token.type === 'file_search') {
-                // Presence of a search field flips this partial to an
-                // edit — the retool parser only emits file_search for
-                // edit_file calls.
-                updated.kind = 'edit'
-                updated.search = (existing.search || '') + (token.content || '')
-            } else {
-                updated.content = (existing.content || '') + (token.content || '')
+            currentTurn.order = [...currentTurn.order, eidx]
+        } else if (kindHint && !currentTurn.blocks[eidx].kind) {
+            currentTurn.blocks[eidx].kind = kindHint
+        }
+        return currentTurn.blocks[eidx]
+    }
+
+    function updateBlock(eidx, patch) {
+        const b = ensureBlock(eidx)
+        currentTurn.blocks[eidx] = { ...b, ...patch }
+        // Trigger Svelte reactivity on the outer map.
+        currentTurn = { ...currentTurn, blocks: { ...currentTurn.blocks } }
+    }
+
+    function snapshotTurn() {
+        if (!currentTurn) return null
+        const ordered = currentTurn.order.map(i => currentTurn.blocks[i])
+        const titles = []
+        const thinkingBits = []
+        const reportBits = []
+        const codeBits = []
+        const terminalBits = []
+        const fileActions = []
+        const emissions = []
+        for (const b of ordered) {
+            // Build the emissions-list shape EventDetail prefers (so
+            // per-emission rendering ordered by emission_index takes
+            // over from the flat-fields fallback).
+            if (b.kind === 'python') {
+                emissions.push({
+                    kind: 'python',
+                    idx: b.idx,
+                    code: b.code,
+                    title: b.title,
+                    thinking: b.thinking,
+                })
+                if (b.title) titles.push(b.title)
+                if (b.thinking) thinkingBits.push(b.thinking)
+                if (b.code) codeBits.push(b.code)
+            } else if (b.kind === 'terminal') {
+                emissions.push({
+                    kind: 'terminal',
+                    idx: b.idx,
+                    commands: b.commands,
+                    title: b.title,
+                    thinking: b.thinking,
+                })
+                if (b.title) titles.push(b.title)
+                if (b.thinking) thinkingBits.push(b.thinking)
+                if (b.commands) terminalBits.push(b.commands)
+            } else if (b.kind === 'file_write') {
+                emissions.push({
+                    kind: 'file_write',
+                    idx: b.idx,
+                    path: b.path,
+                    content: b.content,
+                    mode: b.mode,
+                })
+                fileActions.push({
+                    kind: 'file',
+                    path: b.path || '…',
+                    content: b.content,
+                    mode: b.mode || 'write',
+                    streaming: b.streaming,
+                })
+            } else if (b.kind === 'file_edit') {
+                emissions.push({
+                    kind: 'file_edit',
+                    idx: b.idx,
+                    path: b.path,
+                    search: b.search,
+                    content: b.content,
+                    match_all: b.match_all,
+                })
+                fileActions.push({
+                    kind: 'edit',
+                    path: b.path || '…',
+                    search: b.search,
+                    content: b.content,
+                    operation: 'replace',
+                    streaming: b.streaming,
+                })
+            } else if (b.kind === 'text') {
+                emissions.push({ kind: 'text', idx: b.idx, text: b.text })
+                if (b.text) reportBits.push(b.text)
+            } else if (b.kind === 'thinking') {
+                emissions.push({
+                    kind: 'thinking',
+                    idx: b.idx,
+                    text: b.text,
+                    redacted: b.redacted,
+                })
+                if (b.text && !b.redacted) thinkingBits.push(b.text)
             }
-            streamingFilesByIdx = { ...streamingFilesByIdx, [eidx]: updated }
+        }
+        const NL2 = '\n\n'
+        return {
+            type: 'action',
+            title: titles[0] || '',
+            thinking: thinkingBits.join(NL2),
+            report: reportBits.join(NL2),
+            code: codeBits.length ? codeBits.join(NL2) : null,
+            terminal: terminalBits.length ? terminalBits.join(NL2) : null,
+            file_actions: fileActions,
+            emissions,
+        }
+    }
+
+    function handleToken(token) {
+        // ``turn_complete`` is the explicit end-of-turn signal from
+        // Python's ``_on_event`` (fires after ActionEvent lands).  Any
+        // lingering ``currentTurn`` is flushed into ``streamingEvents``
+        // here; subsequent tokens start a fresh turn.
+        if (token.type === 'turn_complete') {
+            const snapshot = snapshotTurn()
+            if (snapshot && snapshot.emissions.length) {
+                streamingEvents = [...streamingEvents, snapshot]
+            }
+            currentTurn = null
+            activeReportText = null
+            activeReportIdx = null
             rebuildStreamingMessages()
             return
         }
 
-        // Lazily create an action if tokens arrive before a title.
-        // Skip done-only tokens with no content (e.g. the final usage-
-        // reporting token) — they're bookkeeping, not a new action.
-        if (!currentAction) {
-            if (token.done && !token.content) return
-            currentAction = {
-                type: 'action',
-                title: '',
-                thinking: '',
-                report: '',
-                code: null,
-                terminal: null,
-                file_actions: [],
-            }
+        // Drop final-usage bookkeeping tokens (done=true, no
+        // content, no emission_index).
+        if (token.done && !token.content && token.emission_index === undefined) {
+            return
         }
 
+        const eidx = token.emission_index ?? 0
+
         if (token.type === 'title') {
-            currentAction = { ...currentAction, title: currentAction.title + token.content }
+            // Title rides on a PythonEmission or TerminalEmission —
+            // kind will be confirmed when the content field streams.
+            const b = ensureBlock(eidx)
+            updateBlock(eidx, { title: (b.title || '') + (token.content || '') })
         } else if (token.type === 'thinking') {
-            currentAction = { ...currentAction, thinking: currentAction.thinking + token.content }
+            // Narration-in-schema thinking rides on python/terminal;
+            // native-thinking providers emit it as its own emission
+            // (our Python-side synthetic burst).  Same slot either
+            // way — only the kind differs.
+            const b = ensureBlock(eidx)
+            const kind = b.kind || 'thinking'
+            updateBlock(eidx, {
+                kind: kind === 'thinking' ? 'thinking' : kind,
+                thinking: kind === 'thinking' ? b.thinking : (b.thinking || '') + (token.content || ''),
+                text: kind === 'thinking' ? (b.text || '') + (token.content || '') : b.text,
+            })
         } else if (token.type === 'report') {
+            // TextEmission — streams as report tokens from our Python
+            // adapter.  Accumulates on the text block and commits as
+            // a chat message on done.
             if (token.start) {
                 activeReportText = ''
+                activeReportIdx = eidx
             }
-            // Always accumulate content before checking done — the final
-            // token may carry both content and done=true.
             if (token.content) {
                 activeReportText = (activeReportText || '') + token.content
-                currentAction = { ...currentAction, report: activeReportText }
+                updateBlock(eidx, { kind: 'text', text: activeReportText })
             }
             if (token.done) {
-                // Commit the finished report as a permanent chat message
                 const finalText = activeReportText || ''
                 if (finalText) {
-                    currentAction = { ...currentAction, report: finalText }
+                    updateBlock(eidx, { kind: 'text', text: finalText })
                     const committedMsg = {
                         role: 'agent',
                         content: finalText,
@@ -434,52 +436,56 @@
                     }
                 }
                 activeReportText = null
+                activeReportIdx = null
             }
         } else if (token.type === 'python') {
-            currentAction = { ...currentAction, code: (currentAction.code || '') + token.content }
+            const b = ensureBlock(eidx, 'python')
+            updateBlock(eidx, { kind: 'python', code: (b.code || '') + (token.content || '') })
         } else if (token.type === 'terminal') {
-            currentAction = { ...currentAction, terminal: (currentAction.terminal || '') + token.content }
-        } else if (token.type === 'file') {
-            if (token.done) {
-                flushFileAction()
-            } else if (token.content.startsWith('path=')) {
-                // Flush previous file if any
-                flushFileAction()
-                // Parse metadata: "path=foo.py,mode=append"
-                const pathMatch = token.content.match(/path=([^,]+)/)
-                const modeMatch = token.content.match(/mode=([^,]+)/)
-                currentFilePath = pathMatch ? pathMatch[1] : null
-                currentFileMode = modeMatch ? modeMatch[1] : 'write'
-                currentFileContent = ''
-            } else if (currentFilePath) {
-                currentFileContent += token.content
-            }
-        } else if (token.type === 'edit') {
-            if (token.done) {
-                flushEditAction()
-            } else if (token.content.startsWith('path=')) {
-                flushEditAction()
-                const pathMatch = token.content.match(/path=([^,]+)/)
-                currentEditPath = pathMatch ? pathMatch[1] : null
-                currentEditContent = ''
-            } else if (currentEditPath) {
-                currentEditContent += token.content
-            }
-        }
-        // (file_action is handled at the top of this function, before
-        // the lazy-create gate, so it doesn't get dropped as a
-        // "done with no content" bookkeeping token.)
-
-        // End-of-action: <PYTHON> and <TERMINAL> are the action's final
-        // section, so a done=true on either means this iteration is complete.
-        // Flush the currentAction into streamingEvents so the next iteration
-        // starts fresh — even if the agent skips its <TITLE> on that turn.
-        if (token.done && (token.type === 'python' || token.type === 'terminal')) {
-            flushFileAction()
-            flushEditAction()
-            if (currentAction) {
-                streamingEvents = [...streamingEvents, { ...currentAction }]
-                currentAction = null
+            const b = ensureBlock(eidx, 'terminal')
+            updateBlock(eidx, {
+                kind: 'terminal',
+                commands: (b.commands || '') + (token.content || ''),
+            })
+        } else if (token.type === 'file_path') {
+            const b = ensureBlock(eidx, 'file_write')
+            updateBlock(eidx, { path: (b.path || '') + (token.content || '') })
+        } else if (token.type === 'file_search') {
+            const b = ensureBlock(eidx, 'file_edit')
+            updateBlock(eidx, {
+                kind: 'file_edit',
+                search: (b.search || '') + (token.content || ''),
+            })
+        } else if (token.type === 'file_content') {
+            const b = ensureBlock(eidx)
+            // Only bump kind to file_write if unclaimed — a prior
+            // file_search would've already set file_edit.
+            updateBlock(eidx, {
+                kind: b.kind || 'file_write',
+                content: (b.content || '') + (token.content || ''),
+            })
+        } else if (token.type === 'file_action') {
+            // Final prebuilt file emission — authoritative values
+            // replace whatever the streaming deltas accumulated.
+            if (token.action) {
+                const action = token.action
+                if (action.kind === 'file') {
+                    updateBlock(eidx, {
+                        kind: 'file_write',
+                        path: action.path,
+                        content: action.content,
+                        mode: action.mode || 'write',
+                        streaming: false,
+                    })
+                } else if (action.kind === 'edit') {
+                    updateBlock(eidx, {
+                        kind: 'file_edit',
+                        path: action.path,
+                        search: action.search,
+                        content: action.content,
+                        streaming: false,
+                    })
+                }
             }
         }
 
@@ -487,41 +493,9 @@
     }
 
     function rebuildStreamingMessages() {
-        // Build streaming file_actions including in-progress ones.
-        // Two partial sources: the legacy XML accumulator
-        // (currentFilePath) and the retool's per-emission streaming
-        // map (streamingFilesByIdx).
-        let liveFileActions = [...(currentAction?.file_actions || [])]
-        if (currentFilePath) {
-            liveFileActions.push({ kind: 'file', path: currentFilePath, content: currentFileContent, mode: currentFileMode })
-        }
-        for (const eidx of Object.keys(streamingFilesByIdx).sort((a, b) => Number(a) - Number(b))) {
-            const partial = streamingFilesByIdx[eidx]
-            if (partial.kind === 'edit') {
-                liveFileActions.push({
-                    kind: 'edit',
-                    path: partial.path || '…',
-                    search: partial.search || '',
-                    content: partial.content || '',
-                    operation: 'replace',
-                    streaming: true,
-                })
-            } else {
-                liveFileActions.push({
-                    kind: 'file',
-                    path: partial.path || '…',
-                    content: partial.content || '',
-                    mode: partial.mode || 'write',
-                    streaming: true,
-                })
-            }
-        }
-
-        const liveAction = currentAction
-            ? { ...currentAction, file_actions: liveFileActions }
-            : null
-        const allEvents = liveAction
-            ? [...streamingEvents, liveAction]
+        const liveSnapshot = snapshotTurn()
+        const allEvents = liveSnapshot
+            ? [...streamingEvents, liveSnapshot]
             : [...streamingEvents]
 
         // Rebuild the tail of messages: strip all streaming messages, then
@@ -670,13 +644,9 @@
 
         busy = true
         streamingEvents = []
-        currentAction = null
+        currentTurn = null
         activeReportText = null
-        currentFilePath = null
-        currentFileContent = ''
-        currentFileMode = 'write'
-        currentEditPath = null
-        currentEditContent = ''
+        activeReportIdx = null
 
         try {
             tokenOverride = null
@@ -721,8 +691,9 @@
             busy = false
             cancelling = false
             streamingEvents = []
-            currentAction = null
+            currentTurn = null
             activeReportText = null
+            activeReportIdx = null
         }
     }
 
