@@ -265,12 +265,62 @@ def _split_output_events(all_parts):
         result.append({"type": "output", "message": "", "parts": all_parts})
     return result
 
+def _serialize_emission(em, idx):
+    """Per-emission dict the UI can render as its own block.  Covers
+    all six emission types from the agex retool.  idx is the position
+    within the turn; the UI uses it as a key and, once agex ever
+    surfaces event indexes through serialization, it can combine
+    with event_idx to pair PrintAction observations to their
+    producing emission."""
+    if isinstance(em, _PythonEmission):
+        return {
+            "kind": "python",
+            "idx": idx,
+            "code": em.code or "",
+            "title": em.title or "",
+            "thinking": em.thinking or "",
+        }
+    if isinstance(em, _TerminalEmission):
+        return {
+            "kind": "terminal",
+            "idx": idx,
+            "commands": em.commands or "",
+            "title": em.title or "",
+            "thinking": em.thinking or "",
+        }
+    if isinstance(em, _FileWriteEmission):
+        return {
+            "kind": "file_write",
+            "idx": idx,
+            "path": em.path,
+            "content": em.content,
+            "mode": em.mode,
+        }
+    if isinstance(em, _FileEditEmission):
+        return {
+            "kind": "file_edit",
+            "idx": idx,
+            "path": em.path,
+            "search": em.search,
+            "content": em.content,
+            "match_all": em.match_all,
+        }
+    if isinstance(em, _TextEmission):
+        return {"kind": "text", "idx": idx, "text": em.text or ""}
+    if isinstance(em, _ThinkingEmission):
+        return {
+            "kind": "thinking",
+            "idx": idx,
+            "text": em.text or "",
+            "redacted": em.redacted,
+        }
+    return None
+
 def _serialize_file_actions(emissions):
-    """Pick out FileWrite / FileEdit emissions from the flat emission
-    list and return the dict shape the UI already understands.
-    operation is hard-coded to "replace" — edit_file only supports
-    replace after the retool, and the UI's computeDiff helper
-    already treats that as the default."""
+    """Legacy flat-fields shape: pick out FileWrite / FileEdit
+    emissions and return the old {kind, path, ...} dicts the existing
+    UI consumes.  Kept alongside the emissions-list serialization so
+    pre-Wave-2 render paths keep working."""
     result = []
     for a in emissions:
         if isinstance(a, _FileWriteEmission):
@@ -291,19 +341,24 @@ def _serialize_file_actions(emissions):
     return result
 
 def _synthesize_action(evt):
-    """Collapse an emission-list ActionEvent into the flat-field
-    shape the studio UI still consumes (title / thinking / report /
-    code / terminal / file_actions).  Multi-emission turns get their
-    python / terminal / thinking / text fields concatenated so
-    nothing is lost; file emissions stay list-shaped as before.  The
-    UI can progressively adopt the richer emission list later;
-    keeping the flat shape is the minimal retool-restore change."""
+    """Serialize an ActionEvent for the UI.  Ships both the new
+    emission-list shape ("emissions", preferred by the post-Wave-2
+    renderer) AND the flat-fields shape (title / thinking / report /
+    code / terminal / file_actions) so older components keep
+    rendering while the UI migrates.  Multi-emission turns get their
+    python / terminal / thinking / text fields concatenated in the
+    flat view so nothing disappears when a single-block card has to
+    represent several emissions."""
     _titles = []
     _thinking_bits = []
     _report_bits = []
     _code_bits = []
     _term_bits = []
-    for _em in evt.emissions:
+    _emissions_dicts = []
+    for _idx, _em in enumerate(evt.emissions):
+        _ed = _serialize_emission(_em, _idx)
+        if _ed is not None:
+            _emissions_dicts.append(_ed)
         if isinstance(_em, _PythonEmission):
             if _em.title:
                 _titles.append(_em.title)
@@ -333,6 +388,7 @@ def _synthesize_action(evt):
         "code": _NL2.join(_code_bits) or None,
         "terminal": _NL2.join(_term_bits) or None,
         "file_actions": _serialize_file_actions(evt.emissions),
+        "emissions": _emissions_dicts,
         "input_tokens": evt.input_tokens,
         "output_tokens": evt.output_tokens,
     }
@@ -1160,26 +1216,26 @@ def _on_event(event):
 
 def _on_token(token):
     _ttype = token.type
-    # Map the retool's richer token vocabulary back to the legacy
-    # shape the UI already handles (title / thinking / report /
-    # python / terminal / file_action).  Keeping the wire stable for
-    # now so the UI can progressively adopt the new text / file_path
-    # / emission token types later.
+    # Map the retool's richer token vocabulary back to what the UI
+    # consumes.  Plain assistant text is surfaced as a report stream;
+    # invisible markers (signature / tool_start) are dropped; the
+    # streaming file-arg deltas (file_path / file_search /
+    # file_content) pass through so the UI can render file writes
+    # live instead of popping them in fully-formed at the end.
     if _ttype == "text":
         _ttype = "report"
-    elif _ttype in ("signature", "tool_start", "file_path", "file_search", "file_content"):
-        # Invisible markers (signature / tool_start) and streamed
-        # file-arg deltas (file_path / file_search / file_content).
-        # The UI reads the final emission token for the built
-        # FileWrite/FileEdit; the streaming args are skipped here so
-        # the UI doesn't have to know about them yet.
+    elif _ttype in ("signature", "tool_start"):
         return
 
     # Prebuilt "emission" tokens carry a fully built Emission object
     # (file write/edit, standalone thinking, standalone text).  Route
     # file emissions into the existing file_action envelope; route
     # text and thinking emissions as synthetic report / thinking
-    # token bursts so the UI accumulator picks them up.
+    # token bursts so the UI accumulator picks them up.  Every
+    # synthetic token carries the original emission_index so the UI
+    # can pair a final file_action to whichever streaming
+    # file_path/file_content fragments preceded it.
+    _eidx = getattr(token, "emission_index", 0)
     if _ttype == "emission":
         _em = getattr(token, "emission", None)
         if isinstance(_em, _FileWriteEmission):
@@ -1188,6 +1244,7 @@ def _on_token(token):
                 "content": "",
                 "start": False,
                 "done": True,
+                "emission_index": _eidx,
                 "action": {
                     "kind": "file",
                     "path": _em.path,
@@ -1202,6 +1259,7 @@ def _on_token(token):
                 "content": "",
                 "start": False,
                 "done": True,
+                "emission_index": _eidx,
                 "action": {
                     "kind": "edit",
                     "path": _em.path,
@@ -1232,6 +1290,7 @@ def _on_token(token):
         "content": token.content,
         "start": getattr(token, "start", False),
         "done": token.done,
+        "emission_index": getattr(token, "emission_index", 0),
     })
 
 from agex import TaskFail, TaskClarify, TaskCancelled
