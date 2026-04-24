@@ -89,16 +89,24 @@
     // Re-init agent when settings change AND Pyodide has reached at
     // least the history-ready stage. Two-phase: Wave-2 init unlocks
     // history; Wave-3 init unlocks Send.
-    let lastKey = ''
-    let lastModel = ''
+    //
+    // Tracks the subset of settings that feed ``initAgentBasics``'s
+    // Python preamble (LLM client construction args).  Skipping any
+    // of these would silently leave the old client in place after a
+    // save — e.g. a new ``baseUrl`` wouldn't route to the new host.
+    let lastInitKey = ''
+    const _initKey = (s) => JSON.stringify([
+        s.apiKey, s.model, s.provider, s.baseUrl,
+        s.toolUseWireFormat, s.reasoningEffort,
+    ])
     $effect(() => {
         const s = $settingsStore
         // Read pyodideStore so this effect re-runs when stage advances.
         void $pyodideStore.stage
         if (!s.apiKey) return
-        if (s.apiKey === lastKey && s.model === lastModel) return
-        lastKey = s.apiKey
-        lastModel = s.model
+        const initKey = _initKey(s)
+        if (initKey === lastInitKey) return
+        lastInitKey = initKey
         runStartup(s)
     })
 

@@ -37,6 +37,13 @@
                             <div class="thinking-content">{@html renderThinking(em.text)}</div>
                         </blockquote>
                     </div>
+                {:else if em.kind === 'thinking' && em.redacted}
+                    <div class="section">
+                        <div class="section-label">Thinking</div>
+                        <blockquote class="thinking">
+                            <div class="thinking-content"><em>[redacted thinking]</em></div>
+                        </blockquote>
+                    </div>
                 {:else if em.kind === 'text' && em.text}
                     <div class="section">
                         <div class="section-label report-label">Report</div>
