@@ -27,6 +27,14 @@ const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
 // as possible. pandas + plotly stay in this wave because chat events
 // can hold pickled DataFrames / Figures that won't deserialize without
 // them.
+//
+// Split by install mechanism:
+// - WAVE2_OWN:    our PyPI packages; need version pinning + cache-bust
+//                 index, so they go through micropip.install.
+// - WAVE2_VENDOR: Pyodide-distributed built-ins; load via
+//                 pyodide.loadPackage directly, which skips micropip's
+//                 PyPI metadata resolution and is measurably faster
+//                 than micropip.install for the same set.
 const WAVE2_OWN = [
     "kvgit>=0.1.8",
     "monkeyfs>=0.1.4",
@@ -34,18 +42,30 @@ const WAVE2_OWN = [
     "sandtrap>=0.1.10",
     // termish installed from local wheel below
 ];
+// Pyodide's built-in package set — loadPackage resolves these from
+// the runtime's lockfile. plotly / others not in that lockfile must
+// go through micropip instead (see WAVE2_VENDOR_MICROPIP below).
 const WAVE2_VENDOR = [
     "pydantic",
     "pygments",
     "pandas",
     "numpy",
-    "plotly",
-    "pypdf",
-    "openpyxl",
     "python-dateutil",
     "sortedcontainers",
     "typing-extensions",
     "tzdata",
+    // Dep of plotly — pre-loading in parallel shortens the micropip
+    // critical path since plotly's install doesn't have to serialize
+    // on fetching narwhals afterwards.
+    "narwhals",
+];
+
+// Vendor packages that aren't in Pyodide's built-in lockfile — still
+// need micropip, but they don't need cache-bust or version pinning.
+const WAVE2_VENDOR_MICROPIP = [
+    "plotly",
+    "pypdf",
+    "openpyxl",
 ];
 
 // Wave 3: heavier capabilities that aren't on the critical path for
@@ -97,14 +117,16 @@ async function init() {
         const appVersion = new URL(self.location.href).searchParams.get("v") || "0";
         const freshIndex = `https://pypi.org/pypi/{package_name}/json?v=${appVersion}`;
 
-        // OWN_DEPS use cache-busted index; VENDOR_DEPS use default index.
-        const buildInstallCalls = (own, vendor, extras) => [
+        // Our PyPI packages need cache-busted index + version pinning,
+        // so they go through micropip.install. Non-built-in vendors
+        // piggyback on the same micropip pass.
+        const ownInstallCalls = (own, vendor, extras) => [
             ...own.map(pkg => `micropip.install("${pkg}", index_urls="${freshIndex}")`),
             ...vendor.map(pkg => `micropip.install("${pkg}")`),
             ...extras,
         ];
 
-        const wave2Calls = buildInstallCalls(WAVE2_OWN, WAVE2_VENDOR, [
+        const wave2OwnCalls = ownInstallCalls(WAVE2_OWN, WAVE2_VENDOR_MICROPIP, [
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
@@ -113,16 +135,24 @@ async function init() {
             // PyPI install line once a release is cut.
             `micropip.install("/wheels/agex-0.10.2-py3-none-any.whl", deps=False)`,
         ]);
-        const wave3Calls = buildInstallCalls([], WAVE3_VENDOR, [
+        const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
         ]);
 
         // ── Wave 2: minimum needed for history + agent baseline ──
+        //
+        // Run pyodide.loadPackage (for Pyodide built-in vendors) and
+        // micropip.install (for our PyPI packages) in parallel — they
+        // use independent resolvers and don't contend for the same
+        // dependency graph, so they overlap cleanly.
         progress("Installing core packages...", 0.2);
-        await pyodide.runPythonAsync(`
+        await Promise.all([
+            pyodide.loadPackage(WAVE2_VENDOR),
+            pyodide.runPythonAsync(`
 import micropip, asyncio
-await asyncio.gather(${wave2Calls.join(", ")})
-        `);
+await asyncio.gather(${wave2OwnCalls.join(", ")})
+            `),
+        ]);
 
         progress("Verifying installation...", 0.55);
         await pyodide.runPythonAsync("import agex");
@@ -249,16 +279,32 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         pyodide.globals.set("_js_llm_fetch", llmFetchFn);
 
         // LLM bridge — streaming. Python passes three proxied callbacks
-        // (chunk/done/error). Main thread does a streaming fetch and
-        // postMessages back chunks / done / error tagged with the id.
-        // We look up the callbacks by id and invoke accordingly.
+        // (chunk/done/error); the main thread does a streaming fetch
+        // and postMessages back chunks / done / error tagged with the
+        // id. Python captures the returned id and must call
+        // ``_js_llm_stream_cancel(id)`` before destroying the proxies,
+        // so the main thread can abort the fetch and stop pushing
+        // chunks at a callback that no longer has a consumer.
         const llmStreamFn = (requestJson, onChunk, onDone, onError) => {
             const id = ++_llmStreamId;
             llmStreamPending.set(id, { onChunk, onDone, onError });
             self.postMessage({ type: "llm-stream", id, requestJson });
+            return id;
         };
         self._js_llm_stream = llmStreamFn;
         pyodide.globals.set("_js_llm_stream", llmStreamFn);
+
+        // LLM stream cancellation. Idempotent. Removes the entry so
+        // any in-flight chunk/done/error messages are dropped by the
+        // dispatcher, and forwards the cancel to the main thread so
+        // it aborts the underlying fetch.
+        const llmStreamCancelFn = (id) => {
+            if (!llmStreamPending.has(id)) return;
+            llmStreamPending.delete(id);
+            self.postMessage({ type: "llm-stream-cancel", id });
+        };
+        self._js_llm_stream_cancel = llmStreamCancelFn;
+        pyodide.globals.set("_js_llm_stream_cancel", llmStreamCancelFn);
 
         // Wave 2 done — history is now reachable. Block here until the
         // main thread tells us to start Wave 3. Pyodide serializes
@@ -271,10 +317,15 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         await _wave3Started;
 
         // ── Wave 3: heavier capabilities ──
+        // Same pattern as Wave 2: built-ins via loadPackage, own
+        // packages via micropip, in parallel.
         progress("Installing additional capabilities...", 0.8);
-        await pyodide.runPythonAsync(`
-await asyncio.gather(${wave3Calls.join(", ")})
-        `);
+        await Promise.all([
+            pyodide.loadPackage(WAVE3_VENDOR),
+            pyodide.runPythonAsync(`
+await asyncio.gather(${wave3OwnCalls.join(", ")})
+            `),
+        ]);
 
         self.postMessage({ type: "ready" });
     } catch (e) {

@@ -140,6 +140,8 @@ export function startWorker() {
             handleLlmFetch(msg.requestJson, msg.id);
         } else if (msg.type === "llm-stream") {
             handleLlmStream(msg.requestJson, msg.id);
+        } else if (msg.type === "llm-stream-cancel") {
+            cancelLlmStream(msg.id);
         } else if (msg.type === "write-downloaded-file-result") {
             const entry = downloadWritePending.get(msg.id);
             if (entry) {
@@ -367,22 +369,57 @@ async function handleLlmFetch(requestJson, requestId) {
     }
 }
 
+// Outstanding streaming LLM requests keyed by stream id.
+// Used by `cancelLlmStream` to abort an in-flight fetch when the
+// Python consumer side signals it's done reading.
+/** @type {Map<number, AbortController>} */
+const llmStreamControllers = new Map();
+
+/**
+ * Abort an in-flight streaming LLM request. Called in response to a
+ * `llm-stream-cancel` message from the worker, which Python posts
+ * from its ``fetch_stream`` adapter's ``finally`` before destroying
+ * its callback proxies. Aborting here stops the SSE reader loop and
+ * prevents any further `llm-stream-chunk` messages from going to
+ * a consumer that's torn down.
+ */
+function cancelLlmStream(requestId) {
+    const ctrl = llmStreamControllers.get(requestId);
+    if (!ctrl) return;
+    llmStreamControllers.delete(requestId);
+    try { ctrl.abort(); } catch { /* already aborted */ }
+}
+
 /**
  * Handle streaming LLM request from the worker.
  * Pipes SSE-style text chunks back to the worker as they arrive, then
  * sends either `llm-stream-done` on success or `llm-stream-error` on
  * failure. The worker's JS side invokes Python callbacks for each chunk.
+ *
+ * Respects cancellation: if the worker posts `llm-stream-cancel` for
+ * this stream id (which ``cancelLlmStream`` handles), the fetch is
+ * aborted and the reader loop drops out silently — no `done`/`error`
+ * is posted back, since the consumer is already gone.
  */
 async function handleLlmStream(requestJson, requestId) {
-    const sendChunk = (chunk) => worker.postMessage({
-        type: "llm-stream-chunk", id: requestId, chunk,
-    });
-    const sendDone = () => worker.postMessage({
-        type: "llm-stream-done", id: requestId,
-    });
-    const sendError = (msg) => worker.postMessage({
-        type: "llm-stream-error", id: requestId, error: msg,
-    });
+    const controller = new AbortController();
+    llmStreamControllers.set(requestId, controller);
+    const isCancelled = () => !llmStreamControllers.has(requestId);
+
+    const sendChunk = (chunk) => {
+        if (isCancelled()) return;
+        worker.postMessage({ type: "llm-stream-chunk", id: requestId, chunk });
+    };
+    const sendDone = () => {
+        if (isCancelled()) return;
+        llmStreamControllers.delete(requestId);
+        worker.postMessage({ type: "llm-stream-done", id: requestId });
+    };
+    const sendError = (msg) => {
+        if (isCancelled()) return;
+        llmStreamControllers.delete(requestId);
+        worker.postMessage({ type: "llm-stream-error", id: requestId, error: msg });
+    };
 
     let req;
     try {
@@ -398,6 +435,7 @@ async function handleLlmStream(requestJson, requestId) {
             method: req.method || "POST",
             headers,
             body: req.body,
+            signal: controller.signal,
         });
         if (!resp.ok) {
             let errorMsg;
@@ -413,6 +451,7 @@ async function handleLlmStream(requestJson, requestId) {
         const reader = resp.body.getReader();
         const decoder = new TextDecoder("utf-8");
         while (true) {
+            if (isCancelled()) return;
             const { done, value } = await reader.read();
             if (done) break;
             // stream: true to retain incomplete multi-byte sequences
@@ -424,6 +463,9 @@ async function handleLlmStream(requestJson, requestId) {
         if (final) sendChunk(final);
         sendDone();
     } catch (e) {
+        // AbortError on a cancelled stream is the expected shutdown
+        // path; don't bubble it up as an error to the consumer.
+        if (isCancelled() || e?.name === "AbortError") return;
         sendError(e.message || String(e));
     }
 }
@@ -466,6 +508,11 @@ export function setLiveIframe(iframe) {
 
 // Console interceptor script — injected into both test and live iframes.
 // Captures console.log/warn/error, window.onerror, unhandled rejections.
+// Also (temporarily) posts resource-load errors back to the parent so
+// we can diagnose the "Not allowed to load local resource: blob:..."
+// warnings — those fire as error events on elements (img/script/etc.)
+// and DON'T bubble to window.onerror, so a capture-phase listener is
+// needed to see them.
 export const CONSOLE_INTERCEPTOR = `
 <script>
 (function() {
@@ -488,6 +535,25 @@ export const CONSOLE_INTERCEPTOR = `
         var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled promise rejection';
         window.__agex_logs.push({ level: 'error', message: msg });
     });
+
+    // Diagnostic: capture resource-load errors and forward to parent
+    // with details about which element / attribute / URL failed.
+    window.addEventListener('error', function(ev) {
+        var el = ev.target;
+        if (!el || el === window) return;  // uncaught JS errors handled above
+        try {
+            var tag = el.tagName ? el.tagName.toLowerCase() : '?';
+            var url = el.src || el.href || el.data || '';
+            var attr = el.src ? 'src' : (el.href ? 'href' : 'data');
+            window.parent.postMessage({
+                type: 'agex-iframe-resource-error',
+                tag: tag,
+                attr: attr,
+                url: String(url),
+                outerHTML: (el.outerHTML || '').slice(0, 200),
+            }, '*');
+        } catch (_) { /* swallow */ }
+    }, true);  // capture phase — resource errors don't bubble
 })();
 <\/script>`;
 
