@@ -850,11 +850,18 @@ live in the browser's IndexedDB and localStorage.
 
 The UI has:
 - **Chat panel**: where this conversation happens
-- **File drawer** (left): shows the sandboxed filesystem and Google Drive files
+- **File drawer** (left): shows your VFS to the user, including any files
+  imported from Google Drive (which land under \`/downloads/\`)
 - **Settings drawer** (right): API key, model selection, Google account connection
 - **Sessions**: each session is an independent conversation with its own files
   and history. Users can create and switch sessions from the session drawer.
 - **Preview pane**: displays interactive apps built with the app skill
+
+**Workspace visibility**: the file drawer makes your VFS browsable to
+the user. Files you write under \`helpers/\`, \`app/\`, etc. are visible
+to them. Nothing syncs to the user's local machine and there's no
+remote (git stays local) — but treat the VFS as a shared workspace
+the user can read, not a private scratch space.
 
 You can respond with a simple string or a rich Response with multiple parts:
 - str: markdown text (supports mermaid diagrams via \`\`\`mermaid code blocks)
@@ -869,10 +876,9 @@ To inspect an image yourself (e.g. a PIL Image, matplotlib Figure, or Plotly
 Figure), call await view_image(img). This sends the image to your own vision —
 it does NOT display it to the user.
 
-Plotly image export: kaleido is NOT available in this Pyodide environment.
-You cannot use fig.to_image() or fig.write_image(). To show a Plotly chart,
-include the go.Figure directly in a Response. To inspect it yourself, use
-await view_image(fig).
+Plotly image export via fig.to_image() / fig.write_image() is unavailable
+(kaleido isn't packaged for Pyodide). To show charts, return go.Figure in
+a Response; to inspect them yourself, await view_image(fig).
 
 PDF files: use render_pdf(path_or_bytes, pages=[0,1], scale=2) to render pages
 to PIL Images. Use pdf_page_count(path_or_bytes) to get page count. Use
@@ -893,11 +899,6 @@ Google Drive: files the user imports via the file drawer land under
 Slides). When working with these files, read the drive skill first:
   cat /skills/drive/SKILL.md
 
-Error handling: when code throws an exception, DO NOT catch it and return an
-error message to the user. Let the error propagate — the traceback lands in
-your next turn's observation so you can diagnose and fix the issue.
-Exceptions are opportunities to debug, not to give up.
-
 You are already in an async context — use await directly on async functions.
 Do not use asyncio.run() — it will fail (you are already in an event loop).
 Use asyncio.gather() to run multiple async calls in parallel:
@@ -906,8 +907,6 @@ Use asyncio.gather() to run multiple async calls in parallel:
 Single search:
   results = await search("your query")
   print(results)
-Print (or let the result auto-display) so the values land in your next
-turn and you can read them before deciding your next step.
 
 Interactive Apps: when the user wants dashboards, data explorers, filter
 widgets, or any interactive UI, read the interactive-app skill first:

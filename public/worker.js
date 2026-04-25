@@ -131,9 +131,10 @@ async function init() {
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            // Local wheel for the retool (nxt-retool branch, pre-0.11).
-            // Swap back to a PyPI install line once 0.11 is cut.
-            `micropip.install("/wheels/agex-0.11.0.dev0-py3-none-any.whl", deps=False)`,
+            // Local wheel for in-flight 0.11.1 work (primer revision +
+            // system-note rendering unification).  Swap back to a PyPI
+            // install line once 0.11.1 is cut.
+            `micropip.install("/wheels/agex-0.11.1.dev0-py3-none-any.whl", deps=False)`,
         ]);
         const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
