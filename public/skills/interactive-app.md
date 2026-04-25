@@ -55,8 +55,9 @@ render(html`<${App} />`, document.getElementById('app'))
 
 ## Before You Finish
 
-- **Test then continue** — call `test_app()` with `read`/`eval` actions
-  to verify real content, then `task_continue()` to review results. Never
+- **Test, then let the turn end** — call `test_app()` with `read`/`eval`
+  actions to verify real content. Output auto-displays and lands in your
+  next turn's observation; you do NOT need an explicit terminator. Never
   `task_success()` in the same turn as `test_app()` — you haven't seen
   the output yet.
 - **Persist control state** — save filter selections, dates, and UI state
@@ -599,8 +600,9 @@ auto-zooming when the user taps an input field.
 
 Two functions let you test and interact with apps. Both share the same
 actions vocabulary, return format, and **auto-display** behavior — results
-are printed automatically so you just need `task_continue()` to see them.
-You can also capture the return value if you need to branch on results.
+are printed automatically and land in your next turn's observation just
+by letting the `python_action` return normally. You can also capture the
+return value if you need to branch on results.
 
 **Important context:** File changes you make (writing or editing app files)
 are not visible to the user or the live preview until after `task_success()`.
@@ -613,14 +615,15 @@ made this turn) in a hidden iframe. Use this to verify your work before
 finishing:
 
 ```python
-# GOOD — interact with controls and verify the data updates
+# GOOD — interact with controls and verify the data updates.
+# Let the python_action return without a terminator; results
+# auto-display and land in your next turn's observation.
 await test_app(actions=[
     {"select": "#date-range", "value": "last-7-days"},
     {"wait": 500},
     {"read": "#results-table"},
     {"eval": "document.querySelectorAll('#results-table tr').length"},
 ])
-task_continue()  # MUST be task_continue — you need to SEE the results
 ```
 
 Use `{"screenshot": True}` to visually inspect the rendered app, or
@@ -633,34 +636,33 @@ await test_app(actions=[
     {"wait": 1000},
     {"screenshot": True},
 ])
-task_continue()
 
 # Screenshot just a specific component
 await test_app(actions=[
     {"screenshot": "#game-canvas"},
     {"screenshot": ".score-panel"},
 ])
-task_continue()
 ```
 
 A bare `await test_app()` only checks for console errors — it does NOT
 verify that data loaded, charts rendered, or controls work. **Always use
 actions** to interact with your app and read back results before finishing.
 
-**CRITICAL: `test_app()` must be followed by `task_continue()`, NEVER
-`task_success()`.** You cannot see the test results until the next turn.
-If you call `task_success()` after `test_app()`, you are finishing
-without ever reading the test output — you have no idea if the app
-actually works. Always continue, review the results, and only then
-call `task_success()` in a subsequent turn.
+**CRITICAL: never call `task_success()` in the same turn as
+`test_app()`.** You cannot see the test results until the next turn —
+output lands in your next turn's observation when the `python_action`
+returns normally. If you finish the task in the same turn as the test,
+you have no idea whether the app actually works. Let the turn end,
+review the results next turn, and only then call `task_success()`.
 
 ```python
-# Capture return value when you need to branch on results
+# Capture return value when you need to branch on results.
+# No terminator — let the python_action return normally so the
+# auto-displayed output lands in next turn's observation.
 results = await test_app(actions=[{"read": "#count"}])
 count = results[0]["value"]
 if int(count) > 10:
     ...  # handle it
-task_continue()
 ```
 
 ### live_app() — Interact with the User's Live Preview
@@ -673,16 +675,15 @@ Use this to see what the user has selected or entered in the app, or to
 programmatically interact with the UI on their behalf:
 
 ```python
-# Read what the user has selected — auto-displayed
+# Read what the user has selected — auto-displayed.
+# Let the python_action return; results land next turn.
 await live_app(actions=[
     {"read": "#date-input", "prop": "value"},
     {"read": "#results-count"},
 ])
-task_continue()
 
 # See what the live app looks like right now
 await live_app(actions=[{"screenshot": True}])
-task_continue()
 ```
 
 ### Shared Actions
