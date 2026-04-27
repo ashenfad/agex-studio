@@ -35,6 +35,7 @@ describe("settingsStore", () => {
             baseUrl: "",
             chapteringTrigger: 150000,
             toolUseWireFormat: true,
+            reasoningEffort: "medium",
         });
         unsub();
     });

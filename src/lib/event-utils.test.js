@@ -77,6 +77,75 @@ describe("computeDiff", () => {
     it("returns empty array for unknown operation", () => {
         expect(computeDiff("a", "b", "unknown")).toEqual([]);
     });
+
+    // The smart-diff path: when search and content share lines, those
+    // lines render as ``context`` instead of being shown twice.
+
+    it("renders shared lines as context for replace", () => {
+        // Edit changes only the middle line of a 3-line anchor.
+        const result = computeDiff(
+            "def foo():\n    return 42\n\nx = 1",
+            "def foo():\n    return 43\n\nx = 1",
+            "replace",
+        );
+        expect(result).toEqual([
+            { type: "context", text: "def foo():" },
+            { type: "removed", text: "    return 42" },
+            { type: "added", text: "    return 43" },
+            { type: "context", text: "" },
+            { type: "context", text: "x = 1" },
+        ]);
+    });
+
+    it("renders pure additions inside a shared block", () => {
+        // Edit inserts a new line into a function body.
+        const result = computeDiff(
+            "def foo():\n    return 42",
+            "def foo():\n    print('hi')\n    return 42",
+            "replace",
+        );
+        expect(result).toEqual([
+            { type: "context", text: "def foo():" },
+            { type: "added", text: "    print('hi')" },
+            { type: "context", text: "    return 42" },
+        ]);
+    });
+
+    it("renders pure deletions inside a shared block", () => {
+        const result = computeDiff(
+            "def foo():\n    print('hi')\n    return 42",
+            "def foo():\n    return 42",
+            "replace",
+        );
+        expect(result).toEqual([
+            { type: "context", text: "def foo():" },
+            { type: "removed", text: "    print('hi')" },
+            { type: "context", text: "    return 42" },
+        ]);
+    });
+
+    it("falls back to full removed+added when no lines are shared", () => {
+        // Existing test pattern: completely different content stays as
+        // removed-then-added with no spurious context.
+        const result = computeDiff("a\nb", "c\nd", "replace");
+        expect(result).toEqual([
+            { type: "removed", text: "a" },
+            { type: "removed", text: "b" },
+            { type: "added", text: "c" },
+            { type: "added", text: "d" },
+        ]);
+    });
+
+    it("renders identical search and content as all context", () => {
+        // Edge case: a no-op replace.  Won't usually reach the renderer
+        // (apply_file_edit short-circuits and emits a SystemNoteEvent
+        // instead), but the diff should still degrade cleanly.
+        const result = computeDiff("hello\nworld", "hello\nworld", "replace");
+        expect(result).toEqual([
+            { type: "context", text: "hello" },
+            { type: "context", text: "world" },
+        ]);
+    });
 });
 
 describe("truncateText", () => {
