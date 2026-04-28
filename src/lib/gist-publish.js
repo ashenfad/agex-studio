@@ -1,22 +1,19 @@
 /**
  * Publish an agex-studio bundle as a secret GitHub Gist.
  *
- * The artifact lands as a two-file gist: ``manifest.json`` (the
- * inspectable inventory of the bundle, for human / preview UI) and
- * ``bundle.agex.b64`` (the full bundle bytes base64-encoded).  Gists
- * don't accept binary file content directly — everything stored is
- * text — so the bundle round-trips through base64.  The recipient
- * runtime detects the ``.b64`` suffix and decodes before importing.
+ * The artifact lands as a single-file gist: ``<slug>.agex.b64``
+ * (the full bundle bytes base64-encoded).  Gists don't accept
+ * binary file content directly — everything stored is text — so
+ * the bundle round-trips through base64.  The recipient runtime
+ * detects the ``.b64`` suffix and decodes before importing.
  *
- * Why two files instead of one big gist with the bundle flattened
- * across many files?  Recovering the bundle on the recipient side
- * requires a single fetch + decode rather than parsing the gist
- * API response and reconstituting a flattened directory tree.
- * Simpler receive path, single round-trip, no special-case logic
- * for which-file-contains-state-bin.  Only cost is the ~33% size
- * inflation from base64 — gist's ~10MB ceiling becomes ~7.5MB of
- * raw bundle data, which is comfortably above the typical
- * artifact size we expect at hobby scale.
+ * After creation we POST a markdown comment carrying the human
+ * description, the agex.studio runtime link, and a manifest table
+ * (commits / blobs / nodes / sizes) so anyone landing on the raw
+ * gist page sees a readable preview.  GitHub flattens newlines
+ * in the gist description field, so we keep the description to a
+ * single line (just the artifact name) and let the comment carry
+ * everything else.
  */
 
 /**
@@ -130,26 +127,14 @@ export async function publishGistBundle({
     const slug = slugify(effectiveName);
     const bundleFilename = `${slug}.agex.b64`;
 
-    // Initial gist description carries the name + optional
-    // description.  We can't include the runtime URL here because we
-    // don't know the gist ID yet — that comes back in the POST
-    // response.  After creation we PATCH the description to add the
-    // URL so the gist is self-bootstrapping (anyone landing on the
-    // raw gist page sees how to open it in agex.studio).
-    const initialDescription = _composeGistDescription({
-        name: effectiveName,
-        description,
-    });
-
-    // Pretty-print the manifest so anyone clicking through to the gist
-    // on github.com sees a readable inventory.  The bundle file is a
-    // base64 blob — not human-readable — but the manifest gives the
-    // gist a meaningful preview.
+    // Description is a single line — just the artifact name —
+    // because GitHub flattens newlines in the description field.
+    // The full description prose, runtime link, and manifest
+    // table all live in a markdown comment posted after creation.
     const body = {
-        description: initialDescription,
+        description: effectiveName,
         public: !!isPublic,
         files: {
-            "manifest.json": { content: JSON.stringify(manifest, null, 2) },
             [bundleFilename]: { content: b64 },
         },
     };
@@ -210,33 +195,33 @@ export async function publishGistBundle({
     const base = origin || "";
     const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}/${slug}`;
 
-    // Now that we know the runtime URL, PATCH the gist description
-    // to include it.  The gist itself is already created, so a PATCH
-    // failure is non-fatal — we surface it to the console but still
-    // return the result.  The visitor URL works either way; we just
-    // miss the convenience of the URL appearing on the gist's
-    // github.com page.
+    // Post a markdown comment carrying the description prose, the
+    // runtime link, and a manifest table.  The gist itself is
+    // already created, so a comment failure is non-fatal — we log
+    // it and still return the publish result.  The runtime URL
+    // works either way; we just miss the convenience of the
+    // preview block on the gist's github.com page.
     try {
-        const finalDescription = _composeGistDescription({
+        const commentBody = _composeGistComment({
             name: effectiveName,
             description,
             runtimeUrl,
+            manifest,
+            bundleBytesLen: bytes.length,
         });
-        if (finalDescription !== initialDescription) {
-            await fetch(`https://api.github.com/gists/${data.id}`, {
-                method: "PATCH",
-                headers: {
-                    Accept: "application/vnd.github+json",
-                    Authorization: `token ${pat}`,
-                    "Content-Type": "application/json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                },
-                body: JSON.stringify({ description: finalDescription }),
-            });
-        }
+        await fetch(`https://api.github.com/gists/${data.id}/comments`, {
+            method: "POST",
+            headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `token ${pat}`,
+                "Content-Type": "application/json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            body: JSON.stringify({ body: commentBody }),
+        });
     } catch (err) {
-        // Description update failed — log it but don't fail the publish.
-        console.warn("Failed to update gist description with runtime URL:", err);
+        // Comment post failed — log but don't fail the publish.
+        console.warn("Failed to post gist comment with runtime URL:", err);
     }
 
     return {
@@ -248,34 +233,75 @@ export async function publishGistBundle({
 }
 
 /**
- * Compose a gist description from its parts.  Format:
+ * Compose the markdown comment posted to the gist after creation.
  *
- *     <name>
+ * Layout (rendered by GitHub's markdown):
  *
- *     <description, if any>
+ *     ## <name>
  *
- *     <runtime URL, if any>
+ *     <description prose, if any>
  *
- * Each part on its own paragraph so multi-line rendering on the
- * gist's github.com page reads cleanly.  Capped at 500 chars
- * defensively (GitHub allows much more, but list views truncate
- * past ~256, so we don't want to push the URL into the truncated
- * region).
+ *     [Open in agex.studio](<runtime URL>)
  *
- * @param {{ name?: string, description?: string, runtimeUrl?: string }} parts
+ *     |  |  |
+ *     |--|--|
+ *     | Commits | N |
+ *     | Blobs | N |
+ *     | Nodes | N |
+ *     | App storage | size |
+ *     | Bundle | size |
+ *
+ * @param {{
+ *   name: string,
+ *   description?: string,
+ *   runtimeUrl: string,
+ *   manifest: object,
+ *   bundleBytesLen: number,
+ * }} parts
  * @returns {string}
  */
-function _composeGistDescription({ name, description, runtimeUrl }) {
-    const blocks = [];
-    if (name) blocks.push(name.trim());
-    if (description && description.trim()) blocks.push(description.trim());
-    if (runtimeUrl) blocks.push(runtimeUrl);
-    let composed = blocks.join("\n\n");
-    const MAX = 500;
-    if (composed.length > MAX) {
-        composed = composed.slice(0, MAX - 1) + "…";
+function _composeGistComment({
+    name,
+    description,
+    runtimeUrl,
+    manifest,
+    bundleBytesLen,
+}) {
+    const lines = [`## ${name}`];
+    if (description && description.trim()) {
+        lines.push("", description.trim());
     }
-    return composed;
+    lines.push("", `[Open in agex.studio](${runtimeUrl})`);
+
+    const stats = (manifest && manifest.stats) || {};
+    const rows = [];
+    if (stats.commits != null) rows.push(["Commits", String(stats.commits)]);
+    if (stats.blobs != null) rows.push(["Blobs", String(stats.blobs)]);
+    if (stats.nodes != null) rows.push(["Nodes", String(stats.nodes)]);
+    if (stats.app_storage_bytes != null) {
+        rows.push(["App storage", _formatBytes(stats.app_storage_bytes)]);
+    }
+    if (bundleBytesLen != null) {
+        rows.push(["Bundle", _formatBytes(bundleBytesLen)]);
+    }
+    if (rows.length) {
+        lines.push("", "|  |  |", "|--|--|");
+        for (const [k, v] of rows) {
+            lines.push(`| ${k} | ${v} |`);
+        }
+    }
+    return lines.join("\n");
+}
+
+/**
+ * Human-friendly byte count: ``"1.2 MB"`` / ``"345 KB"`` / ``"42 B"``.
+ * @param {number} n
+ * @returns {string}
+ */
+function _formatBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
