@@ -1,6 +1,7 @@
 <script>
     import { uploadFiles, downloadFile, deleteFiles, listFiles } from './agent.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
+    import { sessionStore } from './sessions.js'
     import FileModal from './FileModal.svelte'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
@@ -8,7 +9,14 @@
     let files = $derived(rawFiles ?? [])
 
     let importing = $state(false)
-    const showDriveImport = $derived(isDriveImportAvailable())
+    const isExternal = $derived($sessionStore.currentSessionExternal)
+    // Drive imports are gated off for external sessions — when a
+    // visitor opens someone else's published artifact, we don't want
+    // the artifact to be able to pull files from the visitor's own
+    // Google Drive.  The capability check (auth / picker present)
+    // still gates the underlying availability; this layer is the
+    // policy on top.
+    const showDriveImport = $derived(isDriveImportAvailable() && !isExternal)
 
     async function handleImportFromDrive() {
         if (importing) return
@@ -183,6 +191,12 @@
             />
         </div>
 
+        {#if isExternal && isDriveImportAvailable()}
+            <div class="external-note" title="This session was opened from a shared artifact URL. Drive imports are disabled to keep the artifact's runtime from accessing your personal Drive.">
+                Shared artifact — Drive imports disabled
+            </div>
+        {/if}
+
         {#if selected.size > 0}
             <div class="selection-bar">
                 <span class="selection-count">{selected.size} selected</span>
@@ -295,6 +309,16 @@
     .drive-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+
+    .external-note {
+        margin: 0.5rem 0.75rem 0;
+        padding: 0.4rem 0.6rem;
+        background: var(--surface-hover, rgba(120, 120, 120, 0.08));
+        border-left: 2px solid var(--text-muted);
+        border-radius: 0 4px 4px 0;
+        color: var(--text-muted);
+        font-size: 0.75rem;
     }
 
     .upload-btn {
