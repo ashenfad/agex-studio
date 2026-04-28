@@ -59,6 +59,33 @@ function uint8ArrayToBase64(bytes) {
 }
 
 /**
+ * Derive a URL- and filename-safe slug from a free-form session
+ * label.  Lowercase, non-alphanumeric runs collapse to single
+ * hyphens, ends are trimmed, capped to ``max`` chars (default 50)
+ * with any cut-mid-word trailing hyphen stripped after the cap.
+ * Empty input or all-special-chars falls back to ``"session"``.
+ *
+ * Same shape as ``triggerDownload``'s file-naming logic in
+ * ``SessionDrawer.svelte`` so a published gist's filename mirrors
+ * what the user would see if they exported the same session
+ * locally.
+ *
+ * @param {string} label
+ * @param {number} [max=50]
+ * @returns {string}
+ */
+function slugify(label, max = 50) {
+    let s = (label || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    if (s.length > max) {
+        s = s.slice(0, max).replace(/-+$/, "");
+    }
+    return s || "session";
+}
+
+/**
  * Publish a bundle as a secret gist.
  *
  * @param {{
@@ -92,16 +119,24 @@ export async function publishGistBundle({
 
     const b64 = uint8ArrayToBase64(bytes);
 
+    // Slug is derived from the description so the gist's filename
+    // (and the share URL's third segment) carries the artifact's
+    // human name rather than a generic ``bundle``.  A publisher with
+    // many gists in their profile can scan them by filename instead
+    // of having to read every description.
+    const slug = slugify(description);
+    const bundleFilename = `${slug}.agex.b64`;
+
     // Pretty-print the manifest so anyone clicking through to the gist
-    // on github.com sees a readable inventory.  Bundle file is a base64
-    // blob — not human-readable — but the manifest gives the gist a
-    // meaningful preview.
+    // on github.com sees a readable inventory.  The bundle file is a
+    // base64 blob — not human-readable — but the manifest gives the
+    // gist a meaningful preview.
     const body = {
         description: description || "agex-studio artifact",
         public: !!isPublic,
         files: {
             "manifest.json": { content: JSON.stringify(manifest, null, 2) },
-            "bundle.agex.b64": { content: b64 },
+            [bundleFilename]: { content: b64 },
         },
     };
 
@@ -152,14 +187,15 @@ export async function publishGistBundle({
     // overwrites" semantics.  Tradeoff: not byte-immutable, but the
     // user can always fork to snapshot.
     const bundleRawUrl =
-        `https://gist.githubusercontent.com/${ownerLogin}/${data.id}/raw/bundle.agex.b64`;
+        `https://gist.githubusercontent.com/${ownerLogin}/${data.id}/raw/${bundleFilename}`;
 
-    // Use the ``?gist=USER/ID`` shorthand instead of an encoded
-    // ``?src=`` URL.  The receive resolver expands it back to
-    // ``bundleRawUrl`` on open.  Saves ~80 chars on the share URL
-    // versus the encoded full form.
+    // Use the ``?gist=USER/ID/SLUG`` shorthand instead of an encoded
+    // ``?src=`` URL.  The receive resolver appends ``.agex.b64`` to
+    // the slug to reconstruct ``bundleRawUrl``.  Two-segment form
+    // (``?gist=USER/ID``, with ``bundle`` slug) stays accepted on
+    // receive for backward compat with the prior URL shape.
     const base = origin || "";
-    const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}`;
+    const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}/${slug}`;
 
     return {
         gistId: data.id,

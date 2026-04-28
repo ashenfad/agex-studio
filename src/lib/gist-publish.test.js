@@ -76,7 +76,7 @@ describe("publishGistBundle", () => {
             pat: "ghp_test",
             bytes: bytesOf("bundle bytes"),
             manifest: { stats: { commits: 5 } },
-            description: "My session",
+            description: "My Session",
             origin: "https://agex.studio",
         });
 
@@ -89,29 +89,81 @@ describe("publishGistBundle", () => {
         expect(init.headers["X-GitHub-Api-Version"]).toBe("2022-11-28");
         const body = JSON.parse(init.body);
         expect(body.public).toBe(false);
-        expect(body.description).toBe("My session");
+        expect(body.description).toBe("My Session");
         expect(body.files["manifest.json"].content).toContain('"commits": 5');
-        // Base64 of "bundle bytes" should land in bundle.agex.b64
-        expect(body.files["bundle.agex.b64"].content).toBe(
+        // The bundle filename is slugified from the description so a
+        // publisher's gist profile shows differentiated filenames
+        // instead of N copies of "bundle.agex.b64".
+        expect(body.files["my-session.agex.b64"].content).toBe(
             btoa("bundle bytes"),
         );
+        // No generic fallback file when a description is provided.
+        expect(body.files["bundle.agex.b64"]).toBeUndefined();
 
         // Verify the returned URL shape:
         //   * gistId / gistHtmlUrl come straight from the API response
         //   * bundleRawUrl is the unversioned raw URL we construct
-        //     ourselves (no commit SHA, so re-publish updates it)
-        //   * runtimeUrl uses the ``?gist=USER/ID`` shorthand for
-        //     ~80 chars saved over the encoded ``?src=`` form
+        //     ourselves (no commit SHA, so re-publish updates it),
+        //     and uses the slugified filename
+        //   * runtimeUrl uses the ``?gist=USER/ID/SLUG`` shorthand —
+        //     self-describing and ~80 chars shorter than ``?src=``
         expect(result.gistId).toBe("abc123def456");
         expect(result.gistHtmlUrl).toContain("gist.github.com");
         expect(result.bundleRawUrl).toBe(
-            "https://gist.githubusercontent.com/test-user/abc123def456/raw/bundle.agex.b64",
+            "https://gist.githubusercontent.com/test-user/abc123def456/raw/my-session.agex.b64",
         );
         // No commit SHA in the URL — recipients pick up updates.
         expect(result.bundleRawUrl).not.toMatch(/\/raw\/[a-f0-9]{40}\//);
         expect(result.runtimeUrl).toBe(
-            "https://agex.studio/run/?gist=test-user/abc123def456",
+            "https://agex.studio/run/?gist=test-user/abc123def456/my-session",
         );
+    });
+
+    it("falls back to a 'session' slug when description is empty", async () => {
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 201,
+            json: async () => fakeGistResponse(),
+        });
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            description: "",
+            origin: "https://agex.studio",
+        });
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(body.files["session.agex.b64"]).toBeDefined();
+        expect(result.runtimeUrl).toBe(
+            "https://agex.studio/run/?gist=test-user/abc123def456/session",
+        );
+    });
+
+    it("caps the slug at 50 chars and trims trailing hyphens after slicing", async () => {
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 201,
+            json: async () => fakeGistResponse(),
+        });
+        // 80-char description: well past the 50-char slug cap.
+        const longDesc =
+            "Quarterly Sales Dashboard for the North American Region — Final Draft";
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            description: longDesc,
+            origin: "https://agex.studio",
+        });
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        const filenames = Object.keys(body.files).filter((f) =>
+            f.endsWith(".agex.b64"),
+        );
+        expect(filenames).toHaveLength(1);
+        const slug = filenames[0].replace(/\.agex\.b64$/, "");
+        expect(slug.length).toBeLessThanOrEqual(50);
+        expect(slug.endsWith("-")).toBe(false);
+        expect(result.runtimeUrl.endsWith(`/${slug}`)).toBe(true);
     });
 
     it("rejects responses missing owner.login or id", async () => {
