@@ -757,14 +757,7 @@ export async function openExternalBundle(url) {
 const SRC_PARAM = "src";
 const GIST_PARAM = "gist";
 
-/** Loose validator for the gist-shorthand value.
- *
- * Accepts two shapes:
- *   * ``USER/ID``         — the original 2-segment form (uses the
- *                           legacy ``bundle.agex.b64`` filename)
- *   * ``USER/ID/SLUG``    — the current 3-segment form, where
- *                           ``SLUG.agex.b64`` is the gist's
- *                           bundle filename
+/** Loose validator for the gist-shorthand value (``USER/ID/SLUG``).
  *
  * GitHub usernames are alphanumeric with single hyphens; gist IDs
  * are hex; slugs are lowercase alphanumeric + hyphens, capped at
@@ -774,19 +767,15 @@ const GIST_PARAM = "gist";
 function _isValidGistShorthand(value) {
     return (
         typeof value === "string" &&
-        /^[\w.-]+\/[a-f0-9]+(?:\/[a-z0-9-]{1,50})?$/i.test(value)
+        /^[\w.-]+\/[a-f0-9]+\/[a-z0-9-]{1,50}$/i.test(value)
     );
 }
 
-/** Expand a ``USER/ID`` or ``USER/ID/SLUG`` shorthand to the
- * unversioned raw URL of the bundle file inside that gist.  When
- * ``SLUG`` is absent we fall back to ``bundle`` for backward compat
- * with URLs published before the slug-in-filename change. */
+/** Expand a ``USER/ID/SLUG`` shorthand to the unversioned raw URL
+ * of the bundle file inside that gist. */
 function _expandGistShorthand(shorthand) {
-    const parts = shorthand.split("/");
-    const userAndId = `${parts[0]}/${parts[1]}`;
-    const slug = parts[2] || "bundle";
-    return `https://gist.githubusercontent.com/${userAndId}/raw/${slug}.agex.b64`;
+    const [user, id, slug] = shorthand.split("/");
+    return `https://gist.githubusercontent.com/${user}/${id}/raw/${slug}.agex.b64`;
 }
 
 /**
