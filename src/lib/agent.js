@@ -528,6 +528,15 @@ _agent.module(_sklearn, visibility="low", recursive=True)
 import skimage as _skimage
 _agent.module(_skimage, visibility="low", recursive=True)
 
+# matplotlib is registered low-viz so the primer doesn't enumerate
+# its API surface (huge), but agents can still import it (or
+# pyplot) when they reach for it.  Force the non-interactive Agg
+# backend before any pyplot import — Pyodide has no GUI display
+# and the default backend selection would fail trying to find one.
+import matplotlib as _matplotlib
+_matplotlib.use("Agg")
+_agent.module(_matplotlib, visibility="low", recursive=True)
+
 # -- Register calgebra with network access for Google Calendar API --
 import calgebra as _calgebra
 _agent.module(_calgebra, visibility="low", recursive=True, network_access=True)
@@ -878,7 +887,8 @@ it does NOT display it to the user.
 
 Plotly image export via fig.to_image() / fig.write_image() is unavailable
 (kaleido isn't packaged for Pyodide). To show charts, return go.Figure in
-a Response; to inspect them yourself, await view_image(fig).
+a Response; to inspect them yourself, await view_image(fig). To save a
+chart to a file, use matplotlib — fig.savefig("path.png") works directly.
 
 PDF files: use render_pdf(path_or_bytes, pages=[0,1], scale=2) to render pages
 to PIL Images. Use pdf_page_count(path_or_bytes) to get page count. Use
