@@ -191,9 +191,8 @@ export async function publishGistBundle({
 
     // Use the ``?gist=USER/ID/SLUG`` shorthand instead of an encoded
     // ``?src=`` URL.  The receive resolver appends ``.agex.b64`` to
-    // the slug to reconstruct ``bundleRawUrl``.  Two-segment form
-    // (``?gist=USER/ID``, with ``bundle`` slug) stays accepted on
-    // receive for backward compat with the prior URL shape.
+    // the slug to reconstruct ``bundleRawUrl``.  Self-describing
+    // share URL and ~80 chars saved over the encoded full form.
     const base = origin || "";
     const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}/${slug}`;
 
