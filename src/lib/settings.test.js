@@ -31,6 +31,7 @@ describe("settingsStore", () => {
         expect(received).toEqual({
             apiKey: "",
             model: "google/gemini-3-flash-preview",
+            accessMode: "openrouter",
             provider: "openai",
             baseUrl: "",
             chapteringTrigger: 150000,
@@ -74,6 +75,65 @@ describe("settingsStore", () => {
             received = s;
         });
         expect(received.apiKey).toBe("");
+    });
+
+    /** Migration: pre-accessMode settings that were already going through
+     * OpenRouter (the only flow we shipped before direct providers were
+     * an option) should land on accessMode="openrouter" — not get bumped
+     * to "custom" with no URL set, which would be unusable. */
+    it("infers accessMode='openrouter' for legacy settings with empty baseUrl", async () => {
+        store["agex-settings"] = JSON.stringify({
+            apiKey: "sk-or-legacy",
+            model: "openai/gpt-5.4",
+            provider: "openai",
+            baseUrl: "",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        expect(received.accessMode).toBe("openrouter");
+    });
+
+    it("infers accessMode='custom' from a legacy provider='anthropic'", async () => {
+        store["agex-settings"] = JSON.stringify({
+            apiKey: "sk-ant-legacy",
+            provider: "anthropic",
+            baseUrl: "",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        // Anthropic-direct users land on "custom" so the URL field is
+        // surfaced (Anthropic-direct needs an explicit URL even though
+        // it's still browser-friendly).
+        expect(received.accessMode).toBe("custom");
+        expect(received.provider).toBe("anthropic");
+    });
+
+    it("infers accessMode='openrouter' from a legacy openrouter baseUrl", async () => {
+        store["agex-settings"] = JSON.stringify({
+            apiKey: "sk-or-legacy",
+            provider: "openai",
+            baseUrl: "https://openrouter.ai/api/v1",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        expect(received.accessMode).toBe("openrouter");
+    });
+
+    it("collapses the brief-iteration accessMode='openai'/'anthropic' into 'custom'", async () => {
+        store["agex-settings"] = JSON.stringify({
+            apiKey: "sk-test",
+            accessMode: "anthropic",
+            provider: "anthropic",
+            baseUrl: "",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        expect(received.accessMode).toBe("custom");
+        expect(received.provider).toBe("anthropic");
     });
 });
 

@@ -1,7 +1,10 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
 
-    const MODELS = [
+    // Preset model list for OpenRouter.  Custom mode has no preset —
+    // the model name depends on whatever endpoint the user pointed at,
+    // so it's always a free-text input there.
+    const OPENROUTER_MODELS = [
         { id: "openai/gpt-5.4", label: "GPT-5.4" },
         { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
         { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
@@ -20,6 +23,7 @@
     let apiKey = $state('')
     let model = $state('')
     let customModel = $state(false)
+    let accessMode = $state('openrouter')
     let provider = $state('openai')
     let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
@@ -27,13 +31,28 @@
     let reasoningEffort = $state('medium')
     let githubPat = $state('')
 
-    // Sync local state from store whenever drawer opens
+    // Sync local state from store whenever drawer opens.  We deliberately
+    // route the mode through a ``const mode`` instead of reading the
+    // ``accessMode`` ``$state`` we just wrote — Svelte 5's ``$effect``
+    // auto-tracks every reactive read, so a read of ``accessMode`` here
+    // would make any later change to it (via the Provider select) re-fire
+    // this effect and snap it right back to the stored value.  Locking
+    // the control silently.  Use only ``s.*`` and locals on the right
+    // side of the assignments so the only tracked deps are ``open`` and
+    // ``$settingsStore``.
     $effect(() => {
         if (open) {
             const s = $settingsStore
+            const mode = s.accessMode ?? 'openrouter'
             apiKey = s.apiKey
+            accessMode = mode
             model = s.model
-            customModel = !MODELS.some(m => m.id === s.model)
+            // Custom always shows a text input (no preset catalog); for
+            // OpenRouter, fall back to the input only when the stored
+            // model isn't one of our known presets.
+            customModel =
+                mode !== 'openrouter' ||
+                !OPENROUTER_MODELS.some(m => m.id === s.model)
             provider = s.provider ?? 'openai'
             baseUrl = s.baseUrl ?? ''
             chapteringTrigger = s.chapteringTrigger
@@ -43,10 +62,38 @@
         }
     })
 
+    /** Switch access mode.  Snaps fields to that mode's natural state:
+     *   - openrouter: clear baseUrl (default endpoint), provider="openai"
+     *     (the recommended default; switchable in Advanced for routes
+     *     that prefer Anthropic shape), model = first OpenRouter preset.
+     *   - custom: leave baseUrl untouched if already set, otherwise
+     *     blank (user must fill it in); leave provider as-is so a
+     *     user toggling between modes doesn't lose their format
+     *     choice; clear model (custom endpoints have no preset
+     *     catalog and the OpenRouter-namespaced ID would be wrong).
+     */
+    function setAccessMode(mode) {
+        accessMode = mode
+        if (mode === 'openrouter') {
+            provider = 'openai'
+            baseUrl = ''
+            model = OPENROUTER_MODELS[0]?.id ?? ''
+            customModel = false
+        } else {
+            // ``custom``: keep provider (user's format choice) and
+            // baseUrl (their endpoint) intact across mode toggles;
+            // clear model since OpenRouter-style IDs won't match a
+            // direct endpoint's catalog.
+            model = ''
+            customModel = true
+        }
+    }
+
     function handleSave() {
         updateSettings({
             apiKey: apiKey.trim(),
             model: model.trim(),
+            accessMode,
             provider,
             baseUrl: baseUrl.trim(),
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
@@ -87,124 +134,168 @@
         <h2>Settings</h2>
 
         <form onsubmit={(e) => { e.preventDefault(); handleSave() }}>
-            <label>
-                <span>OpenRouter API Key</span>
-                <input
-                    type="password"
-                    bind:value={apiKey}
-                    placeholder="sk-or-..."
-                    autocomplete="off"
-                />
-            </label>
-
-            <label>
-                <span>Model</span>
-                {#if customModel}
-                    <input
-                        type="text"
-                        bind:value={model}
-                        placeholder="provider/model-name"
-                    />
-                    <button type="button" class="toggle-link" onclick={() => { customModel = false; model = MODELS[0].id }}>
-                        Choose from list
-                    </button>
-                {:else}
-                    <select bind:value={model}>
-                        {#each MODELS as m}
-                            <option value={m.id}>{m.label}</option>
-                        {/each}
-                    </select>
-                    <button type="button" class="toggle-link" onclick={() => { customModel = true; model = '' }}>
-                        Enter custom model
-                    </button>
-                {/if}
-            </label>
-
-            <label>
-                <span>API format</span>
-                <div class="segmented">
-                    <button
-                        type="button"
-                        class:active={provider === 'openai'}
-                        onclick={() => provider = 'openai'}
-                    >OpenAI</button>
-                    <button
-                        type="button"
-                        class:active={provider === 'anthropic'}
-                        onclick={() => provider = 'anthropic'}
-                    >Anthropic</button>
+            <!-- Scrollable body — every field lives here so the form
+                 grows / scrolls cleanly when Advanced is expanded.
+                 ``Save`` and ``Cancel`` are pinned below in `.actions`
+                 so they stay reachable regardless of content height. -->
+            <div class="form-body">
+                <div class="field">
+                    <span class="field-label">Provider</span>
+                    <div class="segmented">
+                        <button
+                            type="button"
+                            class:active={accessMode === 'openrouter'}
+                            onclick={() => setAccessMode('openrouter')}
+                        >OpenRouter</button>
+                        <button
+                            type="button"
+                            class:active={accessMode === 'custom'}
+                            onclick={() => setAccessMode('custom')}
+                        >Custom</button>
+                    </div>
                 </div>
-            </label>
 
-            <label class="checkbox-row">
-                <input
-                    type="checkbox"
-                    bind:checked={toolUseWireFormat}
-                />
-                <span class="checkbox-label">
-                    Enable native model reasoning
-                    <span class="hint">
-                        Use the model's built-in reasoning. Uncheck for older non-reasoning models.
+                <label>
+                    <span>API Key</span>
+                    <input
+                        type="password"
+                        bind:value={apiKey}
+                        placeholder={
+                            accessMode === 'openrouter' ? 'sk-or-v1-...'
+                            : provider === 'anthropic' ? 'sk-ant-...'
+                            : 'sk-...'
+                        }
+                        autocomplete="off"
+                    />
+                </label>
+
+                {#if accessMode === 'custom'}
+                    <label>
+                        <span>Endpoint URL</span>
+                        <input
+                            type="text"
+                            bind:value={baseUrl}
+                            placeholder={
+                                provider === 'anthropic'
+                                    ? 'https://api.anthropic.com/v1'
+                                    : 'https://api.openai.com/v1'
+                            }
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                    </label>
+
+                    <div class="field">
+                        <span class="field-label">API format</span>
+                        <div class="segmented">
+                            <button
+                                type="button"
+                                class:active={provider === 'openai'}
+                                onclick={() => provider = 'openai'}
+                            >OpenAI-compatible</button>
+                            <button
+                                type="button"
+                                class:active={provider === 'anthropic'}
+                                onclick={() => provider = 'anthropic'}
+                            >Anthropic</button>
+                        </div>
+                    </div>
+                {/if}
+
+                <label>
+                    <span>Model</span>
+                    {#if customModel}
+                        <input
+                            type="text"
+                            bind:value={model}
+                            placeholder={accessMode === 'openrouter' ? 'provider/model-name' : 'model-name'}
+                        />
+                        {#if accessMode === 'openrouter'}
+                            <button type="button" class="toggle-link" onclick={() => { customModel = false; model = OPENROUTER_MODELS[0]?.id ?? '' }}>
+                                Choose from list
+                            </button>
+                        {/if}
+                    {:else}
+                        <!-- Preset list is OpenRouter-only — Custom mode
+                             always uses the free-text input above. -->
+                        <select bind:value={model}>
+                            {#each OPENROUTER_MODELS as m}
+                                <option value={m.id}>{m.label}</option>
+                            {/each}
+                        </select>
+                        <button type="button" class="toggle-link" onclick={() => { customModel = true; model = '' }}>
+                            Enter custom model
+                        </button>
+                    {/if}
+                </label>
+
+                <label class="checkbox-row">
+                    <input
+                        type="checkbox"
+                        bind:checked={toolUseWireFormat}
+                    />
+                    <span class="checkbox-label">
+                        Enable native model reasoning
                     </span>
-                </span>
-            </label>
+                </label>
 
-            <label>
-                <span>Reasoning effort</span>
-                <select bind:value={reasoningEffort} disabled={!toolUseWireFormat}>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                </select>
-                <span class="hint">
-                    How much the model thinks per turn. Higher is slower and costs more.
-                </span>
-            </label>
+                <label>
+                    <span>Reasoning effort</span>
+                    <select bind:value={reasoningEffort} disabled={!toolUseWireFormat}>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                    </select>
+                </label>
 
-            <label>
-                <span>Custom base URL (optional)</span>
-                <input
-                    type="text"
-                    bind:value={baseUrl}
-                    placeholder={provider === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://openrouter.ai/api/v1'}
-                    autocomplete="off"
-                />
-            </label>
+                {#if accessMode === 'openrouter'}
+                    <div class="field">
+                        <span class="field-label">API format</span>
+                        <div class="segmented">
+                            <button
+                                type="button"
+                                class:active={provider === 'openai'}
+                                onclick={() => provider = 'openai'}
+                            >OpenAI</button>
+                            <button
+                                type="button"
+                                class:active={provider === 'anthropic'}
+                                onclick={() => provider = 'anthropic'}
+                            >Anthropic</button>
+                        </div>
+                    </div>
+                {/if}
 
-            <div class="divider"></div>
+                <div class="divider"></div>
 
-            <div class="section-label">Chaptering</div>
+                <label>
+                    <span>Chaptering trigger (tokens)</span>
+                    <input
+                        type="number"
+                        bind:value={chapteringTrigger}
+                        min="1000"
+                        step="1000"
+                    />
+                </label>
 
-            <label>
-                <span>Chaptering trigger (tokens)</span>
-                <input
-                    type="number"
-                    bind:value={chapteringTrigger}
-                    min="1000"
-                    step="1000"
-                />
-            </label>
+                <div class="divider"></div>
 
-            <div class="divider"></div>
+                <label>
+                    <span>GitHub Personal Access Token</span>
+                    <input
+                        type="password"
+                        bind:value={githubPat}
+                        placeholder="ghp_… or github_pat_…"
+                        autocomplete="off"
+                        spellcheck="false"
+                    />
+                    <span class="hint">
+                        For publishing work as gists
+                        (<a href={PAT_DEEP_LINK} target="_blank" rel="noopener">create</a>)
+                    </span>
+                </label>
 
-            <div class="section-label">GitHub (for publishing)</div>
-
-            <label>
-                <span>Personal Access Token</span>
-                <input
-                    type="password"
-                    bind:value={githubPat}
-                    placeholder="ghp_… or github_pat_…"
-                    autocomplete="off"
-                    spellcheck="false"
-                />
-                <span class="hint">
-                    Required to publish artifacts as gists.  Token needs the
-                    <code>gist</code> scope only — nothing else.
-                    <a href={PAT_DEEP_LINK} target="_blank" rel="noopener">Create one</a>
-                    (opens a prefilled GitHub page).
-                </span>
-            </label>
+            </div>
 
             <div class="actions">
                 <button class="save" type="submit">Save</button>
@@ -220,7 +311,6 @@
                 <span class="sep">&middot;</span>
                 <a href="https://github.com/ashenfad/agex-studio" target="_blank" rel="noopener">GitHub</a>
             </div>
-            <div class="version">v{__APP_VERSION__}</div>
         </form>
     </div>
 
@@ -255,24 +345,37 @@
         max-width: 90vw;
         background: var(--surface);
         border-left: 1px solid var(--border);
-        padding: 1.5rem;
         z-index: 101;
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
+        /* Drawer is a 3-row flex column: header (h2) + form (which
+           contains its own scrollable body + sticky actions footer).
+           No padding here so the form-body's scrollbar runs the full
+           height; padding lives on h2 and form-body instead. */
     }
 
     h2 {
         font-size: 1.1rem;
         font-weight: 600;
-        margin-bottom: 0.5rem;
+        padding: 1.5rem 1.5rem 0.75rem;
+        margin: 0;
+        flex-shrink: 0;
     }
 
     form {
         display: flex;
         flex-direction: column;
-        gap: 1.25rem;
         flex: 1;
+        min-height: 0;  /* required for the inner overflow:auto to work */
+    }
+
+    .form-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.5rem 1.5rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
     }
 
     label {
@@ -281,33 +384,17 @@
         gap: 0.4rem;
     }
 
-    label span {
+    label span,
+    .field-label {
         font-size: 0.8rem;
         color: var(--text-muted);
         font-weight: 500;
     }
 
-    input, select {
-        background: var(--input-bg);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 0.5rem 0.75rem;
-        font-family: inherit;
-        font-size: 0.85rem;
-        outline: none;
-    }
-
-    select {
-        cursor: pointer;
-    }
-
-    input:focus, select:focus {
-        border-color: var(--accent);
-    }
-
-    input::placeholder {
-        color: var(--text-muted);
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
     }
 
     .segmented {
@@ -342,6 +429,29 @@
         color: white;
     }
 
+    input, select {
+        background: var(--input-bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        font-family: inherit;
+        font-size: 0.85rem;
+        outline: none;
+    }
+
+    select {
+        cursor: pointer;
+    }
+
+    input:focus, select:focus {
+        border-color: var(--accent);
+    }
+
+    input::placeholder {
+        color: var(--text-muted);
+    }
+
     .checkbox-row {
         display: flex;
         flex-direction: row;
@@ -367,12 +477,6 @@
         line-height: 1.25;
     }
 
-    .checkbox-label .hint {
-        color: var(--text-muted);
-        font-size: 0.75rem;
-        font-weight: 400;
-    }
-
     .toggle-link {
         background: none;
         border: none;
@@ -390,7 +494,10 @@
     .actions {
         display: flex;
         gap: 0.5rem;
-        margin-top: auto;
+        padding: 0.75rem 1.5rem 0.5rem;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+        flex-shrink: 0;
     }
 
     .actions button {
@@ -426,17 +533,12 @@
         margin: 0.25rem 0;
     }
 
-    .section-label {
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
     .footer-links {
         text-align: center;
         font-size: 0.75rem;
+        padding: 0.25rem 1.5rem 1rem;
+        background: var(--surface);
+        flex-shrink: 0;
     }
 
     .footer-links a,
@@ -459,12 +561,6 @@
     .footer-links .sep {
         color: var(--text-muted);
         margin: 0 0.3rem;
-    }
-
-    .version {
-        text-align: center;
-        font-size: 0.7rem;
-        color: var(--text-muted);
     }
 
     .page-overlay {
