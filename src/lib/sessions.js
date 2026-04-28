@@ -147,7 +147,15 @@ _state.switch_branch("${escaped}")
     await refreshSessionList(branch);
 }
 
-/** Delete a session. Switches to another if deleting current. */
+/** Delete a session. Switches to another only if deleting the current one.
+ *
+ * Does the delete + branch-switch (if needed) + list-rebuild in a single
+ * runPython call.  Splitting these across two calls (as we used to)
+ * raced with kvgit's deferred IndexedDB writes — the second call's
+ * ``list_branches()`` could see the pre-delete state and the drawer
+ * would render with the deleted item still present until the user
+ * clicked elsewhere.
+ */
 export async function deleteSession(branch) {
     const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const json = await runPython(`
@@ -157,30 +165,53 @@ from datetime import datetime as _dt, timezone as _tz
 import app_storage as _app_storage
 
 _state = _agent.state("default")
+_target = "${escaped}"
 
-# Find another branch to switch to before deleting
-_branches = [b for b in _state.list_branches() if b.startswith("chat-") and b != "${escaped}"]
-if _branches:
-    _branches.sort(
-        key=lambda b: _state.peek("__session_updated__", branch=b) or "",
-        reverse=True,
-    )
-    _current = _branches[0]
-    _state.switch_branch(_current)
+# Only switch branches when deleting the active one — otherwise the
+# user expects to stay where they are.
+if _state.current_branch == _target:
+    _other = [b for b in _state.list_branches() if b.startswith("chat-") and b != _target]
+    if _other:
+        _other.sort(
+            key=lambda b: _state.peek("__session_updated__", branch=b) or "",
+            reverse=True,
+        )
+        _new_current = _other[0]
+        _state.switch_branch(_new_current)
+    else:
+        # Last session — create a fresh blank one to land on.
+        _new_current = f"chat-{_uuid.uuid4().hex[:8]}"
+        _state.create_branch(_new_current, at=_state.versioned.initial_commit)
+        _state.switch_branch(_new_current)
+        _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+        _state.commit()
 else:
-    _current = f"chat-{_uuid.uuid4().hex[:8]}"
-    _state.create_branch(_current, at=_state.versioned.initial_commit)
-    _state.switch_branch(_current)
-    _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-    _state.commit()
-_state.delete_branch("${escaped}")
-_app_storage.delete(_state.versioned, "${escaped}")
-_json.dumps(_current)
+    _new_current = _state.current_branch
+
+_state.delete_branch(_target)
+_app_storage.delete(_state.versioned, _target)
+
+# Rebuild the post-delete session list in this same Python call so
+# the JS-side store update is atomic with the delete.
+_sessions = []
+for _b in _state.list_branches():
+    if not _b.startswith("chat-"):
+        continue
+    _sessions.append({
+        "branch": _b,
+        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
+        "name": _state.peek("__session_name__", branch=_b) or "",
+        "description": _state.peek("__session_description__", branch=_b) or "",
+        "updated": _state.peek("__session_updated__", branch=_b) or "",
+        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
+    })
+_sessions.sort(key=lambda s: s["updated"], reverse=True)
+_json.dumps({"current": _new_current, "sessions": _sessions})
     `);
 
-    const newCurrent = JSON.parse(json);
-    localStorage.setItem(CURRENT_BRANCH_KEY, newCurrent);
-    await refreshSessionList(newCurrent);
+    const result = JSON.parse(json);
+    localStorage.setItem(CURRENT_BRANCH_KEY, result.current);
+    update({ currentBranch: result.current, sessions: result.sessions });
 }
 
 /** Load chat history from the current session's events. */
