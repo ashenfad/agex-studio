@@ -9,7 +9,6 @@
     import SettingsDrawer from './SettingsDrawer.svelte'
     import SessionDrawer from './SessionDrawer.svelte'
     import FileDrawer from './FileDrawer.svelte'
-    import { tick } from 'svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
     import { initAgentBasics, initAgentRich, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
@@ -146,23 +145,14 @@
 
             initStatus = 'Setting up agent...'
             await initAgentBasics(s)
-            initStatus = 'Loading sessions...'
             // Honor /run/?src=<url> or /run/?gist=USER/ID/SLUG as a
-            // published-artifact entry point.  On any other URL shape
-            // this is equivalent to initSessions().  We pass a
-            // progress callback so the host can show "Downloading
-            // bundle... 45%" while the (potentially multi-MB) base64
-            // payload streams in — without it the user sees a
-            // motionless "Loading sessions..." for many seconds.
-            await initSessionsFromUrl((received, total) => {
-                if (total) {
-                    const pct = Math.min(100, Math.round((received / total) * 100))
-                    initStatus = `Downloading bundle... ${pct}%`
-                } else {
-                    const mb = (received / (1024 * 1024)).toFixed(1)
-                    initStatus = `Downloading bundle... ${mb} MB`
-                }
-            })
+            // published-artifact entry point — pick a label that
+            // reflects which path we're on so the user has a real
+            // signal during the multi-MB bundle fetch + import.
+            initStatus = isExternalEntry
+                ? 'Downloading bundle...'
+                : 'Loading sessions...'
+            await initSessionsFromUrl()
             initStatus = 'Loading history...'
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
@@ -183,17 +173,6 @@
             await initAgentRich(s)
             agentReady = true
             initStatus = ''
-            // Kick the app preview once everything is wired up.
-            // ``agentReady = true`` uncollapses the SplitPane, which
-            // mounts AppPreview for the first time; its $effect fires
-            // once with refreshKey=0 and reads the agent fs.  After a
-            // gist-load that first read can come back empty (the
-            // freshly-imported branch's state singleton hasn't fully
-            // resolved yet), leaving the preview pane blank.  Waiting
-            // a tick — so AppPreview is mounted — and then bumping
-            // refreshKey re-fires loadPreview() against settled state.
-            await tick()
-            previewRefreshKey++
         } catch (e) {
             console.error('Agent init failed:', e)
             initError = e.message || String(e)
@@ -239,6 +218,17 @@
         if (agentReady) return ''
         const py = $pyodideStore
         if (py.status === 'error') return ''  // shown as an error notice instead
+        // During the 'history-ready' stage the worker is idle —
+        // it has finished Wave 2 and is paused waiting for the host
+        // to kick Wave 3.  Meanwhile the host is running
+        // initSessionsFromUrl / loadHistoryChunked / listFiles, and
+        // ``initStatus`` carries the current progress (download %,
+        // ``Loading history...``, etc.).  ``py.message`` would be
+        // frozen at the last worker-side progress string
+        // (``Loading session...``) and shadow that signal.
+        if (py.stage === 'history-ready' && py.status !== 'ready') {
+            return initStatus || py.message || 'Loading...'
+        }
         if (py.status !== 'ready') return py.message || 'Loading...'
         return initStatus || 'Initializing agent...'
     })
@@ -802,10 +792,6 @@
                 sendDisabled={busy || !agentReady || !configured}
                 prefill={inputPrefill}
             />
-        {:else if !configured}
-            <div class="warming-area">
-                <p>Set your OpenRouter API key in settings to get started.</p>
-            </div>
         {:else if pyodideError}
             <div class="warming-area error">
                 <p>Pyodide failed to load: {pyodideError}</p>
@@ -814,10 +800,19 @@
             <div class="warming-area error">
                 <p>Agent setup failed: {initError}</p>
             </div>
-        {:else}
+        {:else if configured || isExternalEntry}
+            <!-- Startup is actively running (the user has a key, or
+                 they came in via a published-artifact URL).  Show
+                 the warming spinner with whichever phase is active —
+                 ``Downloading bundle... 45%'' during a gist fetch,
+                 ``Loading core packages...'' during install, etc. -->
             <div class="warming-area">
                 <span class="spinner"></span>
                 <p>{warmingMessage || 'Loading...'}</p>
+            </div>
+        {:else}
+            <div class="warming-area">
+                <p>Set your OpenRouter API key in settings to get started.</p>
             </div>
         {/if}
     </div>
