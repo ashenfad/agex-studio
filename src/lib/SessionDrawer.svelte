@@ -722,11 +722,6 @@
                 <div class="publish-disclosure">
                     <strong>Anyone with the URL can see everything in this bundle</strong> — your conversation history, agent-authored helper modules, the app, and any data persisted into the session.  Treat this like an "anyone with the link" share, not a private copy.
                 </div>
-                {#if publishState.bytes.length > 7_500_000}
-                    <div class="publish-warning">
-                        ⚠ This bundle is larger than ~7.5 MB raw and will be near GitHub's gist size ceiling (~10 MB after base64 expansion).  GitHub may reject it.
-                    </div>
-                {/if}
                 <label class="publish-ack">
                     <input
                         type="checkbox"
@@ -1043,14 +1038,6 @@
         font-weight: 600;
     }
 
-    .publish-warning {
-        background: rgba(220, 60, 60, 0.10);
-        border-left: 2px solid rgba(220, 60, 60, 0.7);
-        padding: 0.4rem 0.6rem;
-        border-radius: 0 4px 4px 0;
-        font-size: 0.75rem;
-        color: var(--text);
-    }
 
     .publish-ack {
         display: flex;
