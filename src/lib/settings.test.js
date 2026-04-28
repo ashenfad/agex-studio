@@ -36,6 +36,7 @@ describe("settingsStore", () => {
             chapteringTrigger: 150000,
             toolUseWireFormat: true,
             reasoningEffort: "medium",
+            githubPat: "",
         });
         unsub();
     });

@@ -14,6 +14,8 @@
         resetAppStorage,
         getAppStorageSize,
     } from './sessions.js'
+    import { settingsStore } from './settings.js'
+    import { publishGistBundle, GistPublishError } from './gist-publish.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -51,6 +53,24 @@
      *   { stage: 'error',   session, message }
      */
     let exportState = $state(null)
+
+    /**
+     * Publish modal state machine.  Mirrors export — same shape,
+     * different terminal states (a runtime URL instead of a file
+     * download).  Bundling reuses ``exportBundle`` so byte-for-byte
+     * the artifact is identical to what export produces; publishing
+     * is just "upload that bundle to a gist."
+     *
+     *   null                                                — closed
+     *   { stage: 'bundling', session, phase, done, total }  — building bytes
+     *   { stage: 'preview',  session, manifest, bytes, ack } — show inventory
+     *   { stage: 'uploading', session, manifest, bytes }    — POST in flight
+     *   { stage: 'done',      session, result }             — published
+     *   { stage: 'error',     session, message }
+     */
+    let publishState = $state(null)
+    /** Copy-flash state for the post-publish URL field. */
+    let copyFlash = $state(false)
 
     /** @type {HTMLInputElement | undefined} */
     let fileInput = $state()
@@ -190,6 +210,77 @@
         closeEdit()
         // Fire the existing export flow (preview → progress → done).
         handleExport({ stopPropagation: () => {} }, target)
+    }
+
+    function handleSettingsPublish() {
+        if (!editingSession) return
+        const target = editingSession
+        closeEdit()
+        startPublish(target)
+    }
+
+    /** Start the publish flow: bundle, then surface the preview. */
+    async function startPublish(session) {
+        if (publishState) return
+        publishState = { stage: 'bundling', session, phase: 'walking', done: 0, total: 0 }
+        try {
+            const { bytes, manifest } = await exportBundle(session.branch, (p) => {
+                if (publishState?.stage === 'bundling') {
+                    publishState = { ...publishState, phase: p.phase, done: p.done, total: p.total }
+                }
+            })
+            publishState = { stage: 'preview', session, manifest, bytes, ack: false }
+        } catch (err) {
+            console.error('Failed to bundle for publish:', err)
+            publishState = { stage: 'error', session, message: err.message || String(err) }
+        }
+    }
+
+    function closePublish() {
+        if (publishState?.stage === 'bundling' || publishState?.stage === 'uploading') return
+        publishState = null
+        copyFlash = false
+    }
+
+    async function confirmPublish() {
+        if (!publishState || publishState.stage !== 'preview' || !publishState.ack) return
+        const { session, manifest, bytes } = publishState
+        const pat = $settingsStore.githubPat || ''
+        if (!pat) {
+            publishState = {
+                stage: 'error',
+                session,
+                message: 'No GitHub Personal Access Token in Settings. Add one with the gist scope and try again.',
+            }
+            return
+        }
+        publishState = { stage: 'uploading', session, manifest, bytes }
+        try {
+            const result = await publishGistBundle({
+                pat,
+                bytes,
+                manifest,
+                description: (session.name || session.title || 'agex-studio artifact').slice(0, 200),
+            })
+            publishState = { stage: 'done', session, result }
+        } catch (err) {
+            console.error('Publish failed:', err)
+            const message = err instanceof GistPublishError
+                ? err.message
+                : (err.message || String(err))
+            publishState = { stage: 'error', session, message }
+        }
+    }
+
+    async function copyRuntimeUrl() {
+        if (publishState?.stage !== 'done') return
+        try {
+            await navigator.clipboard.writeText(publishState.result.runtimeUrl)
+            copyFlash = true
+            setTimeout(() => { copyFlash = false }, 2000)
+        } catch (err) {
+            console.error('Copy failed:', err)
+        }
     }
 
     function handleEdit(e, session) {
@@ -572,6 +663,122 @@
     </div>
 {/if}
 
+{#if publishState}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="modal-overlay"
+        onclick={closePublish}
+        onkeydown={(e) => e.key === 'Escape' && closePublish()}
+    ></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <h3>Publish to Gist</h3>
+        </div>
+
+        {#if publishState.stage === 'bundling'}
+            <div class="modal-body">
+                <div class="progress-label">{phaseLabel(publishState.phase)}</div>
+                <div class="progress-bar">
+                    <div
+                        class="progress-fill"
+                        class:indeterminate={!publishState.total}
+                        style={publishState.total
+                            ? `width: ${Math.round((publishState.done / publishState.total) * 100)}%`
+                            : ''}
+                    ></div>
+                </div>
+                <div class="progress-counts">
+                    {#if publishState.total}
+                        {publishState.done} / {publishState.total}
+                    {:else}
+                        bundling...
+                    {/if}
+                </div>
+            </div>
+        {:else if publishState.stage === 'preview'}
+            <div class="modal-body">
+                <div class="preview-field">
+                    <span class="field-label">Name</span>
+                    <div class="preview-value">
+                        {publishState.session.name || publishState.session.title || '(untitled)'}
+                    </div>
+                </div>
+                <div class="preview-field">
+                    <span class="field-label">Bundle</span>
+                    <div class="preview-value preview-stats">
+                        {publishState.manifest.stats?.commits ?? 0} commits ·
+                        {formatBytes(publishState.bytes.length)} raw
+                        ({formatBytes(Math.ceil(publishState.bytes.length * 4 / 3))} after base64)
+                    </div>
+                </div>
+                <div class="publish-disclosure">
+                    <strong>Anyone with the URL can see everything in this bundle</strong> — your conversation history, agent-authored helper modules, the app, and any data persisted into the session.  Treat this like an "anyone with the link" share, not a private copy.
+                </div>
+                {#if publishState.bytes.length > 7_500_000}
+                    <div class="publish-warning">
+                        ⚠ This bundle is larger than ~7.5 MB raw and will be near GitHub's gist size ceiling (~10 MB after base64 expansion).  GitHub may reject it.
+                    </div>
+                {/if}
+                <label class="publish-ack">
+                    <input
+                        type="checkbox"
+                        bind:checked={publishState.ack}
+                    />
+                    <span>I understand the bundle will be publicly accessible by URL.</span>
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" onclick={closePublish}>Cancel</button>
+                <button type="button" class="btn-save" onclick={confirmPublish} disabled={!publishState.ack}>
+                    Publish
+                </button>
+            </div>
+        {:else if publishState.stage === 'uploading'}
+            <div class="modal-body">
+                <div class="progress-label">Uploading to GitHub...</div>
+                <div class="progress-bar">
+                    <div class="progress-fill indeterminate"></div>
+                </div>
+            </div>
+        {:else if publishState.stage === 'done'}
+            <div class="modal-body">
+                <div class="stage-done">
+                    <div class="done-check">✓</div>
+                    <div class="done-message">Published as a secret gist</div>
+                </div>
+                <div class="preview-field">
+                    <span class="field-label">Share this URL</span>
+                    <div class="publish-url-row">
+                        <input
+                            type="text"
+                            class="publish-url-input"
+                            readonly
+                            value={publishState.result.runtimeUrl}
+                            onfocus={(e) => e.target.select()}
+                        />
+                        <button type="button" class="btn-copy" onclick={copyRuntimeUrl}>
+                            {copyFlash ? 'Copied!' : 'Copy'}
+                        </button>
+                    </div>
+                </div>
+                <div class="publish-secondary">
+                    <a href={publishState.result.gistHtmlUrl} target="_blank" rel="noopener">View on GitHub ↗</a>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-save" onclick={closePublish}>Close</button>
+            </div>
+        {:else if publishState.stage === 'error'}
+            <div class="modal-body">
+                <div class="import-error">{publishState.message}</div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" onclick={closePublish}>Close</button>
+            </div>
+        {/if}
+    </div>
+{/if}
+
 {#if importPreview}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="modal-overlay" onclick={closeImportPreview} onkeydown={(e) => e.key === 'Escape' && closeImportPreview()}></div>
@@ -654,11 +861,28 @@
                         type="button"
                         class="btn-action"
                         onclick={handleSettingsExport}
-                        disabled={!!exportState}
+                        disabled={!!exportState || !!publishState}
                     >
                         Export bundle
                     </button>
                     <div class="action-hint">Download this session as a shareable <code>.agex</code> file.</div>
+                </div>
+                <div class="action-row">
+                    <button
+                        type="button"
+                        class="btn-action"
+                        onclick={handleSettingsPublish}
+                        disabled={!!exportState || !!publishState}
+                    >
+                        Publish to gist
+                    </button>
+                    <div class="action-hint">
+                        {#if !$settingsStore.githubPat}
+                            Add a GitHub token in Settings first (gist scope only).
+                        {:else}
+                            Upload as a secret gist and get a shareable URL.
+                        {/if}
+                    </div>
                 </div>
                 {#if editingSession.app_storage_bytes > 0}
                     <div class="action-row">
@@ -794,6 +1018,97 @@
         font-size: 0.72rem;
         color: var(--text-muted);
         line-height: 1.4;
+    }
+
+    .publish-disclosure {
+        background: rgba(255, 200, 100, 0.10);
+        border-left: 2px solid rgba(255, 165, 0, 0.7);
+        padding: 0.55rem 0.7rem;
+        border-radius: 0 4px 4px 0;
+        font-size: 0.78rem;
+        line-height: 1.4;
+        color: var(--text);
+    }
+
+    .publish-disclosure strong {
+        color: var(--text);
+        font-weight: 600;
+    }
+
+    .publish-warning {
+        background: rgba(220, 60, 60, 0.10);
+        border-left: 2px solid rgba(220, 60, 60, 0.7);
+        padding: 0.4rem 0.6rem;
+        border-radius: 0 4px 4px 0;
+        font-size: 0.75rem;
+        color: var(--text);
+    }
+
+    .publish-ack {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+        font-size: 0.78rem;
+        line-height: 1.4;
+        cursor: pointer;
+    }
+
+    .publish-ack input[type="checkbox"] {
+        margin-top: 0.15rem;
+        flex-shrink: 0;
+    }
+
+    .publish-url-row {
+        display: flex;
+        gap: 0.4rem;
+        align-items: stretch;
+    }
+
+    .publish-url-input {
+        flex: 1;
+        font-family: var(--mono, ui-monospace, monospace);
+        font-size: 0.75rem;
+        padding: 0.4rem 0.5rem;
+        background: var(--input-bg, var(--surface));
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text);
+        min-width: 0;
+    }
+
+    .publish-url-input:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: -1px;
+    }
+
+    .btn-copy {
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0 0.8rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .btn-copy:hover {
+        filter: brightness(1.1);
+    }
+
+    .publish-secondary {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .publish-secondary a {
+        color: var(--text-muted);
+        text-decoration: underline;
+    }
+
+    .publish-secondary a:hover {
+        color: var(--text);
     }
 
     .preview-hint code {
