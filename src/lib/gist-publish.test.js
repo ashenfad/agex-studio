@@ -66,22 +66,34 @@ describe("publishGistBundle", () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("posts a secret gist with manifest + base64 bundle and returns the runtime URL", async () => {
+    /** Helper: queue a POST response + a PATCH response on the
+     * shared fetchMock.  The PATCH is a non-fatal description update;
+     * tests that don't care about it can still let it complete by
+     * queuing a default success. */
+    function mockPostAndPatch(opts = {}) {
         fetchMock.mockResolvedValueOnce({
             ok: true,
             status: 201,
-            json: async () => fakeGistResponse(),
+            json: async () => fakeGistResponse(opts),
         });
+        // PATCH response — ignored in happy paths.
+        fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+    }
+
+    it("posts a secret gist with manifest + base64 bundle and returns the runtime URL", async () => {
+        mockPostAndPatch();
         const result = await publishGistBundle({
             pat: "ghp_test",
             bytes: bytesOf("bundle bytes"),
             manifest: { stats: { commits: 5 } },
-            description: "My Session",
+            name: "My Session",
             origin: "https://agex.studio",
         });
 
-        // Verify the request shape
-        expect(fetchMock).toHaveBeenCalledOnce();
+        // Two requests now: POST (create) + PATCH (description update
+        // with the runtime URL we couldn't know before the gist ID
+        // came back from the POST).
+        expect(fetchMock).toHaveBeenCalledTimes(2);
         const [url, init] = fetchMock.mock.calls[0];
         expect(url).toBe("https://api.github.com/gists");
         expect(init.method).toBe("POST");
@@ -89,15 +101,16 @@ describe("publishGistBundle", () => {
         expect(init.headers["X-GitHub-Api-Version"]).toBe("2022-11-28");
         const body = JSON.parse(init.body);
         expect(body.public).toBe(false);
+        // Initial description is just the name — runtime URL not yet
+        // knowable.  PATCH updates it below.
         expect(body.description).toBe("My Session");
         expect(body.files["manifest.json"].content).toContain('"commits": 5');
-        // The bundle filename is slugified from the description so a
+        // The bundle filename is slugified from the name so a
         // publisher's gist profile shows differentiated filenames
         // instead of N copies of "bundle.agex.b64".
         expect(body.files["my-session.agex.b64"].content).toBe(
             btoa("bundle bytes"),
         );
-        // No generic fallback file when a description is provided.
         expect(body.files["bundle.agex.b64"]).toBeUndefined();
 
         // Verify the returned URL shape:
@@ -112,47 +125,101 @@ describe("publishGistBundle", () => {
         expect(result.bundleRawUrl).toBe(
             "https://gist.githubusercontent.com/test-user/abc123def456/raw/my-session.agex.b64",
         );
-        // No commit SHA in the URL — recipients pick up updates.
         expect(result.bundleRawUrl).not.toMatch(/\/raw\/[a-f0-9]{40}\//);
         expect(result.runtimeUrl).toBe(
             "https://agex.studio/run/?gist=test-user/abc123def456/my-session",
         );
+
+        // PATCH includes the runtime URL appended to the description.
+        const [patchUrl, patchInit] = fetchMock.mock.calls[1];
+        expect(patchUrl).toBe(
+            "https://api.github.com/gists/abc123def456",
+        );
+        expect(patchInit.method).toBe("PATCH");
+        const patchBody = JSON.parse(patchInit.body);
+        expect(patchBody.description).toContain("My Session");
+        expect(patchBody.description).toContain(result.runtimeUrl);
     });
 
-    it("falls back to a 'session' slug when description is empty", async () => {
-        fetchMock.mockResolvedValueOnce({
-            ok: true,
-            status: 201,
-            json: async () => fakeGistResponse(),
-        });
+    it("includes the optional session description in the gist description", async () => {
+        mockPostAndPatch();
         const result = await publishGistBundle({
             pat: "ghp_test",
             bytes: bytesOf("x"),
             manifest: {},
-            description: "",
+            name: "Q3 Sales",
+            description: "A breakdown of regional sales for Q3 2026.",
             origin: "https://agex.studio",
         });
-        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-        expect(body.files["session.agex.b64"]).toBeDefined();
-        expect(result.runtimeUrl).toBe(
-            "https://agex.studio/run/?gist=test-user/abc123def456/session",
-        );
+        // Initial POST description has both name and description.
+        const postBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(postBody.description).toContain("Q3 Sales");
+        expect(postBody.description).toContain("A breakdown of regional sales");
+        // PATCH adds the runtime URL on top.
+        const patchBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+        expect(patchBody.description).toContain("Q3 Sales");
+        expect(patchBody.description).toContain("A breakdown of regional sales");
+        expect(patchBody.description).toContain(result.runtimeUrl);
     });
 
-    it("caps the slug at 50 chars and trims trailing hyphens after slicing", async () => {
+    it("succeeds when the PATCH update fails (publish is already done)", async () => {
+        const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
         fetchMock.mockResolvedValueOnce({
             ok: true,
             status: 201,
             json: async () => fakeGistResponse(),
         });
-        // 80-char description: well past the 50-char slug cap.
-        const longDesc =
+        // PATCH errors out — we should still get a successful return.
+        fetchMock.mockRejectedValueOnce(new Error("network blip"));
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            name: "My Session",
+            origin: "https://agex.studio",
+        });
+        expect(result.runtimeUrl).toBe(
+            "https://agex.studio/run/?gist=test-user/abc123def456/my-session",
+        );
+        expect(consoleSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Failed to update gist description"),
+            expect.any(Error),
+        );
+        consoleSpy.mockRestore();
+    });
+
+    it("falls back to a 'session' slug when name is empty", async () => {
+        mockPostAndPatch();
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            name: "",
+            origin: "https://agex.studio",
+        });
+        const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+        // ``agex-studio artifact`` is the empty-name fallback, which
+        // slugifies to ``agex-studio-artifact``.
+        const filenames = Object.keys(body.files).filter((f) =>
+            f.endsWith(".agex.b64"),
+        );
+        expect(filenames).toHaveLength(1);
+        expect(filenames[0]).toBe("agex-studio-artifact.agex.b64");
+        expect(result.runtimeUrl).toBe(
+            "https://agex.studio/run/?gist=test-user/abc123def456/agex-studio-artifact",
+        );
+    });
+
+    it("caps the slug at 50 chars and trims trailing hyphens after slicing", async () => {
+        mockPostAndPatch();
+        // 80-char name: well past the 50-char slug cap.
+        const longName =
             "Quarterly Sales Dashboard for the North American Region — Final Draft";
         const result = await publishGistBundle({
             pat: "ghp_test",
             bytes: bytesOf("x"),
             manifest: {},
-            description: longDesc,
+            name: longName,
             origin: "https://agex.studio",
         });
         const body = JSON.parse(fetchMock.mock.calls[0][1].body);

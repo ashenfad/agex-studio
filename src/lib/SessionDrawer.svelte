@@ -260,7 +260,15 @@
                 pat,
                 bytes,
                 manifest,
-                description: (session.name || session.title || 'agex-studio artifact').slice(0, 200),
+                // Name → gist filename slug + first line of gist
+                // description.  Capped to keep the gist description
+                // readable on github.com's list view.
+                name: (session.name || session.title || '').slice(0, 100),
+                // Optional second line.  Sessions get an editable
+                // description field in the per-session settings
+                // modal; if set, surface it on the published gist
+                // alongside the name.
+                description: (session.description || '').slice(0, 300),
             })
             publishState = { stage: 'done', session, result }
         } catch (err) {
