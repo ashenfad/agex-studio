@@ -135,9 +135,7 @@
                 <span class="checkbox-label">
                     Enable native model reasoning
                     <span class="hint">
-                        Uses the provider's built-in reasoning: Claude extended thinking,
-                        Gemini thought parts, OpenAI Responses, OpenRouter reasoning_details.
-                        Uncheck for non-reasoning models to fall back to narration-in-schema.
+                        Use the model's built-in reasoning. Uncheck for older non-reasoning models.
                     </span>
                 </span>
             </label>
@@ -150,9 +148,7 @@
                     <option value="high">High</option>
                 </select>
                 <span class="hint">
-                    How hard the model should think per turn. Maps to OpenRouter's
-                    reasoning effort and to Anthropic's budget_tokens
-                    (1024 / 2048 / 4096). Ignored when native reasoning is off.
+                    How much the model thinks per turn. Higher is slower and costs more.
                 </span>
             </label>
 
