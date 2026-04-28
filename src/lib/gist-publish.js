@@ -136,17 +136,30 @@ export async function publishGistBundle({
     }
 
     const data = await resp.json();
-    const bundleFile = data.files && data.files["bundle.agex.b64"];
-    if (!bundleFile || !bundleFile.raw_url) {
+    const ownerLogin = data.owner && data.owner.login;
+    if (!ownerLogin || !data.id) {
         throw new GistPublishError(
-            "GitHub accepted the gist but didn't return a raw URL for the bundle file.",
+            "GitHub accepted the gist but didn't return owner / id fields needed to build a share URL.",
             resp.status,
         );
     }
-    const bundleRawUrl = bundleFile.raw_url;
-    const runtimeUrl = origin
-        ? `${origin}/run/?src=${encodeURIComponent(bundleRawUrl)}`
-        : `/run/?src=${encodeURIComponent(bundleRawUrl)}`;
+
+    // We construct the unversioned raw URL ourselves rather than using
+    // ``data.files[...].raw_url`` (which pins to a specific commit
+    // SHA, ~41 chars longer).  Unversioned means recipients with the
+    // share URL automatically pick up updates when the publisher
+    // re-publishes — matches V1_PLAN's "republishing the same slug
+    // overwrites" semantics.  Tradeoff: not byte-immutable, but the
+    // user can always fork to snapshot.
+    const bundleRawUrl =
+        `https://gist.githubusercontent.com/${ownerLogin}/${data.id}/raw/bundle.agex.b64`;
+
+    // Use the ``?gist=USER/ID`` shorthand instead of an encoded
+    // ``?src=`` URL.  The receive resolver expands it back to
+    // ``bundleRawUrl`` on open.  Saves ~80 chars on the share URL
+    // versus the encoded full form.
+    const base = origin || "";
+    const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}`;
 
     return {
         gistId: data.id,

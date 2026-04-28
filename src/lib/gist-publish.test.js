@@ -14,18 +14,17 @@ function bytesOf(text) {
 }
 
 /** A successful gist response shape, narrow enough for our consumer. */
-function fakeGistResponse({ id = "abc123def456", htmlUrl, bundleRawUrl } = {}) {
+function fakeGistResponse({ id = "abc123def456", owner = "test-user", htmlUrl } = {}) {
     return {
         id,
-        html_url: htmlUrl || `https://gist.github.com/test-user/${id}`,
+        owner: { login: owner },
+        html_url: htmlUrl || `https://gist.github.com/${owner}/${id}`,
         files: {
             "manifest.json": {
-                raw_url: `https://gist.githubusercontent.com/test-user/${id}/raw/manifest.json`,
+                raw_url: `https://gist.githubusercontent.com/${owner}/${id}/raw/manifest.json`,
             },
             "bundle.agex.b64": {
-                raw_url:
-                    bundleRawUrl ||
-                    `https://gist.githubusercontent.com/test-user/${id}/raw/bundle.agex.b64`,
+                raw_url: `https://gist.githubusercontent.com/${owner}/${id}/raw/bundle.agex.b64`,
             },
         },
     };
@@ -97,13 +96,41 @@ describe("publishGistBundle", () => {
             btoa("bundle bytes"),
         );
 
-        // Verify the returned URL shape
+        // Verify the returned URL shape:
+        //   * gistId / gistHtmlUrl come straight from the API response
+        //   * bundleRawUrl is the unversioned raw URL we construct
+        //     ourselves (no commit SHA, so re-publish updates it)
+        //   * runtimeUrl uses the ``?gist=USER/ID`` shorthand for
+        //     ~80 chars saved over the encoded ``?src=`` form
         expect(result.gistId).toBe("abc123def456");
         expect(result.gistHtmlUrl).toContain("gist.github.com");
-        expect(result.bundleRawUrl).toContain("bundle.agex.b64");
-        expect(result.runtimeUrl).toBe(
-            `https://agex.studio/run/?src=${encodeURIComponent(result.bundleRawUrl)}`,
+        expect(result.bundleRawUrl).toBe(
+            "https://gist.githubusercontent.com/test-user/abc123def456/raw/bundle.agex.b64",
         );
+        // No commit SHA in the URL — recipients pick up updates.
+        expect(result.bundleRawUrl).not.toMatch(/\/raw\/[a-f0-9]{40}\//);
+        expect(result.runtimeUrl).toBe(
+            "https://agex.studio/run/?gist=test-user/abc123def456",
+        );
+    });
+
+    it("rejects responses missing owner.login or id", async () => {
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 201,
+            json: async () => ({
+                // No owner.
+                id: "abc",
+                files: { "bundle.agex.b64": { raw_url: "..." } },
+            }),
+        });
+        await expect(
+            publishGistBundle({
+                pat: "ghp_test",
+                bytes: bytesOf("x"),
+                manifest: {},
+            }),
+        ).rejects.toThrow(/owner.*id/i);
     });
 
     it("translates 401 into a token-specific error message", async () => {

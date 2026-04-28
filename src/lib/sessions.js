@@ -753,18 +753,43 @@ export async function openExternalBundle(url) {
     return await importBundle(bytes, { external: true });
 }
 
-/** Constant param name for the external-artifact URL entry point. */
+/** Param names accepted by the ``/run/`` entry point. */
 const SRC_PARAM = "src";
+const GIST_PARAM = "gist";
+
+/** Loose validator for the gist-shorthand value (``USER/GIST_ID``).
+ *
+ * GitHub usernames are alphanumeric with single hyphens; gist IDs
+ * are hex.  We accept the broader ``[\w.-]`` for the user side and
+ * hex for the id side, with a single ``/`` separator and no other
+ * structure.  Defense-in-depth — the URL we'd build from a malformed
+ * value would just 404 on fetch — but a fast fail is friendlier than
+ * a network error.
+ */
+function _isValidGistShorthand(value) {
+    return typeof value === "string" && /^[\w.-]+\/[a-f0-9]+$/i.test(value);
+}
+
+/** Expand a ``USER/ID`` shorthand to the unversioned raw URL of the
+ * bundle file inside that gist. */
+function _expandGistShorthand(userSlashId) {
+    return `https://gist.githubusercontent.com/${userSlashId}/raw/bundle.agex.b64`;
+}
 
 /**
- * Initialize sessions, honoring an ``/run/?src=<url>`` entry point.
+ * Initialize sessions, honoring published-artifact entry-point URLs.
  *
- * When ``window.location`` matches that pattern, fetch + import the
- * pointed-at bundle as an external session.  After a successful
- * import we replace the URL with the studio root so refreshing the
- * page doesn't re-import the bundle (would create a duplicate
- * session in the user's IndexedDB).  Errors propagate to the
- * caller so the host can render an inline error.
+ * Accepts two shapes on ``/run/``:
+ *   * ``?gist=USER/GIST_ID`` — the short form for GitHub-gist hosting
+ *     (~50 chars total share URL).  Resolved internally to the
+ *     unversioned raw URL of ``bundle.agex.b64`` inside that gist.
+ *   * ``?src=<full-url>`` — the long form for any host that serves
+ *     a bundle file.  Future BYO-bucket / CDN hosting uses this.
+ *
+ * After a successful import the address bar is rewritten to ``/`` so
+ * a refresh doesn't re-import (would create a duplicate session in
+ * IndexedDB).  Errors propagate to the caller so the host can render
+ * an inline error.
  *
  * On any other URL shape, falls through to ``initSessions()``.
  */
@@ -772,20 +797,30 @@ export async function initSessionsFromUrl() {
     if (typeof window === "undefined") {
         return await initSessions();
     }
-    const params = new URLSearchParams(window.location.search);
-    const src = params.get(SRC_PARAM);
     const isRunPath = window.location.pathname === "/run/" ||
         window.location.pathname === "/run";
-    if (!isRunPath || !src) {
+    if (!isRunPath) {
+        return await initSessions();
+    }
+    const params = new URLSearchParams(window.location.search);
+    let bundleUrl = null;
+    const gistShort = params.get(GIST_PARAM);
+    if (gistShort && _isValidGistShorthand(gistShort)) {
+        bundleUrl = _expandGistShorthand(gistShort);
+    } else {
+        const src = params.get(SRC_PARAM);
+        if (src) bundleUrl = src;
+    }
+    if (!bundleUrl) {
         return await initSessions();
     }
     // Bring the session list up to date first so the imported
     // branch lands into a populated store, not a default-blank one.
     await initSessions();
-    await openExternalBundle(src);
-    // Strip the ``?src=…`` from the URL so a refresh doesn't re-
-    // import.  The artifact URL stays useful for sharing — it's
-    // hosted on the gist, not in our address bar.
+    await openExternalBundle(bundleUrl);
+    // Strip the entry-point query from the URL so a refresh doesn't
+    // re-import.  The artifact URL stays useful for sharing — it's
+    // hosted on the gist (or wherever), not in our address bar.
     if (window.history && typeof window.history.replaceState === "function") {
         window.history.replaceState({}, "", "/");
     }
