@@ -1,9 +1,13 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
 
-    // Preset model list for OpenRouter.  Custom mode has no preset —
-    // the model name depends on whatever endpoint the user pointed at,
-    // so it's always a free-text input there.
+    // Preset catalogs.  OpenRouter's IDs are namespaced
+    // (``openai/gpt-5.4``); direct-shape providers use bare IDs
+    // (``gpt-5.4``, ``claude-opus-4-7``) since each provider's own
+    // API rejects the namespaced form.  Custom mode picks one of the
+    // bare lists based on the API-format choice — so a user pointing
+    // at e.g. Anthropic direct can still pick "Claude Opus 4.7" from
+    // a dropdown instead of typing it.
     const OPENROUTER_MODELS = [
         { id: "openai/gpt-5.4", label: "GPT-5.4" },
         { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
@@ -16,6 +20,22 @@
         { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
         { id: "qwen/qwen3-coder-next", label: "Qwen3 Coder Next" },
     ]
+    const OPENAI_MODELS = [
+        { id: "gpt-5.4", label: "GPT-5.4" },
+        { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+        { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
+    ]
+    const ANTHROPIC_MODELS = [
+        { id: "claude-opus-4-7", label: "Claude Opus 4.7" },
+        { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+        { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    ]
+
+    /** Return the active preset list for the given mode + provider. */
+    function presetsFor(mode, prov) {
+        if (mode === 'openrouter') return OPENROUTER_MODELS
+        return prov === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
+    }
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -44,16 +64,16 @@
         if (open) {
             const s = $settingsStore
             const mode = s.accessMode ?? 'openrouter'
+            const prov = s.provider ?? 'openai'
             apiKey = s.apiKey
             accessMode = mode
             model = s.model
-            // Custom always shows a text input (no preset catalog); for
-            // OpenRouter, fall back to the input only when the stored
-            // model isn't one of our known presets.
-            customModel =
-                mode !== 'openrouter' ||
-                !OPENROUTER_MODELS.some(m => m.id === s.model)
-            provider = s.provider ?? 'openai'
+            // Drop into the free-text input when the stored model
+            // isn't in this mode+provider's preset list — e.g. a
+            // self-hosted vLLM model name picked under Custom +
+            // openai-shape, or a stray legacy ID that doesn't match.
+            customModel = !presetsFor(mode, prov).some(m => m.id === s.model)
+            provider = prov
             baseUrl = s.baseUrl ?? ''
             chapteringTrigger = s.chapteringTrigger
             toolUseWireFormat = s.toolUseWireFormat ?? true
@@ -62,30 +82,34 @@
         }
     })
 
-    /** Switch access mode.  Snaps fields to that mode's natural state:
-     *   - openrouter: clear baseUrl (default endpoint), provider="openai"
-     *     (the recommended default; switchable in Advanced for routes
-     *     that prefer Anthropic shape), model = first OpenRouter preset.
-     *   - custom: leave baseUrl untouched if already set, otherwise
-     *     blank (user must fill it in); leave provider as-is so a
-     *     user toggling between modes doesn't lose their format
-     *     choice; clear model (custom endpoints have no preset
-     *     catalog and the OpenRouter-namespaced ID would be wrong).
-     */
+    /** Switch access mode.  Snaps the model to the first preset of
+     * the target mode+provider since model IDs aren't portable across
+     * shapes — ``openai/gpt-5.4`` is OpenRouter-only, ``gpt-5.4`` is
+     * direct-OpenAI-only, etc.  OpenRouter resets ``provider`` and
+     * ``baseUrl`` to the recommended defaults; Custom keeps the
+     * provider (the user's format choice) and baseUrl intact across
+     * mode toggles. */
     function setAccessMode(mode) {
         accessMode = mode
         if (mode === 'openrouter') {
             provider = 'openai'
             baseUrl = ''
-            model = OPENROUTER_MODELS[0]?.id ?? ''
-            customModel = false
-        } else {
-            // ``custom``: keep provider (user's format choice) and
-            // baseUrl (their endpoint) intact across mode toggles;
-            // clear model since OpenRouter-style IDs won't match a
-            // direct endpoint's catalog.
-            model = ''
-            customModel = true
+        }
+        const presets = presetsFor(mode, provider)
+        model = presets[0]?.id ?? ''
+        customModel = false
+    }
+
+    /** Re-snap the model when the API-format toggle flips in Custom
+     * mode — bare OpenAI IDs won't be valid against an Anthropic
+     * endpoint and vice versa.  Only applies when the user is on a
+     * preset (customModel=false); free-text custom strings are left
+     * alone since the user typed them deliberately. */
+    function setProvider(prov) {
+        provider = prov
+        if (!customModel) {
+            const presets = presetsFor(accessMode, prov)
+            model = presets[0]?.id ?? ''
         }
     }
 
@@ -191,12 +215,12 @@
                             <button
                                 type="button"
                                 class:active={provider === 'openai'}
-                                onclick={() => provider = 'openai'}
+                                onclick={() => setProvider('openai')}
                             >OpenAI-compatible</button>
                             <button
                                 type="button"
                                 class:active={provider === 'anthropic'}
-                                onclick={() => provider = 'anthropic'}
+                                onclick={() => setProvider('anthropic')}
                             >Anthropic</button>
                         </div>
                     </div>
@@ -210,16 +234,12 @@
                             bind:value={model}
                             placeholder={accessMode === 'openrouter' ? 'provider/model-name' : 'model-name'}
                         />
-                        {#if accessMode === 'openrouter'}
-                            <button type="button" class="toggle-link" onclick={() => { customModel = false; model = OPENROUTER_MODELS[0]?.id ?? '' }}>
-                                Choose from list
-                            </button>
-                        {/if}
+                        <button type="button" class="toggle-link" onclick={() => { customModel = false; model = presetsFor(accessMode, provider)[0]?.id ?? '' }}>
+                            Choose from list
+                        </button>
                     {:else}
-                        <!-- Preset list is OpenRouter-only — Custom mode
-                             always uses the free-text input above. -->
                         <select bind:value={model}>
-                            {#each OPENROUTER_MODELS as m}
+                            {#each presetsFor(accessMode, provider) as m}
                                 <option value={m.id}>{m.label}</option>
                             {/each}
                         </select>
