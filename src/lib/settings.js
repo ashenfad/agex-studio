@@ -12,6 +12,7 @@ const DEFAULTS = {
     chapteringTrigger: 150000,
     toolUseWireFormat: true,
     reasoningEffort: "medium",
+    githubPat: "",
 };
 
 /** @type {((s: Settings) => void)[]} */
@@ -34,6 +35,10 @@ let subscribers = [];
  *     OpenRouter's ``reasoning.effort`` and to an Anthropic
  *     ``budget_tokens`` (1024 / 2048 / 4096).  Ignored when
  *     toolUseWireFormat is false.
+ * @property {string} githubPat — GitHub Personal Access Token with
+ *     ``gist`` scope.  Used to publish artifact bundles as secret
+ *     gists.  Stored locally; never sent anywhere except api.github.com.
+ *     Empty string when the user hasn't connected GitHub yet.
  */
 
 /** @type {Settings} */

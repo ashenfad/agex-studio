@@ -25,6 +25,7 @@
     let chapteringTrigger = $state(80000)
     let toolUseWireFormat = $state(true)
     let reasoningEffort = $state('medium')
+    let githubPat = $state('')
 
     // Sync local state from store whenever drawer opens
     $effect(() => {
@@ -38,6 +39,7 @@
             chapteringTrigger = s.chapteringTrigger
             toolUseWireFormat = s.toolUseWireFormat ?? true
             reasoningEffort = s.reasoningEffort ?? 'medium'
+            githubPat = s.githubPat ?? ''
         }
     })
 
@@ -50,9 +52,16 @@
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
             toolUseWireFormat,
             reasoningEffort,
+            githubPat: githubPat.trim(),
         })
         onClose()
     }
+
+    // Deep link to GitHub's classic-PAT creation page with the
+    // ``gist`` scope prefilled.  Fine-grained PATs work too but
+    // GitHub doesn't accept prefilled scopes on that page; user
+    // selects "Gists: read and write" manually if they prefer FG.
+    const PAT_DEEP_LINK = 'https://github.com/settings/tokens/new?description=agex-studio&scopes=gist'
 
     let modalPage = $state(null) // { title, html }
 
@@ -174,6 +183,27 @@
                     min="1000"
                     step="1000"
                 />
+            </label>
+
+            <div class="divider"></div>
+
+            <div class="section-label">GitHub (for publishing)</div>
+
+            <label>
+                <span>Personal Access Token</span>
+                <input
+                    type="password"
+                    bind:value={githubPat}
+                    placeholder="ghp_… or github_pat_…"
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <span class="hint">
+                    Required to publish artifacts as gists.  Token needs the
+                    <code>gist</code> scope only — nothing else.
+                    <a href={PAT_DEEP_LINK} target="_blank" rel="noopener">Create one</a>
+                    (opens a prefilled GitHub page).
+                </span>
             </label>
 
             <div class="actions">

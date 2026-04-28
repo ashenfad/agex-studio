@@ -729,7 +729,27 @@ export async function openExternalBundle(url) {
             `Failed to fetch artifact bundle: HTTP ${resp.status}`,
         );
     }
-    const bytes = new Uint8Array(await resp.arrayBuffer());
+    // Gists store text only; bundles arrive base64-encoded under a
+    // ``.b64`` filename.  Direct hosts (BYO bucket / CDN, future)
+    // can serve raw binary; we treat the URL extension as the
+    // discriminator.  Any URL whose path ends in ``.b64`` (with or
+    // without query string) gets decoded.
+    const path = url.split("?")[0].split("#")[0];
+    const isBase64 = path.endsWith(".b64");
+    let bytes;
+    if (isBase64) {
+        const text = await resp.text();
+        // ``atob`` expects a clean base64 string; ``\n`` line breaks
+        // (some servers add) need stripping or atob throws.
+        const cleaned = text.replace(/\s+/g, "");
+        const binary = atob(cleaned);
+        bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+    } else {
+        bytes = new Uint8Array(await resp.arrayBuffer());
+    }
     return await importBundle(bytes, { external: true });
 }
 
