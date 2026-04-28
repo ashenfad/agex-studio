@@ -92,6 +92,7 @@ function slugify(label, max = 50) {
  *   pat: string,
  *   bytes: Uint8Array,
  *   manifest: object,
+ *   name?: string,
  *   description?: string,
  *   public?: boolean,
  *   origin?: string,
@@ -103,6 +104,7 @@ export async function publishGistBundle({
     pat,
     bytes,
     manifest,
+    name = "",
     description = "",
     public: isPublic = false,
     origin = typeof window !== "undefined" ? window.location.origin : "",
@@ -119,20 +121,32 @@ export async function publishGistBundle({
 
     const b64 = uint8ArrayToBase64(bytes);
 
-    // Slug is derived from the description so the gist's filename
-    // (and the share URL's third segment) carries the artifact's
-    // human name rather than a generic ``bundle``.  A publisher with
-    // many gists in their profile can scan them by filename instead
-    // of having to read every description.
-    const slug = slugify(description);
+    // Slug is derived from the name so the gist's filename (and the
+    // share URL's third segment) carries the artifact's human label
+    // rather than a generic ``bundle``.  A publisher with many gists
+    // in their profile can scan them by filename instead of having
+    // to read every description.
+    const effectiveName = name || "agex-studio artifact";
+    const slug = slugify(effectiveName);
     const bundleFilename = `${slug}.agex.b64`;
+
+    // Initial gist description carries the name + optional
+    // description.  We can't include the runtime URL here because we
+    // don't know the gist ID yet — that comes back in the POST
+    // response.  After creation we PATCH the description to add the
+    // URL so the gist is self-bootstrapping (anyone landing on the
+    // raw gist page sees how to open it in agex.studio).
+    const initialDescription = _composeGistDescription({
+        name: effectiveName,
+        description,
+    });
 
     // Pretty-print the manifest so anyone clicking through to the gist
     // on github.com sees a readable inventory.  The bundle file is a
     // base64 blob — not human-readable — but the manifest gives the
     // gist a meaningful preview.
     const body = {
-        description: description || "agex-studio artifact",
+        description: initialDescription,
         public: !!isPublic,
         files: {
             "manifest.json": { content: JSON.stringify(manifest, null, 2) },
@@ -196,12 +210,72 @@ export async function publishGistBundle({
     const base = origin || "";
     const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}/${slug}`;
 
+    // Now that we know the runtime URL, PATCH the gist description
+    // to include it.  The gist itself is already created, so a PATCH
+    // failure is non-fatal — we surface it to the console but still
+    // return the result.  The visitor URL works either way; we just
+    // miss the convenience of the URL appearing on the gist's
+    // github.com page.
+    try {
+        const finalDescription = _composeGistDescription({
+            name: effectiveName,
+            description,
+            runtimeUrl,
+        });
+        if (finalDescription !== initialDescription) {
+            await fetch(`https://api.github.com/gists/${data.id}`, {
+                method: "PATCH",
+                headers: {
+                    Accept: "application/vnd.github+json",
+                    Authorization: `token ${pat}`,
+                    "Content-Type": "application/json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                body: JSON.stringify({ description: finalDescription }),
+            });
+        }
+    } catch (err) {
+        // Description update failed — log it but don't fail the publish.
+        console.warn("Failed to update gist description with runtime URL:", err);
+    }
+
     return {
         gistId: data.id,
         gistHtmlUrl: data.html_url,
         bundleRawUrl,
         runtimeUrl,
     };
+}
+
+/**
+ * Compose a gist description from its parts.  Format:
+ *
+ *     <name>
+ *
+ *     <description, if any>
+ *
+ *     <runtime URL, if any>
+ *
+ * Each part on its own paragraph so multi-line rendering on the
+ * gist's github.com page reads cleanly.  Capped at 500 chars
+ * defensively (GitHub allows much more, but list views truncate
+ * past ~256, so we don't want to push the URL into the truncated
+ * region).
+ *
+ * @param {{ name?: string, description?: string, runtimeUrl?: string }} parts
+ * @returns {string}
+ */
+function _composeGistDescription({ name, description, runtimeUrl }) {
+    const blocks = [];
+    if (name) blocks.push(name.trim());
+    if (description && description.trim()) blocks.push(description.trim());
+    if (runtimeUrl) blocks.push(runtimeUrl);
+    let composed = blocks.join("\n\n");
+    const MAX = 500;
+    if (composed.length > MAX) {
+        composed = composed.slice(0, MAX - 1) + "…";
+    }
+    return composed;
 }
 
 /**
