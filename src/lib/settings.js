@@ -7,6 +7,18 @@ const STORAGE_KEY = "agex-settings";
 const DEFAULTS = {
     apiKey: "",
     model: "google/gemini-3-flash-preview",
+    // ``accessMode`` is the user-facing primary control: which service
+    // we're talking to.  Two modes:
+    //   "openrouter" — managed: fixed base URL, key + model is enough.
+    //   "custom"     — bring-your-own endpoint: user-supplied URL plus
+    //                  a wire-format choice (OpenAI / Anthropic shape).
+    //                  Covers Anthropic direct (browser-friendly with
+    //                  the dangerous-direct-browser-access header),
+    //                  self-hosted vLLM / Ollama / LiteLLM proxies,
+    //                  any OpenAI-compatible third-party endpoint.
+    //                  OpenAI's own direct API has no browser CORS
+    //                  support, so it is not a viable mode here.
+    accessMode: "openrouter",
     provider: "openai",
     baseUrl: "",
     chapteringTrigger: 150000,
@@ -22,7 +34,17 @@ let subscribers = [];
  * @typedef {Object} Settings
  * @property {string} apiKey
  * @property {string} model
- * @property {"openai" | "anthropic"} provider
+ * @property {"openrouter" | "custom"} accessMode — which service we're
+ *     talking to.  ``openrouter`` is the managed default; ``custom``
+ *     means a user-supplied URL with a chosen wire format (covers
+ *     Anthropic direct, self-hosted vLLM / Ollama / LiteLLM, and any
+ *     OpenAI-compatible third-party endpoint).  Drives placeholders,
+ *     model presets, and which fields the drawer surfaces.
+ * @property {"openai" | "anthropic"} provider — wire format / Python
+ *     LLM client (PyfetchOpenAI vs PyfetchAnthropic).  In Custom mode
+ *     this is the user's explicit shape choice.  In OpenRouter mode
+ *     it defaults to ``openai`` and can be overridden in Advanced
+ *     for routes that prefer Anthropic's format.
  * @property {string} baseUrl
  * @property {number} chapteringTrigger
  * @property {boolean} toolUseWireFormat — when true (default), the
@@ -47,7 +69,38 @@ let settings = load();
 function load() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+        if (raw) {
+            const stored = JSON.parse(raw);
+            const merged = { ...DEFAULTS, ...stored };
+            // Migrate pre-accessMode settings: infer the mode from the
+            // stored ``provider`` + ``baseUrl`` so existing users don't
+            // get bumped to the OpenRouter default with the wrong key.
+            // Anything that isn't clearly OpenRouter lands on "custom"
+            // (preserving the stored provider + baseUrl as the
+            // configured shape / endpoint).
+            if (stored.accessMode === undefined) {
+                if (merged.provider === "anthropic" || merged.baseUrl) {
+                    merged.accessMode = /openrouter/i.test(merged.baseUrl || "")
+                        ? "openrouter"
+                        : "custom";
+                } else {
+                    // No baseUrl + provider=openai pre-migration almost
+                    // always meant OpenRouter (the only flow we shipped
+                    // before direct providers were on the table).
+                    merged.accessMode = "openrouter";
+                }
+            } else if (
+                stored.accessMode === "openai" ||
+                stored.accessMode === "anthropic"
+            ) {
+                // Earlier brief 3-mode iteration ("openrouter" /
+                // "openai" / "anthropic") collapsed into 2.  Both
+                // direct-provider modes fold into "custom"; preserve
+                // the wire format via ``provider``.
+                merged.accessMode = "custom";
+            }
+            return merged;
+        }
     } catch {}
     return { ...DEFAULTS };
 }
