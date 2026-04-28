@@ -722,55 +722,13 @@ _json.dumps({"branch": _branch, "manifest": _manifest})
  * @param {string} url
  * @returns {Promise<{ branch: string, manifest: object }>}
  */
-export async function openExternalBundle(url, onProgress) {
+export async function openExternalBundle(url) {
     const resp = await fetch(url);
     if (!resp.ok) {
         throw new Error(
             `Failed to fetch artifact bundle: HTTP ${resp.status}`,
         );
     }
-    // Stream the body so a callback can render a progress bar while
-    // the (potentially multi-MB) base64-encoded bundle downloads.
-    // ``Content-Length`` may be absent (some hosts strip it on
-    // gzipped responses) — in that case we report bytes received
-    // with a null total and the host renders an indeterminate
-    // spinner with the running count.
-    const contentLength = parseInt(
-        resp.headers.get("Content-Length") || "0",
-        10,
-    );
-    const total = contentLength > 0 ? contentLength : null;
-    const chunks = [];
-    let received = 0;
-    const reader = resp.body && resp.body.getReader
-        ? resp.body.getReader()
-        : null;
-    if (reader) {
-        if (onProgress) onProgress(0, total);
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            received += value.length;
-            if (onProgress) onProgress(received, total);
-        }
-    } else {
-        // Fallback for environments without streams — single buffered
-        // arrayBuffer read, no progress in flight.
-        const buf = await resp.arrayBuffer();
-        chunks.push(new Uint8Array(buf));
-        received = buf.byteLength;
-        if (onProgress) onProgress(received, received);
-    }
-
-    // Concatenate chunks into a single Uint8Array.
-    const raw = new Uint8Array(received);
-    let offset = 0;
-    for (const c of chunks) {
-        raw.set(c, offset);
-        offset += c.length;
-    }
-
     // Gists store text only; bundles arrive base64-encoded under a
     // ``.b64`` filename.  Direct hosts (BYO bucket / CDN, future)
     // can serve raw binary; we treat the URL extension as the
@@ -780,10 +738,7 @@ export async function openExternalBundle(url, onProgress) {
     const isBase64 = path.endsWith(".b64");
     let bytes;
     if (isBase64) {
-        // Decode the streamed body as text → atob.  TextDecoder is
-        // streaming-safe; we already have all bytes here so a single
-        // decode is fine.
-        const text = new TextDecoder("utf-8").decode(raw);
+        const text = await resp.text();
         // ``atob`` expects a clean base64 string; ``\n`` line breaks
         // (some servers add) need stripping or atob throws.
         const cleaned = text.replace(/\s+/g, "");
@@ -793,7 +748,7 @@ export async function openExternalBundle(url, onProgress) {
             bytes[i] = binary.charCodeAt(i);
         }
     } else {
-        bytes = raw;
+        bytes = new Uint8Array(await resp.arrayBuffer());
     }
     return await importBundle(bytes, { external: true });
 }
@@ -840,7 +795,7 @@ function _expandGistShorthand(shorthand) {
  *
  * On any other URL shape, falls through to ``initSessions()``.
  */
-export async function initSessionsFromUrl(onProgress) {
+export async function initSessionsFromUrl() {
     if (typeof window === "undefined") {
         return await initSessions();
     }
@@ -864,7 +819,7 @@ export async function initSessionsFromUrl(onProgress) {
     // Bring the session list up to date first so the imported
     // branch lands into a populated store, not a default-blank one.
     await initSessions();
-    await openExternalBundle(bundleUrl, onProgress);
+    await openExternalBundle(bundleUrl);
     // Strip the entry-point query from the URL so a refresh doesn't
     // re-import.  The artifact URL stays useful for sharing — it's
     // hosted on the gist (or wherever), not in our address bar.
