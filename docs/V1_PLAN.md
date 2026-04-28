@@ -153,7 +153,7 @@ Two independent tracks — can run in parallel.
 - **Local LLM endpoints**: `http://localhost:*`, `http://127.0.0.1:*` (enables Ollama, LM Studio, llama.cpp server, vLLM, LocalAI via the existing `base_url` setting). Browsers carve out HTTPS→loopback HTTP via "potentially trustworthy origins" — works in Chrome/Edge/Firefox without flags; worth noting Safari can be stricter. IPv6 `[::1]` not included — CSP spec rejects the bracket notation; `localhost` covers the common case.
 - Concessions accepted: `'unsafe-eval'` + `'wasm-unsafe-eval'` (Pyodide requirement), `'unsafe-inline'` in `script-src` (Google Sign-In), `data:` in `script-src` (app preview serves agent-authored modules as data URIs). The real defense lives in `connect-src` allowlist + iframe origin isolation (Phase 2); script-src additions don't open new attack classes.
 - `img-src` intentionally broad (`https:`) so agent-built apps can load images from arbitrary sources (e.g., Pokémon-style fan apps). The broader image allowance would open an exfil side channel, but once Phase 2 (iframe origin isolation) lands, the iframe has no secrets to exfil anyway.
-- Phase 4 will later add: `raw.githubusercontent.com`, `*.github.io`, `github.com`, `api.github.com`
+- Phase 4 will later add: `gist.githubusercontent.com` (raw gist content for artifact fetch), `api.github.com` (gist API for publishing). The repo-route escalation (raw.githubusercontent.com, *.github.io, github.com) only enters the picture if/when we layer it on as a v2 option for users who outgrow gist size limits.
 
 Iterative tightening via DevTools console; meta-tag form can't report violations to a URL, so watch the console for `Refused to connect to ...`.
 
@@ -198,7 +198,7 @@ Estimated a few days of focused work. Not trivial, but bounded — all action ty
 - Corresponding "Open from file" path on recipient side.
 - Validates the entire entanglement-and-rehydration cycle with no hosting story.
 
-### Phase 4: BYO-bucket / Shape 3 (URL sharing)
+### Phase 4: gist publishing / Shape 3 (URL sharing)
 
 Detailed plan: [PHASE_4_PLAN.md](PHASE_4_PLAN.md). Summary below.
 
@@ -220,62 +220,94 @@ Post-LLM-bridge threat surface: a malicious pickle in a published artifact canno
 
 **LLM bridge is independently valuable** and can ship before the rest of Phase 4 as standalone hardening. The remaining items (external session, auto-disconnect, disclosure) are only meaningful once URL-opened artifacts exist.
 
-**Publishing mechanics (GitHub App details):**
+**Publishing mechanics (gist-first):**
 
 **Recipient-facing URL pattern:** `agex.studio/run/?src=<artifact-url>`. The runtime fetches the bundle from the user-provided URL, rehydrates a fresh local kvgit session, opens the app. Same runtime serves any artifact from any host — agex.studio stays static.
 
-**First storage backend: GitHub via a GitHub App (not classic OAuth App).** Reasons:
+**First storage backend: GitHub Gists (not a GitHub App on a repo).** Reasons:
 
-- Per-repo scoping (GitHub Apps allow repo-specific permissions; OAuth Apps are account-wide)
-- Most users already have GitHub
-- Free hosting via `raw.githubusercontent.com` or GitHub Pages
-- Inherits authentication, storage, versioning, hosting, discoverability, and "user portfolio" semantics for free
+- **Smallest possible scope.** A `gist`-only token is the minimum scope GitHub offers. Smaller than the per-repo `contents: write` + `metadata: read` permissions a GitHub App would need on a chosen repo. User cannot accidentally grant access to private repos.
+- **Static-friendly auth.** No OAuth callback, no `client_secret`, no backend. PAT-based: user creates a Personal Access Token with `gist` scope (deep-linked from the studio's Settings panel), pastes it in, studio uses it as a Bearer token on the gist API. Same posture as the existing OpenRouter / Anthropic / Google API key BYO flow.
+- **Zero setup beyond auth.** No repo to create, no App to install. After the PAT lands in Settings, every publish is one click.
+- **Hosting is automatic.** Gists are served from `gist.githubusercontent.com` (raw) — no rate-limit concerns at hobby scale.
+- **Versioning is inherent.** Gists are real git repos. Republish-same-id rewrites the gist content; commit history is preserved by GitHub. The "two layers of versioning" framing still applies (kvgit lineage within an artifact, gist commit history across publishes).
+- **Discoverability for free.** Visible on the user's gist profile — the same "user portfolio" semantic the original GitHub-App / dedicated-repo plan got.
+
+**Why not OAuth flow.** Traditional GitHub OAuth requires a `client_secret` for token exchange that a static SPA can't safely hold (a public bundle leaks it). GitHub does not support PKCE on OAuth Apps (longstanding gap; the standard SPA escape hatch isn't available). The viable workarounds — backend proxy, device flow — either fight the "no server" thesis or add steps. PAT sidesteps both: the user grants exactly the scope they want, with no app registration on the studio side at all.
 
 **First-time publish flow:**
 
-1. User clicks "Publish to GitHub" in agex-studio.
-2. agex-studio: "You'll need a repo for artifacts." Deep-links to GitHub's new-repo page with a suggested name (e.g., `agex-artifacts`).
-3. User creates the repo, returns.
-4. "Install the agex-studio App on this repo." Deep-links to the App install page.
-5. User installs (App requests `contents: write` + `metadata: read` on the chosen repo only).
-6. Returns to agex-studio; ready to publish.
+1. User clicks "Publish" in agex-studio.
+2. If no GitHub PAT is in Settings, the publish dialog shows a "Connect GitHub" panel with a deep-linked button to GitHub's PAT creation page (classic: `https://github.com/settings/tokens/new?description=agex-studio&scopes=gist`; fine-grained: GitHub doesn't accept prefilled scopes here, so the studio shows a "select 'Gists: read and write'" hint instead). User clicks, creates the token, copies it, pastes it in Settings.
+3. Returns to publish: inventory + disclosure copy + acknowledgment checkbox + "Publish" button.
+4. On click: studio bundles the artifact, POSTs to `https://api.github.com/gists` with the PAT as a Bearer Authorization header. Response carries the gist `id` and `html_url`; studio constructs the runtime URL from the raw content base.
+5. Modal flips to the published state — the runtime URL with a Copy button.
 
-**Subsequent publishes:** confirm slug → publish. The App installation persists.
+**Subsequent publishes:** just steps 3-5 (token persists in localStorage between sessions).
 
-**Repo layout (multiple artifacts per repo):**
+**Bundle layout in the gist:**
+
+Gists don't support directory structure — files are flat. The bundle flattens accordingly and re-inflates on the recipient side:
 
 ```
-my-agex-artifacts/
-├── 2026-04-15-sales-dashboard/
-│   ├── manifest.json
-│   ├── state.bin
-│   └── app/
-├── 2026-04-16-trip-planner/
-│   └── ...
-└── README.md   (optional auto-generated index)
+manifest.json
+state.bin.b64                 (base64-encoded; recipient decodes before unpickling)
+app__index_html
+app__main_js
+app__styles_css
+helpers__utils_py
+...
 ```
 
-URL via raw content: `agex.studio/run/?src=raw.githubusercontent.com/<user>/<repo>/main/<slug>/`
+The `app__` and `helpers__` prefixes round-trip back to `app/index.html`, `helpers/utils.py`, etc. when the recipient runtime reads the gist. Manifest carries the file inventory so the recipient knows what to reconstitute.
 
-URL via Pages (if user enables it on the repo): `agex.studio/run/?src=<user>.github.io/<repo>/<slug>/` — CDN-backed, no per-IP rate limits. Better for viral artifacts.
+**URL UX (post-publish):**
+
+The publish dialog has three visible states:
+
+1. **Pre-publish**: inventory listing (file count, projected bundle size, conversation message count, var count) + disclosure copy ("Anyone with this link can see everything in this bundle. Treat this like 'anyone with the link' Google Doc sharing.") + acknowledgment checkbox + "Publish" button.
+2. **Publishing**: spinner + "Uploading to GitHub…", button disabled to prevent double-submit.
+3. **Published**: the runtime URL ready to share.
+
+```
+✓ Published as a secret gist
+
+Anyone with this link can open the artifact:
+
+  ┌──────────────────────────────────────┬─────────┐
+  │ https://agex.studio/run/?src=…       │  Copy   │
+  └──────────────────────────────────────┴─────────┘
+
+Lineage:    Forked from yoshi@gh's "Q3 Sales Dashboard"
+GitHub:     gist.github.com/<user>/<id>  ↗
+
+                                        [ Close ]
+```
+
+The URL input is read-only and pre-selected on focus (click anywhere → all selected; no triple-click required). The Copy button briefly flashes "Copied!" for ~2s on click. "View on GitHub" links to the bare gist URL for inspection / rename / delete by the publisher. Error states (401 invalid token, 422 too-large gist, network 5xx) surface inline with actionable messages: "Your GitHub token isn't valid. Update it in Settings.", "This artifact is X MB; gists work best under ~10 MB.", etc.
 
 **Two layers of versioning compose naturally:**
 
-- **Within an artifact**: kvgit + lineage chain (the workshop's history)
-- **Across publishes**: actual git on GitHub (the publishing record)
+- **Within an artifact**: kvgit + lineage chain (the workshop's history).
+- **Across publishes**: gist commit history (the publishing record).
 
-Republishing the same slug overwrites the prior bundle; git history on the repo preserves old versions automatically.
+Republish overwrites the gist's contents; gist git history preserves prior versions automatically. (Same shape as the original repo plan, just at gist granularity.)
 
-**Credential handling:** apply the principle from architectural decision #3 — the GitHub App installation token lives in a closure inside the publish service, not in agent state. The publish action is a host capability, not something the agent invokes with raw secrets in scope. Generalizable rule: **register the connected client, not the credential**, applies to every credential surface (LLM keys, OAuth tokens, GitHub App tokens, future S3 keys).
+**Credential handling:** the GitHub PAT lives in `localStorage`, never in Python scope. Publish is a host capability invoked from main-thread JS — same posture as the LLM bridge for OpenRouter / Anthropic keys, and the same generalizable rule: **register the connected client, not the credential.**
 
 **Edge cases:**
 
-- **Public repos required for hosting** — raw needs auth for private repos; GitHub Pages needs Pro. Document clearly in the connect flow.
-- **Repo size**: GitHub recommends <5GB; at hobby scale fine. If a user's repo gets huge, they create another.
-- **Rate limits**: `raw.githubusercontent.com` has per-IP limits; GitHub Pages doesn't. For artifacts expected to get traffic, recommend Pages.
-- **Concurrent publishes from two tabs**: git handles it; one wins. Acceptable.
+- **Size ceiling.** Gists soft-limit at ~1MB per file before GitHub's web UI gets unhappy and ~10MB total in practice. agex bundles whose `state.bin` is multi-MB (sessions over real datasets, sessions with embedded Plotly figures or PIL images) may exceed this. The publish-preview's projected bundle size is the pre-flight signal; the disclosure copy explicitly names the limit so users can prune before committing.
+- **Public vs secret.** Default to **secret** (URL-only access). A toggle in the publish dialog can promote to public for users who want the gist visible on their gist profile.
+- **Token revocation.** User can revoke the PAT any time from GitHub Settings; subsequent publishes will 401. Studio surfaces this with a "Reconnect GitHub" path back to the PAT creation deep link.
+- **Anonymous publishing isn't a fallback.** GitHub disabled anonymous gist creation in March 2018 (spam). Recipients still browse anonymously, but every publisher needs an account. Same constraint a repo-based publish flow would have, so this isn't a regression — just worth knowing the "publish without an account" v2 escalation path doesn't exist for gists.
+- **Concurrent publishes from two tabs**: gist API is last-write-wins; one tab's response overwrites the other's. Acceptable at hobby scale.
 
-**Later additions:** S3 / R2 / generic-bucket for users who want artifacts on their own infrastructure. Higher friction (API keys + CORS + bucket policy), smaller audience. Not v1.
+**Later additions (deferred to v2+):**
+
+- **Repo-based publishing** for users who hit the gist size ceiling or want the multi-artifact-per-repo portfolio shape. Returns to the original GitHub App design as an opt-in escalation rather than the default — gist-first because most artifacts fit, repo-based for the ones that don't.
+- **BYO bucket** (S3 / R2 / generic) for users who want artifacts on their own infrastructure. Higher friction (API keys + CORS + bucket policy), smaller audience.
+- **"My published artifacts" view** that lists session-published gists for the current PAT, with rename / delete actions.
 
 ### Phase 5: lineage UI
 

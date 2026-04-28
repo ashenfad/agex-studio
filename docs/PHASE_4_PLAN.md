@@ -1,9 +1,9 @@
 # Phase 4 Plan: BYO-bucket URL Sharing + Security Hardening
 
-**Status:** planned, not started
+**Status:** Half 1 (security hardening) largely landed via the LLM bridge work in agex 0.10.2. Half 2 (publishing mechanics) reframed to **gist-first** in V1_PLAN.md (see Phase 4 section there for the current plan); the GitHub-App-on-a-repo design described below in §"Publishing mechanics (Half 2)" is **superseded**, kept here for historical reference only.
 **Depends on:** Phase 0 (complete), Phase 2 (complete), Phase 3 (bundle export)
 **Security writeup precedes implementation** — the threat model and agreed approach are documented here before code changes begin.
-**See also:** [V1_PLAN.md](V1_PLAN.md) for overall sequencing
+**See also:** [V1_PLAN.md](V1_PLAN.md) for overall sequencing and the current publishing-mechanics plan.
 
 ## Problem statement
 
@@ -116,9 +116,11 @@ Change CSP `img-src` from `'self' data: blob: https:` to `'self' data: blob:`. C
 
 Phase 4 also adds to `connect-src`: `raw.githubusercontent.com`, `*.github.io`, `github.com`, `api.github.com` for the GitHub App flows.
 
-## Publishing mechanics (Half 2)
+## Publishing mechanics (Half 2) — SUPERSEDED
 
-(This section summarizes the GitHub-App-based publish flow already detailed in V1_PLAN.md's Phase 4 section; repeated here for document completeness.)
+> **Note:** the GitHub-App-based publish flow described below is **superseded** by the gist-first plan in [V1_PLAN.md](V1_PLAN.md)'s Phase 4 section. The gist plan uses a Personal Access Token with `gist` scope instead of an installed GitHub App, drops the per-repo creation/install dance, and keeps the repo-route as a v2 escalation for artifacts that exceed gist size limits. Reasons captured in V1_PLAN.md.
+>
+> The text below is preserved for historical reference — the security half (LLM bridge, external session, Drive auto-disconnect, img-src tightening) is unaffected and largely already landed.
 
 ### Recipient URL pattern
 
