@@ -50,6 +50,21 @@
             : false
     )
     let configured = $derived($settingsStore.apiKey.length > 0)
+
+    // Captured once at mount, before ``initSessionsFromUrl`` replaces
+    // the URL with ``/`` post-import.  When true, this load was kicked
+    // off by a published-artifact share URL — we let startup proceed
+    // without an API key (the visitor wants to view the artifact, not
+    // chat with their own provider) and skip the "open Settings on
+    // first load" auto-prompt.  The artifact still loads end-to-end;
+    // sending new messages stays gated on ``configured`` separately.
+    const isExternalEntry = (() => {
+        if (typeof window === 'undefined') return false
+        const path = window.location.pathname
+        if (path !== '/run/' && path !== '/run') return false
+        const params = new URLSearchParams(window.location.search)
+        return !!(params.get('gist') || params.get('src'))
+    })()
     let hasAppFiles = $derived(files.some(f => f === 'app' || f.startsWith('app/')))
 
     let tokenOverride = $state(null)
@@ -76,9 +91,15 @@
         return null
     })
 
-    // Open settings on first load if no API key
+    // Open settings on first load if no API key — except when the
+    // visitor came in via an external-artifact URL.  In that case
+    // they're trying to view someone else's published bundle, not
+    // configure their own session; popping a settings drawer over
+    // the loading artifact is the wrong first impression.  Once
+    // the artifact is loaded, a banner inside the chat tells them
+    // they need a key to continue the conversation.
     $effect(() => {
-        if (!configured) settingsOpen = true
+        if (!configured && !isExternalEntry) settingsOpen = true
     })
 
     // historyReady flips once Wave 2 init + history load have completed.
@@ -103,7 +124,11 @@
         const s = $settingsStore
         // Read pyodideStore so this effect re-runs when stage advances.
         void $pyodideStore.stage
-        if (!s.apiKey) return
+        // External-artifact entry skips the API-key gate — visitors
+        // need to load the artifact even when they don't have a key
+        // configured.  Startup proceeds; sending new messages stays
+        // gated on ``configured`` (see sendDisabled below).
+        if (!s.apiKey && !isExternalEntry) return
         const initKey = _initKey(s)
         if (initKey === lastInitKey) return
         lastInitKey = initKey
@@ -737,12 +762,20 @@
                     <p>{warmingMessage}</p>
                 </div>
             {/if}
+            {#if $sessionStore.currentSessionExternal && !configured}
+                <div class="external-banner">
+                    <p>
+                        You're viewing a published artifact.  To continue the conversation with the agent, add an API key in Settings.
+                    </p>
+                    <button class="banner-btn" onclick={() => settingsOpen = true}>Open Settings</button>
+                </div>
+            {/if}
             <ChatInput
                 onSend={handleSend}
                 onCancel={handleCancel}
                 {busy}
                 {cancelling}
-                sendDisabled={busy || !agentReady}
+                sendDisabled={busy || !agentReady || !configured}
                 prefill={inputPrefill}
             />
         {:else if !configured}
@@ -873,6 +906,42 @@
         color: var(--text-muted);
         border-top: 1px solid var(--border);
         flex-shrink: 0;
+    }
+
+    .external-banner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.55rem 0.9rem;
+        background: rgba(255, 200, 100, 0.10);
+        border-top: 1px solid rgba(255, 165, 0, 0.4);
+        border-bottom: 1px solid rgba(255, 165, 0, 0.4);
+        flex-shrink: 0;
+    }
+
+    .external-banner p {
+        margin: 0;
+        flex: 1;
+        font-size: 0.78rem;
+        line-height: 1.35;
+        color: var(--text);
+    }
+
+    .banner-btn {
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .banner-btn:hover {
+        filter: brightness(1.1);
     }
 
     .status-row p {
