@@ -36,7 +36,7 @@ const PYODIDE_CDN = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
 //                 PyPI metadata resolution and is measurably faster
 //                 than micropip.install for the same set.
 const WAVE2_OWN = [
-    "kvgit>=0.2.1",
+    // kvgit installed from local wheel below (in-flight 0.2.2 work)
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
     "sandtrap>=0.1.14",
@@ -129,7 +129,10 @@ async function init() {
         const wave2OwnCalls = ownInstallCalls(WAVE2_OWN, WAVE2_VENDOR_MICROPIP, [
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
-            `micropip.install("kvgit>=0.2.1", deps=False, index_urls="${freshIndex}")`,
+            // Local wheel for in-flight kvgit 0.2.2 work (Hamt.walk
+            // skip_nodes — see kvgit CHANGELOG).  Swap back to a PyPI
+            // install line once 0.2.2 is cut.
+            `micropip.install("/wheels/kvgit-0.2.2.dev0-py3-none-any.whl", deps=False)`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
             // Local wheel for in-flight 0.11.1 work (primer revision +
             // system-note rendering unification).  Swap back to a PyPI

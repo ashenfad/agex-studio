@@ -69,7 +69,18 @@ def _walk_reachable(versioned, head, progress=_noop):
         if root_bytes is not None:
             root = safe_loads(root_bytes)
             if root and root != EMPTY_HASH:
-                entries, hamt_nodes = Keyset(store, root=root).walk()
+                # Pass the cumulative ``nodes`` set as ``skip_nodes`` so
+                # subtrees seen on a prior commit aren't re-fetched.
+                # On long histories with heavy structural sharing
+                # (~600-commit sessions where each commit changes a few
+                # keys against a large keyset) this collapses redundant
+                # subtree traversal — work is proportional to unique
+                # HAMT nodes rather than commits × subtree-size.  The
+                # blob references under skipped subtrees are already in
+                # ``blobs`` from the earlier walk that visited them.
+                entries, hamt_nodes = Keyset(store, root=root).walk(
+                    skip_nodes=nodes
+                )
                 for entry in entries.values():
                     blobs.add(entry.blob)
                 nodes.update(hamt_nodes)
