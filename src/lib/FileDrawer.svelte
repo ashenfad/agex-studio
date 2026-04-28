@@ -1,7 +1,7 @@
 <script>
     import { uploadFiles, downloadFile, deleteFiles, listFiles } from './agent.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
-    import { sessionStore } from './sessions.js'
+    import { sessionStore, getCurrentCommit } from './sessions.js'
     import FileModal from './FileModal.svelte'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
