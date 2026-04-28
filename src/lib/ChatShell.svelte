@@ -13,7 +13,7 @@
     import TokenModal from './TokenModal.svelte'
     import { initAgentBasics, initAgentRich, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
     import { cancelTask, pyodideStore, startWave3 } from './pyodide.js'
-    import { initSessions, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
+    import { initSessions, initSessionsFromUrl, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
@@ -121,7 +121,10 @@
             initStatus = 'Setting up agent...'
             await initAgentBasics(s)
             initStatus = 'Loading sessions...'
-            await initSessions()
+            // Honor /run/?src=<url> as a published-artifact entry
+            // point.  On any other URL shape this is equivalent to
+            // initSessions().
+            await initSessionsFromUrl()
             initStatus = 'Loading history...'
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages

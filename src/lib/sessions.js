@@ -17,18 +17,28 @@ let subscribers = [];
  * @property {string} branch
  * @property {string} title
  * @property {string} updated - ISO 8601 timestamp
+ * @property {boolean} [external] - true when the session was created
+ *     by opening a published-artifact URL (``/run/?src=…``).  External
+ *     sessions are gated against host-capability features the visitor
+ *     might not want to lend to a stranger's artifact (Drive imports,
+ *     and similar in the future).
  */
 
 /**
  * @typedef {Object} SessionState
  * @property {string} currentBranch
  * @property {Session[]} sessions
+ * @property {boolean} currentSessionExternal - convenience derived
+ *     field; equals the ``external`` flag on the session matching
+ *     ``currentBranch``.  False when the current session is the
+ *     visitor's own.
  */
 
 /** @type {SessionState} */
 let state = {
     currentBranch: "",
     sessions: [],
+    currentSessionExternal: false,
 };
 
 function notify() {
@@ -36,7 +46,13 @@ function notify() {
 }
 
 function update(/** @type {Partial<SessionState>} */ patch) {
-    state = { ...state, ...patch };
+    const merged = { ...state, ...patch };
+    // Recompute the convenience ``currentSessionExternal`` flag from
+    // whichever session matches the current branch, so subscribers
+    // never see the two fields out of sync.
+    const cur = merged.sessions.find((s) => s.branch === merged.currentBranch);
+    merged.currentSessionExternal = !!(cur && cur.external);
+    state = merged;
     notify();
 }
 
@@ -94,6 +110,7 @@ for _b in _branches:
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
         "app_storage_bytes": _app_storage.size(_state.versioned, _b),
+        "external": bool(_state.peek("__session_external__", branch=_b)),
     })
 if _current not in [s["branch"] for s in _sessions]:
     _sessions.append({
@@ -103,6 +120,7 @@ if _current not in [s["branch"] for s in _sessions]:
         "description": "",
         "updated": _state.peek("__session_updated__", branch=_current) or "",
         "app_storage_bytes": _app_storage.size(_state.versioned, _current),
+        "external": bool(_state.peek("__session_external__", branch=_current)),
     })
 
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
@@ -204,6 +222,7 @@ for _b in _state.list_branches():
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
         "app_storage_bytes": _app_storage.size(_state.versioned, _b),
+        "external": bool(_state.peek("__session_external__", branch=_b)),
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
 _json.dumps({"current": _new_current, "sessions": _sessions})
@@ -454,6 +473,7 @@ for _b in _branches:
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
         "app_storage_bytes": _app_storage.size(_state.versioned, _b),
+        "external": bool(_state.peek("__session_external__", branch=_b)),
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
 _json.dumps(_sessions)
@@ -665,7 +685,7 @@ _json.dumps({"b64": _b64.b64encode(_data).decode(), "manifest": _manifest})
  * @param {Uint8Array} bytes
  * @returns {Promise<{ branch: string, manifest: object }>}
  */
-export async function importBundle(bytes) {
+export async function importBundle(bytes, { external = false } = {}) {
     let bin = "";
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     const b64 = btoa(bin);
@@ -677,12 +697,78 @@ _v = _state.versioned
 _data = _b64.b64decode(${JSON.stringify(b64)})
 _branch, _manifest = _bundle.import_bundle(_v, _data)
 _state.switch_branch(_branch)
+${external ? '_state["__session_external__"] = True\n_state.commit()' : ""}
 _json.dumps({"branch": _branch, "manifest": _manifest})
     `);
     const result = JSON.parse(json);
     localStorage.setItem(CURRENT_BRANCH_KEY, result.branch);
     await refreshSessionList(result.branch);
     return result;
+}
+
+/**
+ * Open a published artifact from its URL: fetch the bundle bytes,
+ * import them as a fresh local branch flagged ``external: true``,
+ * and switch to it.  External sessions are gated against host-
+ * capability features the visitor might not want to lend to a
+ * stranger's artifact (Drive imports today; possibly more later).
+ *
+ * Throws if the URL fails to fetch or doesn't decode as a valid
+ * agex bundle.  Caller is expected to surface those errors to the
+ * UI — there's no in-band fallback because the user is sitting on
+ * an explicit ``/run/?src=…`` URL and a silent fall-back to a
+ * blank session would be confusing.
+ *
+ * @param {string} url
+ * @returns {Promise<{ branch: string, manifest: object }>}
+ */
+export async function openExternalBundle(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+        throw new Error(
+            `Failed to fetch artifact bundle: HTTP ${resp.status}`,
+        );
+    }
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    return await importBundle(bytes, { external: true });
+}
+
+/** Constant param name for the external-artifact URL entry point. */
+const SRC_PARAM = "src";
+
+/**
+ * Initialize sessions, honoring an ``/run/?src=<url>`` entry point.
+ *
+ * When ``window.location`` matches that pattern, fetch + import the
+ * pointed-at bundle as an external session.  After a successful
+ * import we replace the URL with the studio root so refreshing the
+ * page doesn't re-import the bundle (would create a duplicate
+ * session in the user's IndexedDB).  Errors propagate to the
+ * caller so the host can render an inline error.
+ *
+ * On any other URL shape, falls through to ``initSessions()``.
+ */
+export async function initSessionsFromUrl() {
+    if (typeof window === "undefined") {
+        return await initSessions();
+    }
+    const params = new URLSearchParams(window.location.search);
+    const src = params.get(SRC_PARAM);
+    const isRunPath = window.location.pathname === "/run/" ||
+        window.location.pathname === "/run";
+    if (!isRunPath || !src) {
+        return await initSessions();
+    }
+    // Bring the session list up to date first so the imported
+    // branch lands into a populated store, not a default-blank one.
+    await initSessions();
+    await openExternalBundle(src);
+    // Strip the ``?src=…`` from the URL so a refresh doesn't re-
+    // import.  The artifact URL stays useful for sharing — it's
+    // hosted on the gist, not in our address bar.
+    if (window.history && typeof window.history.replaceState === "function") {
+        window.history.replaceState({}, "", "/");
+    }
 }
 
 /**
