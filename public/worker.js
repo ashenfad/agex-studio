@@ -39,7 +39,7 @@ const WAVE2_OWN = [
     "kvgit>=0.2.2",
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
-    "sandtrap>=0.1.14",
+    "sandtrap>=0.1.15",
 ];
 // Pyodide's built-in package set — loadPackage resolves these from
 // the runtime's lockfile. plotly / others not in that lockfile must
@@ -75,6 +75,7 @@ const WAVE3_VENDOR = [
     "scipy",
     "scikit-learn",
     "scikit-image",
+    "matplotlib",
 ];
 
 importScripts(`${PYODIDE_CDN}pyodide.js`);
