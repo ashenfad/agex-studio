@@ -76,6 +76,11 @@ const WAVE3_VENDOR = [
     "scikit-learn",
     "scikit-image",
     "matplotlib",
+    // lxml is the structural-XML dep python-pptx pulls in.  Pyodide
+    // ships a WASM-compiled lxml in its lockfile; loading it via
+    // loadPackage avoids micropip trying to fetch (and fail on) the
+    // C-extension wheel from PyPI when python-pptx resolves deps.
+    "lxml",
 ];
 
 importScripts(`${PYODIDE_CDN}pyodide.js`);
@@ -134,6 +139,17 @@ async function init() {
         ]);
         const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
+            // python-pptx pulls lxml (Pyodide-built-in, loaded via
+            // WAVE3_VENDOR loadPackage above), Pillow (already loaded
+            // eagerly in Wave 1), and XlsxWriter (pure Python, micropip
+            // handles).  Use deps=False so micropip doesn't race with
+            // loadPackage on lxml; the transitive deps are listed
+            // explicitly here.
+            `micropip.install("XlsxWriter", deps=False)`,
+            `micropip.install("python-pptx", deps=False)`,
+            // fpdf2's only required dep is defusedxml (pure Python).
+            `micropip.install("defusedxml", deps=False)`,
+            `micropip.install("fpdf2", deps=False)`,
         ]);
 
         // ── Wave 2: minimum needed for history + agent baseline ──

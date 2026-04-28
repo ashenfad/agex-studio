@@ -537,6 +537,14 @@ import matplotlib as _matplotlib
 _matplotlib.use("Agg")
 _agent.module(_matplotlib, visibility="low", recursive=True)
 
+# Document authoring: python-pptx for slide decks, fpdf2 for PDFs.
+# Both registered low-viz — primer mentions the capability,
+# detailed APIs left for the agent to explore via dir() / help.
+import pptx as _pptx
+_agent.module(_pptx, visibility="low", recursive=True)
+import fpdf as _fpdf
+_agent.module(_fpdf, visibility="low", recursive=True)
+
 # -- Register calgebra with network access for Google Calendar API --
 import calgebra as _calgebra
 _agent.module(_calgebra, visibility="low", recursive=True, network_access=True)
@@ -892,9 +900,12 @@ chart to a file, use matplotlib — fig.savefig("path.png") works directly.
 
 PDF files: use render_pdf(path_or_bytes, pages=[0,1], scale=2) to render pages
 to PIL Images. Use pdf_page_count(path_or_bytes) to get page count. Use
-await view_image(img) to inspect rendered pages. pypdf is also available for
+await view_image(img) to inspect rendered pages. pypdf is available for
 text extraction and metadata.
-openpyxl is available — use pd.read_excel() to read .xlsx files.
+Authoring documents: fpdf2 for PDFs (FPDF().add_page() / .cell() / .output()),
+python-pptx for slide decks (Presentation().slides.add_slide(...) / .save()),
+openpyxl for .xlsx (pd.read_excel() handles reading; pd.DataFrame.to_excel()
+or openpyxl directly for writing).
 scipy and scikit-learn are available for statistics, optimization, and machine learning.
 
 Calendars: whenever the user asks about calendars, scheduling, events,
