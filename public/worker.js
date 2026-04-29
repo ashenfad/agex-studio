@@ -135,7 +135,7 @@ async function init() {
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("agex>=0.11.1", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.11.2", deps=False, index_urls="${freshIndex}")`,
         ]);
         const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
