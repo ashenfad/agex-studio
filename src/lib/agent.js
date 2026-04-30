@@ -157,16 +157,22 @@ class Response:
         return result
 
 ${debugRawLines}
-# Install the JS-bridge LLM adapter: routes LLM HTTP calls through the
-# main thread so the API key lives in localStorage (never in Python scope).
-# Must happen before the LLM client is constructed.
-from pyodide.http import open_url as _open_url_llm
-import importlib as _importlib_llm, site as _site_llm
-_site_dir_llm = _site_llm.getsitepackages()[0]
-with open(f"{_site_dir_llm}/bridge_llm.py", "w") as _f:
-    _f.write(_open_url_llm("/bridge_llm.py").read())
-_importlib_llm.import_module("bridge_llm")
-del _open_url_llm, _importlib_llm, _site_llm, _site_dir_llm
+# Module installer: fetches a .py from the dev/static server and
+# writes it to site-packages so it can be imported by name.  Used for
+# the LLM bridge (must happen before the LLM client is constructed),
+# host-side helpers (app_storage, bundle), and extracted Python
+# modules (event_serialization, ...) that previously lived inline as
+# heredocs.
+from pyodide.http import open_url as _open_url
+import importlib as _importlib
+_site_dir = _importlib.import_module("site").getsitepackages()[0]
+
+def _install_module(name, url):
+    with open(f"{_site_dir}/{name}.py", "w") as f:
+        f.write(_open_url(url).read())
+    return _importlib.import_module(name)
+
+_install_module("bridge_llm", "/bridge_llm.py")
 
 from bridge_llm import JsBridgeAdapter as _JsBridgeAdapter
 from agex.llm.pyfetch_openai import PyfetchOpenAI
@@ -204,286 +210,37 @@ del _register_io
 # Done in basics because sessions.js (which runs at history-ready)
 # imports both app_storage and bundle. bundle imports app_storage at
 # module load, so order matters.
-from pyodide.http import open_url as _open_url_basics
-import importlib as _importlib_basics
-_site_dir_basics = _importlib_basics.import_module("site").getsitepackages()[0]
+_install_module("app_storage", "/app_storage.py")
+_install_module("bundle", "/bundle.py")
 
-def _install_url_module_basics(name, url):
-    with open(f"{_site_dir_basics}/{name}.py", "w") as f:
-        f.write(_open_url_basics(url).read())
-    return _importlib_basics.import_module(name)
-
-_install_url_module_basics("app_storage", "/app_storage.py")
-_install_url_module_basics("bundle", "/bundle.py")
-del _install_url_module_basics, _open_url_basics, _importlib_basics, _site_dir_basics
-
-# -- Event helpers used by sessions.js loadHistory --
-# Defined in basics so the host can render existing chat history while
-# Wave 3 is still installing in the background.
-from agex.agent.events import ActionEvent as _ActionEvent, OutputEvent as _OutputEvent, ChapterEvent as _ChapterEvent
-from agex.agent.events import TaskStartEvent as _TaskStart, SuccessEvent as _SuccessEvent
+# -- Event helpers used by sessions.js loadHistory + sendMessage --
+# Loaded in basics so the host can render existing chat history while
+# Wave 3 is still installing in the background.  The module also
+# re-exports the agex event/emission types it needs internally;
+# sessions.js and sendMessage's heredoc reference some of them
+# directly, so import the names back into pyodide globals here.
+_install_module("event_serialization", "/python/event_serialization.py")
+from event_serialization import (
+    _serialize_output_parts,
+    _output_text,
+    _split_output_events,
+    _serialize_emission,
+    _serialize_file_actions,
+    _synthesize_action,
+    _serialize_chapter_events,
+)
+from agex.agent.events import (
+    ActionEvent as _ActionEvent,
+    OutputEvent as _OutputEvent,
+    ChapterEvent as _ChapterEvent,
+)
 from agex.agent.emissions import (
     FileWriteEmission as _FileWriteEmission,
     FileEditEmission as _FileEditEmission,
-    PythonEmission as _PythonEmission,
-    TerminalEmission as _TerminalEmission,
     TextEmission as _TextEmission,
     ThinkingEmission as _ThinkingEmission,
 )
-from agex.eval.objects import PrintAction as _PrintAction, ImageAction as _ImageAction
 
-_ERROR_KEYWORDS = ("\u{1F4A5}",)
-
-def _serialize_output_parts(event):
-    import base64 as _b64
-    parts = []
-    for part in event.parts:
-        if isinstance(part, _PrintAction):
-            content = " ".join(str(item) for item in part)
-            if not any(kw in content for kw in _ERROR_KEYWORDS):
-                parts.append({"type": "text", "content": content})
-            else:
-                _NL = chr(10)
-                lines = content.split(_NL)
-                chunk = []
-                chunk_is_err = False
-                for line in lines:
-                    line_is_err = any(kw in line for kw in _ERROR_KEYWORDS)
-                    if chunk and line_is_err != chunk_is_err:
-                        parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
-                        chunk = []
-                    chunk_is_err = line_is_err
-                    chunk.append(line)
-                if chunk:
-                    parts.append({"type": "error" if chunk_is_err else "text", "content": _NL.join(chunk)})
-        elif isinstance(part, _ImageAction):
-            _png = getattr(part, "_png_bytes", None)
-            if _png is None and hasattr(part, 'png_bytes'):
-                try:
-                    _png = part.png_bytes()
-                except Exception as _e:
-                    print(f"--- Warning: failed to encode image: {_e} ---")
-            if _png is not None:
-                parts.append({"type": "image", "data": _b64.b64encode(_png).decode("ascii")})
-            elif isinstance(part.image, str):
-                parts.append({"type": "image", "data": part.image})
-            else:
-                parts.append({"type": "text", "content": str(part.image)})
-        else:
-            parts.append({"type": "text", "content": str(part)})
-    return parts
-
-def _output_text(event):
-    lines = []
-    for part in event.parts:
-        if isinstance(part, _PrintAction):
-            lines.append(" ".join(str(item) for item in part))
-        else:
-            lines.append(str(part))
-    return "\\n".join(lines)
-
-def _split_output_events(all_parts):
-    """Split serialized parts into separate output and error event dicts."""
-    _NL = chr(10)
-    out_parts = [p for p in all_parts if p.get("type") != "error"]
-    err_parts = [p for p in all_parts if p.get("type") == "error"]
-    result = []
-    if out_parts:
-        result.append({
-            "type": "output",
-            "message": _NL.join(p.get("content", "") for p in out_parts),
-            "parts": out_parts,
-        })
-    if err_parts:
-        result.append({
-            "type": "error",
-            "message": _NL.join(p.get("content", "") for p in err_parts),
-            "parts": err_parts,
-        })
-    if not result:
-        result.append({"type": "output", "message": "", "parts": all_parts})
-    return result
-
-def _serialize_emission(em, idx):
-    """Per-emission dict the UI can render as its own block.  Covers
-    all six emission types from the agex retool.  idx is the position
-    within the turn; the UI uses it as a key and, once agex ever
-    surfaces event indexes through serialization, it can combine
-    with event_idx to pair PrintAction observations to their
-    producing emission."""
-    if isinstance(em, _PythonEmission):
-        return {
-            "kind": "python",
-            "idx": idx,
-            "code": em.code or "",
-            "title": em.title or "",
-            "thinking": em.thinking or "",
-        }
-    if isinstance(em, _TerminalEmission):
-        return {
-            "kind": "terminal",
-            "idx": idx,
-            "commands": em.commands or "",
-            "title": em.title or "",
-            "thinking": em.thinking or "",
-        }
-    if isinstance(em, _FileWriteEmission):
-        return {
-            "kind": "file_write",
-            "idx": idx,
-            "path": em.path,
-            "content": em.content,
-            "mode": em.mode,
-        }
-    if isinstance(em, _FileEditEmission):
-        return {
-            "kind": "file_edit",
-            "idx": idx,
-            "path": em.path,
-            "search": em.search,
-            "content": em.content,
-            "match_all": em.match_all,
-        }
-    if isinstance(em, _TextEmission):
-        return {"kind": "text", "idx": idx, "text": em.text or ""}
-    if isinstance(em, _ThinkingEmission):
-        return {
-            "kind": "thinking",
-            "idx": idx,
-            "text": em.text or "",
-            "redacted": em.redacted,
-        }
-    return None
-
-def _serialize_file_actions(emissions):
-    """Legacy flat-fields shape: pick out FileWrite / FileEdit
-    emissions and return the old {kind, path, ...} dicts the existing
-    UI consumes.  Kept alongside the emissions-list serialization so
-    pre-Wave-2 render paths keep working."""
-    result = []
-    for a in emissions:
-        if isinstance(a, _FileWriteEmission):
-            result.append({
-                "kind": "file",
-                "path": a.path,
-                "content": a.content,
-                "mode": a.mode,
-            })
-        elif isinstance(a, _FileEditEmission):
-            result.append({
-                "kind": "edit",
-                "path": a.path,
-                "search": a.search,
-                "content": a.content,
-                "operation": "replace",
-            })
-    return result
-
-def _synthesize_action(evt):
-    """Serialize an ActionEvent for the UI.  Ships both the new
-    emission-list shape ("emissions", preferred by the post-Wave-2
-    renderer) AND the flat-fields shape (title / thinking / report /
-    code / terminal / file_actions) so older components keep
-    rendering while the UI migrates.  Multi-emission turns get their
-    python / terminal / thinking / text fields concatenated in the
-    flat view so nothing disappears when a single-block card has to
-    represent several emissions."""
-    _titles = []
-    _thinking_bits = []
-    _report_bits = []
-    _code_bits = []
-    _term_bits = []
-    _emissions_dicts = []
-    for _idx, _em in enumerate(evt.emissions):
-        _ed = _serialize_emission(_em, _idx)
-        if _ed is not None:
-            _emissions_dicts.append(_ed)
-        if isinstance(_em, _PythonEmission):
-            if _em.title:
-                _titles.append(_em.title)
-            if _em.thinking:
-                _thinking_bits.append(_em.thinking)
-            if _em.code:
-                _code_bits.append(_em.code)
-        elif isinstance(_em, _TerminalEmission):
-            if _em.title:
-                _titles.append(_em.title)
-            if _em.thinking:
-                _thinking_bits.append(_em.thinking)
-            if _em.commands:
-                _term_bits.append(_em.commands)
-        elif isinstance(_em, _ThinkingEmission):
-            if _em.text and not _em.redacted:
-                _thinking_bits.append(_em.text)
-        elif isinstance(_em, _TextEmission):
-            if _em.text:
-                _report_bits.append(_em.text)
-    _NL2 = chr(10) + chr(10)
-    return {
-        "type": "action",
-        "title": _titles[0] if _titles else "",
-        "thinking": _NL2.join(_thinking_bits),
-        "report": _NL2.join(_report_bits),
-        "code": _NL2.join(_code_bits) or None,
-        "terminal": _NL2.join(_term_bits) or None,
-        "file_actions": _serialize_file_actions(evt.emissions),
-        "emissions": _emissions_dicts,
-        "input_tokens": evt.input_tokens,
-        "output_tokens": evt.output_tokens,
-    }
-
-def _serialize_chapter_events(events_list, state=None):
-    """Recursively serialize events nested inside a ChapterEvent."""
-    result = []
-    _cur_task = None
-    _unassigned = []
-    for evt in events_list:
-        if isinstance(evt, _ActionEvent):
-            result.append(_synthesize_action(evt))
-        elif isinstance(evt, _OutputEvent):
-            result.extend(_split_output_events(_serialize_output_parts(evt)))
-        elif isinstance(evt, _ChapterEvent):
-            _ch_item = {
-                "type": "chapter",
-                "name": evt.name,
-                "message": evt.message,
-                "events": _serialize_chapter_events(evt.resolve_events(state) if state else [], state),
-            }
-            result.append(_ch_item)
-            _unassigned.append(_ch_item)
-        elif isinstance(evt, _TaskStart):
-            _cur_task = evt.task_name
-            if evt.task_name == "__chapter__":
-                result.append({"type": "chaptering", "chapters": []})
-            else:
-                result.append({
-                    "type": "task_start",
-                    "message": evt.inputs.get("message", str(evt.inputs)),
-                })
-        elif isinstance(evt, _SuccessEvent):
-            if _cur_task == "__chapter__":
-                _n = 0
-                if isinstance(evt.result, list):
-                    _n = sum(1 for _ch in evt.result if hasattr(_ch, 'name'))
-                _take = min(_n, len(_unassigned))
-                if _take > 0:
-                    for _bm in reversed(result):
-                        if _bm.get("type") == "chaptering":
-                            _bm["chapters"] = [
-                                {"name": _uc["name"], "message": _uc["message"], "events": _uc.get("events", [])}
-                                for _uc in _unassigned[:_take]
-                            ]
-                            break
-                    _unassigned = _unassigned[_take:]
-                _cur_task = None
-            else:
-                r = evt.result
-                if hasattr(r, "normalize") and hasattr(r, "parts"):
-                    _rd = {"type": "response", "parts": r.normalize()}
-                else:
-                    _rd = {"type": "text", "content": str(r) if r is not None else ""}
-                result.append({"type": "success", "result": _rd})
-    return result
     `);
 }
 
