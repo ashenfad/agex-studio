@@ -23,10 +23,6 @@ Return a simple value or a multi-part `Response`:
 - `go.Figure` — Plotly chart
 - `Response(parts=[ ... ])` — any mix of the above
 
-`view_image(img)` (PIL Image, matplotlib Figure, Plotly Figure) sends the
-image to *your* vision for inspection — it does NOT display to the user.
-Only `Response` parts handed to `task_success(...)` reach the user.
-
 ## UI context
 
 - **File drawer** (right) — your VFS, browsable to the user. Drive imports
