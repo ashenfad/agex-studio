@@ -246,8 +246,8 @@ from agex.agent.events import (
     CancelledEvent as _CancelledEvent,
 )
 # Helper functions (_output_text, _serialize_output_parts, _split_output_events,
-# _serialize_file_actions, _serialize_chapter_events) and event types
-# (_ActionEvent, _OutputEvent, _ChapterEvent) are defined in initAgent
+# _serialize_chapter_events) and event types (_ActionEvent, _OutputEvent,
+# _ChapterEvent) are defined in initAgent
 
 _state = _agent.state("default")
 _all = _get_events(_state)
