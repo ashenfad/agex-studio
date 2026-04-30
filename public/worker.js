@@ -39,7 +39,7 @@ const WAVE2_OWN = [
     "kvgit>=0.2.2",
     "monkeyfs>=0.1.4",
     "reprobate>=0.1.1",
-    "sandtrap>=0.1.15",
+    "sandtrap>=0.2.1",
 ];
 // Pyodide's built-in package set — loadPackage resolves these from
 // the runtime's lockfile. plotly / others not in that lockfile must
@@ -135,7 +135,8 @@ async function init() {
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("agex>=0.11.2", deps=False, index_urls="${freshIndex}")`,
+            `micropip.install("agex>=0.12.0", deps=False, index_urls="${freshIndex}")`,
+            // `micropip.install("${self.location.origin}/wheels/agex-0.12.0-py3-none-any.whl", deps=False)`,
         ]);
         const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,

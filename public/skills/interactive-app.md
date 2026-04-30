@@ -184,11 +184,40 @@ This file-based module pattern is **strongly recommended** because:
 ## CRITICAL: query() Does Not See REPL State
 
 **`query()` does not have access to functions or variables you defined in
-your REPL.** It runs in a fresh namespace with only files on disk available.
+your REPL.** It runs in a fresh namespace with only files on disk and
+the agent's `cache` available.
 
 Always put your data-fetching logic in a **helper module file** (e.g.
 `helpers/my_app.py`). Functions defined in your REPL will cause
 `NameError` when called from `query()`.
+
+## Publishing Values to query() via cache
+
+If you have a computed value the app should display — a fitted model, a
+cleaned DataFrame, a derived configuration — store it in `cache[...]`
+before `task_success()`.  Cache values **are visible to `query()`** while
+REPL variables are not:
+
+```python
+# In your python_action: compute and stash
+df = pd.read_csv("/downloads/sales.csv").dropna()
+cache["sales_df"] = df
+task_success(...)
+```
+
+```js
+// In app JS: read it via query()
+const { df } = await query({
+  code: 'df = cache["sales_df"]',
+  result: ['df']
+})
+```
+
+Use `cache[...]` for ready-to-consume values; use a helper module
+(`helpers/*.py`) when the app needs to *call a function* (e.g. to
+re-derive on different parameters).  Keep JSON-file persistence for
+app-internal state (filter selections, view modes, counters) — see
+the next section.
 
 ## Module-Level Variables Don't Persist Across query() Calls
 

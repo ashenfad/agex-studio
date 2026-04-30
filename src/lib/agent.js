@@ -1166,32 +1166,41 @@ async function _runQueryImpl(code, resultVars) {
   const json = await runPython(`
 import json as _json
 from agex.eval.bridge import aexecute_sandboxed as _aexecute_sandboxed
+from agex.cache import PREFIX as _CACHE_PREFIX
 from agex.state.live import Live as _Live
 
 _query_code = ${JSON.stringify(code)}
 _query_result_vars = ${resultArg}
 
-# Queries run against a scratch Live state seeded with the chat
-# agent's user-visible variables. This lets the query read
-# dataframes / configs the agent has built up, while discarding any
-# writes (loop vars, transient bindings, explicit assignments) when
-# the Live goes out of scope. Without this, the query bridge would
-# persist its top-level locals into the chat agent's state and
-# silently shadow builtins or clobber chat vars on the next turn.
+# Queries run against a scratch Live state so prints / view_image
+# events emitted by the query don't pollute the chat agent's event
+# log.  The query Live is seeded with the chat agent's cache slice
+# (keys under the __cache__/ prefix), so app code calling query()
+# can read whatever the agent has explicitly cached (e.g.
+# cache["df"] = df) while writes from the query stay turn-local and
+# are discarded when the Live goes out of scope.  The agent's VFS
+# is shared via fs=_agent.fs() below, so helpers / scratch files
+# survive the round-trip.
 _chat_state = _agent.state("default")
 _query_state = _Live()
 for _k in _chat_state.keys():
-    if _k.startswith("_"):
-        continue
-    try:
-        _query_state[_k] = _chat_state[_k]
-    except Exception:
-        pass
+    if _k.startswith(_CACHE_PREFIX):
+        try:
+            _query_state[_k] = _chat_state[_k]
+        except Exception:
+            pass
 
 _query_error = None
+_query_namespace = None
 
 try:
-    await _aexecute_sandboxed(
+    # aexecute_sandboxed returns the post-exec namespace dict.  Under
+    # the stateless contract (agex >= 0.12.0) variables defined inside
+    # the query don't get synced back to _query_state — they live in
+    # the namespace and disappear when _query_namespace falls out of
+    # scope.  This is exactly what we want for queries: pluck named
+    # results out of the namespace, no leakage back into chat.
+    _query_namespace = await _aexecute_sandboxed(
         _query_code,
         _agent,
         _query_state,
@@ -1206,7 +1215,7 @@ except BaseException as _e:
 if _query_error:
     raise RuntimeError(_query_error)
 
-# Collect result variables from state
+# Collect result variables from the post-exec namespace.
 def _serialize(val):
     if isinstance(val, pd.DataFrame):
         import numpy as _np
@@ -1233,17 +1242,18 @@ def _serialize(val):
         except (TypeError, ValueError):
             return str(val)
 
+_ns = _query_namespace or {}
 _query_result = {}
 if _query_result_vars is not None:
     for _name in _query_result_vars:
-        if _name in _query_state:
-            _query_result[_name] = _serialize(_query_state[_name])
+        if _name in _ns:
+            _query_result[_name] = _serialize(_ns[_name])
 else:
-    for _name in _query_state.keys():
+    for _name in _ns:
         if _name.startswith("_") or _name.startswith("__"):
             continue
         try:
-            _query_result[_name] = _serialize(_query_state[_name])
+            _query_result[_name] = _serialize(_ns[_name])
         except Exception:
             pass
 

@@ -274,7 +274,9 @@ describe("runQuery", () => {
         await runQuery("x = 1", ["x"]).catch(() => {});
 
         const code = runPythonCalls[0];
-        expect(code).toContain("_serialize(_query_state[_name])");
+        // Result vars come out of the post-exec namespace returned by
+        // aexecute_sandboxed (agex >= 0.12.0), not out of state.
+        expect(code).toContain("_serialize(_ns[_name])");
     });
 
 });
