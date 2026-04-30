@@ -11,6 +11,12 @@ const readPy = (name) =>
         "utf-8",
     );
 
+const readPrimer = (name) =>
+    readFileSync(
+        resolve(__dirname, `../../public/primers/${name}`),
+        "utf-8",
+    );
+
 // localStorage stub — agent.js reads debug flags at init time
 vi.stubGlobal("localStorage", {
     getItem: () => null,
@@ -102,17 +108,15 @@ describe("initAgent", () => {
         expect(code).not.toContain("google_token()");
     });
 
-    it("registers drive skill and mentions /downloads in task primer", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
+    it("registers drive skill and mentions /downloads in task primer", () => {
         // Skill registration moved to agent_modules.py; primer text
-        // about /downloads/ stays in the rich heredoc for now.
+        // moved to public/primers/chat_task.md.
         expect(readPy("agent_modules.py")).toContain("drive.md");
         // Primer now references /downloads/ (where imported files land),
         // not /drive/ (the old live mount).
-        expect(code).toContain("/downloads/");
-        expect(code).toContain("cat /skills/drive/SKILL.md");
+        const primer = readPrimer("chat_task.md");
+        expect(primer).toContain("/downloads/");
+        expect(primer).toContain("cat /skills/drive/SKILL.md");
     });
 
 
@@ -130,14 +134,12 @@ describe("initAgent", () => {
         expect(py).toContain("part.png_bytes()");
     });
 
-    it("mentions test_app auto-display in task primer", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("test_app()");
-        expect(code).toContain("auto-displayed");
-        expect(code).toContain("query() calls in the app work during testing");
-        expect(code).toContain('actions=[{"click"');
+    it("mentions test_app auto-display in task primer", () => {
+        const primer = readPrimer("chat_task.md");
+        expect(primer).toContain("test_app()");
+        expect(primer).toContain("auto-displayed");
+        expect(primer).toContain("query() calls in the app work during testing");
+        expect(primer).toContain('actions=[{"click"');
     });
 
     it("defines _display_app_results helper", () => {
@@ -182,12 +184,10 @@ describe("initAgent", () => {
         expect(py).toContain('agent.fn(pdf_page_count, visibility="high")');
     });
 
-    it("mentions render_pdf in task primer", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("render_pdf(");
-        expect(code).toContain("pdf_page_count(");
+    it("mentions render_pdf in task primer", () => {
+        const primer = readPrimer("chat_task.md");
+        expect(primer).toContain("render_pdf(");
+        expect(primer).toContain("pdf_page_count(");
     });
 
     it("wires up setQueryHandler", async () => {
