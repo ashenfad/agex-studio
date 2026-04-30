@@ -234,6 +234,11 @@ from event_serialization import (
 # (history-ready) before rich finishes installing the libraries.
 _install_module("queries", "/python/queries.py")
 _install_module("chaptering", "/python/chaptering.py")
+
+# Streaming wrapper used by sendMessage to wire on_event / on_token
+# around the chat task.  Loaded in basics so it's ready by the time
+# the first sendMessage fires.
+_install_module("streaming", "/python/streaming.py")
 from agex.agent.events import (
     ActionEvent as _ActionEvent,
     OutputEvent as _OutputEvent,
@@ -518,154 +523,8 @@ export async function sendMessage(message, onToken) {
   const json = await runPythonStreaming(
     `
 import json as _json
-
-_events_log = []
-
-def _on_event(event):
-    if isinstance(event, _ActionEvent):
-        _events_log.append(_synthesize_action(event))
-        # Deterministic turn-boundary signal for the live UI.  Tokens
-        # within one turn carry monotonically increasing emission_index
-        # values but can still arrive interleaved across emissions
-        # (esp. OpenAI Chat Completions tool_calls).  The UI groups
-        # streaming tokens by emission_index; this marker tells it
-        # "that was everything for this turn, commit the blocks".
-        _post_token(_run_id, {
-            "type": "turn_complete",
-            "content": "",
-            "start": False,
-            "done": True,
-        })
-    elif isinstance(event, _OutputEvent):
-        _events_log.extend(_split_output_events(_serialize_output_parts(event)))
-    elif isinstance(event, _ChapterEvent):
-        _state = _agent.state("default")
-        _events_log.append({
-            "type": "chapter",
-            "name": event.name,
-            "message": event.message,
-            "events": _serialize_chapter_events(event.resolve_events(_state), _state),
-        })
-
-def _on_token(token):
-    _ttype = token.type
-    # Map the retool's richer token vocabulary back to what the UI
-    # consumes.  Plain assistant text is surfaced as a report stream;
-    # invisible markers (signature / tool_start) are dropped; the
-    # streaming file-arg deltas (file_path / file_search /
-    # file_content) pass through so the UI can render file writes
-    # live instead of popping them in fully-formed at the end.
-    if _ttype == "text":
-        _ttype = "report"
-    elif _ttype in ("signature", "tool_start"):
-        return
-
-    # Prebuilt "emission" tokens carry a fully built Emission object
-    # (file write/edit, standalone thinking, standalone text).  Route
-    # file emissions into the existing file_action envelope; route
-    # text and thinking emissions as synthetic report / thinking
-    # token bursts so the UI accumulator picks them up.  Every
-    # synthetic token carries the original emission_index so the UI
-    # can pair a final file_action to whichever streaming
-    # file_path/file_content fragments preceded it.
-    _eidx = getattr(token, "emission_index", 0)
-    if _ttype == "emission":
-        _em = getattr(token, "emission", None)
-        if isinstance(_em, _FileWriteEmission):
-            _post_token(_run_id, {
-                "type": "file_action",
-                "content": "",
-                "start": False,
-                "done": True,
-                "emission_index": _eidx,
-                "action": {
-                    "kind": "file",
-                    "path": _em.path,
-                    "content": _em.content,
-                    "mode": _em.mode,
-                },
-            })
-            return
-        if isinstance(_em, _FileEditEmission):
-            _post_token(_run_id, {
-                "type": "file_action",
-                "content": "",
-                "start": False,
-                "done": True,
-                "emission_index": _eidx,
-                "action": {
-                    "kind": "edit",
-                    "path": _em.path,
-                    "search": _em.search,
-                    "content": _em.content,
-                    "operation": "replace",
-                },
-            })
-            return
-        if isinstance(_em, _TextEmission):
-            _text = _em.text or ""
-            if _text:
-                _post_token(_run_id, {"type": "report", "content": "", "start": True, "done": False, "emission_index": _eidx})
-                _post_token(_run_id, {"type": "report", "content": _text, "start": False, "done": False, "emission_index": _eidx})
-                _post_token(_run_id, {"type": "report", "content": "", "start": False, "done": True, "emission_index": _eidx})
-            return
-        if isinstance(_em, _ThinkingEmission):
-            _text = (_em.text or "").strip()
-            if _text and not _em.redacted:
-                _post_token(_run_id, {"type": "thinking", "content": _text, "start": True, "done": False, "emission_index": _eidx})
-                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True, "emission_index": _eidx})
-            elif _em.redacted:
-                _post_token(_run_id, {"type": "thinking", "content": "[redacted thinking]", "start": True, "done": False, "emission_index": _eidx})
-                _post_token(_run_id, {"type": "thinking", "content": "", "start": False, "done": True, "emission_index": _eidx})
-            return
-        # Unknown emission payload — drop it rather than mis-render.
-        return
-
-    _post_token(_run_id, {
-        "type": _ttype,
-        "content": token.content,
-        "start": getattr(token, "start", False),
-        "done": token.done,
-        "emission_index": getattr(token, "emission_index", 0),
-    })
-
-from agex import TaskFail, TaskClarify, TaskCancelled
-import asyncio as _asyncio
-
-# Store the running task so the cancel handler can interrupt it
-_agex_running_task = _asyncio.current_task()
-
-try:
-    _result = await chat(${JSON.stringify(message)}, on_event=_on_event, on_token=_on_token)
-except TaskCancelled:
-    _result = None
-    _events_log.append({"type": "cancelled"})
-except _asyncio.CancelledError:
-    _result = None
-    _events_log.append({"type": "cancelled"})
-    # asyncio cancel bypasses agex's loop — record CancelledEvent and commit manually
-    try:
-        _state = _agent.state("default")
-        from agex.agent.events import CancelledEvent as _CE
-        from agex.state.log import add_event_to_log as _add_log
-        _add_log(_state, _CE(agent_name=_agent.name, task_name="chat", iterations_completed=0))
-        _state.commit()
-    except Exception:
-        pass
-except TaskFail as _tf:
-    _result = _tf.message
-except TaskClarify as _tc:
-    _result = _tc.message
-finally:
-    _agex_running_task = None
-
-def _serialize_result(r):
-    if isinstance(r, Response):
-        return {"type": "response", "parts": r.normalize()}
-    else:
-        return {"type": "text", "content": str(r) if r is not None else ""}
-
-_json.dumps({"result": _serialize_result(_result), "events": _events_log})
+import streaming as _streaming
+_json.dumps(await _streaming.run_chat_task(chat, _agent, ${JSON.stringify(message)}))
     `,
     onToken,
   );
