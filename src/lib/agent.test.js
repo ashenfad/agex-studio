@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+// Convenience: read an extracted Python module once.  Some assertions
+// originally targeted the JS-emitted heredoc and now target the .py
+// file directly because that's where the code moved.
+const readPy = (name) =>
+    readFileSync(
+        resolve(__dirname, `../../public/python/${name}`),
+        "utf-8",
+    );
+
 // localStorage stub — agent.js reads debug flags at init time
 vi.stubGlobal("localStorage", {
     getItem: () => null,
@@ -59,14 +68,13 @@ describe("initAgent", () => {
         expect(code).toContain("clear_agent_registry()");
     });
 
-    it("registers test_app function with auto-display", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("async def test_app(actions");
-        expect(code).toContain("_js_test_app");
-        expect(code).toContain("_display_app_results");
-        expect(code).toContain('_agent.fn(test_app, visibility="low")');
+    it("registers test_app function with auto-display", () => {
+        // test_app definition + registration moved to agent_helpers.py
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("async def test_app(actions");
+        expect(py).toContain("_js_test_app");
+        expect(py).toContain("_display_app_results");
+        expect(py).toContain('agent.fn(test_app, visibility="low")');
     });
 
     it("registers interactive app skill", async () => {
@@ -131,56 +139,46 @@ describe("initAgent", () => {
         expect(code).toContain('actions=[{"click"');
     });
 
-    it("defines _display_app_results helper", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("def _display_app_results(");
-        expect(code).toContain('[read ');
-        expect(code).toContain('[eval error]');
-        expect(code).toContain('[eval]');
+    it("defines _display_app_results helper", () => {
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("def _display_app_results(");
+        expect(py).toContain('[read ');
+        expect(py).toContain('[eval error]');
+        expect(py).toContain('[eval]');
     });
 
-    it("strips screenshot base64 from returned results", async () => {
+    it("strips screenshot base64 from returned results", () => {
         // Regression: the screenshot is already delivered as an ImageAction
         // via the __AGEX_IMAGE__: marker.  Leaving raw base64 in the return
         // value would inflate the next prompt by a megabyte per screenshot
         // once the result lands in the event log.
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("def _strip_screenshot_payload(");
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("def _strip_screenshot_payload(");
         // Both helpers must route through the stripper before returning.
-        expect(code).toContain("return _strip_screenshot_payload(_results)");
-        expect(code).toContain('"<shown via view_image>"');
+        expect(py).toContain("return _strip_screenshot_payload(results)");
+        expect(py).toContain('"<shown via view_image>"');
     });
 
-    it("registers live_app function with auto-display", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("async def live_app(actions");
-        expect(code).toContain("_js_live_app");
-        expect(code).toContain("_display_app_results");
-        expect(code).toContain('_agent.fn(live_app, visibility="low")');
-        expect(code).toContain("LAST COMMITTED");
+    it("registers live_app function with auto-display", () => {
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("async def live_app(actions");
+        expect(py).toContain("_js_live_app");
+        expect(py).toContain("_display_app_results");
+        expect(py).toContain('agent.fn(live_app, visibility="low")');
+        expect(py).toContain("LAST COMMITTED");
     });
 
-    it("registers render_pdf with high visibility", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("async def render_pdf(data");
-        expect(code).toContain("_js_render_pdf");
-        expect(code).toContain('_agent.fn(render_pdf, visibility="high")');
+    it("registers render_pdf with high visibility", () => {
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("async def render_pdf(data");
+        expect(py).toContain("_js_render_pdf");
+        expect(py).toContain('agent.fn(render_pdf, visibility="high")');
     });
 
-    it("registers pdf_page_count with high visibility", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("def pdf_page_count(data");
-        expect(code).toContain('_agent.fn(pdf_page_count, visibility="high")');
+    it("registers pdf_page_count with high visibility", () => {
+        const py = readPy("agent_helpers.py");
+        expect(py).toContain("def pdf_page_count(data");
+        expect(py).toContain('agent.fn(pdf_page_count, visibility="high")');
     });
 
     it("mentions render_pdf in task primer", async () => {
