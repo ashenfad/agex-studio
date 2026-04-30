@@ -20,7 +20,7 @@
 </script>
 
 {#each visibleEvents as evt}
-    {#if evt.type === 'action' && evt.emissions?.length}
+    {#if evt.type === 'action'}
         <!-- Emission-list rendering: each emission is its own section,
              in the order the model produced them.  Preserves
              interleaving of thinking / tool calls the way native
@@ -91,57 +91,6 @@
                     </div>
                 {/if}
             {/each}
-        </div>
-    {:else if evt.type === 'action'}
-        <!-- Legacy flat-fields rendering: fallback for events that
-             came in before Wave 2 (the Python serializer always ships
-             ``emissions`` now, so this branch is hit only for
-             pre-retool history dumps or synthesized events). -->
-        <div class="event-card">
-            {#if evt.title}
-                <div class="event-title">{evt.title}</div>
-            {/if}
-            {#if evt.thinking}
-                <div class="section">
-                    <div class="section-label">Thinking</div>
-                    <blockquote class="thinking">
-                        <div class="thinking-content">{@html renderThinking(evt.thinking)}</div>
-                    </blockquote>
-                </div>
-            {/if}
-            {#if evt.report}
-                <div class="section">
-                    <div class="section-label report-label">Report</div>
-                    <div class="report-content">{@html renderMarkdown(evt.report)}</div>
-                </div>
-            {/if}
-            {#if evt.file_actions?.length}
-                {#each evt.file_actions as fa}
-                    {#if fa.kind === 'file'}
-                        <div class="section file-action">
-                            <div class="section-label">{fa.mode === 'append' ? 'Append' : 'Write'} <span class="filename">- {fa.path}</span></div>
-                            <pre class="section-content"><code>{@html highlightCode(trim(fa.content), fa.path)}</code></pre>
-                        </div>
-                    {:else if fa.kind === 'edit'}
-                        <div class="section edit-action">
-                            <div class="section-label">Edit <span class="filename">- {fa.path}</span></div>
-                            <pre class="section-content diff"><code>{#each computeDiff(fa.search, fa.content, fa.operation) as line}<span class="diff-{line.type}">{line.type === 'removed' ? '−' : line.type === 'added' ? '+' : ' '} {line.text}</span>{/each}</code></pre>
-                        </div>
-                    {/if}
-                {/each}
-            {/if}
-            {#if evt.code}
-                <div class="section code">
-                    <div class="section-label">Code</div>
-                    <pre class="section-content"><code>{@html highlightTrimmed(evt.code)}</code></pre>
-                </div>
-            {/if}
-            {#if evt.terminal}
-                <div class="section terminal">
-                    <div class="section-label">Terminal</div>
-                    <pre class="section-content"><code>{trim(evt.terminal)}</code></pre>
-                </div>
-            {/if}
         </div>
     {:else if evt.type === 'error'}
         <div class="event-card error-card">

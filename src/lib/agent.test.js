@@ -30,11 +30,25 @@ vi.stubGlobal("localStorage", {
     removeItem: () => {},
 });
 
-// Mock runPython — capture calls and return a canned JSON response
+// Mock runPython — capture calls and return a canned JSON response.
+// The events array uses the post-Wave-2 emission-list shape that the
+// real Python serializer (event_serialization._synthesize_action) ships.
 const runPythonCalls = [];
 const mockResponse = JSON.stringify({
     result: "mock response",
-    events: [{ title: "Test", thinking: "I thought", code: "print(1)", terminal: null }],
+    events: [
+        {
+            type: "action",
+            title: "Test",
+            report: "",
+            emissions: [
+                { kind: "thinking", idx: 0, text: "I thought", redacted: false },
+                { kind: "python", idx: 1, code: "print(1)", title: "Test", thinking: "" },
+            ],
+            input_tokens: 100,
+            output_tokens: 50,
+        },
+    ],
 });
 
 vi.mock("./pyodide.js", () => ({
@@ -267,10 +281,16 @@ describe("sendMessage", () => {
         const response = await sendMessage("hi");
         expect(response.result).toBe("mock response");
         expect(response.events).toHaveLength(1);
+        // Action events ship as the emission-list shape: title +
+        // emissions[] + token counts.  Per-emission code / thinking
+        // live inside the emissions array, not as flat fields.
+        expect(response.events[0].type).toBe("action");
         expect(response.events[0].title).toBe("Test");
-        expect(response.events[0].thinking).toBe("I thought");
-        expect(response.events[0].code).toBe("print(1)");
-        expect(response.events[0].terminal).toBeNull();
+        expect(response.events[0].emissions).toHaveLength(2);
+        expect(response.events[0].emissions[0].kind).toBe("thinking");
+        expect(response.events[0].emissions[0].text).toBe("I thought");
+        expect(response.events[0].emissions[1].kind).toBe("python");
+        expect(response.events[0].emissions[1].code).toBe("print(1)");
     });
 
     it("includes on_event and on_token callbacks in Python code", async () => {

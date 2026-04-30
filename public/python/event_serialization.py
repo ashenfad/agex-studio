@@ -195,85 +195,35 @@ def _serialize_emission(em, idx):
     return None
 
 
-def _serialize_file_actions(emissions):
-    """Legacy flat-fields shape: pick out FileWrite / FileEdit emissions
-    and return the old ``{kind, path, ...}`` dicts the existing UI
-    consumes.  Kept alongside the emissions-list serialization so
-    pre-Wave-2 render paths keep working.
-    """
-    result = []
-    for a in emissions:
-        if isinstance(a, _FileWriteEmission):
-            result.append(
-                {
-                    "kind": "file",
-                    "path": a.path,
-                    "content": a.content,
-                    "mode": a.mode,
-                }
-            )
-        elif isinstance(a, _FileEditEmission):
-            result.append(
-                {
-                    "kind": "edit",
-                    "path": a.path,
-                    "search": a.search,
-                    "content": a.content,
-                    "operation": "replace",
-                }
-            )
-    return result
-
-
 def _synthesize_action(evt):
-    """Serialize an ActionEvent for the UI.
+    """Serialize an ActionEvent for the UI as an emission-list shape.
 
-    Ships both the new emission-list shape (``emissions``, preferred by
-    the post-Wave-2 renderer) AND the flat-fields shape (title /
-    thinking / report / code / terminal / file_actions) so older
-    components keep rendering while the UI migrates.  Multi-emission
-    turns get their python / terminal / thinking / text fields
-    concatenated in the flat view so nothing disappears when a
-    single-block card has to represent several emissions.
+    The dict carries:
+    - ``emissions``: per-emission dicts, the primary content the UI
+      iterates over to render thinking / code / terminal / file blocks.
+    - ``title``: first python/terminal emission's title — used as the
+      event-card heading.
+    - ``report``: text emissions joined with blank lines.  Consumed by
+      sessions.js to surface an agent message in the chat thread.
+    - ``input_tokens`` / ``output_tokens``: LLM token usage.
     """
     titles = []
-    thinking_bits = []
     report_bits = []
-    code_bits = []
-    term_bits = []
     emissions_dicts = []
     for idx, em in enumerate(evt.emissions):
         ed = _serialize_emission(em, idx)
         if ed is not None:
             emissions_dicts.append(ed)
-        if isinstance(em, _PythonEmission):
+        if isinstance(em, (_PythonEmission, _TerminalEmission)):
             if em.title:
                 titles.append(em.title)
-            if em.thinking:
-                thinking_bits.append(em.thinking)
-            if em.code:
-                code_bits.append(em.code)
-        elif isinstance(em, _TerminalEmission):
-            if em.title:
-                titles.append(em.title)
-            if em.thinking:
-                thinking_bits.append(em.thinking)
-            if em.commands:
-                term_bits.append(em.commands)
-        elif isinstance(em, _ThinkingEmission):
-            if em.text and not em.redacted:
-                thinking_bits.append(em.text)
         elif isinstance(em, _TextEmission):
             if em.text:
                 report_bits.append(em.text)
     return {
         "type": "action",
         "title": titles[0] if titles else "",
-        "thinking": _NL2.join(thinking_bits),
         "report": _NL2.join(report_bits),
-        "code": _NL2.join(code_bits) or None,
-        "terminal": _NL2.join(term_bits) or None,
-        "file_actions": _serialize_file_actions(evt.emissions),
         "emissions": emissions_dicts,
         "input_tokens": evt.input_tokens,
         "output_tokens": evt.output_tokens,

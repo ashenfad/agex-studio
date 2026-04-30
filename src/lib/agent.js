@@ -225,7 +225,6 @@ from event_serialization import (
     _output_text,
     _split_output_events,
     _serialize_emission,
-    _serialize_file_actions,
     _synthesize_action,
     _serialize_chapter_events,
 )
