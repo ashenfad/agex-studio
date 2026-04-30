@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // localStorage stub — agent.js reads debug flags at init time
 vi.stubGlobal("localStorage", {
@@ -105,13 +107,18 @@ describe("initAgent", () => {
     });
 
 
-    it("handles fresh ImageAction without _png_bytes in serializer", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
+    it("handles fresh ImageAction without _png_bytes in serializer", () => {
+        // Serializer logic lives in public/python/event_serialization.py
+        // (loaded into pyodide at init-time via _install_module).  The
+        // assertion targets that file directly now that the heredoc
+        // version is gone from agent.js.
+        const py = readFileSync(
+            resolve(__dirname, "../../public/python/event_serialization.py"),
+            "utf-8",
+        );
         // Must use getattr for fresh ImageAction instances (not unpickled)
-        expect(code).toContain('getattr(part, "_png_bytes", None)');
-        expect(code).toContain("part.png_bytes()");
+        expect(py).toContain('getattr(part, "_png_bytes", None)');
+        expect(py).toContain("part.png_bytes()");
     });
 
     it("mentions test_app auto-display in task primer", async () => {
