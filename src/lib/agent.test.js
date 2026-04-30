@@ -77,12 +77,11 @@ describe("initAgent", () => {
         expect(py).toContain('agent.fn(test_app, visibility="low")');
     });
 
-    it("registers interactive app skill", async () => {
-        await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
-
-        const code = allInitCode();
-        expect(code).toContain("interactive-app.md");
-        expect(code).toContain("_agent.skill");
+    it("registers interactive app skill", () => {
+        // Static-skill list + agent.skill(...) calls live in agent_modules.py.
+        const py = readPy("agent_modules.py");
+        expect(py).toContain("interactive-app.md");
+        expect(py).toContain("agent.skill");
     });
 
     // Gmail module disabled until app verification (restricted scopes)
@@ -107,7 +106,9 @@ describe("initAgent", () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
 
         const code = allInitCode();
-        expect(code).toContain("drive.md");
+        // Skill registration moved to agent_modules.py; primer text
+        // about /downloads/ stays in the rich heredoc for now.
+        expect(readPy("agent_modules.py")).toContain("drive.md");
         // Primer now references /downloads/ (where imported files land),
         // not /drive/ (the old live mount).
         expect(code).toContain("/downloads/");
@@ -211,11 +212,18 @@ describe("initAgent", () => {
     it("rich registers modules + skills + chat task", async () => {
         await initAgent({ apiKey: "sk-test-123", model: "openai/gpt-5.4" });
         const rich = runPythonCalls[1];
-        expect(rich).toContain("register_pandas(_agent)");
-        expect(rich).toContain("register_plotly(_agent)");
+        // Library registrations are delegated to agent_modules.register_all;
+        // the rich heredoc just calls into it.
+        expect(rich).toContain("agent_modules.register_all(_agent)");
         expect(rich).toContain("@_agent.task(primer=_TASK_PRIMER)");
         // Reuses _agent created in basics; doesn't reconstruct.
         expect(rich).not.toContain("_agent = Agent(");
+
+        // The actual register_pandas / register_plotly calls live in
+        // agent_modules.py — verify they're still wired up there.
+        const py = readPy("agent_modules.py");
+        expect(py).toContain("register_pandas(agent)");
+        expect(py).toContain("register_plotly(agent)");
     });
 });
 
