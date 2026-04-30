@@ -37,7 +37,7 @@ from agex.eval.objects import (
 # Currently just the "💥" code-fence preamble emitted by agex on
 # uncaught exceptions; kept as a tuple so additional markers can be
 # folded in without touching the splitting logic.
-_ERROR_KEYWORDS = ("\u{1F4A5}",)
+_ERROR_KEYWORDS = ("\U0001F4A5",)
 
 _NL = chr(10)
 _NL2 = _NL + _NL
