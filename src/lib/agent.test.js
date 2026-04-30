@@ -293,14 +293,25 @@ describe("sendMessage", () => {
         expect(response.events[0].emissions[1].code).toBe("print(1)");
     });
 
-    it("includes on_event and on_token callbacks in Python code", async () => {
+    it("delegates streaming setup to streaming.run_chat_task", async () => {
+        // The on_event / on_token wiring lives in streaming.py now;
+        // the JS heredoc is just a thin wrapper that imports the
+        // module and awaits the runner.
         await sendMessage("hello");
-
         const code = runPythonCalls[0];
-        expect(code).toContain("on_event=_on_event");
-        expect(code).toContain("on_token=_on_token");
-        expect(code).toContain("ActionEvent");
-        expect(code).toContain("_post_token");
+        expect(code).toContain("import streaming as _streaming");
+        expect(code).toContain("await _streaming.run_chat_task(chat, _agent");
+
+        // Verify the callbacks + bridge surface still live in the
+        // module — the actual streaming invariants we care about.
+        const py = readPy("streaming.py");
+        expect(py).toContain("on_event=on_event");
+        expect(py).toContain("on_token=on_token");
+        expect(py).toContain("ActionEvent");
+        expect(py).toContain("post_token");
+        // emission_index threading is the load-bearing detail — every
+        // synthesized token for emission types must carry it.
+        expect(py).toContain('"emission_index": eidx');
     });
 });
 
