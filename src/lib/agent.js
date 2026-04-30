@@ -254,98 +254,18 @@ from agex.agent.emissions import (
 export async function initAgentRich(settings) {
   const { userTz } = _settingsConstants(settings);
   await runPython(`
-from agex.helpers import register_pandas, register_numpy, register_plotly, register_stdlib
-
 _agent.cls(Response)
 
-register_stdlib(_agent)
-register_pandas(_agent)
-register_numpy(_agent)
-register_plotly(_agent)
-
-from agex.git_cli import register_git
-register_git(_agent)
-
-# Override stdlib's restricted random with full access
-import random as _random
-_agent.module(_random, visibility="low")
-
-import pypdf as _pypdf
-_agent.module(_pypdf, visibility="low", recursive=True)
-
-import openpyxl as _openpyxl
-_agent.module(_openpyxl, visibility="low", recursive=True)
-
-import scipy as _scipy
-_agent.module(_scipy, visibility="low", recursive=True)
-
-import sklearn as _sklearn
-_agent.module(_sklearn, visibility="low", recursive=True)
-
-import skimage as _skimage
-_agent.module(_skimage, visibility="low", recursive=True)
-
-# matplotlib is registered low-viz so the primer doesn't enumerate
-# its API surface (huge), but agents can still import it (or
-# pyplot) when they reach for it.  Force the non-interactive Agg
-# backend before any pyplot import — Pyodide has no GUI display
-# and the default backend selection would fail trying to find one.
-import matplotlib as _matplotlib
-_matplotlib.use("Agg")
-_agent.module(_matplotlib, visibility="low", recursive=True)
-
-# Document authoring: python-pptx for slide decks, fpdf2 for PDFs.
-# Both registered low-viz — primer mentions the capability,
-# detailed APIs left for the agent to explore via dir() / help.
-import pptx as _pptx
-_agent.module(_pptx, visibility="low", recursive=True)
-import fpdf as _fpdf
-_agent.module(_fpdf, visibility="low", recursive=True)
-
-# -- Register calgebra with network access for Google Calendar API --
-import calgebra as _calgebra
-_agent.module(_calgebra, visibility="low", recursive=True, network_access=True)
-
-try:
-    import PIL as _PIL
-    _agent.module(_PIL, visibility="low", recursive=True)
-except ImportError:
-    pass
-
-import asyncio as _asyncio
-# Low-viz: the task primer already documents how to use
-# asyncio.gather / sleep / wait / as_completed, so we don't need to
-# spend primer tokens redescribing their signatures here.  Registration
-# still lets the sandbox import and call them.
-_agent.module(
-    _asyncio,
-    include=["gather", "sleep", "wait", "as_completed"],
-    visibility="low",
-)
-
-# -- Register skills from installed packages --
-try:
-    import pathlib as _pathlib
-    _calgebra_pkg = _pathlib.Path(__import__("calgebra").__file__).parent
-    _agent.skill(_calgebra_pkg / "skills" / "calgebra" / "SKILL.md")
-    del _calgebra_pkg, _pathlib
-except Exception as _e:
-    print(f"[skills] failed to register: {_e}")
-
-# -- Register skills from static files --
-# Reuses _open_url from basics's loader setup; basics's _install_module
-# closure also depends on _open_url / _importlib / _site_dir staying
-# resident in __main__, so do not delete them here.
-for _skill_path in [
-    "/skills/interactive-app.md",
-    "/skills/drive.md",
-    "/skills/calgebra.md",
-    # "/skills/gcal.md",    # disabled — Google Calendar scope removed
-    # "/skills/sheets.md",  # disabled — scopes removed
-    # "/skills/docs.md",    # disabled — scopes removed
-]:
-    _agent.skill(_open_url(_skill_path).read().encode("utf-8"))
-del _skill_path
+# -- Library + skill registrations --
+# Definitions live in public/python/agent_modules.py.  register_all()
+# runs the agex helper bundles, registers third-party libraries
+# (pandas/numpy/scipy/sklearn/matplotlib/etc.) low-viz, attaches
+# calgebra's bundled SKILL.md, and pulls the static skill markdown
+# files served from public/skills/.
+_install_module("agent_modules", "/python/agent_modules.py")
+import agent_modules as _agent_modules
+_agent_modules.register_all(_agent)
+del _agent_modules
 
 # -- Studio-app helpers (search, test_app, live_app, render_pdf, ...) --
 # Definitions live in public/python/agent_helpers.py.  The register()
