@@ -229,6 +229,12 @@ from event_serialization import (
     _synthesize_action,
     _serialize_chapter_events,
 )
+
+# Sandboxed query exec + chaptering / token-history helpers.  Loaded
+# in basics so estimateLogTokens / getTokenHistory work during Wave 2
+# (history-ready) before rich finishes installing the libraries.
+_install_module("queries", "/python/queries.py")
+_install_module("chaptering", "/python/chaptering.py")
 from agex.agent.events import (
     ActionEvent as _ActionEvent,
     OutputEvent as _OutputEvent,
@@ -493,103 +499,11 @@ export function runQuery(code, resultVars) {
 
 async function _runQueryImpl(code, resultVars) {
   const resultArg = resultVars ? JSON.stringify(resultVars) : "None";
-
   const json = await runPython(`
 import json as _json
-from agex.eval.bridge import aexecute_sandboxed as _aexecute_sandboxed
-from agex.cache import PREFIX as _CACHE_PREFIX
-from agex.state.live import Live as _Live
-
-_query_code = ${JSON.stringify(code)}
-_query_result_vars = ${resultArg}
-
-# Queries run against a scratch Live state so prints / view_image
-# events emitted by the query don't pollute the chat agent's event
-# log.  The query Live is seeded with the chat agent's cache slice
-# (keys under the __cache__/ prefix), so app code calling query()
-# can read whatever the agent has explicitly cached (e.g.
-# cache["df"] = df) while writes from the query stay turn-local and
-# are discarded when the Live goes out of scope.  The agent's VFS
-# is shared via fs=_agent.fs() below, so helpers / scratch files
-# survive the round-trip.
-_chat_state = _agent.state("default")
-_query_state = _Live()
-for _k in _chat_state.keys():
-    if _k.startswith(_CACHE_PREFIX):
-        try:
-            _query_state[_k] = _chat_state[_k]
-        except Exception:
-            pass
-
-_query_error = None
-_query_namespace = None
-
-try:
-    # aexecute_sandboxed returns the post-exec namespace dict.  Under
-    # the stateless contract (agex >= 0.12.0) variables defined inside
-    # the query don't get synced back to _query_state — they live in
-    # the namespace and disappear when _query_namespace falls out of
-    # scope.  This is exactly what we want for queries: pluck named
-    # results out of the namespace, no leakage back into chat.
-    _query_namespace = await _aexecute_sandboxed(
-        _query_code,
-        _agent,
-        _query_state,
-        fs=_agent.fs(),
-    )
-except BaseException as _e:
-    if isinstance(_e, (SystemExit, KeyboardInterrupt)):
-        pass
-    else:
-        _query_error = str(_e)
-
-if _query_error:
-    raise RuntimeError(_query_error)
-
-# Collect result variables from the post-exec namespace.
-def _serialize(val):
-    if isinstance(val, pd.DataFrame):
-        import numpy as _np
-        _df = val.reset_index() if not isinstance(val.index, pd.RangeIndex) else val
-        for _col in _df.select_dtypes(include=["float"]).columns:
-            _vals = _df[_col].dropna()
-            if len(_vals) == 0:
-                continue
-            _mag = _np.log10(_np.maximum(_np.abs(_vals), 1e-15)).median()
-            _decimals = max(0, min(6, int(4 - _np.floor(_mag))))
-            _df[_col] = _df[_col].round(_decimals)
-        _split = _json.loads(_df.to_json(orient="split"))
-        return {"__type__": "dataframe", "columns": _split["columns"], "rows": _split["data"]}
-    elif isinstance(val, go.Figure):
-        return {"__type__": "plotly", "figure": _json.loads(val.to_json())}
-    elif isinstance(val, dict):
-        return {k: _serialize(v) for k, v in val.items()}
-    elif isinstance(val, (list, tuple)):
-        return [_serialize(v) for v in val]
-    else:
-        try:
-            _json.dumps(val)
-            return val
-        except (TypeError, ValueError):
-            return str(val)
-
-_ns = _query_namespace or {}
-_query_result = {}
-if _query_result_vars is not None:
-    for _name in _query_result_vars:
-        if _name in _ns:
-            _query_result[_name] = _serialize(_ns[_name])
-else:
-    for _name in _ns:
-        if _name.startswith("_") or _name.startswith("__"):
-            continue
-        try:
-            _query_result[_name] = _serialize(_ns[_name])
-        except Exception:
-            pass
-
-_json.dumps(_query_result)
-    `);
+import queries as _queries
+_json.dumps(await _queries.run_query(_agent, ${JSON.stringify(code)}, ${resultArg}))
+  `);
   return JSON.parse(json);
 }
 
@@ -767,55 +681,9 @@ _json.dumps({"result": _serialize_result(_result), "events": _events_log})
 export async function runChaptering() {
   const json = await runPython(`
 import json as _json
-from agex.state.log import get_events_from_log as _get_log_events, replace_events_with_chapters as _replace_chapters
-from agex.agent.events import ErrorEvent as _ErrorEvent, ChapterEvent as _ChapterEvt
-from agex.agent.chapter import (
-    Chapter as _Chapter,
-    build_numbered_task_index as _build_index,
-    prepare_tasks_for_chaptering as _prepare_tasks,
-)
-
-_state = _agent.state("default")
-_ch_result = "no_chapters"
-
-# Temporarily force threshold to 0 so chaptering always triggers
-_orig_trigger = _agent.chaptering_trigger
-_agent.chaptering_trigger = 0
-
-try:
-    _all_events = _get_log_events(_state)
-    _tasks, _task_ranges = _prepare_tasks(_all_events)
-    _index_text = _build_index(_tasks)
-
-    _chapters = await _agent._chapter_task(event_index=_index_text)
-
-    if _chapters:
-        _ch_ranges = []
-        for _ch in _chapters:
-            if not isinstance(_ch, _Chapter):
-                continue
-            if _ch.start < 1 or _ch.end < _ch.start:
-                continue
-            if _ch.start > len(_task_ranges) or _ch.end > len(_task_ranges):
-                continue
-            _ls = _task_ranges[_ch.start - 1][0]
-            _le = _task_ranges[_ch.end - 1][1]
-            _ce = _ChapterEvt(
-                agent_name=_agent.name,
-                name=_ch.name,
-                message=_ch.message,
-            )
-            _ch_ranges.append((_ls, _le, _ce))
-
-        if _ch_ranges:
-            _replace_chapters(_state, _ch_ranges)
-            _state.commit()
-            _ch_result = "ok"
-finally:
-    _agent.chaptering_trigger = _orig_trigger
-
-_json.dumps({"result": _ch_result})
-    `);
+import chaptering as _chaptering
+_json.dumps({"result": await _chaptering.run_chaptering(_agent)})
+  `);
   return JSON.parse(json);
 }
 
@@ -826,12 +694,9 @@ _json.dumps({"result": _ch_result})
 export async function estimateLogTokens() {
   const json = await runPython(`
 import json as _json
-from agex.render.token_count import estimate_log_tokens as _estimate
-
-_state = _agent.state("default")
-_result = _estimate(_agent, _state)
-_json.dumps(_result["total"])
-    `);
+import chaptering as _chaptering
+_json.dumps(_chaptering.estimate_total_tokens(_agent))
+  `);
   return JSON.parse(json);
 }
 
@@ -842,32 +707,8 @@ _json.dumps(_result["total"])
 export async function getTokenHistory() {
   const json = await runPython(`
 import json as _json
-from agex import events as _get_events
-from agex.agent.events import ActionEvent as _AE, ChapterEvent as _CE, TaskStartEvent as _TaskStart
-from agex.agent.chapter import CHAPTER_TASK as _CHAPTER_TASK
-from agex.render.token_count import estimate_log_tokens as _estimate
-
-_state = _agent.state("default")
-_all = _get_events(_state)
-
-def _flatten(events):
-    for e in events:
-        if isinstance(e, _CE):
-            yield from _flatten(e.resolve_events(_state))
-        else:
-            yield e
-
-_tokens = [e.input_tokens for e in _flatten(_all) if isinstance(e, _AE) and e.input_tokens is not None and e.source != "setup"]
-
-_last_task = None
-for _e in _all:
-    if isinstance(_e, _TaskStart):
-        _last_task = _e.task_name
-
-if _last_task == _CHAPTER_TASK:
-    _tokens.append(_estimate(_agent, _state)["total"])
-
-_json.dumps(_tokens)
-    `);
+import chaptering as _chaptering
+_json.dumps(_chaptering.token_history(_agent))
+  `);
   return JSON.parse(json);
 }

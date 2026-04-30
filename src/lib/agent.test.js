@@ -285,25 +285,32 @@ describe("sendMessage", () => {
 });
 
 describe("runQuery", () => {
-    it("includes recursive serializer that handles DataFrames, Figures, dicts, and lists", async () => {
-        await runQuery("x = 1", ["x"]).catch(() => {});
+    // The runQuery body now lives in public/python/queries.py; the JS
+    // heredoc is just a thin wrapper.  Substring assertions about the
+    // serializer + result-var collection target the .py file.
 
-        const code = runPythonCalls[0];
-        expect(code).toContain("def _serialize(val):");
-        expect(code).toContain('"__type__": "dataframe"');
-        expect(code).toContain('"__type__": "plotly"');
+    it("includes recursive serializer that handles DataFrames, Figures, dicts, and lists", () => {
+        const py = readPy("queries.py");
+        expect(py).toContain("def _serialize(val):");
+        expect(py).toContain('"__type__": "dataframe"');
+        expect(py).toContain('"__type__": "plotly"');
         // Recursion into dicts and lists
-        expect(code).toContain("{k: _serialize(v) for k, v in val.items()}");
-        expect(code).toContain("[_serialize(v) for v in val]");
+        expect(py).toContain("{k: _serialize(v) for k, v in val.items()}");
+        expect(py).toContain("[_serialize(v) for v in val]");
     });
 
-    it("uses _serialize for each result variable", async () => {
-        await runQuery("x = 1", ["x"]).catch(() => {});
-
-        const code = runPythonCalls[0];
+    it("uses _serialize for each result variable", () => {
+        const py = readPy("queries.py");
         // Result vars come out of the post-exec namespace returned by
         // aexecute_sandboxed (agex >= 0.12.0), not out of state.
-        expect(code).toContain("_serialize(_ns[_name])");
+        expect(py).toContain("_serialize(ns[name])");
     });
 
+    it("JS wrapper passes code + result_vars into queries.run_query", async () => {
+        await runQuery("x = 1", ["x"]).catch(() => {});
+        const code = runPythonCalls[0];
+        expect(code).toContain("await _queries.run_query(_agent");
+        expect(code).toContain('"x = 1"');
+        expect(code).toContain('["x"]');
+    });
 });
