@@ -17,6 +17,12 @@ const readPrimer = (name) =>
         "utf-8",
     );
 
+const readSkill = (name) =>
+    readFileSync(
+        resolve(__dirname, `../../public/skills/${name}`),
+        "utf-8",
+    );
+
 // localStorage stub — agent.js reads debug flags at init time
 vi.stubGlobal("localStorage", {
     getItem: () => null,
@@ -134,12 +140,20 @@ describe("initAgent", () => {
         expect(py).toContain("part.png_bytes()");
     });
 
-    it("mentions test_app auto-display in task primer", () => {
+    it("documents test_app() actions and auto-display", () => {
+        // Detailed test_app/live_app/actions docs live in the
+        // interactive-app skill, not the primer (which just points to
+        // the skill).  Verify the skill still covers the load-bearing
+        // pieces.
+        const skill = readSkill("interactive-app.md");
+        expect(skill).toContain("test_app()");
+        expect(skill).toContain('actions=[');
+        expect(skill).toContain("read");
+        expect(skill).toContain("eval");
+
+        // Primer should still point at the skill.
         const primer = readPrimer("chat_task.md");
-        expect(primer).toContain("test_app()");
-        expect(primer).toContain("auto-displayed");
-        expect(primer).toContain("query() calls in the app work during testing");
-        expect(primer).toContain('actions=[{"click"');
+        expect(primer).toContain("/skills/interactive-app/SKILL.md");
     });
 
     it("defines _display_app_results helper", () => {
