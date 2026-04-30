@@ -332,14 +332,10 @@ try:
 except Exception as _e:
     print(f"[skills] failed to register: {_e}")
 
-# -- Load static .py modules onto the Python path --
-# (app_storage and bundle were installed in basics so sessions.js can
-# use them while Wave 3 is still installing.)
-from pyodide.http import open_url as _open_url
-import importlib as _importlib
-_site_dir = _importlib.import_module("site").getsitepackages()[0]
-
 # -- Register skills from static files --
+# Reuses _open_url from basics's loader setup; basics's _install_module
+# closure also depends on _open_url / _importlib / _site_dir staying
+# resident in __main__, so do not delete them here.
 for _skill_path in [
     "/skills/interactive-app.md",
     "/skills/drive.md",
@@ -349,8 +345,7 @@ for _skill_path in [
     # "/skills/docs.md",    # disabled — scopes removed
 ]:
     _agent.skill(_open_url(_skill_path).read().encode("utf-8"))
-
-del _open_url, _skill_path, _site_dir, _importlib
+del _skill_path
 
 # -- Studio-app helpers (search, test_app, live_app, render_pdf, ...) --
 # Definitions live in public/python/agent_helpers.py.  The register()
