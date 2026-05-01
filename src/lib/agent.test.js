@@ -97,7 +97,8 @@ describe("initAgent", () => {
     it("registers test_app function with auto-display", () => {
         // test_app definition + registration moved to agent_helpers.py
         const py = readPy("agent_helpers.py");
-        expect(py).toContain("async def test_app(actions");
+        expect(py).toContain("async def test_app(");
+        expect(py).toContain("fresh: bool = False");
         expect(py).toContain("_js_test_app");
         expect(py).toContain("_display_app_results");
         expect(py).toContain('agent.fn(test_app, visibility="low")');

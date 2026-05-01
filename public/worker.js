@@ -278,6 +278,45 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
             });
         });
 
+        // Register JS bridge for esbuild bundling.  Unlike test_app /
+        // live_app / pdf bridges (which need DOM and round-trip to
+        // the main thread), esbuild-wasm runs entirely inside the
+        // worker — no postMessage ping-pong.  Lazy-imported so the
+        // ~10MB wasm download only happens on first agent invocation.
+        let _esbuildBridgePromise = null;
+        const getEsbuildBridge = () => {
+            if (!_esbuildBridgePromise) {
+                _esbuildBridgePromise = import("/esbuild-bridge.js");
+            }
+            return _esbuildBridgePromise;
+        };
+        pyodide.globals.set(
+            "_js_esbuild",
+            async (filesJson, entryPoint, optionsJson) => {
+                try {
+                    const bridge = await getEsbuildBridge();
+                    const files = JSON.parse(filesJson);
+                    const options = optionsJson ? JSON.parse(optionsJson) : {};
+                    const result = await bridge.runEsbuild({
+                        files,
+                        entryPoint,
+                        ...options,
+                    });
+                    return JSON.stringify(result);
+                } catch (err) {
+                    // Surface bridge-level failures (CDN load error,
+                    // JSON parse, etc.) as a structured error result
+                    // rather than letting the exception escape to
+                    // Python opaquely.
+                    return JSON.stringify({
+                        contents: null,
+                        errors: [{ text: `esbuild bridge failed: ${err}` }],
+                        warnings: [],
+                    });
+                }
+            },
+        );
+
         // LLM bridge — non-streaming. Main thread reads the API key
         // from localStorage, injects Authorization, does the fetch,
         // returns a JSON-serialized { ok, data? , status?, error? }.

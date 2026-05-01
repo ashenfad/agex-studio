@@ -30,6 +30,45 @@ def _clean_app_message(msg):
     return re.sub(r"data:text/javascript;charset=utf-8,[^\s)]+", "<app>", msg)
 
 
+def _format_eval_value(raw):
+    """Render an eval result for the auto-display channel.
+
+    The iframe bridge always JSON-encodes eval results (even primitives)
+    so we have a uniform shape: a string of valid JSON, or None when
+    the eval'd expression evaluated to null/undefined.
+
+    Parse, then route through reprobate for budget-bounded rendering —
+    keeps an agent that eval'd `document.querySelectorAll('*')` from
+    dumping tens of KB into the next turn's prompt while preserving
+    structure for normal-sized results.
+    """
+    if raw is None:
+        return "null"
+    if not isinstance(raw, str):
+        # Defense: shouldn't happen with the JSON-encoding bridge,
+        # but if a primitive slips through, repr it directly.
+        return repr(raw)
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        # Non-JSON string slipped through (very unlikely) — show
+        # as-is, capped at a sensible length.
+        return raw if len(raw) <= 2048 else raw[:2048] + "…"
+    # Primitives: print bare so `1 + 1` shows as `2`, not `(int) 2`.
+    if isinstance(parsed, (int, float, bool)) or parsed is None:
+        return json.dumps(parsed)  # canonical: 'null', 'true', '42'
+    if isinstance(parsed, str):
+        return json.dumps(parsed)  # quoted, escaped
+    # Containers (list, dict, nested) — budget-bounded repr.
+    try:
+        from reprobate import render
+        return render(parsed, budget=2048)
+    except ImportError:
+        # Fallback if reprobate unavailable — truncate at length.
+        s = json.dumps(parsed)
+        return s if len(s) <= 2048 else s[:2048] + "…"
+
+
 async def _display_app_results(results, label):
     """Auto-display app test/interaction results.
 
@@ -53,7 +92,7 @@ async def _display_app_results(results, label):
             if "error" in r:
                 print(f"[eval error] {_clean_app_message(r['error'])}")
             else:
-                print(f"[eval] {r.get('value', '')}")
+                print(f"[eval] {_format_eval_value(r.get('value'))}")
         elif r.get("type") == "screenshot":
             print(f"__AGEX_IMAGE__:{r['data']}")
     if not results:
@@ -150,7 +189,9 @@ def register(agent, llm, user_tz):
             raise RuntimeError(f"Search failed: {e}")
         return data["choices"][0]["message"]["content"]
 
-    async def test_app(actions: list[dict] | None = None) -> list[dict]:
+    async def test_app(
+        actions: list[dict] | None = None, fresh: bool = False
+    ) -> list[dict]:
         """Test the current app by loading it in a hidden browser iframe.
         Reads files from app/, renders the HTML, waits for initialization
         (including any query() calls), and returns console messages.
@@ -174,6 +215,12 @@ def register(agent, llm, user_tz):
                 - {"screenshot": "#selector"}   — screenshot a specific element
                 The app is given time to settle (query() calls, re-renders)
                 after each action before proceeding to the next.
+            fresh: When True, skip seeding the iframe's localStorage from
+                the persisted session.  Useful when iterating on init /
+                first-load behavior — without this, every test_app call
+                inherits the previous run's saved state (Game Over
+                boards, mid-flow form values, etc.) which can mask
+                bugs in fresh-load paths.
 
         Returns:
             List of result dicts (also auto-displayed via print).
@@ -197,12 +244,16 @@ def register(agent, llm, user_tz):
         # for this session so tests see the real user state.  Read-only
         # on the test path — writes during test_app are discarded so
         # speculative tests don't clobber the user's live save.
-        import app_storage
+        # ``fresh=True`` skips the seed entirely (empty {} instead).
+        if fresh:
+            seed_json = "{}"
+        else:
+            import app_storage
 
-        state_for_seed = agent.state("default")
-        seed_json = json.dumps(
-            app_storage.read(state_for_seed.versioned, state_for_seed.current_branch)
-        )
+            state_for_seed = agent.state("default")
+            seed_json = json.dumps(
+                app_storage.read(state_for_seed.versioned, state_for_seed.current_branch)
+            )
         results_json = await _js_test_app(
             json.dumps(app_files), actions_json, seed_json
         )
