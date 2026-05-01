@@ -399,6 +399,13 @@ const { fig } = await query({ code: 'fig = create_chart()', result: ['fig'] })
 Plotly.react(div, fig.figure.data, fig.figure.layout)
 ```
 
+**Maps:** the tile-fetching map traces (`scatter_mapbox`, `scattermap`,
+`densitymap`, `densitymapbox`, `choropleth_mapbox`) don't render in
+the app preview — use `scatter_geo` and `choropleth` instead, which
+ship with built-in country / state / region geometries.  For
+street-level detail, render a static image with matplotlib and
+`view_image()` it instead of putting it in the app.
+
 ## Persisting UI State
 
 Use `localStorage` to save filter selections, date ranges, UI toggles,
