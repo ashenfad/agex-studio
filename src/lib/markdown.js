@@ -13,16 +13,45 @@ import { marked } from "marked";
 
 marked.setOptions({ breaks: true });
 
-// Custom renderer: emit mermaid blocks as <pre class="mermaid"> instead of <pre><code>
+// Custom renderer:
+// - mermaid code blocks → <pre class="mermaid"> for client-side rendering
+// - vfs: scheme links   → <a class="vfs-download"> for inline file
+//                         downloads from the agent's VFS.  See the click
+//                         handler in vfs-download.js.
 const renderer = new marked.Renderer();
 const origCode = renderer.code.bind(renderer);
+const origLink = renderer.link.bind(renderer);
 renderer.code = function ({ text, lang }) {
     if (lang === "mermaid") {
         return `<pre class="mermaid">${text}</pre>`;
     }
     return origCode({ text, lang });
 };
+renderer.link = function (token) {
+    const { href, title, text } = token;
+    if (href && href.startsWith("vfs:")) {
+        const path = href.slice(4);
+        // Round-trip through encodeURIComponent so attribute escaping
+        // can't be broken by paths containing quotes or angle brackets.
+        // Slashes are preserved for human readability (paths look like
+        // paths in DOM inspectors).
+        const safePath = encodeURIComponent(path).replace(/%2F/g, "/");
+        const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
+        return `<a class="vfs-download" data-vfs-path="${safePath}" href="#"${titleAttr}>${text}</a>`;
+    }
+    // Pass the full token through — marked's default renderer reads
+    // ``tokens`` to re-parse inline content, not just ``text``.
+    return origLink(token);
+};
 marked.setOptions({ renderer });
+
+/** Minimal HTML attribute escape. */
+function escapeAttr(s) {
+    return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;");
+}
 
 /** Ensure blank lines before block elements so marked recognizes them. */
 function prepare(text) {
