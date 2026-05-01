@@ -1,6 +1,6 @@
 ---
 name: interactive-app
-description: Build interactive browser apps with Preact, HTM, and Plotly. Use when the user wants dashboards, data explorers, filter widgets, or any interactive UI beyond static charts.
+description: Build interactive browser apps with React (via Preact-compat) + esbuild, or HTM for trivial cases. Plotly available globally. Use when the user wants dashboards, data explorers, filter widgets, or any interactive UI beyond static charts.
 user-invocable: true
 ---
 
@@ -12,7 +12,8 @@ to the `app/` directory and they appear instantly.
 ## Architecture
 
 Your app runs in a sandboxed iframe with:
-- **Preact + HTM** for reactive UI (via import map, no build step)
+- **React** (lightweight Preact-compat under the hood — `import` works) for reactive UI
+- **`esbuild`** terminal command for bundling JSX/TSX/TS source into runnable JS
 - **Plotly.js** for charts (global `Plotly` — auto-injected, no `<script>` tag needed)
 - **marked** for Markdown rendering (via import map)
 - **DOMPurify** for HTML sanitization (via import map)
@@ -21,11 +22,29 @@ Your app runs in a sandboxed iframe with:
 
 The preview panel appears automatically when `app/index.html` exists.
 
-## Quick Start
+## Quick Start (recommended: JSX + esbuild)
 
-Write `app/index.html` (and optionally separate `.js` / `.css` files):
+Write `app/index.jsx` with idiomatic React, then bundle to JS:
+
+```jsx
+// app/index.jsx
+import { useState } from 'react'
+import { createRoot } from 'react-dom/client'
+
+function App() {
+  const [count, setCount] = useState(0)
+  return (
+    <button onClick={() => setCount(c => c + 1)}>
+      Clicked {count} times
+    </button>
+  )
+}
+
+createRoot(document.getElementById('app')).render(<App />)
+```
 
 ```html
+<!-- app/index.html -->
 <!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
@@ -33,9 +52,63 @@ Write `app/index.html` (and optionally separate `.js` / `.css` files):
 </head>
 <body>
 <div id="app"></div>
+<script type="module" src="./index.js"></script>
+</body></html>
+```
+
+Then bundle with esbuild from `terminal_action`:
+
+```
+esbuild app/index.jsx --outfile=app/index.js
+```
+
+Then test:
+
+```python
+await test_app()
+```
+
+**The build step.** `esbuild` is a registered terminal command. It:
+- Bundles your local `app/*.jsx` + `helpers/*.{js,jsx,ts,tsx}` files together
+- Transforms JSX → JS via the automatic runtime
+- Leaves bare imports (`react`, `@radix-ui/...`) as native ES module imports — the iframe's import map resolves them at runtime, so the bundle stays small even when you use component libraries
+- Required after every edit to `.jsx`/`.tsx` source — the iframe loads the *built* `app/index.js`, not the source
+
+**`react` is aliased to Preact.** The iframe's import map resolves `react` and `react-dom` to `preact/compat`. You write idiomatic React; the runtime is ~12KB. Most React component libraries (Radix UI, Recharts, React Aria, etc.) work transparently.
+
+## Component libraries
+
+Bare imports stay external and resolve via the iframe's import map at runtime, so component libraries are cheap to use. Recommended:
+
+- **Charts**: `recharts`, `visx`
+- **Unstyled UI primitives**: `@radix-ui/react-*`, `react-aria-components`
+- **Icons**: `lucide-react`
+- **Forms**: `react-hook-form`
+- **Tables / virtualization**: `@tanstack/react-table`, `@tanstack/react-virtual`
+
+For CSS that ships with a library, link it from your `app/index.html`:
+
+```html
+<link rel="stylesheet" href="https://esm.sh/@radix-ui/themes/styles.css">
+```
+
+Heavy frameworks (MUI, Ant Design, Mantine) work but pull 300KB+ — only reach for them if their look-and-feel matters.
+
+## Alternative: HTM for trivial apps
+
+For very simple apps where you don't want a build step, HTM (tagged template literals) works directly without esbuild:
+
+```html
+<!-- app/index.html -->
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+</head>
+<body>
+<div id="app"></div>
 <script type="module">
 import { h, render } from 'preact'
-import { useState, useEffect } from 'preact/hooks'
+import { useState } from 'preact/hooks'
 import htm from 'htm'
 const html = htm.bind(h)
 
@@ -53,6 +126,8 @@ render(html`<${App} />`, document.getElementById('app'))
 </body></html>
 ```
 
+HTM differs from JSX in syntax: `${expr}` instead of `{expr}`, `class=` instead of `className=`. Easy to get wrong if you're used to React; for anything beyond ~30 lines, prefer the JSX path above.
+
 ## Before You Finish
 
 - **Test, then let the turn end** — call `test_app()` with `read`/`eval`
@@ -65,6 +140,15 @@ render(html`<${App} />`, document.getElementById('app'))
 - **Namespace storage keys** — prefix with a random compound name
   (e.g., `"coral-panda-startDate"`) to avoid collisions with other apps
   in the same session
+- **For non-trivial iteration, commit checkpoints with `git`.** The VFS
+  is git-tracked — `git init` (if not already), then `git commit -m
+  "before swapping color scheme"` between rough edits.  Rolling back a
+  bad CSS experiment becomes a single `git checkout` instead of
+  hand-reverting from memory.  See `cat /skills/git/SKILL.md` for the
+  available subcommands.
+- **Iterating on first-load behavior?** Pass `fresh=True` to
+  `test_app(...)` to skip the localStorage seed — useful when the
+  previous run's saved state would mask bugs in the fresh-load path.
 
 ## Multi-File Apps
 

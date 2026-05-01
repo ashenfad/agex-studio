@@ -704,6 +704,19 @@ installControlBridge(window);
 const CDN_IMPORTS = {
     "preact": "https://esm.sh/preact@10.25.4",
     "preact/": "https://esm.sh/preact@10.25.4/",
+    // Alias 'react' → preact/compat so agent code that writes
+    // idiomatic React (`import { useState } from 'react'`) runs on
+    // the lighter Preact runtime.  Most React component libraries
+    // (radix, recharts, react-aria, etc.) work transparently this way.
+    //
+    // Note the per-subpath split: 'react-dom/client' (the React-18
+    // root API exposing createRoot) maps to 'preact/compat/client',
+    // a separate Preact bundle.  Pointing it at plain 'preact/compat'
+    // produces a "no export named 'createRoot'" failure at runtime.
+    "react": "https://esm.sh/preact@10.25.4/compat",
+    "react-dom": "https://esm.sh/preact@10.25.4/compat",
+    "react-dom/client": "https://esm.sh/preact@10.25.4/compat/client",
+    "react/jsx-runtime": "https://esm.sh/preact@10.25.4/jsx-runtime",
     "htm": "https://esm.sh/htm@3.1.1",
     "marked": "https://esm.sh/marked@17.0.4",
     "dayjs": "https://esm.sh/dayjs@1.11.20",
@@ -1121,7 +1134,17 @@ async function runTestApp(appFilesJson, actionsJson, seedJson, requestId) {
         });
         blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
         iframe = document.createElement('iframe');
-        iframe.style.cssText = 'position:absolute;left:-9999px;width:800px;height:600px;';
+        // Position in-viewport but visually hidden: in-viewport so the
+        // browser doesn't throttle CSS @keyframes animations on the
+        // assumption that nothing's visible (the classic "iframe at
+        // left:-9999px" trick triggers Chromium's animation-throttle
+        // optimization, leaving keyframe animations stuck at the
+        // initial frame even though transitions / rAF still run).
+        // opacity:0 + pointer-events:none + z-index:-1 keeps the
+        // user from seeing or interacting with it.
+        iframe.style.cssText =
+            'position:fixed;top:0;left:0;width:800px;height:600px;'
+            + 'opacity:0;pointer-events:none;z-index:-1;';
         iframe.sandbox = 'allow-scripts';
 
         // Handle query() messages from the test iframe

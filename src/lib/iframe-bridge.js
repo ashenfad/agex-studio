@@ -94,7 +94,12 @@ export async function dispatchAction(doc, action, global) {
             return {
                 type: 'eval',
                 expr: action.eval,
-                value: val != null ? String(val) : null,
+                // JSON-encode the value (always, even primitives) so the
+                // Python side can parse and route through reprobate for
+                // budget-bounded rendering.  Replacer handles common
+                // non-JSON-friendly cases (circular refs, DOM nodes,
+                // functions, Dates) without throwing.
+                value: _jsonifyEvalResult(val),
             };
         } catch (e) {
             return {
@@ -122,6 +127,47 @@ export async function dispatchAction(doc, action, global) {
     }
 
     throw new Error(`Unknown action: ${JSON.stringify(action)}`);
+}
+
+/**
+ * JSON-encode an eval result.  Returns a string (parseable JSON) or
+ * null for null/undefined.  Replacer compactly represents DOM nodes
+ * and functions, drops circular refs, and serializes Dates as ISO
+ * strings — anything else is left to JSON.stringify's defaults.
+ *
+ * Always JSON-encoded (even primitives) so the Python side can
+ * uniformly JSON.parse and render through reprobate.
+ * @param {*} val
+ * @returns {string|null}
+ */
+function _jsonifyEvalResult(val) {
+    if (val === null || val === undefined) return null;
+    const seen = new WeakSet();
+    try {
+        return JSON.stringify(val, (key, v) => {
+            if (typeof v === "function") {
+                return `[function ${v.name || "anonymous"}]`;
+            }
+            if (v && typeof v === "object") {
+                if (seen.has(v)) return "[Circular]";
+                seen.add(v);
+                if (typeof Element !== "undefined" && v instanceof Element) {
+                    const id = v.id ? `#${v.id}` : "";
+                    const cls = v.className && typeof v.className === "string"
+                        ? `.${v.className.split(/\s+/).filter(Boolean).join(".")}`
+                        : "";
+                    return `<${v.tagName.toLowerCase()}${id}${cls}>`;
+                }
+                if (typeof Node !== "undefined" && v instanceof Node) {
+                    return `[${v.constructor.name}]`;
+                }
+                if (v instanceof Date) return v.toISOString();
+            }
+            return v;
+        });
+    } catch (e) {
+        return JSON.stringify(`[unserializable: ${e.message || e}]`);
+    }
 }
 
 /**

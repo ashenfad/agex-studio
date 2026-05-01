@@ -36,22 +36,169 @@ _STATIC_SKILLS = [
 ]
 
 
-def _register_calgebra_skill(agent):
-    """Calgebra ships its own SKILL.md inside the package; mount it
-    via the package's __file__ path."""
-    import pathlib
-
-    try:
-        pkg_dir = pathlib.Path(__import__("calgebra").__file__).parent
-        agent.skill(pkg_dir / "skills" / "calgebra" / "SKILL.md")
-    except Exception as e:
-        print(f"[skills] failed to register: {e}")
-
-
 def _register_static_skills(agent):
     """Pull skill markdown files served from public/skills/."""
     for path in _STATIC_SKILLS:
         agent.skill(open_url(path).read().encode("utf-8"))
+
+
+def _register_esbuild(agent):
+    """Register the ``esbuild`` terminal command.
+
+    Bundles agent app source files (JSX/TSX/JS/TS) into a single ES
+    module via esbuild-wasm.  Bare imports stay external — the
+    iframe's import map resolves them to esm.sh at runtime, so the
+    bundle stays small even when the agent uses React component
+    libraries.
+
+    Visibility=low: agents already know the esbuild CLI from training;
+    the skill markdown (see interactive-app skill) covers studio-
+    specific usage.
+
+    The handler bridges esbuild-wasm's async API to a sync terminal
+    command via ``pyodide.ffi.run_sync``.  Requires JSPI (JavaScript
+    Promise Integration), supported by modern Chromium browsers.
+    """
+
+    @agent.terminal(visibility="low")
+    def esbuild(ctx):
+        """Bundle JS / JSX / TS / TSX source via esbuild-wasm.
+
+        Usage:
+          esbuild <entry> --outfile=<output> [--minify]
+          esbuild --help
+
+        Bare imports (react, @scope/...) stay external and are
+        resolved at runtime via the iframe's import map.  Local
+        imports (./Chart.jsx) are bundled inline.
+        """
+        import json
+        import sys
+
+        from pyodide.ffi import run_sync
+
+        args = ctx.args
+        if not args or args[0] in ("--help", "-h"):
+            ctx.stdout.write(
+                "Usage: esbuild <entry.jsx> --outfile=<bundle.js> [--minify]\n"
+                "       esbuild --help\n\n"
+                "Bundles agent app source files (JSX/TSX/JS/TS) into a single\n"
+                "ES module.  Bare imports (react, @scope/pkg) stay external\n"
+                "and are resolved by the iframe's import map at runtime;\n"
+                "local imports (./Chart.jsx) are bundled inline.\n\n"
+                "JSX is transformed with the automatic runtime targeting\n"
+                "preact (alias react → preact/compat in the import map).\n"
+            )
+            return None
+
+        entry = None
+        outfile = None
+        minify = False
+        for arg in args:
+            if arg in ("--minify", "-m"):
+                minify = True
+            elif arg.startswith("--outfile="):
+                outfile = arg.split("=", 1)[1]
+            elif arg.startswith("-o="):
+                outfile = arg.split("=", 1)[1]
+            elif arg.startswith("-"):
+                return ctx.fail(f"esbuild: unknown flag: {arg}")
+            elif entry is None:
+                entry = arg
+            else:
+                return ctx.fail(f"esbuild: unexpected positional arg: {arg}")
+
+        if not entry:
+            return ctx.fail(
+                "esbuild: missing entry point.  Run `esbuild --help`."
+            )
+        if not outfile:
+            return ctx.fail("esbuild: --outfile=<path> is required.")
+
+        fs = ctx.fs
+        files = _collect_app_sources(fs)
+        if entry not in files:
+            return ctx.fail(
+                f"esbuild: entry point not found in app/ or helpers/: {entry}"
+            )
+
+        # Reach the JS bridge via __main__ (worker.js sets it as a
+        # pyodide global).
+        main = sys.modules["__main__"]
+        try:
+            js_esbuild = main._js_esbuild
+        except AttributeError:
+            return ctx.fail(
+                "esbuild: JS bridge not initialized — worker may still be loading."
+            )
+
+        options = {"minify": minify}
+        try:
+            result_json = run_sync(
+                js_esbuild(json.dumps(files), entry, json.dumps(options))
+            )
+        except Exception as e:
+            return ctx.fail(f"esbuild: bridge call failed: {e}")
+
+        result = json.loads(result_json)
+
+        # Print warnings to stdout (non-fatal).
+        for w in result.get("warnings") or []:
+            ctx.stdout.write(_format_diag("warning", w) + "\n")
+
+        if result.get("errors"):
+            stderr = "\n".join(_format_diag("error", e) for e in result["errors"])
+            return ctx.fail(stderr or "esbuild: build failed", exit_code=1)
+
+        contents = result.get("contents")
+        if contents is None:
+            return ctx.fail("esbuild: no output produced")
+
+        # Write the bundle.  Encode UTF-8 for binary fs.write.
+        try:
+            fs.write(outfile, contents.encode("utf-8"))
+        except Exception as e:
+            return ctx.fail(f"esbuild: failed to write {outfile}: {e}")
+
+        ctx.stdout.write(
+            f"esbuild: bundled {entry} → {outfile} ({len(contents)} bytes)\n"
+        )
+        return None
+
+
+def _collect_app_sources(fs) -> dict:
+    """Pull source files under app/ and helpers/ into a dict for esbuild.
+
+    Filtered to source-code extensions to avoid shipping binary or
+    large files (PDFs, images, etc.) into the bundler.
+    """
+    SOURCE_EXTS = (".jsx", ".tsx", ".ts", ".js", ".css", ".json")
+    files: dict[str, str] = {}
+    for root_dir in ("app/", "helpers/"):
+        try:
+            for rel in fs.list(root_dir, recursive=True):
+                if not any(rel.endswith(ext) for ext in SOURCE_EXTS):
+                    continue
+                full = root_dir + rel
+                if not fs.isfile(full):
+                    continue
+                try:
+                    files[full] = fs.read(full).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+        except Exception:
+            # Directory may not exist yet — fine, just skip.
+            pass
+    return files
+
+
+def _format_diag(level: str, d: dict) -> str:
+    """Format an esbuild diagnostic for terminal output."""
+    text = d.get("text", "")
+    loc = d.get("location")
+    if loc:
+        return f"{level}: {loc.get('file')}:{loc.get('line')}:{loc.get('column')}: {text}"
+    return f"{level}: {text}"
 
 
 def register_all(agent):
@@ -142,5 +289,14 @@ def register_all(agent):
         visibility="low",
     )
 
-    _register_calgebra_skill(agent)
+    # Calgebra ships its own SKILL.md inside the package, but the
+    # studio-customized version at public/skills/calgebra.md teaches
+    # studio-specific helpers (local_timezone, google_token) — register
+    # only the static one to avoid the agent learning conflicting
+    # patterns from two skill files with the same trigger.
     _register_static_skills(agent)
+
+    # esbuild as a terminal command — lets agents bundle JSX/TSX
+    # source files into runnable JS for the app preview iframe.
+    # See _register_esbuild for the why.
+    _register_esbuild(agent)
