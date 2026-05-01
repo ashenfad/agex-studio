@@ -14,6 +14,7 @@ pandas/numpy/etc. and can ``dir()``/``help()`` for specifics.
 from pyodide.http import open_url
 
 from agex.helpers import (
+    register_matplotlib,
     register_numpy,
     register_pandas,
     register_plotly,
@@ -95,15 +96,11 @@ def register_all(agent):
 
     agent.module(skimage, visibility="low", recursive=True)
 
-    # matplotlib registered low-viz so the primer doesn't enumerate
-    # its API surface (huge), but agents can still import it (or
-    # pyplot) when they reach for it.  Force the non-interactive Agg
-    # backend before any pyplot import — Pyodide has no GUI display
-    # and the default backend selection would fail trying to find one.
-    import matplotlib
-
-    matplotlib.use("Agg")
-    agent.module(matplotlib, visibility="low", recursive=True)
+    # register_matplotlib forces the Agg backend, pre-warms the font
+    # cache (so sandboxed savefig calls don't trigger a fontlist.json
+    # lock-write inside site-packages that monkeyfs would block), and
+    # exposes the namespace recursively at low visibility.
+    register_matplotlib(agent)
 
     # Document authoring: python-pptx for slide decks, fpdf2 for PDFs.
     # Both registered low-viz — primer mentions the capability,
