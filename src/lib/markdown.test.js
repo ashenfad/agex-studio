@@ -61,4 +61,56 @@ describe("prepare (via renderMarkdown)", () => {
         expect(html).toContain('<pre class="mermaid">');
         expect(html).toContain("graph TD");
     });
+
+    // ---- vfs: scheme link rendering ----------------------------
+
+    it("renders [label](vfs:path) as a vfs-download anchor", () => {
+        const html = renderMarkdown("[chart](vfs:output.png)");
+        expect(html).toContain('class="vfs-download"');
+        expect(html).toContain('data-vfs-path="output.png"');
+        expect(html).toContain(">chart</a>");
+    });
+
+    it("preserves slashes in nested vfs paths", () => {
+        const html = renderMarkdown("[r](vfs:reports/2026/q1.pdf)");
+        expect(html).toContain('data-vfs-path="reports/2026/q1.pdf"');
+    });
+
+    it("escapes vfs paths with special characters", () => {
+        // Path containing characters that would break attribute syntax —
+        // encodeURIComponent prevents them from escaping the attribute
+        // value.  The encoded form lands in data-vfs-path; the click
+        // handler decodes back before passing to downloadFile.
+        const html = renderMarkdown('[bad](vfs:weird"name<x>.png)');
+        // Quotes and angle brackets are URL-encoded, not raw.
+        expect(html).toContain("data-vfs-path=");
+        expect(html).toContain("%22"); // quote
+        expect(html).toContain("%3C"); // <
+        expect(html).toContain("%3E"); // >
+        expect(html).toContain('class="vfs-download"');
+    });
+
+    it("leaves http(s) links as ordinary anchors", () => {
+        const html = renderMarkdown("[home](https://example.com)");
+        expect(html).toContain('href="https://example.com"');
+        expect(html).not.toContain("vfs-download");
+    });
+
+    it("leaves relative links as ordinary anchors", () => {
+        const html = renderMarkdown("[help](/help)");
+        expect(html).toContain('href="/help"');
+        expect(html).not.toContain("vfs-download");
+    });
+
+    it("supports multiple vfs links inline alongside prose", () => {
+        const html = renderMarkdown(
+            "Saved [a](vfs:a.png) and [b](vfs:b.png) — done."
+        );
+        expect(html).toContain('data-vfs-path="a.png"');
+        expect(html).toContain('data-vfs-path="b.png"');
+        // Surrounding prose stays intact
+        expect(html).toContain("Saved ");
+        expect(html).toContain(" and ");
+        expect(html).toContain(" — done.");
+    });
 });

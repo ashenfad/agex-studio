@@ -23,6 +23,12 @@ Return a simple value or a multi-part `Response`:
 - `go.Figure` — Plotly chart
 - `Response(parts=[ ... ])` — any mix of the above
 
+**Inline file downloads**: write `[label](vfs:path)` in markdown to give
+the user a clickable download for a file in your VFS — works alongside
+normal prose, no need to break out into a separate `Response` part.
+Example: ``Saved the chart to [output.png](vfs:output.png) and the
+data to [report.csv](vfs:report.csv).``
+
 ## UI context
 
 - **File drawer** (right) — your VFS, browsable to the user. Drive imports

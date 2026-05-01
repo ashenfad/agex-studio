@@ -1,5 +1,6 @@
 <script>
     import { startWorker, preloadPlotly } from './lib/pyodide.js'
+    import { handleVfsClick } from './lib/vfs-download.js'
     import ChatShell from './lib/ChatShell.svelte'
 
     // Start Pyodide loading immediately. The shell renders right away
@@ -15,5 +16,11 @@
     // buildAppHtml inlines the bytes directly.
     preloadPlotly()
 </script>
+
+<!-- App-wide click delegation for [label](vfs:path) markdown links —
+     non-matching clicks are no-ops, matching clicks trigger a VFS
+     download.  Lives at the App level so it works wherever rendered
+     markdown surfaces in the UI. -->
+<svelte:window onclick={handleVfsClick} />
 
 <ChatShell />
