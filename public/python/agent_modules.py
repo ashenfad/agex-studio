@@ -102,6 +102,13 @@ def register_all(agent):
     # exposes the namespace recursively at low visibility.
     register_matplotlib(agent)
 
+    # pyarrow is pandas' default parquet/feather engine and useful in
+    # its own right (Tables, schemas, IPC).  Without it, df.to_parquet
+    # fails with an engine-not-found ImportError.
+    import pyarrow
+
+    agent.module(pyarrow, visibility="low", recursive=True)
+
     # Document authoring: python-pptx for slide decks, fpdf2 for PDFs.
     # Both registered low-viz — primer mentions the capability,
     # detailed APIs left for the agent to explore via dir() / help.
