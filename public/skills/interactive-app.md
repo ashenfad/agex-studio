@@ -213,7 +213,17 @@ const { df } = await query({
 })
 ```
 
-Use `cache[...]` for ready-to-consume values; use a helper module
+**Reads are snapshots; writes are turn-local.**  The `cache` an app
+sees via `query()` is a copy of the chat agent's cache taken at
+query start — cache writes the *agent* makes during chat are visible
+to later queries (after `task_success`).  Cache writes that
+*query code* makes (`cache["x"] = ...`) succeed within that one
+query call but are discarded when the query returns; later queries
+re-fetch a fresh snapshot and don't see them.
+
+This means: don't try to use `cache` as cross-query persistence from
+the app side — use the JSON-file pattern below.  Use `cache[...]`
+for ready-to-consume values pushed *from chat*; use a helper module
 (`helpers/*.py`) when the app needs to *call a function* (e.g. to
 re-derive on different parameters).  Keep JSON-file persistence for
 app-internal state (filter selections, view modes, counters) — see
