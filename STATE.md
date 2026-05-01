@@ -118,8 +118,10 @@ for objects too rich or expensive to round-trip through the VFS
 - API: dict-like (`cache["key"] = value`, `cache.get("key")`,
   `del cache["key"]`, `list(cache)`)
 - Lifetime: persists across actions and tasks within a session
-- Mirror: read-only snapshot copied into `runQuery`'s scratch state
-  at query time
+- Mirror: snapshot copied into `runQuery`'s scratch state at query
+  time.  Writes from query code (`cache["x"] = ...`) succeed but are
+  turn-local — discarded when the query returns, never sync back to
+  chat.  Reads see the agent's last-committed cache slice.
 
 The agent learns this from the agex builtin primer.  The studio's
 involvement is only at the visibility boundary — making sure the
