@@ -10,16 +10,29 @@ import {
 } from "./pyodide.js";
 
 /**
- * Derive the settings-related Python literals once so basics + rich can
- * share them. Returns the pieces that get interpolated into the Python
- * template strings below.
- *
- * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number, toolUseWireFormat?: boolean }} settings
+ * Browser's resolved IANA timezone, or "UTC" if undetectable.
  */
-function _settingsConstants(settings) {
-  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+function _userTimezone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+/**
+ * Provider/transport-level wiring: which LLM client class to
+ * instantiate, the base_url override, OpenRouter-specific headers,
+ * and the optional debug-SSE toggle.
+ *
+ * The LLM client is instantiated directly (not via connect_llm) so we
+ * can pass fetch_adapter without going through connect_llm's
+ * config-resolution machinery — that's what lets the JS bridge inject
+ * auth on the main thread.
+ *
+ * @param {{ provider?: string, baseUrl?: string }} settings
+ */
+function _llmConfig(settings) {
   const providerName =
     settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
+  const llmClass =
+    settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
   const baseUrlLine = settings.baseUrl
     ? `    base_url="${settings.baseUrl}",\n`
     : "";
@@ -34,59 +47,80 @@ function _settingsConstants(settings) {
     localStorage.getItem("agex-debug-raw-stream") === "1"
       ? `import agex.llm.${providerName} as _pfmod\n_pfmod.DEBUG_RAW_STREAM = True\n`
       : "";
-  // LLM client class — instantiated directly so we can pass fetch_adapter
-  // without going through connect_llm's config-resolution machinery, and
-  // the JS bridge can inject auth on the main thread.
-  const llmClass =
-    settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
-  // Wire-format selection.  The retool shipped with ``native_thinking=True``
-  // as the client default, so the "on" branch (recommended, reasoning
-  // models) just lets the client default apply — no kwarg needed.  The
-  // "off" branch is an explicit opt-out for users on non-reasoning
-  // models (old Claude, non-GPT-5 OpenAI, OpenRouter routes without
-  // reasoning support) — pass ``ToolUseWireFormat(native_thinking=False)``
-  // so the primer + schema include the narration-in-schema path.
+  return { llmClass, baseUrlLine, openrouterLines, debugRawLines };
+}
+
+/**
+ * Wire-format selection: whether to inject ``ToolUseWireFormat
+ * (native_thinking=False)`` into the LLM client.
+ *
+ * The retool shipped with ``native_thinking=True`` as the client
+ * default, so the "on" branch (recommended, reasoning models) just
+ * lets the client default apply — no kwarg needed.  The "off" branch
+ * is an explicit opt-out for users on non-reasoning models (old
+ * Claude, non-GPT-5 OpenAI, OpenRouter routes without reasoning
+ * support) — pass ``ToolUseWireFormat(native_thinking=False)`` so the
+ * primer + schema include the narration-in-schema path.
+ *
+ * @param {{ toolUseWireFormat?: boolean }} settings
+ */
+function _wireFormatConfig(settings) {
   const wireFormatImport = settings.toolUseWireFormat
     ? ""
     : "from agex.llm.formats import ToolUseWireFormat\n";
   const wireFormatLine = settings.toolUseWireFormat
     ? ""
     : "    wire_format=ToolUseWireFormat(native_thinking=False),\n";
-  // Reasoning effort → kwarg on the LLM client constructor.  Only
-  // meaningful when native reasoning is enabled; otherwise neither
-  // client injects its reasoning/thinking request kwarg.
-  //
-  // Dispatch by underlying provider rather than by our transport.
-  // OpenRouter's unified ``reasoning`` config accepts EITHER
-  // ``effort`` OR ``max_tokens`` but not both, and its effort→budget
-  // conversion silently disables reasoning on the Anthropic route.
-  // We pick the provider-native shape instead:
-  //   - Anthropic direct (PyfetchAnthropic): thinking={type, budget_tokens}
-  //   - OpenRouter → Anthropic / Google backend: reasoning={enabled, max_tokens}
-  //   - OpenRouter → OpenAI (o-series / GPT-5) backend: reasoning={enabled, effort}
+  return { wireFormatImport, wireFormatLine };
+}
+
+/**
+ * Reasoning-effort kwarg on the LLM client constructor.
+ *
+ * Only meaningful when native reasoning is enabled
+ * (``toolUseWireFormat=true``); otherwise neither client injects its
+ * reasoning/thinking request kwarg and we return "".
+ *
+ * Dispatch by underlying provider rather than by our transport.
+ * OpenRouter's unified ``reasoning`` config accepts EITHER ``effort``
+ * OR ``max_tokens`` but not both, and its effort→budget conversion
+ * silently disables reasoning on the Anthropic route.  We pick the
+ * provider-native shape instead — DO NOT unify these without testing
+ * end-to-end on each route:
+ *
+ *   - Anthropic direct (PyfetchAnthropic):     thinking={type, budget_tokens}
+ *   - OpenRouter → Anthropic / Google backend: reasoning={enabled, max_tokens}
+ *   - OpenRouter → OpenAI (o-series / GPT-5):  reasoning={enabled, effort}
+ *
+ * @param {{ provider?: string, model?: string, toolUseWireFormat?: boolean, reasoningEffort?: "low"|"medium"|"high" }} settings
+ */
+function _reasoningKwargLine(settings) {
+  if (!settings.toolUseWireFormat) return "";
   const effort = settings.reasoningEffort ?? "medium";
   const budget = { low: 1024, medium: 2048, high: 4096 }[effort] ?? 2048;
-  let reasoningKwargLine = "";
-  if (settings.toolUseWireFormat) {
-    if (settings.provider === "anthropic") {
-      reasoningKwargLine = `    thinking={"type": "enabled", "budget_tokens": ${budget}},\n`;
-    } else {
-      const modelPrefix = (settings.model || "").toLowerCase().split("/")[0];
-      const takesBudget = modelPrefix === "anthropic" || modelPrefix === "google";
-      reasoningKwargLine = takesBudget
-        ? `    reasoning={"enabled": True, "max_tokens": ${budget}},\n`
-        : `    reasoning={"enabled": True, "effort": "${effort}"},\n`;
-    }
+  if (settings.provider === "anthropic") {
+    return `    thinking={"type": "enabled", "budget_tokens": ${budget}},\n`;
   }
+  const modelPrefix = (settings.model || "").toLowerCase().split("/")[0];
+  const takesBudget = modelPrefix === "anthropic" || modelPrefix === "google";
+  return takesBudget
+    ? `    reasoning={"enabled": True, "max_tokens": ${budget}},\n`
+    : `    reasoning={"enabled": True, "effort": "${effort}"},\n`;
+}
+
+/**
+ * Compose the settings-derived literals that basics + rich splice
+ * into their Python heredocs.  The matrix knowledge lives in the
+ * focused helpers above; this is just glue.
+ *
+ * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number, toolUseWireFormat?: boolean, reasoningEffort?: "low"|"medium"|"high" }} settings
+ */
+function _settingsConstants(settings) {
   return {
-    userTz,
-    baseUrlLine,
-    openrouterLines,
-    debugRawLines,
-    llmClass,
-    wireFormatImport,
-    wireFormatLine,
-    reasoningKwargLine,
+    userTz: _userTimezone(),
+    ..._llmConfig(settings),
+    ..._wireFormatConfig(settings),
+    reasoningKwargLine: _reasoningKwargLine(settings),
   };
 }
 

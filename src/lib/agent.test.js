@@ -345,3 +345,113 @@ describe("runQuery", () => {
         expect(code).toContain('["x"]');
     });
 });
+
+// Reasoning-effort kwarg matrix.
+//
+// _reasoningKwargLine picks the LLM client constructor kwarg shape
+// based on the (provider, model_prefix, toolUseWireFormat) triple.
+// The shapes are NOT interchangeable — OpenRouter's unified
+// `reasoning` config silently disables reasoning on the Anthropic
+// route when given an effort value, and direct-Anthropic uses a
+// different field name entirely.  These tests pin the matrix down so
+// a future "let's just unify these" refactor fails loudly.
+describe("reasoning kwarg matrix", () => {
+    const baseSettings = {
+        apiKey: "sk-test-123",
+        toolUseWireFormat: true,
+        reasoningEffort: "medium",
+    };
+
+    it("Anthropic direct → thinking={type, budget_tokens}", async () => {
+        await initAgent({
+            ...baseSettings,
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            reasoningEffort: "high",
+        });
+        const code = allInitCode();
+        expect(code).toContain('thinking={"type": "enabled", "budget_tokens": 4096}');
+        expect(code).not.toContain('reasoning={');
+    });
+
+    it("OpenRouter → Anthropic backend → reasoning={enabled, max_tokens}", async () => {
+        await initAgent({
+            ...baseSettings,
+            model: "anthropic/claude-sonnet-4-6",
+            reasoningEffort: "medium",
+        });
+        const code = allInitCode();
+        expect(code).toContain('reasoning={"enabled": True, "max_tokens": 2048}');
+        // Must NOT use effort on the Anthropic route — OpenRouter
+        // silently disables reasoning if you pass effort here.
+        expect(code).not.toContain('"effort":');
+        expect(code).not.toContain('thinking={');
+    });
+
+    it("OpenRouter → Google backend → reasoning={enabled, max_tokens}", async () => {
+        await initAgent({
+            ...baseSettings,
+            model: "google/gemini-2.5-pro",
+            reasoningEffort: "low",
+        });
+        const code = allInitCode();
+        expect(code).toContain('reasoning={"enabled": True, "max_tokens": 1024}');
+        expect(code).not.toContain('"effort":');
+    });
+
+    it("OpenRouter → OpenAI backend → reasoning={enabled, effort}", async () => {
+        await initAgent({
+            ...baseSettings,
+            model: "openai/gpt-5.4",
+            reasoningEffort: "medium",
+        });
+        const code = allInitCode();
+        expect(code).toContain('reasoning={"enabled": True, "effort": "medium"}');
+        // Must NOT use max_tokens on the OpenAI route.
+        expect(code).not.toContain('"max_tokens":');
+        expect(code).not.toContain('thinking={');
+    });
+
+    it("toolUseWireFormat=false → no reasoning kwarg at all", async () => {
+        await initAgent({
+            ...baseSettings,
+            toolUseWireFormat: false,
+            model: "anthropic/claude-sonnet-4-6",
+            reasoningEffort: "high",
+        });
+        const code = allInitCode();
+        // Both shapes absent — narration-in-schema path is used instead.
+        expect(code).not.toContain('reasoning={');
+        expect(code).not.toContain('thinking={');
+        // And the wire format opt-out IS present.
+        expect(code).toContain("ToolUseWireFormat(native_thinking=False)");
+    });
+
+    it("budget mapping: low=1024, medium=2048, high=4096", async () => {
+        await initAgent({
+            ...baseSettings,
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            reasoningEffort: "low",
+        });
+        expect(allInitCode()).toContain('"budget_tokens": 1024');
+
+        runPythonCalls.length = 0;
+        await initAgent({
+            ...baseSettings,
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            reasoningEffort: "medium",
+        });
+        expect(allInitCode()).toContain('"budget_tokens": 2048');
+
+        runPythonCalls.length = 0;
+        await initAgent({
+            ...baseSettings,
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            reasoningEffort: "high",
+        });
+        expect(allInitCode()).toContain('"budget_tokens": 4096');
+    });
+});
