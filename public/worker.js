@@ -76,10 +76,6 @@ const WAVE3_VENDOR = [
     "scikit-learn",
     "scikit-image",
     "matplotlib",
-    // pyarrow is the parquet/feather engine pandas reaches for by
-    // default.  Without it, df.to_parquet() raises a confusing
-    // ImportError pointing at the missing engine.
-    "pyarrow",
     // lxml is the structural-XML dep python-pptx pulls in.  Pyodide
     // ships a WASM-compiled lxml in its lockfile; loading it via
     // loadPackage avoids micropip trying to fetch (and fail on) the
