@@ -70,7 +70,14 @@ async function getEsbuild() {
 
 /** Plugin: resolve & load against a JS-side file dict.
  *
- * Each path in `files` maps to a string (source content).
+ * Each path in `files` maps to either:
+ * - A source-text string (UTF-8 contents — for `.jsx`, `.tsx`, `.ts`,
+ *   `.js`, `.css`, `.json`, `.svg`)
+ * - A tagged object `{_binary_b64: <base64 string>}` for images
+ *   (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`).  The Python
+ *   collector encodes binary VFS files this way; the plugin
+ *   decodes to Uint8Array for esbuild's dataurl loader.
+ *
  * Relative imports (`./foo.jsx`) are resolved relative to the
  * importer's directory, looked up in `files`.  Bare imports
  * (`react`, `@scope/pkg`) are marked external — they stay as ESM
@@ -126,6 +133,30 @@ function virtualFsPlugin(files) {
                     };
                 }
                 const ext = candidate.path.split(".").pop().toLowerCase();
+                const content = candidate.content;
+
+                // Binary file (image): tagged dict with base64 payload.
+                // Decode to Uint8Array and hand to esbuild's dataurl
+                // loader, which inlines as data:image/...;base64,...
+                if (
+                    content &&
+                    typeof content === "object" &&
+                    typeof content._binary_b64 === "string"
+                ) {
+                    const binary = atob(content._binary_b64);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+                    return { contents: bytes, loader: "dataurl" };
+                }
+
+                // SVG: text source, but inline as a data URL too so
+                // `import logo from './logo.svg'` returns a string.
+                if (ext === "svg") {
+                    return { contents: content, loader: "dataurl" };
+                }
+
                 const loader =
                     ext === "jsx" ? "jsx"
                     : ext === "tsx" ? "tsx"
@@ -133,7 +164,7 @@ function virtualFsPlugin(files) {
                     : ext === "css" ? "css"
                     : ext === "json" ? "json"
                     : "js";
-                return { contents: candidate.content, loader };
+                return { contents: content, loader };
             });
         },
     };
@@ -193,6 +224,7 @@ export async function runEsbuild(args) {
         jsx = "automatic",
         jsxImportSource = "react",
         minify = false,
+        sourcemap = "inline",
     } = args;
 
     const esbuild = await getEsbuild();
@@ -205,6 +237,11 @@ export async function runEsbuild(args) {
             jsx,
             jsxImportSource,
             minify,
+            // Inline source maps by default — agent stack traces
+            // point at the agent's source (app/index.jsx, line 47)
+            // instead of the bundled output.  Caller can pass
+            // sourcemap: false (or "external" / "linked") to override.
+            sourcemap,
             write: false,
             plugins: [virtualFsPlugin(files)],
             // Without this, esbuild logs warnings to console for some
@@ -242,6 +279,11 @@ function formatMessage(m) {
                   file: m.location.file,
                   line: m.location.line,
                   column: m.location.column,
+                  // lineText is the offending source line — used by
+                  // the Python-side renderer to show the line + a
+                  // caret marker pointing at the column.
+                  lineText: m.location.lineText || "",
+                  length: m.location.length || 0,
               }
             : null,
     };
