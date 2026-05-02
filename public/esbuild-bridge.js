@@ -99,7 +99,11 @@ function virtualFsPlugin(files) {
                 const path = args.path;
 
                 if (args.kind === "entry-point") {
-                    return { path, namespace: "vfs" };
+                    // VFS keys never carry a leading slash — strip
+                    // one if present so `esbuild /app/index.jsx`
+                    // resolves the same as `app/index.jsx`.
+                    const normalized = path.startsWith("/") ? path.slice(1) : path;
+                    return { path: normalized, namespace: "vfs" };
                 }
 
                 // Bare specifier (`react`, `@scope/pkg`, `lodash/fp`):
@@ -110,14 +114,21 @@ function virtualFsPlugin(files) {
                 }
 
                 // Relative import — resolve against the importer's
-                // directory and route into the vfs namespace.
+                // directory and route into the vfs namespace.  The
+                // split/slice form correctly returns "" for a
+                // top-level importer (no slash); the regex form would
+                // leave the importer unchanged and produce bogus
+                // joins like `index.jsx/Chart.jsx`.
                 const importerDir = args.importer
-                    ? args.importer.replace(/\/[^/]+$/, "")
+                    ? args.importer.split("/").slice(0, -1).join("/")
                     : "";
-                const resolved =
+                let resolved =
                     path.startsWith("./") || path.startsWith("../")
                         ? joinPath(importerDir, path)
                         : path;
+                if (resolved.startsWith("/")) {
+                    resolved = resolved.slice(1);
+                }
                 return { path: resolved, namespace: "vfs" };
             });
 
