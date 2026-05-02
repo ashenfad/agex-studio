@@ -139,10 +139,7 @@ async function init() {
             `micropip.install("icalendar", deps=False)`,
             `micropip.install("tabulate", deps=False)`,
             `micropip.install("termish>=0.1.5", deps=False, index_urls="${freshIndex}")`,
-            // Local-wheel install for testing register_matplotlib —
-            // restore the PyPI line below before merging.
-            // `micropip.install("agex>=0.12.0", deps=False, index_urls="${freshIndex}")`,
-            `micropip.install("${self.location.origin}/wheels/agex-0.12.0-py3-none-any.whl", deps=False)`,
+            `micropip.install("agex>=0.12.1", deps=False, index_urls="${freshIndex}")`,
         ]);
         const wave3OwnCalls = ownInstallCalls([], [], [
             `micropip.install("calgebra>=0.10.11", deps=False, index_urls="${freshIndex}")`,
