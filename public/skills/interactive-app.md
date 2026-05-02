@@ -94,6 +94,95 @@ For CSS that ships with a library, link it from your `app/index.html`:
 
 Heavy frameworks (MUI, Ant Design, Mantine) work but pull 300KB+ — only reach for them if their look-and-feel matters.
 
+## End-to-end example: a small recharts dashboard
+
+Putting the whole flow together — write source files, bundle, test, iterate.
+
+**1. Write the entry HTML** (`app/index.html`):
+
+```html
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem;
+         background: #1a1a2e; color: #e0e0e0; }
+  h1 { margin: 0 0 1rem; font-size: 1.5rem; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="./index.js"></script>
+</body></html>
+```
+
+**2. Write the JSX** (`app/index.jsx`):
+
+```jsx
+import { useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+} from 'recharts'
+
+const SAMPLE = [
+  { month: 'Jan', revenue: 4200 },
+  { month: 'Feb', revenue: 5100 },
+  { month: 'Mar', revenue: 4800 },
+  { month: 'Apr', revenue: 6300 },
+  { month: 'May', revenue: 7200 },
+]
+
+function Dashboard() {
+  const [data] = useState(SAMPLE)
+  const total = data.reduce((s, d) => s + d.revenue, 0)
+  return (
+    <div>
+      <h1>Revenue ({data.length} months — ${total.toLocaleString()} total)</h1>
+      <div style={{ width: '100%', height: 320 }}>
+        <ResponsiveContainer>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+            <XAxis dataKey="month" stroke="#aaa" />
+            <YAxis stroke="#aaa" />
+            <Tooltip contentStyle={{ background: '#222', border: 'none' }} />
+            <Bar dataKey="revenue" fill="#7c5fe8" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+createRoot(document.getElementById('app')).render(<Dashboard />)
+```
+
+**3. Bundle** (in a `terminal_action`):
+
+```
+esbuild app/index.jsx --outfile=app/index.js
+```
+
+**4. Test** (in a `python_action`):
+
+```python
+results = await test_app(actions=[
+    {"wait": 200},
+    {"read": "h1"},               # confirm the heading rendered
+    {"eval": "document.querySelectorAll('.recharts-bar-rectangle').length"},
+])
+```
+
+If `test_app` reports the heading text and `5` bar rectangles, the dashboard works. Iterate by editing `app/index.jsx`, re-running `esbuild`, and re-running `test_app` — the build is fast (<500ms after the first call warms esbuild-wasm).
+
+A few patterns this example demonstrates that you'll reuse in most apps:
+
+- **`react` and `react-dom/client` are both available** — bare imports resolve to Preact/compat at runtime.
+- **Local imports between files** (e.g., `import { Chart } from './components/Chart.jsx'`) get inlined by the bundler; only `react` / `recharts` / etc. stay external.
+- **CSS via `<style>` in the HTML or external `<link>` tags** is the most reliable path — esbuild can also inline `import './styles.css'` from JSX.
+- **Image assets via `import logo from './logo.png'`** work — esbuild encodes them as data URLs and inlines into the bundle. CSP blocks external image hosts, so prefer VFS-resident assets.
+
 ## Alternative: HTM for trivial apps
 
 For very simple apps where you don't want a build step, HTM (tagged template literals) works directly without esbuild:

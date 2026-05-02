@@ -147,7 +147,12 @@ def _register_esbuild(agent):
             ctx.stdout.write(_format_diag("warning", w) + "\n")
 
         if result.get("errors"):
-            stderr = "\n".join(_format_diag("error", e) for e in result["errors"])
+            # Blank line between multi-error blocks so the 3-line
+            # structure (header / source / caret) for each is visually
+            # separated.
+            stderr = "\n\n".join(
+                _format_diag("error", e) for e in result["errors"]
+            )
             return ctx.fail(stderr or "esbuild: build failed", exit_code=1)
 
         contents = result.get("contents")
@@ -169,23 +174,47 @@ def _register_esbuild(agent):
 def _collect_app_sources(fs) -> dict:
     """Pull source files under app/ and helpers/ into a dict for esbuild.
 
-    Filtered to source-code extensions to avoid shipping binary or
-    large files (PDFs, images, etc.) into the bundler.
+    Source code is shipped as UTF-8 strings (path → content).  Image
+    files (.png/.jpg/.jpeg/.gif/.webp) are shipped as tagged dicts
+    ``{"_binary_b64": <base64>}`` so esbuild's dataurl loader can
+    inline them when an agent does ``import logo from './logo.png'``.
+
+    Filtered by extension so the bundler doesn't see PDFs, parquet,
+    or other large non-source files that happen to live under app/.
+    Per-image cap (1MB) prevents runaway bundle bloat from an agent
+    accidentally importing a giant asset.
     """
-    SOURCE_EXTS = (".jsx", ".tsx", ".ts", ".js", ".css", ".json")
-    files: dict[str, str] = {}
+    import base64
+
+    SOURCE_EXTS = (".jsx", ".tsx", ".ts", ".js", ".css", ".json", ".svg")
+    BINARY_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+    BINARY_MAX_BYTES = 1_048_576  # 1MB per image — refuse larger ones
+
+    files: dict = {}
     for root_dir in ("app/", "helpers/"):
         try:
             for rel in fs.list(root_dir, recursive=True):
-                if not any(rel.endswith(ext) for ext in SOURCE_EXTS):
-                    continue
                 full = root_dir + rel
                 if not fs.isfile(full):
                     continue
-                try:
-                    files[full] = fs.read(full).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+                rel_lower = rel.lower()
+                if any(rel_lower.endswith(ext) for ext in SOURCE_EXTS):
+                    try:
+                        files[full] = fs.read(full).decode("utf-8", errors="replace")
+                    except Exception:
+                        pass
+                elif any(rel_lower.endswith(ext) for ext in BINARY_EXTS):
+                    try:
+                        data = fs.read(full)
+                        if len(data) > BINARY_MAX_BYTES:
+                            # Skip — esbuild will error on the missing
+                            # import, agent gets a clear message.
+                            continue
+                        files[full] = {
+                            "_binary_b64": base64.b64encode(data).decode("ascii")
+                        }
+                    except Exception:
+                        pass
         except Exception:
             # Directory may not exist yet — fine, just skip.
             pass
@@ -193,12 +222,35 @@ def _collect_app_sources(fs) -> dict:
 
 
 def _format_diag(level: str, d: dict) -> str:
-    """Format an esbuild diagnostic for terminal output."""
+    """Format an esbuild diagnostic for terminal output.
+
+    Three-line block when source location is available:
+
+        {level}: {file}:{line}:{col}: {message}
+            {offending source line}
+            {caret marker pointing at the column}
+
+    Falls back to a single header line when location is missing.
+    """
     text = d.get("text", "")
-    loc = d.get("location")
-    if loc:
-        return f"{level}: {loc.get('file')}:{loc.get('line')}:{loc.get('column')}: {text}"
-    return f"{level}: {text}"
+    loc = d.get("location") or {}
+    if not loc:
+        return f"{level}: {text}"
+
+    file_ = loc.get("file", "?")
+    line = loc.get("line", 0)
+    col = loc.get("column", 0)
+    line_text = loc.get("lineText", "") or ""
+    length = max(int(loc.get("length", 1) or 1), 1)
+
+    header = f"{level}: {file_}:{line}:{col}: {text}"
+    if not line_text:
+        return header
+
+    # Caret marker — pad with spaces to align under the offending column,
+    # then a run of '^' for the length of the highlighted span.
+    caret = " " * col + "^" * length
+    return f"{header}\n    {line_text}\n    {caret}"
 
 
 def register_all(agent):
