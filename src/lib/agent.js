@@ -202,8 +202,13 @@ import importlib as _importlib
 _site_dir = _importlib.import_module("site").getsitepackages()[0]
 
 def _install_module(name, url):
+    # Append the app version as a cache-bust so deploys actually
+    # invalidate previously-cached helper modules.  Without this,
+    # browsers happily serve a stale /python/agent_modules.py even
+    # though worker.js (which has its own ?v=) was refetched.
+    bust = f"{url}?v=${__APP_VERSION__}"
     with open(f"{_site_dir}/{name}.py", "w") as f:
-        f.write(_open_url(url).read())
+        f.write(_open_url(bust).read())
     return _importlib.import_module(name)
 
 _install_module("bridge_llm", "/bridge_llm.py")
