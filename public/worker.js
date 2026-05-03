@@ -386,9 +386,45 @@ await asyncio.gather(${wave3OwnCalls.join(", ")})
             `),
         ]);
 
+        // Start periodic flush of /persist to OPFS. JS event-loop
+        // semantics: setInterval callbacks fire at any await boundary,
+        // including the awaits inside agex's async agent loop (LLM
+        // calls, tool round-trips). So this fires DURING a long
+        // run(), not just between runs — bounding mid-call data loss
+        // on a surprise reload to ~PERSIST_FLUSH_INTERVAL_MS instead
+        // of "everything since the last completed run()".
+        //
+        // The per-run flush in run() is still useful as a guaranteed
+        // sync at the natural completion boundary; the two compose.
+        if (_persistFlushTimer === null) {
+            _persistFlushTimer = setInterval(flushPersist, PERSIST_FLUSH_INTERVAL_MS);
+        }
+
         self.postMessage({ type: "ready" });
     } catch (e) {
         self.postMessage({ type: "init-error", message: e.message });
+    }
+}
+
+// Periodic flush cadence. 1s is a tradeoff: tighter loses less data
+// on reload but adds JS↔OPFS round-trips during quiet periods (cheap
+// for a clean mirror but not free). 1s feels right for a chat-app
+// agent where individual iterations take seconds to tens of seconds.
+const PERSIST_FLUSH_INTERVAL_MS = 1000;
+let _persistFlushTimer = null;
+
+// Flush in-memory FS writes (under /persist, our OPFS mount) to
+// the backing Origin Private File System. mountNativeFS buffers
+// writes in an in-memory mirror and only persists when syncfs is
+// called — without this, kvgit commits land in RAM and are lost
+// on reload. Best-effort: a failed syncfs logs and continues; the
+// next call will retry against the same dirty mirror.
+async function flushPersist() {
+    if (!pyodide) return;
+    try {
+        await pyodide.FS.syncfs(false);
+    } catch (err) {
+        console.error("[worker] FS.syncfs failed:", err);
     }
 }
 
@@ -401,8 +437,14 @@ async function run(id, code) {
         const result = await pyodide.runPythonAsync(code);
         // Convert Python objects to JS strings
         const value = result != null ? result.toString() : null;
+        // Flush any kvgit writes from this turn out to OPFS before
+        // signalling completion. Cheap when nothing changed.
+        await flushPersist();
         self.postMessage({ type: "result", id, value });
     } catch (e) {
+        // Flush even on error — partial commits that did fire should
+        // still be preserved.
+        await flushPersist();
         self.postMessage({ type: "run-error", id, message: e.message });
     }
 }
@@ -460,6 +502,9 @@ _state = _agent.state("default")
 _state.commit()
 del _dl_path, _dl_bytes, _bytes
                     `);
+                    // Push the just-committed state to OPFS before
+                    // signalling completion to the host.
+                    await flushPersist();
                     self.postMessage({ type: "write-downloaded-file-result", id });
                 } catch (err) {
                     self.postMessage({
