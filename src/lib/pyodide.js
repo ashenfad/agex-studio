@@ -30,8 +30,8 @@ let subscribers = [];
  * @property {'idle'|'loading'|'history-ready'|'send-ready'} stage
  *     Finer-grained boot progress. `history-ready` fires after Wave 2
  *     (agex + pandas/plotly installed and bridges wired). `send-ready`
- *     fires after Wave 3 (calgebra/scipy/sklearn/skimage installed) and
- *     is equivalent to `status === 'ready'`.
+ *     fires after Wave 3 (calgebra installed) and is equivalent to
+ *     `status === 'ready'`.
  * @property {string} message
  * @property {number} progress - 0 to 1
  */
@@ -485,10 +485,10 @@ export function setQueryHandler(fn) {
 }
 
 /**
- * Tell the worker it's safe to begin Wave 3 (calgebra/scipy/sklearn/
- * skimage) installs. Called once by the host after Wave-2 work
- * (basics init + history load) has finished — Pyodide serializes
- * runPythonAsync calls, so deferring Wave 3 keeps basics fast.
+ * Tell the worker it's safe to begin Wave 3 (calgebra) install.
+ * Called once by the host after Wave-2 work (basics init + history
+ * load) has finished — Pyodide serializes runPythonAsync calls, so
+ * deferring Wave 3 keeps basics fast.
  */
 export function startWave3() {
     if (worker) worker.postMessage({ type: "start-wave3" });

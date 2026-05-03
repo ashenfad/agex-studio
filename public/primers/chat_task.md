@@ -12,8 +12,7 @@ IndexedDB and localStorage.
   parallel with `asyncio.gather(coro1, coro2, ...)`.
 - Plotly image export (`fig.to_image` / `fig.write_image`) is unavailable —
   kaleido isn't packaged for Pyodide. Return `go.Figure` in a `Response` to
-  show it to the user; use `await view_image(fig)` to inspect it yourself;
-  use `matplotlib.savefig("path.png")` to save to a file.
+  show it to the user; use `await view_image(fig)` to inspect it yourself.
 
 ## Response shape
 
@@ -67,7 +66,6 @@ when building or editing apps.
   `pdf_page_count(path_or_bytes)` for length. `await view_image(img)` to
   inspect a page. `pypdf` is also available for text extraction.
 
-## Document authoring
+## Spreadsheet authoring
 
-`fpdf2` (PDFs), `python-pptx` (slide decks), `openpyxl` (xlsx writing —
-`pd.read_excel()` covers reading).
+`openpyxl` for xlsx writing (`pd.read_excel()` covers reading).

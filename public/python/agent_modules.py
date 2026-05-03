@@ -14,7 +14,6 @@ pandas/numpy/etc. and can ``dir()``/``help()`` for specifics.
 from pyodide.http import open_url
 
 from agex.helpers import (
-    register_matplotlib,
     register_numpy,
     register_pandas,
     register_plotly,
@@ -259,10 +258,12 @@ def register_all(agent):
     Runs in two layers: agex's helper bundles for popular libraries
     (numpy / pandas / plotly / stdlib / git), then explicit
     ``module(...)`` calls for everything else the studio ships.
-    Skills follow.  Order matters loosely — the only hard requirement
-    is that matplotlib's Agg backend is selected before anything
-    imports pyplot (otherwise backend probing raises in headless
-    Pyodide).
+    Skills follow.
+
+    The heavier ML / plotting / document-authoring set
+    (scipy, sklearn, skimage, matplotlib, python-pptx, fpdf2) was
+    cut to keep the runtime footprint inside iOS Safari's per-tab
+    memory budget — restore here if those capabilities come back.
     """
     register_stdlib(agent)
     register_pandas(agent)
@@ -282,34 +283,6 @@ def register_all(agent):
     import openpyxl
 
     agent.module(openpyxl, visibility="low", recursive=True)
-
-    import scipy
-
-    agent.module(scipy, visibility="low", recursive=True)
-
-    import sklearn
-
-    agent.module(sklearn, visibility="low", recursive=True)
-
-    import skimage
-
-    agent.module(skimage, visibility="low", recursive=True)
-
-    # register_matplotlib forces the Agg backend, pre-warms the font
-    # cache (so sandboxed savefig calls don't trigger a fontlist.json
-    # lock-write inside site-packages that monkeyfs would block), and
-    # exposes the namespace recursively at low visibility.
-    register_matplotlib(agent)
-
-    # Document authoring: python-pptx for slide decks, fpdf2 for PDFs.
-    # Both registered low-viz — primer mentions the capability,
-    # detailed APIs left for the agent to explore via dir() / help.
-    import pptx
-
-    agent.module(pptx, visibility="low", recursive=True)
-    import fpdf
-
-    agent.module(fpdf, visibility="low", recursive=True)
 
     # Network access for Google Calendar API
     import calgebra

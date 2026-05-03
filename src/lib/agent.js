@@ -312,9 +312,9 @@ _agent.cls(Response)
 # -- Library + skill registrations --
 # Definitions live in public/python/agent_modules.py.  register_all()
 # runs the agex helper bundles, registers third-party libraries
-# (pandas/numpy/scipy/sklearn/matplotlib/etc.) low-viz, attaches
-# calgebra's bundled SKILL.md, and pulls the static skill markdown
-# files served from public/skills/.
+# (pandas / numpy / plotly / pypdf / openpyxl / calgebra / etc.)
+# low-viz, and pulls the static skill markdown files served from
+# public/skills/.
 _install_module("agent_modules", "/python/agent_modules.py")
 import agent_modules as _agent_modules
 _agent_modules.register_all(_agent)
