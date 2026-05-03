@@ -65,6 +65,10 @@ const WAVE2_VENDOR_MICROPIP = [
     "plotly",
     "pypdf",
     "openpyxl",
+    // Pure-Python; backs kvgit's Disk store (which we use over the
+    // OPFS mount set up later in init). agex declares it as a dep
+    // but installs with deps=False, so we add it here explicitly.
+    "diskcache",
 ];
 
 // Wave 3: heavier capabilities that aren't on the critical path for
@@ -114,7 +118,28 @@ async function init() {
         });
 
         progress("Installing packages...", 0.15);
-        await pyodide.loadPackage(["micropip", "Pillow"]);
+        // sqlite3 is a Pyodide built-in but isn't in core stdlib —
+        // it's loaded as a package. Required for kvgit[disk] (via
+        // diskcache) over the OPFS mount we set up below.
+        await pyodide.loadPackage(["micropip", "Pillow", "sqlite3"]);
+
+        // Mount the browser's Origin Private File System at /persist
+        // so Python file I/O (used by kvgit's Disk backend via
+        // diskcache+sqlite) lands somewhere persistent. Survives
+        // reload, GB-scale quota, no JSPI dependency — works on
+        // Chrome/Edge, Firefox, and Safari. Workers (us) get sync
+        // access handles for best perf.
+        //
+        // Must run before any Python code touches /persist; that
+        // means before the kvgit-using session/agent code runs, and
+        // safely before Wave 2's `import agex` verification too.
+        progress("Mounting persistent storage...", 0.18);
+        const opfsRoot = await navigator.storage.getDirectory();
+        const persistDir = await opfsRoot.getDirectoryHandle(
+            "agex_persist",
+            { create: true },
+        );
+        await pyodide.mountNativeFS("/persist", persistDir);
 
         // Cache-bust PyPI index for our own packages so version bumps
         // take effect immediately. Only applied to OWN_DEPS to avoid

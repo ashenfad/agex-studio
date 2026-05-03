@@ -229,7 +229,11 @@ _agent = Agent(
     primer="You are a helpful assistant.",
     llm=_llm,
     max_iterations=30,
-    state=connect_state(type="versioned", storage="indexeddb"),
+    # /persist is the OPFS mount set up in worker.js. agex's local
+    # host appends "sessions/<session_id>" to the path automatically,
+    # so each session gets its own diskcache subdirectory under
+    # /persist/sessions/.
+    state=connect_state(type="versioned", storage="disk", path="/persist"),
     fs=connect_fs(type="virtual"),
     chaptering_trigger=${settings.chapteringTrigger},
 )
