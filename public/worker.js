@@ -412,20 +412,59 @@ await asyncio.gather(${wave3OwnCalls.join(", ")})
 // agent where individual iterations take seconds to tens of seconds.
 const PERSIST_FLUSH_INTERVAL_MS = 1000;
 let _persistFlushTimer = null;
+let _flushInFlight = null;
+let _flushQueued = null;
 
-// Flush in-memory FS writes (under /persist, our OPFS mount) to
-// the backing Origin Private File System. mountNativeFS buffers
-// writes in an in-memory mirror and only persists when syncfs is
-// called — without this, kvgit commits land in RAM and are lost
-// on reload. Best-effort: a failed syncfs logs and continues; the
-// next call will retry against the same dirty mirror.
+// Emscripten's FS.syncfs takes a (populate, callback) signature and
+// does not return a Promise — calling it without a callback throws
+// "callback is not a function" from inside the OPFS backend's async
+// completion, surfacing as an unhandled rejection that bypasses any
+// try/catch around the call site.
+function _syncfs() {
+    return new Promise((resolve, reject) => {
+        pyodide.FS.syncfs(false, (err) => (err ? reject(err) : resolve()));
+    });
+}
+
+// Flush in-memory FS writes (under /persist, our OPFS mount) to the
+// backing Origin Private File System. mountNativeFS buffers writes
+// in an in-memory mirror and only persists when syncfs is called —
+// without this, kvgit commits land in RAM and are lost on reload.
+//
+// Single-flight with at-most-one queued follow-up: the per-run flush
+// in run() and the 1s setInterval tick can otherwise overlap, which
+// Pyodide warns about ("2 FS.syncfs operations in flight"). Callers
+// still get the guarantee they need — by the time their await
+// resolves, a syncfs that started after their call has completed,
+// so any writes dirty at call time are persisted.
+//
+// Best-effort: a failed syncfs logs and continues; the next call
+// will retry against the same dirty mirror.
 async function flushPersist() {
     if (!pyodide) return;
-    try {
-        await pyodide.FS.syncfs(false);
-    } catch (err) {
-        console.error("[worker] FS.syncfs failed:", err);
+    if (_flushInFlight) {
+        if (!_flushQueued) {
+            _flushQueued = _flushInFlight.then(() => {
+                _flushQueued = null;
+                return _runFlush();
+            });
+        }
+        return _flushQueued;
     }
+    return _runFlush();
+}
+
+function _runFlush() {
+    _flushInFlight = (async () => {
+        try {
+            await _syncfs();
+        } catch (err) {
+            console.error("[worker] FS.syncfs failed:", err);
+        } finally {
+            _flushInFlight = null;
+        }
+    })();
+    return _flushInFlight;
 }
 
 async function run(id, code) {
