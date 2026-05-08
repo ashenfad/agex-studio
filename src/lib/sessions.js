@@ -11,6 +11,10 @@ import {
     copy as appStorageCopy,
     remove as appStorageRemove,
 } from "./app-storage.js";
+import {
+    replaceCache as replaceSessionCache,
+    clearCache as clearSessionCache,
+} from "./session-index.js";
 
 /**
  * Decorate a session list (as returned by the Python heredocs) with
@@ -79,7 +83,30 @@ function update(/** @type {Partial<SessionState>} */ patch) {
     const cur = merged.sessions.find((s) => s.branch === merged.currentBranch);
     merged.currentSessionExternal = !!(cur && cur.external);
     state = merged;
+    // Mirror to the session-index cache so cold-start drawer renders
+    // (Phase 5+) see the latest list without booting the kernel. Single
+    // chokepoint — every session-mutating operation flows through
+    // update(), so the cache auto-syncs.
+    _writeSessionsToCache(state.sessions);
     notify();
+}
+
+/** Project the in-memory session list into session-index cache records.
+ *  Drops the JS-derived `app_storage_bytes` field (recomputed locally
+ *  from localStorage anyway; cache doesn't need to persist it). */
+function _writeSessionsToCache(sessions) {
+    const records = sessions
+        .filter((s) => typeof s.branch === "string" && s.branch.startsWith("chat-"))
+        .map((s) => ({
+            kernel: s.kernel || "py",
+            branch: s.branch,
+            title: s.title || "New Chat",
+            name: s.name || "",
+            description: s.description || "",
+            updated: s.updated || "",
+            external: !!s.external,
+        }));
+    replaceSessionCache(records);
 }
 
 export const sessionStore = {
