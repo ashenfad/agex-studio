@@ -29,6 +29,7 @@
  */
 
 import { createPyAdapter } from "./py-kernel-adapter.js";
+import { createTsAdapter } from "./ts-kernel-adapter.js";
 
 /**
  * @typedef {import('./kernel-adapter.js').KernelAdapter} KernelAdapter
@@ -75,14 +76,7 @@ export function createKernelRegistry() {
 
     function _construct(kernel) {
         if (kernel === "py") return createPyAdapter();
-        if (kernel === "ts") {
-            // Phase 5 lands the Ts adapter; until then, attempting to
-            // ensure 'ts' is a clean error rather than a silent
-            // misroute.
-            throw new Error(
-                "ts kernel adapter not yet implemented (planned for Phase 5)",
-            );
-        }
+        if (kernel === "ts") return createTsAdapter();
         throw new Error(`unknown kernel: ${String(kernel)}`);
     }
 
