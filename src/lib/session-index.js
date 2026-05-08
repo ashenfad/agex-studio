@@ -129,6 +129,22 @@ export function clearCache() {
     }
 }
 
+/**
+ * Replace the entire cache with the given record list. Atomic — one
+ * localStorage write. Faster than N `cacheSession` calls when the
+ * session-list changes in bulk (e.g., after `refreshSessionList`).
+ *
+ * Invalid records are silently dropped. Caller is expected to pass a
+ * fully-constructed record set; this isn't a partial update.
+ *
+ * @param {SessionRecord[]} records
+ */
+export function replaceCache(records) {
+    if (!Array.isArray(records)) return;
+    const valid = records.filter(_isValidRecord);
+    _writeCache(valid);
+}
+
 function _isValidRecord(r) {
     return (
         r &&
