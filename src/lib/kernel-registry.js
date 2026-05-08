@@ -15,6 +15,14 @@
  * supported, and rebuilding the agent on every settings update would
  * thrash Pyodide / the Ts worker).
  *
+ * `onStage` listeners fan out: each caller's `opts.onStage` is added
+ * to a per-kernel listener set, and the registry wraps the adapter's
+ * `init` with a dispatcher that calls every registered listener for
+ * every milestone. Live-stream-only — listeners that register *after*
+ * a stage has fired don't get a replay; if a caller cares about a
+ * past milestone, check the shell-side flag whichever earlier
+ * listener set rather than rely on the registry's stage stream.
+ *
  * Singleton instance is exported as `kernelRegistry`. The factory
  * (`createKernelRegistry`) is exported for tests that want isolated
  * instances.
@@ -61,7 +69,7 @@ import { createPyAdapter } from "./py-kernel-adapter.js";
  */
 export function createKernelRegistry() {
     /**
-     * @type {Map<Kernel, { adapter: KernelAdapter, ready: Promise<void> }>}
+     * @type {Map<Kernel, { adapter: KernelAdapter, ready: Promise<void>, onStageListeners: Set<(stage: import('./kernel-adapter.js').InitStage) => void | Promise<void>> }>}
      */
     const entries = new Map();
 
@@ -79,14 +87,39 @@ export function createKernelRegistry() {
     }
 
     return {
-        async ensure(kernel, settings, opts) {
+        async ensure(kernel, settings, opts = {}) {
             let entry = entries.get(kernel);
             if (!entry) {
                 const adapter = _construct(kernel);
+                // Per-kernel listener set; first caller seeds it,
+                // subsequent callers append. Wrap init's onStage
+                // option with a dispatcher that fans every milestone
+                // out to whatever listeners are registered AT FIRE
+                // TIME (not at registration time — late-registered
+                // listeners only see future stages).
+                const onStageListeners = new Set();
+                if (typeof opts.onStage === "function") {
+                    onStageListeners.add(opts.onStage);
+                }
+                const dispatchStage = async (stage) => {
+                    // Snapshot: a listener could (in theory) register
+                    // another during dispatch. Iterate the snapshot to
+                    // keep the milestone's notify list deterministic.
+                    for (const fn of [...onStageListeners]) {
+                        try {
+                            await fn(stage);
+                        } catch (err) {
+                            console.warn(
+                                "[agex] kernel-registry onStage listener threw:",
+                                err,
+                            );
+                        }
+                    }
+                };
                 // Capture ready before awaiting — concurrent callers
                 // see the same in-flight promise.
-                const ready = adapter.init(settings, opts);
-                entry = { adapter, ready };
+                const ready = adapter.init(settings, { onStage: dispatchStage });
+                entry = { adapter, ready, onStageListeners };
                 entries.set(kernel, entry);
                 // If init throws, evict the entry so a future caller
                 // can retry with a fresh adapter rather than being
@@ -96,6 +129,10 @@ export function createKernelRegistry() {
                         entries.delete(kernel);
                     }
                 });
+            } else if (typeof opts.onStage === "function") {
+                // Subsequent caller — append to the existing listener
+                // set. Stages fired before this point won't be replayed.
+                entry.onStageListeners.add(opts.onStage);
             }
             await entry.ready;
             return entry.adapter;
