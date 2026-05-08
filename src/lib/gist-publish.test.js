@@ -82,7 +82,7 @@ describe("publishGistBundle", () => {
         const result = await publishGistBundle({
             pat: "ghp_test",
             bytes: bytesOf("bundle bytes"),
-            manifest: { stats: { commits: 5, blobs: 12, nodes: 7, app_storage_bytes: 2048 } },
+            manifest: { stats: { commits: 5, blobs: 12, nodes: 7 } },
             name: "My Session",
             origin: "https://agex.studio",
         });
@@ -137,7 +137,6 @@ describe("publishGistBundle", () => {
         expect(commentBody).toContain("| Commits | 5 |");
         expect(commentBody).toContain("| Blobs | 12 |");
         expect(commentBody).toContain("| Nodes | 7 |");
-        expect(commentBody).toContain("| App storage | 2.0 KB |");
         expect(commentBody).toContain("| Bundle |");
     });
 

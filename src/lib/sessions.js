@@ -6,6 +6,27 @@
  */
 
 import { runPython, runPythonStreaming } from "./pyodide.js";
+import {
+    size as appStorageSize,
+    copy as appStorageCopy,
+    remove as appStorageRemove,
+} from "./app-storage.js";
+
+/**
+ * Decorate a session list (as returned by the Python heredocs) with
+ * the JS-computed `app_storage_bytes` field. App-storage now lives in
+ * the parent's localStorage (see `app-storage.js`), so the size has
+ * to be computed shell-side rather than read from kvgit.
+ *
+ * @param {Array<Object>} sessions
+ * @returns {Array<Object>}
+ */
+function _decorateAppStorage(sessions) {
+    return sessions.map((s) => ({
+        ...s,
+        app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
+    }));
+}
 
 const CURRENT_BRANCH_KEY = "agex-current-branch";
 
@@ -17,6 +38,11 @@ let subscribers = [];
  * @property {string} branch
  * @property {string} title
  * @property {string} updated - ISO 8601 timestamp
+ * @property {'py' | 'ts'} kernel - which runtime kernel the session
+ *     is bound to.  ``"py"`` (Pyodide / agex-py) is the default and
+ *     the value applied to legacy sessions missing the field.  Sessions
+ *     are kernel-bound — once created, they don't migrate.  See
+ *     ``project_studio_unification`` for the broader plan.
  * @property {boolean} [external] - true when the session was created
  *     by opening a published-artifact URL (``/run/?src=…``).  External
  *     sessions are gated against host-capability features the visitor
@@ -74,7 +100,6 @@ export async function initSessions() {
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
-import app_storage as _app_storage
 
 _state = _agent.state("default")
 _branches = _state.list_branches()
@@ -96,9 +121,13 @@ else:
     _state.create_branch(_current, at=_state.versioned.initial_commit)
     _state.switch_branch(_current)
     _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+    _state["__session_kernel__"] = "py"
     _state.commit()
 
-# Build session list
+# Build session list.  ``__session_kernel__`` defaults to ``"py"``
+# for any branch missing it — legacy sessions created before the
+# kernel discriminator existed.  ``app_storage_bytes`` is added on
+# the JS side via ``_decorateAppStorage`` (lives in localStorage).
 _sessions = []
 for _b in _branches:
     if not _b.startswith("chat-"):
@@ -109,8 +138,8 @@ for _b in _branches:
         "name": _state.peek("__session_name__", branch=_b) or "",
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
         "external": bool(_state.peek("__session_external__", branch=_b)),
+        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
     })
 if _current not in [s["branch"] for s in _sessions]:
     _sessions.append({
@@ -119,8 +148,8 @@ if _current not in [s["branch"] for s in _sessions]:
         "name": "",
         "description": "",
         "updated": _state.peek("__session_updated__", branch=_current) or "",
-        "app_storage_bytes": _app_storage.size(_state.versioned, _current),
         "external": bool(_state.peek("__session_external__", branch=_current)),
+        "kernel": _state.peek("__session_kernel__", branch=_current) or "py",
     })
 
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
@@ -129,11 +158,22 @@ _json.dumps({"current": _current, "sessions": _sessions})
 
     const data = JSON.parse(json);
     localStorage.setItem(CURRENT_BRANCH_KEY, data.current);
-    update({ currentBranch: data.current, sessions: data.sessions });
+    update({
+        currentBranch: data.current,
+        sessions: _decorateAppStorage(data.sessions),
+    });
 }
 
-/** Create a new chat session and switch to it. */
-export async function createSession() {
+/** Create a new chat session and switch to it.
+ *
+ * @param {{ kernel?: 'py' | 'ts' }} [options]
+ *   ``kernel`` selects the runtime the session will be bound to.
+ *   Defaults to ``"py"`` until the session-creation UX surfaces a
+ *   picker.  Once set, a session's kernel doesn't change — switching
+ *   would invalidate the language-specific event log and helpers.
+ */
+export async function createSession({ kernel = "py" } = {}) {
+    const safeKernel = kernel === "ts" ? "ts" : "py";
     const json = await runPython(`
 import json as _json
 import uuid as _uuid
@@ -144,6 +184,7 @@ _new = f"chat-{_uuid.uuid4().hex[:8]}"
 _state.create_branch(_new, at=_state.versioned.initial_commit)
 _state.switch_branch(_new)
 _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+_state["__session_kernel__"] = "${safeKernel}"
 _state.commit()
 _json.dumps(_new)
     `);
@@ -176,11 +217,16 @@ _state.switch_branch("${escaped}")
  */
 export async function deleteSession(branch) {
     const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    // Look up the branch's kernel BEFORE the Python delete so we can
+    // wipe the matching app-storage entries.  After the delete, the
+    // branch's metadata is gone and we'd lose track of which kernel's
+    // namespace the entries lived under.
+    const targetKernel =
+        state.sessions.find((s) => s.branch === branch)?.kernel || "py";
     const json = await runPython(`
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
-import app_storage as _app_storage
 
 _state = _agent.state("default")
 _target = "${escaped}"
@@ -197,17 +243,20 @@ if _state.current_branch == _target:
         _new_current = _other[0]
         _state.switch_branch(_new_current)
     else:
-        # Last session — create a fresh blank one to land on.
+        # Last session — create a fresh blank one to land on.  Default
+        # kernel matches the session being deleted so the user lands on
+        # something compatible with the workflow they were just using.
+        _fallback_kernel = _state.peek("__session_kernel__", branch=_target) or "py"
         _new_current = f"chat-{_uuid.uuid4().hex[:8]}"
         _state.create_branch(_new_current, at=_state.versioned.initial_commit)
         _state.switch_branch(_new_current)
         _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+        _state["__session_kernel__"] = _fallback_kernel
         _state.commit()
 else:
     _new_current = _state.current_branch
 
 _state.delete_branch(_target)
-_app_storage.delete(_state.versioned, _target)
 
 # Rebuild the post-delete session list in this same Python call so
 # the JS-side store update is atomic with the delete.
@@ -221,16 +270,21 @@ for _b in _state.list_branches():
         "name": _state.peek("__session_name__", branch=_b) or "",
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
         "external": bool(_state.peek("__session_external__", branch=_b)),
+        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
 _json.dumps({"current": _new_current, "sessions": _sessions})
     `);
 
+    appStorageRemove(targetKernel, branch);
+
     const result = JSON.parse(json);
     localStorage.setItem(CURRENT_BRANCH_KEY, result.current);
-    update({ currentBranch: result.current, sessions: result.sessions });
+    update({
+        currentBranch: result.current,
+        sessions: _decorateAppStorage(result.sessions),
+    });
 }
 
 /** Load chat history from the current session's events. */
@@ -458,7 +512,6 @@ export async function loadHistoryChunked() {
 async function refreshSessionList(currentBranch) {
     const json = await runPython(`
 import json as _json
-import app_storage as _app_storage
 
 _state = _agent.state("default")
 _branches = _state.list_branches()
@@ -472,8 +525,8 @@ for _b in _branches:
         "name": _state.peek("__session_name__", branch=_b) or "",
         "description": _state.peek("__session_description__", branch=_b) or "",
         "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "app_storage_bytes": _app_storage.size(_state.versioned, _b),
         "external": bool(_state.peek("__session_external__", branch=_b)),
+        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
     })
 _sessions.sort(key=lambda s: s["updated"], reverse=True)
 _json.dumps(_sessions)
@@ -481,7 +534,7 @@ _json.dumps(_sessions)
 
     update({
         currentBranch: currentBranch,
-        sessions: JSON.parse(json),
+        sessions: _decorateAppStorage(JSON.parse(json)),
     });
 }
 
@@ -505,112 +558,65 @@ _state.reset_to("${escaped}")
     await refreshSessionList(state.currentBranch);
 }
 
-/** Fork the current session into a new branch from current HEAD. */
+/** Fork the current session into a new branch from current HEAD.
+ *
+ * The forked branch inherits the parent's kernel — sessions are
+ * kernel-bound and the fork is meant as a divergence point for the
+ * same workflow, not a runtime switch.  ``__session_kernel__`` rides
+ * along automatically because ``create_branch`` (without ``at=``)
+ * carries the parent's HEAD; we re-stamp it explicitly so legacy
+ * parents missing the field land their fork with a defined value.
+ */
 export async function forkSession() {
+    const sourceBranch = state.currentBranch;
+    const sourceKernel =
+        state.sessions.find((s) => s.branch === sourceBranch)?.kernel || "py";
     const json = await runPython(`
 import json as _json
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
-import app_storage as _app_storage
 
 _state = _agent.state("default")
 _cur = _state.current_branch
 _old_title = _state.peek("__session_title__", branch=_cur) or "New Chat"
+_parent_kernel = _state.peek("__session_kernel__", branch=_cur) or "py"
 _new = f"chat-{_uuid.uuid4().hex[:8]}"
 _state.create_branch(_new)
 _state.switch_branch(_new)
 
-# Snapshot-copy app storage so each branch mutates its own copy.
-_app_storage.copy(_state.versioned, _cur, _new)
-
 _state["__session_title__"] = _old_title + " (fork)"
 _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
+_state["__session_kernel__"] = _parent_kernel
 _state.commit()
 _json.dumps(_new)
     `);
 
     const branch = JSON.parse(json);
+    // Snapshot-copy app-storage on the JS side so each fork mutates
+    // its own copy.  Forks stay within the same kernel, so the source
+    // and destination namespace prefix matches.
+    appStorageCopy(sourceKernel, sourceBranch, branch);
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     await refreshSessionList(branch);
 }
 
 /**
- * Read the full app-storage dict for a branch. Used as the seed dict
- * inlined into the iframe when the app boots.
+ * App-storage CRUD has moved off the kernel substrate entirely. The
+ * iframe's `localStorage` shim is now backed by the parent's real
+ * `localStorage` under an `agex-app:<kernel>:<branch>:<key>` prefix —
+ * see `src/lib/app-storage.js`. Callers that previously imported
+ * `getAppStorage` / `flushAppStorage` / `resetAppStorage` /
+ * `getAppStorageSize` from this module should import from
+ * `./app-storage.js` directly:
  *
- * @param {string} branch
- * @returns {Promise<Record<string,string>>}
- */
-export async function getAppStorage(branch) {
-    const json = await runPython(`
-import json as _json
-import app_storage as _app_storage
-_state = _agent.state("default")
-_json.dumps(_app_storage.read(_state.versioned, ${JSON.stringify(branch)}))
-    `);
-    return JSON.parse(json);
-}
-
-/**
- * Persist a flat {str: str} dict to the branch's app_storage. Writes
- * directly to the raw kvgit store; does not advance HEAD or commit.
+ *   - `read(kernel, branch)` — replaces `getAppStorage`
+ *   - `write(kernel, branch, data)` — replaces `flushAppStorage`
+ *   - `remove(kernel, branch)` — replaces `resetAppStorage`
+ *   - `size(kernel, branch)` — replaces `getAppStorageSize`
  *
- * @param {string} branch
- * @param {Record<string,string>} data
+ * The kernel arg is the new disambiguator since both py and ts
+ * sessions can coexist in the same studio install.
  */
-export async function flushAppStorage(branch, data) {
-    const payload = JSON.stringify(data || {});
-    // Stash into a Python string and decode inside, so arbitrarily
-    // large payloads don't need to be re-escaped into the source.
-    const json = await runPython(`
-import json as _json
-import app_storage as _app_storage
-_state = _agent.state("default")
-_raw = ${JSON.stringify(payload)}
-_app_storage.write(_state.versioned, ${JSON.stringify(branch)}, _json.loads(_raw))
-_json.dumps(_app_storage.size(_state.versioned, ${JSON.stringify(branch)}))
-    `);
-    const newSize = JSON.parse(json);
-    // Patch just this branch's size in the local store so the drawer
-    // badge updates live without a full session-list rebuild per flush.
-    update({
-        sessions: state.sessions.map((s) =>
-            s.branch === branch ? { ...s, app_storage_bytes: newSize } : s,
-        ),
-    });
-}
-
-/**
- * Clear the non-versioned app-storage blob for a branch. Does not
- * create a commit. The next iframe boot for this branch seeds an
- * empty storage dict.
- *
- * @param {string} branch
- */
-export async function resetAppStorage(branch) {
-    await runPython(`
-import app_storage as _app_storage
-_state = _agent.state("default")
-_app_storage.delete(_state.versioned, ${JSON.stringify(branch)})
-    `);
-    await refreshSessionList(state.currentBranch);
-}
-
-/**
- * Serialized byte size of a branch's app storage. Zero if unset.
- *
- * @param {string} branch
- * @returns {Promise<number>}
- */
-export async function getAppStorageSize(branch) {
-    const json = await runPython(`
-import json as _json
-import app_storage as _app_storage
-_state = _agent.state("default")
-_json.dumps(_app_storage.size(_state.versioned, ${JSON.stringify(branch)}))
-    `);
-    return JSON.parse(json);
-}
 
 /**
  * Cheap preview of what a bundle export would contain — walks the
@@ -618,7 +624,7 @@ _json.dumps(_app_storage.size(_state.versioned, ${JSON.stringify(branch)}))
  * when the export modal opens.
  *
  * @param {string} branch
- * @returns {Promise<{ branch: string, head: string, commits: number, nodes: number, blobs: number, name: string, description: string, title: string }>}
+ * @returns {Promise<{ branch: string, head: string, commits: number, nodes: number, blobs: number, name: string, description: string, title: string, kernel: 'py' | 'ts' }>}
  */
 export async function getBundleStats(branch) {
     const json = await runPython(`
@@ -631,6 +637,7 @@ _stats = _bundle.bundle_stats(_v, _branch)
 _stats["name"] = _state.peek("__session_name__", branch=_branch) or ""
 _stats["description"] = _state.peek("__session_description__", branch=_branch) or ""
 _stats["title"] = _state.peek("__session_title__", branch=_branch) or ""
+_stats["kernel"] = _state.peek("__session_kernel__", branch=_branch) or "py"
 _json.dumps(_stats)
     `);
     return JSON.parse(json);
@@ -656,12 +663,13 @@ _branch = ${JSON.stringify(branch)}
 _name = _state.peek("__session_name__", branch=_branch) or ""
 _desc = _state.peek("__session_description__", branch=_branch) or ""
 _title = _state.peek("__session_title__", branch=_branch) or ""
+_kernel = _state.peek("__session_kernel__", branch=_branch) or "py"
 _display = _name or _title
 
 def _progress(phase, done, total):
     _post_token(_run_id, {"phase": phase, "done": done, "total": total})
 
-_data = _bundle.export_bundle(_v, _branch, name=_display, description=_desc, progress=_progress)
+_data = _bundle.export_bundle(_v, _branch, name=_display, description=_desc, kernel=_kernel, progress=_progress)
 _manifest = _bundle.inspect_bundle(_data)
 _json.dumps({"b64": _b64.b64encode(_data).decode(), "manifest": _manifest})
     `;

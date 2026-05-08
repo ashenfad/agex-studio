@@ -133,7 +133,7 @@ export function startWorker() {
         } else if (msg.type === "pdf-page-count") {
             getPdfPageCount(msg.pdfBase64, msg.id);
         } else if (msg.type === "test-app") {
-            runTestApp(msg.appFilesJson, msg.actionsJson, msg.seedJson, msg.id);
+            runTestApp(msg.appFilesJson, msg.actionsJson, msg.fresh, msg.id);
         } else if (msg.type === "live-app") {
             runLiveApp(msg.actionsJson, msg.id);
         } else if (msg.type === "llm-fetch") {
@@ -1108,7 +1108,7 @@ async function collectResults(iframe, actionResults) {
  * Run a headless app test: build a hidden iframe, optionally interact,
  * and collect console output + action results.
  */
-async function runTestApp(appFilesJson, actionsJson, seedJson, requestId) {
+async function runTestApp(appFilesJson, actionsJson, fresh, requestId) {
     let iframe = null;
     let blobUrl = null;
     let messageHandler = null;
@@ -1122,9 +1122,19 @@ async function runTestApp(appFilesJson, actionsJson, seedJson, requestId) {
     try {
         const appFiles = JSON.parse(appFilesJson);
         const actions = actionsJson ? JSON.parse(actionsJson) : [];
+        // Look up the seed from the parent's localStorage via the
+        // app-storage module.  Only one kernel is active per studio
+        // session today; the agent invoking test_app is by definition
+        // on the current branch.  Kernel is hardcoded `'py'` here —
+        // when the TS adapter lands its own `test_app` will resolve
+        // its own bridge with `kernel: 'ts'`.
         let seed = {};
-        if (seedJson) {
-            try { seed = JSON.parse(seedJson) || {}; } catch { seed = {}; }
+        if (!fresh) {
+            const branch = localStorage.getItem('agex-current-branch') || '';
+            if (branch) {
+                const { read: readAppStorage } = await import('./app-storage.js');
+                seed = readAppStorage('py', branch);
+            }
         }
 
         // Read-only: test_app shouldn't write speculative state back to

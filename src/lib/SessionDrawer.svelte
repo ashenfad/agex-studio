@@ -11,9 +11,11 @@
         importBundle,
         inspectBundle,
         getBundleStats,
-        resetAppStorage,
-        getAppStorageSize,
     } from './sessions.js'
+    import {
+        remove as removeAppStorage,
+        size as appStorageSize,
+    } from './app-storage.js'
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
 
@@ -187,7 +189,7 @@
         }
     }
 
-    async function handleSettingsReset() {
+    function handleSettingsReset() {
         if (!editingSession) return
         if (!settingsResetConfirm) {
             settingsResetConfirm = true
@@ -195,10 +197,17 @@
         }
         settingsResetConfirm = false
         try {
-            await resetAppStorage(editingSession.branch)
-            // The session list has been refreshed; pick up the zeroed
-            // app_storage_bytes so the conditional reset-row hides.
-            editingSession = sessions.find(s => s.branch === editingSession.branch) || editingSession
+            removeAppStorage(editingSession.kernel || 'py', editingSession.branch)
+            // Update the local view of editingSession's bytes count
+            // immediately so the reset row hides without waiting for
+            // the next session-list refresh.
+            editingSession = {
+                ...editingSession,
+                app_storage_bytes: appStorageSize(
+                    editingSession.kernel || 'py',
+                    editingSession.branch,
+                ),
+            }
         } catch (err) {
             console.error('Failed to reset app storage:', err)
         }
@@ -479,6 +488,10 @@
                     {/if}
                     <div class="session-meta">
                         <span class="session-date">
+                            <span
+                                class="kernel-badge kernel-{s.kernel || 'py'}"
+                                title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}"
+                            >{s.kernel || 'py'}</span>
                             {formatDate(s.updated)}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
@@ -613,7 +626,7 @@
                 <div class="preview-field">
                     <span class="field-label">Contents</span>
                     <div class="preview-value preview-stats">
-                        {exportState.stats.commits} commits{#if exportState.stats.app_storage_bytes > 0} · {formatBytes(exportState.stats.app_storage_bytes)} app save data{/if}
+                        {exportState.stats.commits} commits
                     </div>
                 </div>
                 <div class="preview-hint">
@@ -806,6 +819,15 @@
                     <div class="preview-value">{importPreview.manifest.author}</div>
                 </div>
             {/if}
+            <div class="preview-field">
+                <span class="field-label">Kernel</span>
+                <div class="preview-value">
+                    <span class="kernel-badge kernel-{importPreview.manifest.kernel || 'py'}">
+                        {importPreview.manifest.kernel || 'py'}
+                    </span>
+                    {(importPreview.manifest.kernel || 'py') === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}
+                </div>
+            </div>
             <div class="preview-field">
                 <span class="field-label">Contents</span>
                 <div class="preview-value preview-stats">
@@ -1233,6 +1255,29 @@
         color: var(--accent);
         opacity: 0.6;
         margin-left: 0.15rem;
+    }
+
+    .kernel-badge {
+        display: inline-block;
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 0.05rem 0.3rem;
+        border-radius: 3px;
+        margin-right: 0.35rem;
+        line-height: 1.4;
+        vertical-align: 0.05em;
+    }
+
+    .kernel-badge.kernel-py {
+        background: color-mix(in srgb, var(--accent) 15%, transparent);
+        color: var(--accent);
+    }
+
+    .kernel-badge.kernel-ts {
+        background: color-mix(in srgb, #3b82f6 18%, transparent);
+        color: #3b82f6;
     }
 
     .action-btn.confirm {

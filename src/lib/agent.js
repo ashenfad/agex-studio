@@ -194,7 +194,7 @@ ${debugRawLines}
 # Module installer: fetches a .py from the dev/static server and
 # writes it to site-packages so it can be imported by name.  Used for
 # the LLM bridge (must happen before the LLM client is constructed),
-# host-side helpers (app_storage, bundle), and extracted Python
+# host-side helpers (bundle), and extracted Python
 # modules (event_serialization, ...) that previously lived inline as
 # heredocs.
 from pyodide.http import open_url as _open_url
@@ -251,9 +251,8 @@ del _register_io
 
 # -- Install host-side helper modules onto the Python path --
 # Done in basics because sessions.js (which runs at history-ready)
-# imports both app_storage and bundle. bundle imports app_storage at
-# module load, so order matters.
-_install_module("app_storage", "/app_storage.py")
+# imports bundle for export/import flows.  App-storage moved off the
+# kernel substrate in Phase 4 — see src/lib/app-storage.js.
 _install_module("bundle", "/bundle.py")
 
 # -- Event helpers used by sessions.js loadHistory + sendMessage --

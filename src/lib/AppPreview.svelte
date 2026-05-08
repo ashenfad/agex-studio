@@ -1,7 +1,8 @@
 <script>
     import { readAppFiles, runQuery, disableQueries, enableQueries } from './agent.js'
     import { buildAppHtml, setLiveIframe } from './pyodide.js'
-    import { sessionStore, getAppStorage, flushAppStorage } from './sessions.js'
+    import { sessionStore } from './sessions.js'
+    import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
@@ -19,24 +20,25 @@
     let iframeReady = $state(false)
     let iframeReadyTimer = null
 
-    // The branch this iframe was built against. App-storage writes
-    // posted from the iframe are persisted under this branch, not the
-    // live $sessionStore.currentBranch — preserves correct routing if
-    // the user switches sessions mid-flight.
+    // The (kernel, branch) this iframe was built against. App-storage
+    // writes posted from the iframe are persisted under this pair, not
+    // the live $sessionStore.currentBranch — preserves correct routing
+    // if the user switches sessions mid-flight.
     let appBranch = ''
+    let appKernel = 'py'
     let pendingStorageData = null
     let storageFlushTimer = null
     const STORAGE_FLUSH_MS = 300
 
-    function scheduleStorageFlush(branch, data) {
+    function scheduleStorageFlush(kernel, branch, data) {
         pendingStorageData = data
         if (storageFlushTimer) return
-        storageFlushTimer = setTimeout(async () => {
+        storageFlushTimer = setTimeout(() => {
             const toWrite = pendingStorageData
             pendingStorageData = null
             storageFlushTimer = null
             try {
-                await flushAppStorage(branch, toWrite)
+                writeAppStorage(kernel, branch, toWrite)
             } catch (err) {
                 console.warn('[agex] app storage flush failed:', err)
             }
@@ -175,7 +177,9 @@
             }
 
             appBranch = $sessionStore.currentBranch
-            const seed = appBranch ? await getAppStorage(appBranch) : {}
+            const session = $sessionStore.sessions.find(s => s.branch === appBranch)
+            appKernel = session?.kernel || 'py'
+            const seed = appBranch ? readAppStorage(appKernel, appBranch) : {}
             const html = buildAppHtml(appFiles, {
                 appStorage: { seed, writeable: true },
             })
@@ -197,7 +201,7 @@
         if (!iframe || event.source !== iframe.contentWindow) return
 
         if (event.data?.type === 'agex-app-storage') {
-            if (appBranch) scheduleStorageFlush(appBranch, event.data.data || {})
+            if (appBranch) scheduleStorageFlush(appKernel, appBranch, event.data.data || {})
             return
         }
 
@@ -254,13 +258,13 @@
             window.removeEventListener('message', handleMessage)
             setLiveIframe(null)
             if (blobUrl) URL.revokeObjectURL(blobUrl)
-            // Flush any pending storage writes synchronously-ish so the
+            // Flush any pending storage writes synchronously so the
             // user doesn't lose the last few writes on unmount/reload.
             if (storageFlushTimer) {
                 clearTimeout(storageFlushTimer)
                 storageFlushTimer = null
                 if (pendingStorageData !== null && appBranch) {
-                    flushAppStorage(appBranch, pendingStorageData).catch(() => {})
+                    try { writeAppStorage(appKernel, appBranch, pendingStorageData) } catch {}
                 }
                 pendingStorageData = null
             }

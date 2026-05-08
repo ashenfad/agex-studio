@@ -30,7 +30,6 @@ import time
 import uuid
 import zipfile
 
-import app_storage as _app_storage
 from kvgit.encoding import dumps as _kv_dumps, safe_loads
 from kvgit.hamt import EMPTY_HASH
 from kvgit.versioned.keyset import Keyset
@@ -112,17 +111,23 @@ def bundle_stats(versioned, branch):
         "branch": branch,
         "head": head,
         "commits": commits,
-        "app_storage_bytes": _app_storage.size(versioned, branch),
     }
 
 
-def export_bundle(versioned, branch, name="", description="", author="", progress=None):
+def export_bundle(versioned, branch, name="", description="", author="", kernel="py", progress=None):
     """Export ``branch`` as a self-contained bundle (returns ZIP bytes).
 
     ``progress(phase, done, total)`` fires at phase boundaries for
     callers that want to render a determinate progress indicator.
     Phases emitted: ``walking``, ``packing-commits``, ``packing-nodes``,
     ``packing-blobs``, ``finalizing``.
+
+    ``kernel`` is the session's runtime discriminator (``"py"`` or
+    ``"ts"``) and lands in the manifest so ``inspect_bundle`` callers
+    can dispatch on it (publish-target UX, future viewer-side
+    routing) without unpacking the kvgit data.  Callers should read
+    this from session state via ``_state.peek("__session_kernel__")``
+    rather than have bundle.py reach into the keyset internals.
     """
     cb = progress or _noop
     store = versioned.store
@@ -170,11 +175,6 @@ def export_bundle(versioned, branch, name="", description="", author="", progres
 
         cb("finalizing", 0, 1)
 
-        app_raw = _app_storage.raw_bytes(versioned, branch)
-        app_bytes = len(app_raw) if app_raw else 0
-        if app_raw:
-            zf.writestr("app_storage.json", app_raw)
-
         manifest = {
             "format_version": FORMAT_VERSION,
             "runtime_version": RUNTIME_VERSION,
@@ -183,12 +183,12 @@ def export_bundle(versioned, branch, name="", description="", author="", progres
             "name": name,
             "description": description,
             "author": author,
+            "kernel": kernel,
             "created_at": time.time(),
             "stats": {
                 "commits": len(commits),
                 "nodes": len(nodes),
                 "blobs": len(blobs),
-                "app_storage_bytes": app_bytes,
             },
         }
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
@@ -250,15 +250,6 @@ def import_bundle(versioned, data, *, branch_name=None):
         if branch_name is None:
             branch_name = f"chat-{uuid.uuid4().hex[:8]}"
         writes[BRANCH_HEAD % branch_name] = _kv_dumps(head)
-
-        # App storage (non-versioned side channel). Optional — older
-        # bundles predating the feature won't have this entry.
-        try:
-            app_raw = zf.read("app_storage.json")
-        except KeyError:
-            app_raw = None
-        if app_raw:
-            writes[_app_storage.KEY_TEMPLATE % branch_name] = app_raw
 
         versioned.store.set_many(writes)
 
