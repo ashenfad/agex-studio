@@ -412,23 +412,195 @@ export async function readAppFiles() {
 /**
  * Walk the active branch's event log and render UI-message rows.
  *
- * **PR 1 stub.** Returns `[]` for now. The full event-renderer (chapter
- * flattening, multi-part Response normalization, action/output event
- * grouping, file-event recap rendering, chaptering-row synthesis)
- * lands in Phase 5 PR 2 alongside the chat task. The branch is set up
- * but no chat task means no events have been recorded; an empty
- * history is the honest answer until then.
+ * Mirrors the Py side's renderer (in sessions.js's `loadHistory`
+ * heredoc) at the level of detail the chat shell consumes.  Differs
+ * in scope:
+ *
+ *   - **No chapter flattening.** ChapterEvents render as a single
+ *     `'chaptering'` row carrying the chapter's name+message.  The
+ *     Py side flattens chapters to show the original events inside
+ *     them; the TS side will do that as a follow-up once chapter UX
+ *     parity matters.  For now, the user sees that chaptering
+ *     happened but can't expand to inspect.
+ *   - **Action events render as a simple agent message.**  TS chat
+ *     task currently returns a plain string from `taskSuccess`;
+ *     multi-part responses (DataFrames, charts) aren't a thing yet
+ *     on the TS side.  When they are, the action/output normalization
+ *     here grows to match.
+ *   - **No `_synthesize_action` / `_split_output_events` / `_serialize_output_parts`
+ *     equivalents.**  Same reasoning — emissions are simpler today.
+ *
+ * @returns {Promise<Array<Object>>}
  */
 export async function loadHistory() {
     const agent = _getAgent();
     const log = await agent.events(SESSION);
-    // Defensive: even with no chat task registered, log.iter() is
-    // valid; just won't produce any chat-shaped events.
-    /** @type {Array<unknown>} */
-    const events = [];
-    for await (const e of log.iter()) events.push(e);
-    // PR 2 will produce UiMessage[] from these events.
-    return [];
+    /** @type {Array<Object>} */
+    const messages = [];
+    /** @type {string | null} */
+    let currentTaskName = null;
+    /** @type {Array<Object>} */
+    let currentEvents = [];
+
+    for await (const e of log.iter()) {
+        const t = /** @type {any} */ (e).type;
+        const ts = _toDate(/** @type {any} */ (e).timestamp);
+        if (t === "taskStart") {
+            currentEvents = [];
+            currentTaskName = /** @type {any} */ (e).taskName ?? null;
+            if (currentTaskName === "__chapter__") {
+                messages.push({
+                    role: "chaptering",
+                    timestamp: ts,
+                    commit_hash: "",
+                    chapters: [],
+                });
+            } else {
+                const inputs = /** @type {any} */ (e).inputs;
+                const content =
+                    typeof inputs === "string"
+                        ? inputs
+                        : inputs && typeof inputs === "object" && "message" in inputs
+                          ? String(/** @type {any} */ (inputs).message ?? "")
+                          : String(inputs ?? "");
+                messages.push({
+                    role: "user",
+                    content,
+                    timestamp: ts,
+                    commit_hash: "",
+                });
+            }
+        } else if (t === "action") {
+            // Capture the action minimally so the chat shell can
+            // render an inline event marker. Detailed emission
+            // breakdown (per-emission outputs, reports, etc.) is a
+            // follow-up that lands when the TS chat task starts
+            // emitting structured Response parts.
+            currentEvents.push({ type: "action" });
+        } else if (t === "output") {
+            const parts = /** @type {any} */ (e).parts ?? [];
+            for (const p of parts) {
+                if (p && p.type === "text") {
+                    currentEvents.push({ type: "text", content: p.text ?? "" });
+                } else if (p && p.type === "image") {
+                    currentEvents.push({
+                        type: "image",
+                        format: p.format,
+                        data: p.data,
+                        altText: p.altText,
+                    });
+                }
+            }
+        } else if (t === "file") {
+            // FileEvents from user uploads/deletes get rendered as
+            // markdown user messages so the chat shows the action
+            // alongside the conversation.
+            const fe = /** @type {any} */ (e);
+            if (fe.fileSource === "user") {
+                messages.push({
+                    role: "user",
+                    content: _renderFileEvent(fe),
+                    timestamp: ts,
+                    commit_hash: "",
+                    isMarkdown: true,
+                });
+            }
+        } else if (t === "success") {
+            const result = /** @type {any} */ (e).result;
+            if (currentTaskName === "__chapter__") {
+                // Chapter task succeeded — close the open chaptering row.
+                currentEvents = [];
+                currentTaskName = null;
+                continue;
+            }
+            messages.push({
+                role: "agent",
+                content:
+                    typeof result === "string"
+                        ? { type: "text", content: result }
+                        : { type: "text", content: String(result ?? "") },
+                events: [...currentEvents],
+                timestamp: ts,
+            });
+            currentEvents = [];
+            currentTaskName = null;
+        } else if (t === "fail") {
+            const message = /** @type {any} */ (e).message ?? "Task failed";
+            messages.push({
+                role: "agent",
+                content: { type: "text", content: `Error: ${message}` },
+                events: [...currentEvents],
+                timestamp: ts,
+            });
+            currentEvents = [];
+            currentTaskName = null;
+        } else if (t === "cancelled") {
+            messages.push({
+                role: "agent",
+                content: { type: "text", content: "" },
+                events: [...currentEvents],
+                timestamp: ts,
+                cancelled: true,
+            });
+            currentEvents = [];
+            currentTaskName = null;
+        } else if (t === "chapter") {
+            // Standalone ChapterEvent (yielded by `iter()` in place
+            // of folded events). Render as a chaptering row with a
+            // single chapter entry. Chapter expansion is the follow-up.
+            const ce = /** @type {any} */ (e);
+            messages.push({
+                role: "chaptering",
+                timestamp: ts,
+                commit_hash: "",
+                chapters: [{ name: ce.name, message: ce.message, events: [] }],
+            });
+        }
+    }
+
+    // Flush any orphan events with no preceding TaskStart — match
+    // Py's "trailing agent message" behavior.
+    if (currentEvents.length > 0 && currentTaskName === null) {
+        messages.push({
+            role: "agent",
+            content: { type: "text", content: "" },
+            events: [...currentEvents],
+            timestamp: new Date(),
+        });
+    }
+
+    return messages;
+}
+
+function _toDate(value) {
+    if (value instanceof Date) return value;
+    if (typeof value === "string") {
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? new Date() : d;
+    }
+    return new Date();
+}
+
+function _renderFileEvent(fe) {
+    const parts = [];
+    const tick = (s) => "`" + s + "`";
+    const added = [...(fe.added || [])].sort();
+    const modified = [...(fe.modified || [])].sort();
+    const removed = [...(fe.removed || [])].sort();
+    const uploads = [...added, ...modified];
+    if (uploads.length === 1) {
+        parts.push(`**Uploaded:** ${tick(uploads[0])}`);
+    } else if (uploads.length > 1) {
+        const list = uploads.map((f) => `- ${tick(f)}`).join("\n");
+        parts.push(`**Uploaded ${uploads.length} files:**\n${list}`);
+    }
+    if (removed.length === 1) {
+        parts.push(`**Deleted:** ${tick(removed[0])}`);
+    } else if (removed.length > 1) {
+        const list = removed.map((f) => `- ${tick(f)}`).join("\n");
+        parts.push(`**Deleted ${removed.length} files:**\n${list}`);
+    }
+    return parts.length > 0 ? parts.join("  \n") : "**File change**";
 }
 
 // ---------------------------------------------------------------------------
