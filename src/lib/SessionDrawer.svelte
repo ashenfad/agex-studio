@@ -157,9 +157,9 @@
         }
     }
 
-    async function handleNew() {
+    async function handleNew(kernel) {
         try {
-            await createSession()
+            await createSession({ kernel })
             onClose()
         } catch (e) {
             console.error('Failed to create session:', e)
@@ -467,7 +467,16 @@
             <h2>Sessions</h2>
             <div class="header-actions">
                 <button class="header-btn" onclick={openImportPicker} title="Import a bundle">Import</button>
-                <button class="new-btn" onclick={handleNew}>+ New</button>
+                <button
+                    class="new-btn kernel-py"
+                    onclick={() => handleNew('py')}
+                    title="New Python session — pandas / sklearn / plotly via Pyodide"
+                >+ Py</button>
+                <button
+                    class="new-btn kernel-ts"
+                    onclick={() => handleNew('ts')}
+                    title="New TypeScript session — agex-ts in a Web Worker"
+                >+ TS</button>
             </div>
         </div>
         <input
@@ -984,18 +993,32 @@
     }
 
     .new-btn {
-        background: var(--accent);
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 0.35rem 0.75rem;
+        padding: 0.35rem 0.6rem;
         font-size: 0.8rem;
         font-weight: 600;
         cursor: pointer;
     }
 
-    .new-btn:hover {
+    /* Match the kernel-badge color scheme — accent (purple-ish) for
+       py, blue for ts. Same colors used on per-session badges in
+       the list, so the create buttons read as "of the same kind". */
+    .new-btn.kernel-py {
+        background: var(--accent);
+    }
+
+    .new-btn.kernel-py:hover {
         background: var(--accent-hover);
+    }
+
+    .new-btn.kernel-ts {
+        background: #3b82f6;
+    }
+
+    .new-btn.kernel-ts:hover {
+        background: #2563eb;
     }
 
     .header-actions {
