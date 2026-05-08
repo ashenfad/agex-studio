@@ -20,6 +20,7 @@ const EXPECTED_METHODS = [
     "dispose",
     // Branch operations
     "listBranches",
+    "listBranchesWithMeta",
     "createBranch",
     "deleteBranch",
     "readBranchMeta",

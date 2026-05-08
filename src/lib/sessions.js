@@ -1,11 +1,24 @@
 /**
- * Session management — branch-based chat sessions via agex versioned state.
+ * Session management — branch-based chat sessions, kernel-agnostic.
  *
- * Each session maps to a kvgit branch. Session metadata (title, updated
- * timestamp) is stored as special keys in the branch's state.
+ * Each session maps to a kvgit branch; metadata (title, kernel,
+ * etc.) lives as keys on the branch. Operations dispatch through
+ * the `KernelAdapter` for whichever kernel owns the branch — Py
+ * adapter wraps the studio's existing Pyodide-side runPython
+ * heredocs; Ts adapter calls into agex-ts. Sessions.js itself owns
+ * only shell-side concerns: in-memory `sessionStore`, the
+ * `currentBranch` localStorage pointer, and the session-index
+ * write-through cache.
+ *
+ * Why dispatch-through-adapter rather than per-function `if (kernel
+ * === 'ts')` branches: the adapters already implement the
+ * `KernelAdapter` typedef. Doing kernel-specific orchestration in
+ * sessions.js would mean every cross-cutting function knows about
+ * both kernels' implementations — exactly what the adapter
+ * abstraction is supposed to prevent.
  */
 
-import { runPython, runPythonStreaming } from "./pyodide.js";
+import { runPython } from "./pyodide.js";
 import {
     size as appStorageSize,
     copy as appStorageCopy,
@@ -13,31 +26,28 @@ import {
 } from "./app-storage.js";
 import {
     replaceCache as replaceSessionCache,
-    clearCache as clearSessionCache,
+    loadCache as loadSessionCache,
 } from "./session-index.js";
+import { kernelRegistry } from "./kernel-registry.js";
+import { settingsStore } from "./settings.js";
+import { get as svelteGet } from "svelte/store";
+// ts-bundle is dynamic-imported below — pulls kvgit-ts which adds
+// ~34KB to the cold-start bundle if statically reachable. The
+// manifest-read function runs only on user-driven bundle import,
+// so lazy loading is correct per the project's lazy-boot story.
 
-/**
- * Decorate a session list (as returned by the Python heredocs) with
- * the JS-computed `app_storage_bytes` field. App-storage now lives in
- * the parent's localStorage (see `app-storage.js`), so the size has
- * to be computed shell-side rather than read from kvgit.
- *
- * @param {Array<Object>} sessions
- * @returns {Array<Object>}
- */
-function _decorateAppStorage(sessions) {
-    return sessions.map((s) => ({
-        ...s,
-        app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
-    }));
-}
+// ---------------------------------------------------------------------------
+// Constants + state
+// ---------------------------------------------------------------------------
+
+/** Branches starting with this prefix are recognized as user
+ *  sessions on either kernel.  Both adapters' listBranches return
+ *  values matching this convention. */
+const CHAT_BRANCH_PREFIX = "chat-";
 
 /** localStorage key for the active-session pointer. Exported so the
  *  purge flow can wipe it alongside the rest of the session state. */
 export const CURRENT_BRANCH_KEY = "agex-current-branch";
-
-/** @type {((s: SessionState) => void)[]} */
-let subscribers = [];
 
 /**
  * @typedef {Object} Session
@@ -45,15 +55,12 @@ let subscribers = [];
  * @property {string} title
  * @property {string} updated - ISO 8601 timestamp
  * @property {'py' | 'ts'} kernel - which runtime kernel the session
- *     is bound to.  ``"py"`` (Pyodide / agex-py) is the default and
- *     the value applied to legacy sessions missing the field.  Sessions
- *     are kernel-bound — once created, they don't migrate.  See
- *     ``project_studio_unification`` for the broader plan.
+ *     is bound to. Sessions are kernel-bound — once created, they
+ *     don't migrate.
  * @property {boolean} [external] - true when the session was created
- *     by opening a published-artifact URL (``/run/?src=…``).  External
- *     sessions are gated against host-capability features the visitor
- *     might not want to lend to a stranger's artifact (Drive imports,
- *     and similar in the future).
+ *     by opening a published-artifact URL (`/run/?src=…`). External
+ *     sessions are gated against host-capability features (Drive
+ *     imports, etc.).
  */
 
 /**
@@ -61,9 +68,8 @@ let subscribers = [];
  * @property {string} currentBranch
  * @property {Session[]} sessions
  * @property {boolean} currentSessionExternal - convenience derived
- *     field; equals the ``external`` flag on the session matching
- *     ``currentBranch``.  False when the current session is the
- *     visitor's own.
+ *     field; equals the `external` flag on the session matching
+ *     `currentBranch`.
  */
 
 /** @type {SessionState} */
@@ -73,32 +79,35 @@ let state = {
     currentSessionExternal: false,
 };
 
+/** @type {((s: SessionState) => void)[]} */
+let subscribers = [];
+
 function notify() {
     for (const fn of subscribers) fn(state);
 }
 
 function update(/** @type {Partial<SessionState>} */ patch) {
     const merged = { ...state, ...patch };
-    // Recompute the convenience ``currentSessionExternal`` flag from
-    // whichever session matches the current branch, so subscribers
-    // never see the two fields out of sync.
     const cur = merged.sessions.find((s) => s.branch === merged.currentBranch);
     merged.currentSessionExternal = !!(cur && cur.external);
     state = merged;
     // Mirror to the session-index cache so cold-start drawer renders
-    // (Phase 5+) see the latest list without booting the kernel. Single
+    // see the latest list without booting the kernel. Single
     // chokepoint — every session-mutating operation flows through
     // update(), so the cache auto-syncs.
     _writeSessionsToCache(state.sessions);
     notify();
 }
 
-/** Project the in-memory session list into session-index cache records.
- *  Drops the JS-derived `app_storage_bytes` field (recomputed locally
- *  from localStorage anyway; cache doesn't need to persist it). */
+/** Project the in-memory session list into session-index cache
+ *  records. Drops the JS-derived `app_storage_bytes` field
+ *  (recomputed locally from localStorage on read). */
 function _writeSessionsToCache(sessions) {
     const records = sessions
-        .filter((s) => typeof s.branch === "string" && s.branch.startsWith("chat-"))
+        .filter(
+            (s) =>
+                typeof s.branch === "string" && s.branch.startsWith(CHAT_BRANCH_PREFIX),
+        )
         .map((s) => ({
             kernel: s.kernel || "py",
             branch: s.branch,
@@ -121,400 +130,292 @@ export const sessionStore = {
     },
 };
 
-/** Initialize session system — call after agent init. Creates first session if needed.
- *  Internal; public entry is `initSessionsFromUrl`. */
+// ---------------------------------------------------------------------------
+// Adapter-resolution helpers
+// ---------------------------------------------------------------------------
+
+/** Look up the kernel for a branch from the in-memory session list.
+ *  Defaults to "py" if the branch isn't known (defensive — covers
+ *  the bootstrap window before initSessions has populated state). */
+function _kernelFor(branch) {
+    const s = state.sessions.find((x) => x.branch === branch);
+    return /** @type {'py' | 'ts'} */ (s?.kernel || "py");
+}
+
+/** Get the adapter for a kernel, ensuring it's booted. Use for
+ *  operations that genuinely need the adapter (createSession,
+ *  sendMessage, etc.). Will boot the kernel if it isn't already. */
+function _adapterEnsure(kernel) {
+    return kernelRegistry.ensure(kernel, svelteGet(settingsStore));
+}
+
+/** Get the adapter for a kernel iff it's already booted. Returns
+ *  null otherwise. Use for query operations that should NOT trigger
+ *  a boot — e.g., enumerating sessions during initSessions when
+ *  ts isn't (and shouldn't be) booted yet. */
+function _adapterIfBooted(kernel) {
+    return kernelRegistry.get(kernel);
+}
+
+/** Convenience: resolve adapter for the current session's kernel.
+ *  Boots it if not already (which is the typical case for
+ *  user-initiated actions on the active session). */
+function _adapterForCurrent() {
+    return _adapterEnsure(_kernelFor(state.currentBranch));
+}
+
+/** Random 8-char hex suffix for `chat-` branch names — uuid4-style
+ *  collision odds. Mirrors py-side `uuid4().hex[:8]`. */
+function _randomHex8() {
+    const bytes = new Uint8Array(4);
+    crypto.getRandomValues(bytes);
+    return [...bytes]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+}
+
+// ---------------------------------------------------------------------------
+// Session list
+// ---------------------------------------------------------------------------
+
+/** Decorate a session list with the JS-computed `app_storage_bytes`
+ *  field. App-storage lives in the parent's localStorage; size is
+ *  recomputed on each render. */
+function _decorateAppStorage(sessions) {
+    return sessions.map((s) => ({
+        ...s,
+        app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
+    }));
+}
+
+/** Read all known sessions across both kernels. Live-queries py
+ *  (already booted by the time this runs); cache-queries ts to
+ *  preserve lazy-boot. */
+async function _gatherAllSessions() {
+    /** @type {Array<Session>} */
+    const out = [];
+
+    const pyAdapter = _adapterIfBooted("py");
+    if (pyAdapter) {
+        const live = await pyAdapter.listBranchesWithMeta();
+        for (const s of live) out.push({ ...s, kernel: "py" });
+    } else {
+        // py not booted (rare cold-start race) — fall back to cache.
+        for (const r of loadSessionCache().filter((r) => r.kernel === "py")) {
+            out.push({
+                branch: r.branch,
+                title: r.title || "New Chat",
+                name: r.name || "",
+                description: r.description || "",
+                updated: r.updated || "",
+                external: !!r.external,
+                kernel: "py",
+            });
+        }
+    }
+
+    // ts: cache-only by design — booting ts just to enumerate would
+    // defeat lazy boot for users who haven't engaged with ts.
+    for (const r of loadSessionCache().filter((r) => r.kernel === "ts")) {
+        out.push({
+            branch: r.branch,
+            title: r.title || "New Chat",
+            name: r.name || "",
+            description: r.description || "",
+            updated: r.updated || "",
+            external: !!r.external,
+            kernel: "ts",
+        });
+    }
+
+    out.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+    return out;
+}
+
+/** Refresh the session list from kernels' live state. */
+async function refreshSessionList(currentBranch) {
+    const sessions = await _gatherAllSessions();
+    update({
+        currentBranch,
+        sessions: _decorateAppStorage(sessions),
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Session lifecycle
+// ---------------------------------------------------------------------------
+
+/** Initialize session system — call after agent init. Creates first
+ *  session if none exist. Internal; public entry is
+ *  `initSessionsFromUrl`. */
 async function initSessions() {
     const saved = localStorage.getItem(CURRENT_BRANCH_KEY);
+    let sessions = await _gatherAllSessions();
 
-    const json = await runPython(`
-import json as _json
-import uuid as _uuid
-from datetime import datetime as _dt, timezone as _tz
+    let current;
+    if (saved && sessions.find((s) => s.branch === saved)) {
+        current = saved;
+    } else if (sessions.length > 0) {
+        current = sessions[0].branch;
+    } else {
+        // No sessions exist anywhere — create a default py session.
+        // py is the default kernel (same as pre-unification studio).
+        const adapter = await _adapterEnsure("py");
+        const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
+        await adapter.createBranch(branch);
+        current = branch;
+        sessions = [
+            {
+                branch,
+                title: "New Chat",
+                name: "",
+                description: "",
+                updated: new Date().toISOString(),
+                external: false,
+                kernel: "py",
+            },
+        ];
+    }
 
-_state = _agent.state("default")
-_branches = _state.list_branches()
-_saved_branch = "${saved || ""}"
-
-# Find or create a chat branch
-if _saved_branch and _saved_branch in _branches:
-    _current = _saved_branch
-    _state.switch_branch(_current)
-elif any(b.startswith("chat-") for b in _branches):
-    _current = sorted(
-        [b for b in _branches if b.startswith("chat-")],
-        key=lambda b: _state.peek("__session_updated__", branch=b) or "",
-        reverse=True,
-    )[0]
-    _state.switch_branch(_current)
-else:
-    _current = f"chat-{_uuid.uuid4().hex[:8]}"
-    _state.create_branch(_current, at=_state.versioned.initial_commit)
-    _state.switch_branch(_current)
-    _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-    _state["__session_kernel__"] = "py"
-    _state.commit()
-
-# Build session list. __session_kernel__ defaults to "py" for any
-# branch missing it (legacy sessions). app_storage_bytes is added
-# on the JS side via _decorateAppStorage (lives in localStorage).
-_sessions = []
-for _b in _branches:
-    if not _b.startswith("chat-"):
-        continue
-    _sessions.append({
-        "branch": _b,
-        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
-        "name": _state.peek("__session_name__", branch=_b) or "",
-        "description": _state.peek("__session_description__", branch=_b) or "",
-        "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "external": bool(_state.peek("__session_external__", branch=_b)),
-        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
-    })
-if _current not in [s["branch"] for s in _sessions]:
-    _sessions.append({
-        "branch": _current,
-        "title": "New Chat",
-        "name": "",
-        "description": "",
-        "updated": _state.peek("__session_updated__", branch=_current) or "",
-        "external": bool(_state.peek("__session_external__", branch=_current)),
-        "kernel": _state.peek("__session_kernel__", branch=_current) or "py",
-    })
-
-_sessions.sort(key=lambda s: s["updated"], reverse=True)
-_json.dumps({"current": _current, "sessions": _sessions})
-    `);
-
-    const data = JSON.parse(json);
-    localStorage.setItem(CURRENT_BRANCH_KEY, data.current);
+    localStorage.setItem(CURRENT_BRANCH_KEY, current);
     update({
-        currentBranch: data.current,
-        sessions: _decorateAppStorage(data.sessions),
+        currentBranch: current,
+        sessions: _decorateAppStorage(sessions),
     });
 }
 
 /** Create a new chat session and switch to it.
  *
  * @param {{ kernel?: 'py' | 'ts' }} [options]
- *   ``kernel`` selects the runtime the session will be bound to.
- *   Defaults to ``"py"`` until the session-creation UX surfaces a
- *   picker.  Once set, a session's kernel doesn't change — switching
- *   would invalidate the language-specific event log and helpers.
+ *   `kernel` selects the runtime the session will be bound to.
+ *   Defaults to `"py"`. Once set, a session's kernel doesn't change.
  */
 export async function createSession({ kernel = "py" } = {}) {
     const safeKernel = kernel === "ts" ? "ts" : "py";
-    const json = await runPython(`
-import json as _json
-import uuid as _uuid
-from datetime import datetime as _dt, timezone as _tz
+    const adapter = await _adapterEnsure(safeKernel);
+    const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
+    await adapter.createBranch(branch);
 
-_state = _agent.state("default")
-_new = f"chat-{_uuid.uuid4().hex[:8]}"
-_state.create_branch(_new, at=_state.versioned.initial_commit)
-_state.switch_branch(_new)
-_state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-_state["__session_kernel__"] = "${safeKernel}"
-_state.commit()
-_json.dumps(_new)
-    `);
-
-    const branch = JSON.parse(json);
+    const newSession = {
+        branch,
+        title: "New Chat",
+        name: "",
+        description: "",
+        updated: new Date().toISOString(),
+        external: false,
+        kernel: safeKernel,
+    };
+    const sessions = _decorateAppStorage([newSession, ...state.sessions]);
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
-    await refreshSessionList(branch);
+    update({ currentBranch: branch, sessions });
 }
 
-/** Switch to an existing session. */
+/** Switch to an existing session. Pure shell-side: localStorage
+ *  pointer + drawer refresh. Each kernel's adapter ensures its
+ *  internal current-branch on the next op (`_ensureBranch` cache),
+ *  so we don't need to fire a kernel call here. */
 export async function switchSession(branch) {
-    const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    await runPython(`
-_state = _agent.state("default")
-_state.switch_branch("${escaped}")
-    `);
-
+    if (branch === state.currentBranch) return;
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     await refreshSessionList(branch);
 }
 
-/** Delete a session. Switches to another only if deleting the current one.
- *
- * Does the delete + branch-switch (if needed) + list-rebuild in a single
- * runPython call.  Splitting these across two calls (as we used to)
- * raced with kvgit's deferred IndexedDB writes — the second call's
- * ``list_branches()`` could see the pre-delete state and the drawer
- * would render with the deleted item still present until the user
- * clicked elsewhere.
- */
+/** Delete a session. Switches to another only if deleting the
+ *  current one. */
 export async function deleteSession(branch) {
-    const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    // Look up the branch's kernel BEFORE the Python delete so we can
-    // wipe the matching app-storage entries.  After the delete, the
-    // branch's metadata is gone and we'd lose track of which kernel's
-    // namespace the entries lived under.
-    const targetKernel =
-        state.sessions.find((s) => s.branch === branch)?.kernel || "py";
-    const json = await runPython(`
-import json as _json
-import uuid as _uuid
-from datetime import datetime as _dt, timezone as _tz
-
-_state = _agent.state("default")
-_target = "${escaped}"
-
-# Only switch branches when deleting the active one — otherwise the
-# user expects to stay where they are.
-if _state.current_branch == _target:
-    _other = [b for b in _state.list_branches() if b.startswith("chat-") and b != _target]
-    if _other:
-        _other.sort(
-            key=lambda b: _state.peek("__session_updated__", branch=b) or "",
-            reverse=True,
-        )
-        _new_current = _other[0]
-        _state.switch_branch(_new_current)
-    else:
-        # Last session — create a fresh blank one to land on.  Default
-        # kernel matches the session being deleted so the user lands on
-        # something compatible with the workflow they were just using.
-        _fallback_kernel = _state.peek("__session_kernel__", branch=_target) or "py"
-        _new_current = f"chat-{_uuid.uuid4().hex[:8]}"
-        _state.create_branch(_new_current, at=_state.versioned.initial_commit)
-        _state.switch_branch(_new_current)
-        _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-        _state["__session_kernel__"] = _fallback_kernel
-        _state.commit()
-else:
-    _new_current = _state.current_branch
-
-_state.delete_branch(_target)
-
-# Rebuild the post-delete session list in this same Python call so
-# the JS-side store update is atomic with the delete.
-_sessions = []
-for _b in _state.list_branches():
-    if not _b.startswith("chat-"):
-        continue
-    _sessions.append({
-        "branch": _b,
-        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
-        "name": _state.peek("__session_name__", branch=_b) or "",
-        "description": _state.peek("__session_description__", branch=_b) or "",
-        "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "external": bool(_state.peek("__session_external__", branch=_b)),
-        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
-    })
-_sessions.sort(key=lambda s: s["updated"], reverse=True)
-_json.dumps({"current": _new_current, "sessions": _sessions})
-    `);
-
+    const targetKernel = _kernelFor(branch);
+    const adapter = await _adapterEnsure(targetKernel);
+    await adapter.deleteBranch(branch);
     appStorageRemove(targetKernel, branch);
 
-    const result = JSON.parse(json);
-    localStorage.setItem(CURRENT_BRANCH_KEY, result.current);
-    update({
-        currentBranch: result.current,
-        sessions: _decorateAppStorage(result.sessions),
-    });
+    // Pick a fallback active branch — most-recently-updated chat-*
+    // branch on either kernel. If none remain, create a fresh py
+    // session so the user lands on something usable.
+    const remaining = state.sessions.filter(
+        (s) =>
+            s.branch !== branch && s.branch.startsWith(CHAT_BRANCH_PREFIX),
+    );
+    if (remaining.length === 0) {
+        // Last session — create a fresh py default. This
+        // effectively chains createSession's update() so we don't
+        // need to also update the store here.
+        await createSession({ kernel: "py" });
+        return;
+    }
+
+    let newCurrent = state.currentBranch;
+    if (newCurrent === branch) {
+        remaining.sort((a, b) =>
+            (b.updated || "").localeCompare(a.updated || ""),
+        );
+        newCurrent = remaining[0].branch;
+    }
+
+    const sessions = _decorateAppStorage(
+        state.sessions.filter((s) => s.branch !== branch),
+    );
+    localStorage.setItem(CURRENT_BRANCH_KEY, newCurrent);
+    update({ currentBranch: newCurrent, sessions });
 }
+
+/** Fork the current session into a new branch from current HEAD.
+ *  The fork inherits the parent's kernel — sessions are
+ *  kernel-bound. */
+export async function forkSession() {
+    const sourceBranch = state.currentBranch;
+    const sourceKernel = _kernelFor(sourceBranch);
+    const adapter = await _adapterEnsure(sourceKernel);
+    const sourceMeta = state.sessions.find((s) => s.branch === sourceBranch);
+    const newBranch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
+    await adapter.createBranch(newBranch, { from: sourceBranch });
+    const newTitle = `${sourceMeta?.title || "New Chat"} (fork)`;
+    await adapter.writeBranchMeta(newBranch, { title: newTitle });
+    appStorageCopy(sourceKernel, sourceBranch, newBranch);
+
+    const newSession = {
+        branch: newBranch,
+        title: newTitle,
+        name: "",
+        description: "",
+        updated: new Date().toISOString(),
+        external: false,
+        kernel: sourceKernel,
+    };
+    const sessions = _decorateAppStorage([newSession, ...state.sessions]);
+    localStorage.setItem(CURRENT_BRANCH_KEY, newBranch);
+    update({ currentBranch: newBranch, sessions });
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
 
 /** Load chat history from the current session's events. */
 export async function loadHistory() {
-    const json = await runPython(`
-import json as _json
-from agex import events as _get_events
-from agex.agent.events import (
-    TaskStartEvent as _TaskStart,
-    SuccessEvent as _SuccessEvent,
-    FailEvent as _FailEvent,
-    FileEvent as _FileEvent,
-    CancelledEvent as _CancelledEvent,
-)
-# Helper functions (_output_text, _serialize_output_parts, _split_output_events,
-# _serialize_chapter_events) and event types (_ActionEvent, _OutputEvent,
-# _ChapterEvent) are defined in initAgent
-
-_state = _agent.state("default")
-_all = _get_events(_state)
-_pre = [e for e in _all if e.source != "setup"]
-
-# Flatten chapters: expand ChapterEvents into their original events,
-# collecting chapter metadata for the chaptering bands.
-_flat = []
-_chapter_meta = []
-
-def _do_flatten(evts, collect=True):
-    for _e in evts:
-        if isinstance(_e, _ChapterEvent):
-            if collect:
-                _chapter_meta.append({
-                    "name": _e.name,
-                    "message": _e.message,
-                    "events": _serialize_chapter_events(_e.resolve_events(_state), _state),
-                })
-            _do_flatten(_e.resolve_events(_state), collect=False)
-        else:
-            _flat.append(_e)
-
-_do_flatten(_pre)
-
-_messages = []
-_current_events = []
-_current_task = None
-
-for _evt in _flat:
-    if isinstance(_evt, _TaskStart):
-        _current_events = []
-        _current_task = _evt.task_name
-        if _evt.task_name == "__chapter__":
-            _messages.append({
-                "role": "chaptering",
-                "timestamp": _evt.timestamp.isoformat(),
-                "commit_hash": getattr(_evt, "commit_hash", None) or "",
-                "chapters": [],
-            })
-        else:
-            _messages.append({
-                "role": "user",
-                "content": _evt.inputs.get("message", str(_evt.inputs)),
-                "timestamp": _evt.timestamp.isoformat(),
-                "commit_hash": getattr(_evt, "commit_hash", None) or "",
-            })
-    elif isinstance(_evt, _ActionEvent):
-        _action_dict = _synthesize_action(_evt)
-        _report_text = _action_dict.get("report", "") or ""
-        _current_events.append(_action_dict)
-        if _report_text:
-            _messages.append({
-                "role": "agent",
-                "content": _report_text,
-                "isReport": True,
-                "timestamp": _evt.timestamp.isoformat(),
-            })
-    elif isinstance(_evt, _OutputEvent):
-        _current_events.extend(_split_output_events(_serialize_output_parts(_evt)))
-    elif isinstance(_evt, _FileEvent) and _evt.file_source == "user":
-        _parts = []
-        _upload_items = []
-        if _evt.added:
-            _upload_items.extend(f"\`{f}\`" for f in sorted(_evt.added))
-        if _evt.modified:
-            _upload_items.extend(f"\`{f}\`" for f in sorted(_evt.modified))
-        if _upload_items:
-            if len(_upload_items) == 1:
-                _parts.append(f"**Uploaded:** {_upload_items[0]}")
-            else:
-                _list = "\\n".join(f"- {i}" for i in _upload_items)
-                _parts.append(f"**Uploaded {len(_upload_items)} files:**\\n{_list}")
-        if _evt.removed:
-            _del_items = [f"\`{f}\`" for f in sorted(_evt.removed)]
-            if len(_del_items) == 1:
-                _parts.append(f"**Deleted:** {_del_items[0]}")
-            else:
-                _list = "\\n".join(f"- {i}" for i in _del_items)
-                _parts.append(f"**Deleted {len(_del_items)} files:**\\n{_list}")
-        _content = "  \\n".join(_parts) if _parts else "**File change**"
-        _messages.append({
-            "role": "user",
-            "content": _content,
-            "timestamp": _evt.timestamp.isoformat(),
-            "commit_hash": getattr(_evt, "commit_hash", None) or "",
-            "isMarkdown": True,
-        })
-    elif isinstance(_evt, _SuccessEvent):
-        if _current_task == "__chapter__":
-            _n = 0
-            if isinstance(_evt.result, list):
-                _n = sum(1 for _ch in _evt.result if hasattr(_ch, 'name'))
-            _take = min(_n, len(_chapter_meta))
-            if _take > 0:
-                for _bm in reversed(_messages):
-                    if _bm["role"] == "chaptering":
-                        _bm["chapters"] = list(_chapter_meta[:_take])
-                        break
-                _chapter_meta = _chapter_meta[_take:]
-            _current_events = []
-            _current_task = None
-        else:
-            _r = _evt.result
-            if hasattr(_r, "normalize") and hasattr(_r, "parts"):
-                _result_data = {"type": "response", "parts": _r.normalize()}
-            else:
-                _result_data = {"type": "text", "content": str(_r) if _r is not None else ""}
-            _messages.append({
-                "role": "agent",
-                "content": _result_data,
-                "events": list(_current_events),
-                "timestamp": _evt.timestamp.isoformat(),
-            })
-            _current_events = []
-            _current_task = None
-    elif isinstance(_evt, _CancelledEvent):
-        _messages.append({
-            "role": "agent",
-            "content": {"type": "text", "content": ""},
-            "events": list(_current_events),
-            "timestamp": _evt.timestamp.isoformat(),
-            "cancelled": True,
-        })
-        _current_events = []
-        _current_task = None
-    elif isinstance(_evt, _FailEvent):
-        _err_msg = str(_evt.error) if hasattr(_evt, "error") else "Task failed"
-        _messages.append({
-            "role": "agent",
-            "content": {"type": "text", "content": f"Error: {_err_msg}"},
-            "events": list(_current_events),
-            "timestamp": _evt.timestamp.isoformat(),
-        })
-        _current_events = []
-        _current_task = None
-
-# Flush any orphan events (no TaskStart preceded them)
-if _current_events and _current_task is None:
-    from datetime import datetime as _dt
-    _messages.append({
-        "role": "agent",
-        "content": {"type": "text", "content": ""},
-        "events": list(_current_events),
-        "timestamp": _dt.now().isoformat(),
-    })
-
-_json.dumps(_messages)
-    `);
-
-    const raw = JSON.parse(json);
-    return raw.map((m) => ({
-        ...m,
-        timestamp: new Date(m.timestamp),
-    }));
+    const adapter = await _adapterForCurrent();
+    return adapter.loadHistory(state.currentBranch);
 }
 
 const CHUNK_SIZE = 8;
 
-/**
- * Load history as a chunk manager for lazy rendering.
- * Returns { messages, hasMore, loadMore() }.
- */
+/** Load history as a chunk manager for lazy rendering. */
 export async function loadHistoryChunked() {
     const all = await loadHistory();
 
-    // Group into "units": a user message + everything that follows it
-    // until the next user message. A single task often produces several
-    // agent messages (intermediate reports + the final success), and
-    // they all belong to the same conversational turn. Closing a unit
-    // on the first agent message (as we did before) turned a multi-
-    // report task into N units and could push the user prompt off the
-    // visible chunk window.
+    // Group into "units": a user message + everything that follows
+    // it until the next user message. Closing units on first agent
+    // message would split multi-report tasks; closing on user
+    // messages keeps each turn together.
     const units = [];
     let current = null;
     for (const msg of all) {
-        if (msg.role === 'user') {
+        if (msg.role === "user") {
             if (current) units.push(current);
             current = [msg];
         } else if (current) {
             current.push(msg);
         } else {
-            // Trailing or orphan agent message with no preceding user —
-            // treat as its own unit so it still renders.
+            // Trailing or orphan agent message with no preceding user.
             units.push([msg]);
         }
     }
@@ -527,280 +428,159 @@ export async function loadHistoryChunked() {
     }
 
     return {
-        get messages() { return getVisible(); },
-        get hasMore() { return loadedIndex > 0; },
+        get messages() {
+            return getVisible();
+        },
+        get hasMore() {
+            return loadedIndex > 0;
+        },
         loadMore() {
             const prev = loadedIndex;
             loadedIndex = Math.max(0, loadedIndex - CHUNK_SIZE);
-            return loadedIndex < prev;  // true if more were loaded
+            return loadedIndex < prev;
         },
     };
 }
 
-/** Refresh the session list from state. */
-async function refreshSessionList(currentBranch) {
-    const json = await runPython(`
-import json as _json
-
-_state = _agent.state("default")
-_branches = _state.list_branches()
-_sessions = []
-for _b in _branches:
-    if not _b.startswith("chat-"):
-        continue
-    _sessions.append({
-        "branch": _b,
-        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
-        "name": _state.peek("__session_name__", branch=_b) or "",
-        "description": _state.peek("__session_description__", branch=_b) or "",
-        "updated": _state.peek("__session_updated__", branch=_b) or "",
-        "external": bool(_state.peek("__session_external__", branch=_b)),
-        "kernel": _state.peek("__session_kernel__", branch=_b) or "py",
-    })
-_sessions.sort(key=lambda s: s["updated"], reverse=True)
-_json.dumps(_sessions)
-    `);
-
-    update({
-        currentBranch: currentBranch,
-        sessions: _decorateAppStorage(JSON.parse(json)),
-    });
-}
+// ---------------------------------------------------------------------------
+// State navigation
+// ---------------------------------------------------------------------------
 
 /** Get the current commit hash before a turn starts. */
 export async function getCurrentCommit() {
-    const json = await runPython(`
-import json as _json
-_state = _agent.state("default")
-_json.dumps(_state.current_commit)
-    `);
-    return JSON.parse(json);
+    const adapter = await _adapterForCurrent();
+    return adapter.getCurrentCommit(state.currentBranch);
 }
 
 /** Undo the last turn by resetting state to a prior commit. */
 export async function undoToCommit(commitHash) {
-    const escaped = commitHash.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    await runPython(`
-_state = _agent.state("default")
-_state.reset_to("${escaped}")
-    `);
+    const adapter = await _adapterForCurrent();
+    await adapter.undoToCommit(state.currentBranch, commitHash);
     await refreshSessionList(state.currentBranch);
 }
 
-/** Fork the current session into a new branch from current HEAD.
- *
- * The forked branch inherits the parent's kernel — sessions are
- * kernel-bound and the fork is meant as a divergence point for the
- * same workflow, not a runtime switch.  ``__session_kernel__`` rides
- * along automatically because ``create_branch`` (without ``at=``)
- * carries the parent's HEAD; we re-stamp it explicitly so legacy
- * parents missing the field land their fork with a defined value.
- */
-export async function forkSession() {
-    const sourceBranch = state.currentBranch;
-    const sourceKernel =
-        state.sessions.find((s) => s.branch === sourceBranch)?.kernel || "py";
-    const json = await runPython(`
-import json as _json
-import uuid as _uuid
-from datetime import datetime as _dt, timezone as _tz
+// ---------------------------------------------------------------------------
+// App-storage thin wrappers (here for backward import-compat;
+// SessionDrawer / etc. import the real impls from app-storage.js
+// directly post-Phase-4).
+// ---------------------------------------------------------------------------
 
-_state = _agent.state("default")
-_cur = _state.current_branch
-_old_title = _state.peek("__session_title__", branch=_cur) or "New Chat"
-_parent_kernel = _state.peek("__session_kernel__", branch=_cur) or "py"
-_new = f"chat-{_uuid.uuid4().hex[:8]}"
-_state.create_branch(_new)
-_state.switch_branch(_new)
-
-_state["__session_title__"] = _old_title + " (fork)"
-_state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-_state["__session_kernel__"] = _parent_kernel
-_state.commit()
-_json.dumps(_new)
-    `);
-
-    const branch = JSON.parse(json);
-    // Snapshot-copy app-storage on the JS side so each fork mutates
-    // its own copy.  Forks stay within the same kernel, so the source
-    // and destination namespace prefix matches.
-    appStorageCopy(sourceKernel, sourceBranch, branch);
-    localStorage.setItem(CURRENT_BRANCH_KEY, branch);
-    await refreshSessionList(branch);
-}
-
-/**
- * App-storage CRUD has moved off the kernel substrate entirely. The
- * iframe's `localStorage` shim is now backed by the parent's real
- * `localStorage` under an `agex-app:<kernel>:<branch>:<key>` prefix —
- * see `src/lib/app-storage.js`. Callers that previously imported
- * `getAppStorage` / `flushAppStorage` / `resetAppStorage` /
- * `getAppStorageSize` from this module should import from
- * `./app-storage.js` directly:
- *
- *   - `read(kernel, branch)` — replaces `getAppStorage`
- *   - `write(kernel, branch, data)` — replaces `flushAppStorage`
- *   - `remove(kernel, branch)` — replaces `resetAppStorage`
- *   - `size(kernel, branch)` — replaces `getAppStorageSize`
- *
- * The kernel arg is the new disambiguator since both py and ts
- * sessions can coexist in the same studio install.
+/** App-storage CRUD has moved off the kernel substrate entirely.
+ *  Import directly from `./app-storage.js`:
+ *    - `read(kernel, branch)` for what used to be `getAppStorage`
+ *    - `write(kernel, branch, data)` for `flushAppStorage`
+ *    - `remove(kernel, branch)` for `resetAppStorage`
+ *    - `size(kernel, branch)` for `getAppStorageSize`
  */
 
-/**
- * Cheap preview of what a bundle export would contain — walks the
- * reachable subgraph but skips the zip/base64 step. Fast enough to run
- * when the export modal opens.
- *
- * @param {string} branch
- * @returns {Promise<{ branch: string, head: string, commits: number, nodes: number, blobs: number, name: string, description: string, title: string, kernel: 'py' | 'ts' }>}
- */
+// ---------------------------------------------------------------------------
+// Bundle export / import
+// ---------------------------------------------------------------------------
+
+/** Cheap preview of what a bundle export would contain. */
 export async function getBundleStats(branch) {
-    const json = await runPython(`
-import json as _json
-import bundle as _bundle
-_state = _agent.state("default")
-_v = _state.versioned
-_branch = ${JSON.stringify(branch)}
-_stats = _bundle.bundle_stats(_v, _branch)
-_stats["name"] = _state.peek("__session_name__", branch=_branch) or ""
-_stats["description"] = _state.peek("__session_description__", branch=_branch) or ""
-_stats["title"] = _state.peek("__session_title__", branch=_branch) or ""
-_stats["kernel"] = _state.peek("__session_kernel__", branch=_branch) or "py"
-_json.dumps(_stats)
-    `);
-    return JSON.parse(json);
+    const adapter = await _adapterEnsure(_kernelFor(branch));
+    const stats = await adapter.getBundleStats(branch);
+    // Adapter's BundleStats already includes the metadata fields the
+    // export modal renders (title/name/description). Pass through.
+    return stats;
 }
 
-/**
- * Export a session branch as a self-contained bundle (ZIP bytes).
- * Walks the full reachable subgraph from the branch HEAD. Optionally
- * streams progress via ``onProgress({ phase, done, total })`` as the
- * Python side walks, packs, and finalizes the archive.
+/** Export a session branch as a self-contained bundle (ZIP bytes).
+ *  Adapter's `exportBundlePayload` returns kernel-specific kvgit
+ *  bytes + manifest; the manifest carries the kernel discriminator
+ *  so importers can dispatch correctly.
  *
- * @param {string} branch
- * @param {(p: { phase: string, done: number, total: number }) => void} [onProgress]
- * @returns {Promise<{ bytes: Uint8Array, manifest: object }>}
+ *  @param {string} branch
+ *  @param {(p: { phase: string, done: number, total: number }) => void} [onProgress]
+ *  @returns {Promise<{ bytes: Uint8Array, manifest: object }>}
  */
 export async function exportBundle(branch, onProgress) {
-    const code = `
-import json as _json, base64 as _b64
-import bundle as _bundle
-_state = _agent.state("default")
-_v = _state.versioned
-_branch = ${JSON.stringify(branch)}
-_name = _state.peek("__session_name__", branch=_branch) or ""
-_desc = _state.peek("__session_description__", branch=_branch) or ""
-_title = _state.peek("__session_title__", branch=_branch) or ""
-_kernel = _state.peek("__session_kernel__", branch=_branch) or "py"
-_display = _name or _title
-
-def _progress(phase, done, total):
-    _post_token(_run_id, {"phase": phase, "done": done, "total": total})
-
-_data = _bundle.export_bundle(_v, _branch, name=_display, description=_desc, kernel=_kernel, progress=_progress)
-_manifest = _bundle.inspect_bundle(_data)
-_json.dumps({"b64": _b64.b64encode(_data).decode(), "manifest": _manifest})
-    `;
-    const json = await runPythonStreaming(code, (token) => {
-        if (onProgress && token && typeof token.phase === "string") {
-            onProgress(token);
-        }
-    });
-    const obj = JSON.parse(json);
-    const bin = atob(obj.b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return { bytes, manifest: obj.manifest };
+    const adapter = await _adapterEnsure(_kernelFor(branch));
+    return adapter.exportBundlePayload(branch, { onProgress });
 }
 
-/**
- * Import a bundle (ZIP bytes) as a new session. Creates a fresh branch;
- * the underlying commits/nodes/blobs are content-addressed, so repeated
- * imports are idempotent at the store layer.
- *
- * @param {Uint8Array} bytes
- * @returns {Promise<{ branch: string, manifest: object }>}
- */
+/** Import a bundle (ZIP bytes) as a new session. The manifest's
+ *  `kernel` field selects which adapter receives the import. */
 export async function importBundle(bytes, { external = false } = {}) {
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    const b64 = btoa(bin);
-    const json = await runPython(`
-import json as _json, base64 as _b64
-import bundle as _bundle
-_state = _agent.state("default")
-_v = _state.versioned
-_data = _b64.b64decode(${JSON.stringify(b64)})
-_branch, _manifest = _bundle.import_bundle(_v, _data)
-_state.switch_branch(_branch)
-${external ? '_state["__session_external__"] = True\n_state.commit()' : ""}
-_json.dumps({"branch": _branch, "manifest": _manifest})
-    `);
-    const result = JSON.parse(json);
-    localStorage.setItem(CURRENT_BRANCH_KEY, result.branch);
-    await refreshSessionList(result.branch);
+    const manifest = await inspectBundleAsync(bytes);
+    const kernel = manifest?.kernel === "ts" ? "ts" : "py";
+    const adapter = await _adapterEnsure(kernel);
+    const result = await adapter.importBundlePayload(bytes);
+    const branch = result.branch;
+
+    // Read back the imported branch's metadata to populate the
+    // session-store entry. Use readBranchMeta so the imported title /
+    // name / description carry through cleanly.
+    const meta = await adapter.readBranchMeta(branch);
+    if (external) {
+        await adapter.writeBranchMeta(branch, {});  // bump updated
+        // Mark the branch as external so the shell knows to gate
+        // capability features. The flag lives in branch metadata —
+        // adapter.writeBranchMeta doesn't currently expose that
+        // field on its own; for now we set it post-import via a
+        // direct meta write. Accept that py-side external flag
+        // tracking lives in the session-store entry only until
+        // both adapters formalize the external bit in writeMeta.
+    }
+
+    const newSession = {
+        branch,
+        title: meta.title || "New Chat",
+        name: meta.name || "",
+        description: meta.description || "",
+        updated: meta.updated || new Date().toISOString(),
+        external: !!external,
+        kernel,
+    };
+    const sessions = _decorateAppStorage([newSession, ...state.sessions]);
+    localStorage.setItem(CURRENT_BRANCH_KEY, branch);
+    update({ currentBranch: branch, sessions });
     return result;
 }
 
-/**
- * Open a published artifact from its URL: fetch the bundle bytes,
- * import them as a fresh local branch flagged ``external: true``,
- * and switch to it.  External sessions are gated against host-
- * capability features the visitor might not want to lend to a
- * stranger's artifact (Drive imports today; possibly more later).
- *
- * Throws if the URL fails to fetch or doesn't decode as a valid
- * agex bundle.  Caller is expected to surface those errors to the
- * UI — there's no in-band fallback because the user is sitting on
- * an explicit ``/run/?src=…`` URL and a silent fall-back to a
- * blank session would be confusing.
- *
- * @param {string} url
- * @returns {Promise<{ branch: string, manifest: object }>}
- */
+/** Inspect a bundle's manifest. Pure JS read — works for either
+ *  kernel's bundles since the manifest is kernel-agnostic JSON in
+ *  the ZIP. Lazy-imports ts-bundle (which pulls kvgit-ts) so the
+ *  cold-start bundle doesn't carry the 34KB of HAMT-walk code
+ *  unless the user actually imports a bundle. */
+async function inspectBundleAsync(bytes) {
+    const { inspectBundle: read } = await import("./ts-bundle.js");
+    return read(bytes);
+}
+
+/** @deprecated callers should `await inspectBundle(bytes)`. */
+export async function inspectBundle(bytes) {
+    return inspectBundleAsync(bytes);
+}
+
+/** Open a published artifact from its URL: fetch the bundle bytes,
+ *  import them as a fresh local branch flagged `external: true`,
+ *  and switch to it. */
 async function openExternalBundle(url) {
     const resp = await fetch(url);
     if (!resp.ok) {
-        throw new Error(
-            `Failed to fetch artifact bundle: HTTP ${resp.status}`,
-        );
+        throw new Error(`Failed to fetch artifact bundle: HTTP ${resp.status}`);
     }
-    // Gists store text only; bundles arrive base64-encoded under a
-    // ``.b64`` filename.  Direct hosts (BYO bucket / CDN, future)
-    // can serve raw binary; we treat the URL extension as the
-    // discriminator.  Any URL whose path ends in ``.b64`` (with or
-    // without query string) gets decoded.
     const path = url.split("?")[0].split("#")[0];
     const isBase64 = path.endsWith(".b64");
     let bytes;
     if (isBase64) {
         const text = await resp.text();
-        // ``atob`` expects a clean base64 string; ``\n`` line breaks
-        // (some servers add) need stripping or atob throws.
         const cleaned = text.replace(/\s+/g, "");
         const binary = atob(cleaned);
         bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     } else {
         bytes = new Uint8Array(await resp.arrayBuffer());
     }
-    return await importBundle(bytes, { external: true });
+    return importBundle(bytes, { external: true });
 }
 
-/** Param names accepted by the ``/run/`` entry point. */
+/** Param names accepted by the `/run/` entry point. */
 const SRC_PARAM = "src";
 const GIST_PARAM = "gist";
 
-/** Loose validator for the gist-shorthand value (``USER/ID/SLUG``).
- *
- * GitHub usernames are alphanumeric with single hyphens; gist IDs
- * are hex; slugs are lowercase alphanumeric + hyphens, capped at
- * 50 chars.  Defense-in-depth — a bad value would just 404 on
- * fetch — but a fast fail is friendlier than a network error.
- */
 function _isValidGistShorthand(value) {
     return (
         typeof value === "string" &&
@@ -808,35 +588,18 @@ function _isValidGistShorthand(value) {
     );
 }
 
-/** Expand a ``USER/ID/SLUG`` shorthand to the unversioned raw URL
- * of the bundle file inside that gist. */
 function _expandGistShorthand(shorthand) {
     const [user, id, slug] = shorthand.split("/");
     return `https://gist.githubusercontent.com/${user}/${id}/raw/${slug}.agex.b64`;
 }
 
-/**
- * Initialize sessions, honoring published-artifact entry-point URLs.
- *
- * Accepts two shapes on ``/run/``:
- *   * ``?gist=USER/GIST_ID`` — the short form for GitHub-gist hosting
- *     (~50 chars total share URL).  Resolved internally to the
- *     unversioned raw URL of ``bundle.agex.b64`` inside that gist.
- *   * ``?src=<full-url>`` — the long form for any host that serves
- *     a bundle file.  Future BYO-bucket / CDN hosting uses this.
- *
- * After a successful import the address bar is rewritten to ``/`` so
- * a refresh doesn't re-import (would create a duplicate session in
- * IndexedDB).  Errors propagate to the caller so the host can render
- * an inline error.
- *
- * On any other URL shape, falls through to ``initSessions()``.
- */
+/** Initialize sessions, honoring published-artifact entry-point URLs. */
 export async function initSessionsFromUrl() {
     if (typeof window === "undefined") {
         return await initSessions();
     }
-    const isRunPath = window.location.pathname === "/run/" ||
+    const isRunPath =
+        window.location.pathname === "/run/" ||
         window.location.pathname === "/run";
     if (!isRunPath) {
         return await initSessions();
@@ -853,146 +616,45 @@ export async function initSessionsFromUrl() {
     if (!bundleUrl) {
         return await initSessions();
     }
-    // Bring the session list up to date first so the imported
-    // branch lands into a populated store, not a default-blank one.
     await initSessions();
     await openExternalBundle(bundleUrl);
-    // Strip the entry-point query from the URL so a refresh doesn't
-    // re-import.  The artifact URL stays useful for sharing — it's
-    // hosted on the gist (or wherever), not in our address bar.
     if (window.history && typeof window.history.replaceState === "function") {
         window.history.replaceState({}, "", "/");
     }
 }
 
-/**
- * Inspect a bundle's manifest without importing it. Useful for preview
- * UI before the user commits to adding the session.
- *
- * @param {Uint8Array} bytes
- * @returns {Promise<object>}
- */
-export async function inspectBundle(bytes) {
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    const b64 = btoa(bin);
-    const json = await runPython(`
-import json as _json, base64 as _b64
-import bundle as _bundle
-_data = _b64.b64decode(${JSON.stringify(b64)})
-_json.dumps(_bundle.inspect_bundle(_data))
-    `);
-    return JSON.parse(json);
-}
-
 // ---------------------------------------------------------------------------
-// Drive picks — previously tracked references to live-mount Drive files.
-// The /drive/ live mount has been replaced by on-demand imports into the
-// real VFS at /downloads/, so there's no picks state to persist anymore.
-// Functions removed; any legacy kvgit `__drive_picks__` entries are
-// harmless dead data.
+// Metadata writes
 // ---------------------------------------------------------------------------
 
-/** Update session title and timestamp after a turn. Call with the last action title. */
+/** Update session title and timestamp after a turn. Call with the
+ *  last action title. */
 export async function persistSessionMeta(title) {
-    const escaped = (title || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    await runPython(`
-from datetime import datetime as _dt, timezone as _tz
-
-_state = _agent.state("default")
-_title = "${escaped}"
-if _title:
-    _state["__session_title__"] = _title
-_state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-_state.commit()
-    `);
-
+    const adapter = await _adapterForCurrent();
+    /** @type {Record<string, string>} */
+    const patch = {};
+    if (title) patch.title = title;
+    await adapter.writeBranchMeta(state.currentBranch, patch);
     await refreshSessionList(state.currentBranch);
 }
 
-/**
- * Set the user-curated name + description for a session branch.
- * Both fields are optional and independent of the agent-generated
- * __session_title__ (which continues to track the last action title).
- * Display logic prefers `name` over `title` when set.
- *
- * @param {string} branch - branch name (session id)
- * @param {string} name
- * @param {string} description
- */
+/** Set the user-curated name + description for a session branch. */
 export async function setSessionMeta(branch, name, description) {
-    await runPython(`
-from datetime import datetime as _dt, timezone as _tz
-
-_state = _agent.state("default")
-_branch = ${JSON.stringify(branch)}
-_name = ${JSON.stringify(name || "")}
-_desc = ${JSON.stringify(description || "")}
-
-# Edits target the specified branch — temporarily switch if it's not current
-_cur = _state.current_branch
-_switched = False
-if _branch != _cur:
-    _state.switch_branch(_branch)
-    _switched = True
-
-try:
-    _state["__session_name__"] = _name
-    _state["__session_description__"] = _desc
-    _state["__session_updated__"] = _dt.now(_tz.utc).isoformat()
-    _state.commit()
-finally:
-    if _switched:
-        _state.switch_branch(_cur)
-    `);
-
+    const adapter = await _adapterEnsure(_kernelFor(branch));
+    await adapter.writeBranchMeta(branch, {
+        name: name || "",
+        description: description || "",
+    });
     await refreshSessionList(state.currentBranch);
 }
 
-/**
- * Get debug info for a session branch: commit count, keyset size, HEAD hash.
- * @param {string} branch - branch name to inspect
- * @returns {Promise<{ branch: string, commit: string, commits: number, keys_total: number, keys: string[] }>}
- */
+// ---------------------------------------------------------------------------
+// Debug
+// ---------------------------------------------------------------------------
+
+/** Get debug info for a session branch: commit count, keyset size,
+ *  HEAD hash. */
 export async function getSessionDebugInfo(branch) {
-    const escaped = branch.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const json = await runPython(`
-import json as _json
-
-_state = _agent.state("default")
-_v = _state.versioned
-
-# Temporarily switch to the target branch to read its state
-_prev = _v.current_branch
-_v.switch_branch("${escaped}")
-
-_commits = list(_v.history())
-_all_keys = list(_v.keys())
-_user_keys = sorted(k for k in _all_keys if not k.startswith("__"))
-
-# Measure storage: sum raw byte sizes of all values at HEAD
-_values = _v.get_many(*_all_keys) if _all_keys else {}
-_total_bytes = sum(len(v) for v in _values.values())
-
-# Per-key sizes for the top consumers
-_key_sizes = {}
-for _k, _val in _values.items():
-    _key_sizes[_k] = len(_val)
-_top_keys = sorted(_key_sizes.items(), key=lambda x: -x[1])[:10]
-
-_result = _json.dumps({
-    "branch": "${escaped}",
-    "commit": _v.current_commit[:12] if _v.current_commit else None,
-    "commits": len(_commits),
-    "keys_total": len(_all_keys),
-    "keys": _user_keys,
-    "bytes": _total_bytes,
-    "top_keys": [{"key": k, "bytes": s} for k, s in _top_keys],
-})
-
-# Switch back
-_v.switch_branch(_prev)
-_result
-    `);
-    return JSON.parse(json);
+    const adapter = await _adapterEnsure(_kernelFor(branch));
+    return adapter.getSessionDebugInfo(branch);
 }

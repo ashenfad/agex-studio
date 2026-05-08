@@ -258,6 +258,13 @@
  *   the drawer from the localStorage cache, the shell reconciles
  *   against the live list to catch branches added in another tab).
  *
+ * @property {() => Promise<Array<BranchMeta & { branch: string, external: boolean }>>} listBranchesWithMeta
+ *   Like `listBranches` but each entry carries title / name /
+ *   description / updated / external alongside the branch name.
+ *   One kernel round-trip total — used by sessions.js's
+ *   list-rebuild path so loading 50 sessions doesn't pay 50
+ *   readBranchMeta round-trips.
+ *
  * @property {(name: string, opts?: CreateBranchOptions) => Promise<void>} createBranch
  *   Create a new branch.  With `opts.from`, branches off that branch's
  *   HEAD; otherwise from the kernel's initial commit.  Stamps
