@@ -158,6 +158,16 @@
 // ---------------------------------------------------------------------------
 
 /**
+ * @typedef {'history-ready' | 'send-ready'} InitStage
+ */
+
+/**
+ * @typedef {Object} InitOptions
+ * @property {(stage: InitStage) => void} [onStage] - Fires at init
+ *   lifecycle milestones so the shell can render progressively.
+ */
+
+/**
  * @typedef {Object} CreateBranchOptions
  * @property {string} [from] - Source branch HEAD to fork from.  Omit to
  *   create a fresh branch off the kernel's initial commit.
@@ -205,16 +215,30 @@
  *
  * --- Lifecycle -----------------------------------------------------------
  *
- * @property {(settings: KernelSettings) => Promise<void>} init
+ * @property {(settings: KernelSettings, opts?: InitOptions) => Promise<void>} init
  *   Bring the kernel online.  Heavy work (Pyodide bootstrap, worker
  *   spawn) happens here — the shell calls this lazily, on the first
  *   user action that touches one of this kernel's sessions.
  *
+ *   `opts.onStage(stage)` fires at lifecycle milestones so the shell
+ *   can render progressively while init is still in flight:
+ *
+ *     - `'history-ready'` — branch list, metadata, file list, and
+ *       history rendering are usable. Most read-only adapter methods
+ *       work. Send doesn't yet.
+ *     - `'send-ready'` — full capability. Send works.
+ *
+ *   For Py, these correspond to Pyodide's two-wave install (basics →
+ *   rich); the shell uses the gap to load history while heavy
+ *   library install continues. For Ts, both stages fire back-to-back
+ *   at the end of init (single-phase setup; no gap to exploit).
+ *
+ *   The returned promise resolves when `'send-ready'` has fired.
+ *
  *   May be called more than once to update settings (e.g., user
- *   changes model or API key in the settings drawer).  The bootstrap
+ *   changes model or API key in the settings drawer). The bootstrap
  *   work happens at most once; subsequent calls just propagate
- *   settings to the live agent.  Resolves when the adapter is ready
- *   to accept any other call.
+ *   settings to the live agent.
  *
  * @property {() => Promise<void>} dispose
  *   Tear down.  After this resolves, no further calls should be made
