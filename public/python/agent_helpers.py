@@ -240,22 +240,14 @@ def register(agent, llm, user_tz):
             await _display_app_results(r, "test_app")
             return r
         actions_json = json.dumps(actions) if actions else None
-        # Seed the iframe's localStorage shim with whatever is persisted
-        # for this session so tests see the real user state.  Read-only
-        # on the test path — writes during test_app are discarded so
-        # speculative tests don't clobber the user's live save.
-        # ``fresh=True`` skips the seed entirely (empty {} instead).
-        if fresh:
-            seed_json = "{}"
-        else:
-            import app_storage
-
-            state_for_seed = agent.state("default")
-            seed_json = json.dumps(
-                app_storage.read(state_for_seed.versioned, state_for_seed.current_branch)
-            )
+        # Pass ``fresh`` through to the JS bridge.  The main-thread
+        # bridge looks up the seed from the parent's localStorage
+        # (``src/lib/app-storage.js``) when fresh=False; we don't
+        # pre-fetch the seed here because Pyodide can't read the
+        # parent's localStorage and the data lives there now.
+        # ``fresh=True`` makes the bridge use an empty seed dict.
         results_json = await _js_test_app(
-            json.dumps(app_files), actions_json, seed_json
+            json.dumps(app_files), actions_json, bool(fresh)
         )
         results = json.loads(results_json)
         await _display_app_results(results, "test_app")

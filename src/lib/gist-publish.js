@@ -278,9 +278,6 @@ function _composeGistComment({
     if (stats.commits != null) rows.push(["Commits", String(stats.commits)]);
     if (stats.blobs != null) rows.push(["Blobs", String(stats.blobs)]);
     if (stats.nodes != null) rows.push(["Nodes", String(stats.nodes)]);
-    if (stats.app_storage_bytes != null) {
-        rows.push(["App storage", _formatBytes(stats.app_storage_bytes)]);
-    }
     if (bundleBytesLen != null) {
         rows.push(["Bundle", _formatBytes(bundleBytesLen)]);
     }
