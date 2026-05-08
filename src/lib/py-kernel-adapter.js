@@ -223,6 +223,27 @@ _json.dumps(_branches)
             return JSON.parse(json);
         },
 
+        async listBranchesWithMeta() {
+            const json = await runPython(`
+import json as _json
+_state = _agent.state("default")
+_out = []
+for _b in _state.list_branches():
+    if not _b.startswith("chat-"):
+        continue
+    _out.append({
+        "branch": _b,
+        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
+        "name": _state.peek("__session_name__", branch=_b) or "",
+        "description": _state.peek("__session_description__", branch=_b) or "",
+        "updated": _state.peek("__session_updated__", branch=_b) or "",
+        "external": bool(_state.peek("__session_external__", branch=_b)),
+    })
+_json.dumps(_out)
+            `);
+            return JSON.parse(json);
+        },
+
         async createBranch(name, /** @type {CreateBranchOptions} */ opts = {}) {
             // Two modes:
             //   - opts.from set:  fork from the named branch's HEAD.

@@ -200,6 +200,44 @@ export async function listBranches() {
     return all.filter((b) => b.startsWith("chat-"));
 }
 
+export async function listBranchesWithMeta() {
+    const versioned = await _getVersioned();
+    const all = await versioned.listBranches();
+    const decoder = new TextDecoder();
+    const peekStr = async (branch, key) => {
+        const raw = await versioned.peek(key, { branch });
+        if (raw === null) return "";
+        try {
+            const v = JSON.parse(decoder.decode(raw));
+            return typeof v === "string" ? v : "";
+        } catch {
+            return "";
+        }
+    };
+    const peekBool = async (branch, key) => {
+        const raw = await versioned.peek(key, { branch });
+        if (raw === null) return false;
+        try {
+            return Boolean(JSON.parse(decoder.decode(raw)));
+        } catch {
+            return false;
+        }
+    };
+    const out = [];
+    for (const branch of all) {
+        if (!branch.startsWith("chat-")) continue;
+        out.push({
+            branch,
+            title: (await peekStr(branch, META_KEYS.title)) || "New Chat",
+            name: await peekStr(branch, META_KEYS.name),
+            description: await peekStr(branch, META_KEYS.description),
+            updated: await peekStr(branch, META_KEYS.updated),
+            external: await peekBool(branch, META_KEYS.external),
+        });
+    }
+    return out;
+}
+
 export async function createBranch(name, opts = {}) {
     const agent = _getAgent();
     const versioned = await _getVersioned();

@@ -22,6 +22,7 @@ import {
     _resetForTesting,
     chatMessage as agentChatMessage,
     listBranches as agentListBranches,
+    listBranchesWithMeta as agentListBranchesWithMeta,
     createBranch as agentCreateBranch,
     deleteBranch as agentDeleteBranch,
     readBranchMeta as agentReadBranchMeta,
@@ -128,6 +129,10 @@ export function createTsAdapter() {
 
         async listBranches() {
             return agentListBranches();
+        },
+
+        async listBranchesWithMeta() {
+            return agentListBranchesWithMeta();
         },
 
         async createBranch(name, /** @type {CreateBranchOptions} */ opts = {}) {
