@@ -18,7 +18,9 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "highlight.js": "^11.11.1",
+    "kvgit-ts": "file:../agex-ts/packages/kvgit-ts",
     "marked": "^17.0.4",
     "papaparse": "^5.5.3"
   }
