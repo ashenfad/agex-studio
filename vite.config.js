@@ -33,4 +33,17 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  resolve: {
+    alias: {
+      // agex-ts's bundle has a Node-only chunk that imports
+      // `createRequire` from `node:module` to optionally try
+      // `worker_threads`. Browsers don't have `node:module`; the
+      // import is static so vite's `__vite-browser-external` stub
+      // doesn't satisfy it. Alias to a local no-op shim so the
+      // static import resolves; agex-ts's try/catch handles the
+      // runtime "no worker_threads here" case gracefully.
+      // Remove once agex-ts publishes a browser-friendly bundle.
+      module: resolve('./src/lib/_node-module-stub.js'),
+    },
+  },
 })
