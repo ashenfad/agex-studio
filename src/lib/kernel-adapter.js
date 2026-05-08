@@ -163,8 +163,13 @@
 
 /**
  * @typedef {Object} InitOptions
- * @property {(stage: InitStage) => void} [onStage] - Fires at init
- *   lifecycle milestones so the shell can render progressively.
+ * @property {(stage: InitStage) => void | Promise<void>} [onStage]
+ *   Fires at init lifecycle milestones so the shell can render
+ *   progressively.  May return a Promise; the adapter awaits the
+ *   callback before continuing.  Lets the shell gate the next stage
+ *   on shell-side work — e.g., "load history before kicking Wave 3"
+ *   keeps the existing serialized init UX (preventing Pyodide's
+ *   Wave-3 install from competing with shell-side history reads).
  */
 
 /**

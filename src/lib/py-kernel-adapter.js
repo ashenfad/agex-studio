@@ -168,11 +168,15 @@ if _state.current_branch != "${_esc(branch)}":
                 startWorker();
                 await _waitForStage("history-ready");
                 await initAgentBasics(settings);
-                opts.onStage?.("history-ready");
+                // Await the callback — lets the shell load history /
+                // sessions / files before we kick Wave 3, matching the
+                // existing serialized flow that keeps Wave-3's heavy
+                // package install from competing with shell-side reads.
+                await opts.onStage?.("history-ready");
                 startWave3();
                 await _waitForStage("send-ready");
                 await initAgentRich(settings);
-                opts.onStage?.("send-ready");
+                await opts.onStage?.("send-ready");
                 initialized = true;
             })();
             try {

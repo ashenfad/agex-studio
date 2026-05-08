@@ -12,6 +12,7 @@
 // src/lib/iframe-bridge.js and its tests.
 import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { sendControl } from './iframe-bridge.js';
+import { read as readAppStorage } from './app-storage.js';
 
 /** @type {Worker | null} */
 let worker = null;
@@ -1132,7 +1133,6 @@ async function runTestApp(appFilesJson, actionsJson, fresh, requestId) {
         if (!fresh) {
             const branch = localStorage.getItem('agex-current-branch') || '';
             if (branch) {
-                const { read: readAppStorage } = await import('./app-storage.js');
                 seed = readAppStorage('py', branch);
             }
         }
