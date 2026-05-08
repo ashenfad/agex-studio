@@ -29,6 +29,7 @@ import { createAgent } from "agex-ts";
 import { Anthropic } from "agex-anthropic";
 import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
+import _chatPrimer from "./primers/ts-chat-task.md?raw";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
@@ -57,6 +58,9 @@ const META_KEYS = /** @type {const} */ ({
 
 /** @type {Agent | null} */
 let _agent = null;
+
+/** @type {((message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<string>) | null} */
+let _chatTask = null;
 
 /** Module-level cache of the active branch — avoids redundant
  *  `versioned.switchBranch(...)` calls when the caller is operating
@@ -92,10 +96,27 @@ export async function initAgent(settings) {
                 ? settings.chapteringTrigger
                 : DEFAULT_CHAPTERING_TRIGGER,
     });
-    // Chat task + skills get registered by the caller (ts-kernel-adapter
-    // wires this up after init resolves) so the registration code stays
-    // alongside the adapter's task surface rather than spreading across
-    // two files. PR 2a-ii will land that registration.
+
+    // Chat task — `string -> string` for now. Multi-part responses
+    // (DataFrames, charts) come when the TS side has equivalent rich
+    // types to surface. The primer markdown lives alongside this
+    // file under primers/ and is inlined at build time via vite's
+    // ?raw loader.
+    _chatTask = _agent.task({
+        description: "Answer the user's chat message.",
+        primer: _chatPrimer,
+    });
+}
+
+/** Send a chat message through the registered chat task. The
+ *  TsKernelAdapter's sendMessage wraps this with the branch-explicit
+ *  signature; this helper is the studio-side entry point matching
+ *  agent.js's `sendMessage(message, onToken)` shape. */
+export async function chatMessage(message, opts = {}) {
+    if (!_chatTask) {
+        throw new Error("chat task not registered — call initAgent first");
+    }
+    return _chatTask(message, { session: SESSION, ...opts });
 }
 
 /** Construct the LLM client for the configured provider. The studio's
@@ -512,5 +533,6 @@ export async function getSessionDebugInfo(branch) {
  *  public studio surface. */
 export function _resetForTesting() {
     _agent = null;
+    _chatTask = null;
     _activeBranch = null;
 }
