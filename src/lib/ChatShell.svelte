@@ -11,9 +11,10 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
-    import { initAgentBasics, initAgentRich, sendMessage, listFiles, runChaptering, estimateLogTokens, getTokenHistory } from './agent.js'
-    import { cancelTask, pyodideStore, startWave3 } from './pyodide.js'
-    import { initSessions, initSessionsFromUrl, loadHistory, loadHistoryChunked, persistSessionMeta, sessionStore, getCurrentCommit, undoToCommit } from './sessions.js'
+    import { cancelTask, pyodideStore } from './pyodide.js'
+    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore } from './sessions.js'
+    import { kernelRegistry } from './kernel-registry.js'
+    import { getActiveAdapter } from './active-adapter.js'
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
@@ -141,36 +142,35 @@
         initError = ''
         try {
             initStatus = 'Loading core packages...'
-            await waitForStage('history-ready')
-
-            initStatus = 'Setting up agent...'
-            await initAgentBasics(s)
-            // Honor /run/?src=<url> or /run/?gist=USER/ID/SLUG as a
-            // published-artifact entry point — pick a label that
-            // reflects which path we're on so the user has a real
-            // signal during the multi-MB bundle fetch + import.
-            initStatus = isExternalEntry
-                ? 'Downloading bundle...'
-                : 'Loading sessions...'
-            await initSessionsFromUrl()
-            initStatus = 'Loading history...'
-            historyChunks = await loadHistoryChunked()
-            messages = historyChunks.messages
-            if (messages.length && messages[messages.length - 1].role === 'chaptering') {
-                tokenOverride = await estimateLogTokens()
-            }
-            initStatus = 'Loading files...'
-            files = await listFiles()
-            historyReady = true
-            document.getElementById('static-footer')?.remove()
-
-            // Now safe to install Wave 3 packages. Doing it earlier
-            // would have blocked basics behind it (Pyodide serializes
-            // runPythonAsync calls and Wave 3 wheels don't yield often).
-            initStatus = 'Loading capabilities...'
-            startWave3()
-            await waitForStage('send-ready')
-            await initAgentRich(s)
+            // Drive the kernel boot through the registry. The adapter's
+            // init encapsulates the two-wave Pyodide install; we hook
+            // the 'history-ready' milestone via onStage to do shell-side
+            // session/history/files load between waves (matches the
+            // pre-migration serialized flow).
+            await kernelRegistry.ensure('py', s, {
+                onStage: async (stage) => {
+                    if (stage === 'history-ready') {
+                        initStatus = isExternalEntry
+                            ? 'Downloading bundle...'
+                            : 'Loading sessions...'
+                        await initSessionsFromUrl()
+                        initStatus = 'Loading history...'
+                        historyChunks = await loadHistoryChunked()
+                        messages = historyChunks.messages
+                        if (messages.length && messages[messages.length - 1].role === 'chaptering') {
+                            const { adapter, branch } = await getActiveAdapter()
+                            tokenOverride = await adapter.estimateLogTokens(branch)
+                        }
+                        initStatus = 'Loading files...'
+                        const { adapter, branch } = await getActiveAdapter()
+                        files = await adapter.listFiles(branch)
+                        historyReady = true
+                        document.getElementById('static-footer')?.remove()
+                        initStatus = 'Loading capabilities...'
+                    }
+                    // 'send-ready' fires implicitly when ensure resolves
+                },
+            })
             agentReady = true
             initStatus = ''
         } catch (e) {
@@ -178,37 +178,6 @@
             initError = e.message || String(e)
             initStatus = ''
         }
-    }
-
-    /** Resolve once pyodide reaches `target` (or higher). */
-    function waitForStage(target) {
-        const order = ['idle', 'loading', 'history-ready', 'send-ready']
-        const targetIdx = order.indexOf(target)
-        return new Promise((resolve, reject) => {
-            // Svelte stores invoke the subscriber synchronously during
-            // `subscribe(...)`, before `unsub` has been assigned. Stash
-            // the resolution and call `unsub` after we have it.
-            let settled = false
-            let unsub = () => { settled = true }
-            const handler = (p) => {
-                if (settled) return
-                if (p.status === 'error') {
-                    settled = true
-                    unsub()
-                    reject(new Error(p.message || 'Pyodide failed'))
-                    return
-                }
-                if (order.indexOf(p.stage) >= targetIdx) {
-                    settled = true
-                    unsub()
-                    resolve()
-                }
-            }
-            unsub = pyodideStore.subscribe(handler)
-            // If the initial sync call already settled, the temporary
-            // no-op `unsub` was used — re-call the real one now.
-            if (settled) unsub()
-        })
     }
 
     // Combined warming message — surfaces whichever phase is active so
@@ -247,12 +216,13 @@
                 historyChunks = chunks
                 messages = chunks.messages
                 scrollKey++
+                const { adapter, branch: activeBranch } = await getActiveAdapter()
                 if (messages.length && messages[messages.length - 1].role === 'chaptering') {
-                    tokenOverride = await estimateLogTokens()
+                    tokenOverride = await adapter.estimateLogTokens(activeBranch)
                 } else {
                     tokenOverride = null
                 }
-                files = await listFiles()
+                files = await adapter.listFiles(activeBranch)
                 previewRefreshKey++
             })
         }
@@ -572,7 +542,8 @@
     }
 
     async function handleUpload(names, commitHash) {
-        files = await listFiles()
+        const { adapter, branch } = await getActiveAdapter()
+        files = await adapter.listFiles(branch)
         const label = names.length === 1
             ? `**Uploaded:** \`${names[0]}\``
             : `**Uploaded ${names.length} files:**\n${names.map(n => `- \`${n}\``).join('\n')}`
@@ -586,7 +557,8 @@
     }
 
     async function handleDelete(names, commitHash) {
-        files = await listFiles()
+        const { adapter, branch } = await getActiveAdapter()
+        files = await adapter.listFiles(branch)
         const label = names.length === 1
             ? `**Deleted:** \`${names[0]}\``
             : `**Deleted ${names.length} files:**\n${names.map(n => `- \`${n}\``).join('\n')}`
@@ -615,14 +587,15 @@
         dismissUndoToast()
         busy = true
         try {
-            const preCommit = await getCurrentCommit()
-            await undoToCommit(msg.commit_hash)
+            const { adapter, branch } = await getActiveAdapter()
+            const preCommit = await adapter.getCurrentCommit(branch)
+            await adapter.undoToCommit(branch, msg.commit_hash)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
-            files = await listFiles()
+            files = await adapter.listFiles(branch)
             previewRefreshKey++
             if (!msg.isMarkdown) inputPrefill = undoneText
-            tokenOverride = await estimateLogTokens()
+            tokenOverride = await adapter.estimateLogTokens(branch)
             // Show toast with option to redo
             const timer = setTimeout(dismissUndoToast, 5000)
             undoToast = { preCommit, timer }
@@ -639,13 +612,14 @@
         dismissUndoToast()
         busy = true
         try {
-            await undoToCommit(preCommit)
+            const { adapter, branch } = await getActiveAdapter()
+            await adapter.undoToCommit(branch, preCommit)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
-            files = await listFiles()
+            files = await adapter.listFiles(branch)
             previewRefreshKey++
             inputPrefill = ''
-            tokenOverride = await estimateLogTokens()
+            tokenOverride = await adapter.estimateLogTokens(branch)
         } catch (e) {
             console.error('Redo failed:', e)
         } finally {
@@ -657,7 +631,8 @@
         if (!agentReady) return
         tokenModalOpen = true
         try {
-            tokenHistory = await getTokenHistory()
+            const { adapter, branch } = await getActiveAdapter()
+            tokenHistory = await adapter.getTokenHistory(branch)
         } catch (e) {
             console.error('Failed to load token history:', e)
         }
@@ -667,11 +642,12 @@
         if (busy || !agentReady || chaptering) return
         chaptering = true
         try {
-            await runChaptering()
+            const { adapter, branch } = await getActiveAdapter()
+            await adapter.runChaptering(branch)
             historyChunks = await loadHistoryChunked()
             messages = historyChunks.messages
-            tokenOverride = await estimateLogTokens()
-            tokenHistory = await getTokenHistory()
+            tokenOverride = await adapter.estimateLogTokens(branch)
+            tokenHistory = await adapter.getTokenHistory(branch)
         } catch (e) {
             console.error('Chaptering failed:', e)
         } finally {
@@ -683,7 +659,8 @@
         if (!prompt.trim() || busy || !agentReady) return
         inputPrefill = ''
 
-        const commitHash = await getCurrentCommit()
+        const { adapter, branch } = await getActiveAdapter()
+        const commitHash = await adapter.getCurrentCommit(branch)
 
         messages = [...messages, {
             role: 'user',
@@ -700,7 +677,7 @@
 
         try {
             tokenOverride = null
-            const response = await sendMessage(prompt, handleToken)
+            const response = await adapter.sendMessage(branch, prompt, { onToken: handleToken })
             const cancelled = response.events.some(e => e.type === 'cancelled')
 
             // Replace streaming message with final message
@@ -723,7 +700,7 @@
             }
 
             // Refresh file list, preview, and persist session meta
-            files = await listFiles()
+            files = await adapter.listFiles(branch)
             if (!cancelled) {
                 if (response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
                     previewRefreshKey++
