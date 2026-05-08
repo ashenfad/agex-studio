@@ -183,8 +183,19 @@ function _kernelFor(branch) {
 
 /** Get the adapter for a kernel, ensuring it's booted. Use for
  *  operations that genuinely need the adapter (createSession,
- *  sendMessage, etc.). Will boot the kernel if it isn't already. */
-function _adapterEnsure(kernel) {
+ *  sendMessage, etc.).
+ *
+ *  Prefers `get()` over `ensure()` so callers inside an adapter's
+ *  own init flow — notably ChatShell's onStage callback that fires
+ *  from inside `kernelRegistry.ensure` and triggers loadHistory /
+ *  initSessions — don't deadlock awaiting the init promise that
+ *  just called them. The adapter is already constructed at that
+ *  point; only its init is mid-flight, and the methods called
+ *  from onStage operate against post-Wave-2 state which is already
+ *  live. Same pattern as `active-adapter.js`'s getActiveAdapter. */
+async function _adapterEnsure(kernel) {
+    const existing = kernelRegistry.get(kernel);
+    if (existing) return existing;
     return kernelRegistry.ensure(kernel, svelteGet(settingsStore));
 }
 
