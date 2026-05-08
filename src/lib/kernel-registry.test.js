@@ -26,6 +26,23 @@ vi.mock("./py-kernel-adapter.js", () => ({
     }),
 }));
 
+// Mirror mock for the Ts adapter so registry tests that hit `'ts'`
+// don't try to construct the real agex-ts agent in a non-browser
+// test env. The init path is shared with the py mock for simplicity
+// (same closures); the kernel discriminator differs.
+vi.mock("./ts-kernel-adapter.js", () => ({
+    createTsAdapter: () => ({
+        kernel: "ts",
+        init: async (settings, opts) => {
+            mockInitCalls++;
+            return mockInitImpl(settings, opts);
+        },
+        dispose: async () => {
+            mockDisposeCalls++;
+        },
+    }),
+}));
+
 import { createKernelRegistry } from "./kernel-registry.js";
 
 beforeEach(() => {
@@ -90,11 +107,23 @@ describe("kernelRegistry.ensure", () => {
         ).rejects.toThrow(/unknown kernel/);
     });
 
-    it("rejects ts (not yet implemented) with a clear message", async () => {
+    it("constructs the ts adapter on ensure('ts')", async () => {
         const registry = createKernelRegistry();
-        await expect(
-            registry.ensure("ts", { apiKey: "k", model: "m" }),
-        ).rejects.toThrow(/ts kernel adapter not yet implemented/);
+        const adapter = await registry.ensure("ts", { apiKey: "k", model: "m" });
+        expect(adapter.kernel).toBe("ts");
+        expect(mockInitCalls).toBe(1);
+    });
+
+    it("py and ts adapters are independent registry entries", async () => {
+        const registry = createKernelRegistry();
+        const py = await registry.ensure("py", { apiKey: "k", model: "m" });
+        const ts = await registry.ensure("ts", { apiKey: "k", model: "m" });
+        expect(py.kernel).toBe("py");
+        expect(ts.kernel).toBe("ts");
+        expect(registry.has("py")).toBe(true);
+        expect(registry.has("ts")).toBe(true);
+        // Each kernel triggers its own init, so 2 total inits.
+        expect(mockInitCalls).toBe(2);
     });
 
     it("fans onStage milestones out to multiple listeners", async () => {
