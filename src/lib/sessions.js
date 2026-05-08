@@ -18,7 +18,6 @@
  * abstraction is supposed to prevent.
  */
 
-import { runPython } from "./pyodide.js";
 import {
     size as appStorageSize,
     copy as appStorageCopy,
@@ -29,8 +28,7 @@ import {
     loadCache as loadSessionCache,
 } from "./session-index.js";
 import { kernelRegistry } from "./kernel-registry.js";
-import { settingsStore } from "./settings.js";
-import { get as svelteGet } from "svelte/store";
+import { resolveAdapter } from "./active-adapter.js";
 // ts-bundle is dynamic-imported below — pulls kvgit-ts which adds
 // ~34KB to the cold-start bundle if statically reachable. The
 // manifest-read function runs only on user-driven bundle import,
@@ -181,24 +179,6 @@ function _kernelFor(branch) {
     return /** @type {'py' | 'ts'} */ (s?.kernel || "py");
 }
 
-/** Get the adapter for a kernel, ensuring it's booted. Use for
- *  operations that genuinely need the adapter (createSession,
- *  sendMessage, etc.).
- *
- *  Prefers `get()` over `ensure()` so callers inside an adapter's
- *  own init flow — notably ChatShell's onStage callback that fires
- *  from inside `kernelRegistry.ensure` and triggers loadHistory /
- *  initSessions — don't deadlock awaiting the init promise that
- *  just called them. The adapter is already constructed at that
- *  point; only its init is mid-flight, and the methods called
- *  from onStage operate against post-Wave-2 state which is already
- *  live. Same pattern as `active-adapter.js`'s getActiveAdapter. */
-async function _adapterEnsure(kernel) {
-    const existing = kernelRegistry.get(kernel);
-    if (existing) return existing;
-    return kernelRegistry.ensure(kernel, svelteGet(settingsStore));
-}
-
 /** Get the adapter for a kernel iff it's already booted. Returns
  *  null otherwise. Use for query operations that should NOT trigger
  *  a boot — e.g., enumerating sessions during initSessions when
@@ -211,7 +191,7 @@ function _adapterIfBooted(kernel) {
  *  Boots it if not already (which is the typical case for
  *  user-initiated actions on the active session). */
 function _adapterForCurrent() {
-    return _adapterEnsure(_kernelFor(state.currentBranch));
+    return resolveAdapter(_kernelFor(state.currentBranch));
 }
 
 /** Random 8-char hex suffix for `chat-` branch names — uuid4-style
@@ -310,7 +290,7 @@ async function initSessions() {
     } else {
         // No sessions exist anywhere — create a default py session.
         // py is the default kernel (same as pre-unification studio).
-        const adapter = await _adapterEnsure("py");
+        const adapter = await resolveAdapter("py");
         const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
         await adapter.createBranch(branch);
         current = branch;
@@ -342,7 +322,7 @@ async function initSessions() {
  */
 export async function createSession({ kernel = "py" } = {}) {
     const safeKernel = kernel === "ts" ? "ts" : "py";
-    const adapter = await _adapterEnsure(safeKernel);
+    const adapter = await resolveAdapter(safeKernel);
     const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
     await adapter.createBranch(branch);
 
@@ -374,7 +354,7 @@ export async function switchSession(branch) {
  *  current one. */
 export async function deleteSession(branch) {
     const targetKernel = _kernelFor(branch);
-    const adapter = await _adapterEnsure(targetKernel);
+    const adapter = await resolveAdapter(targetKernel);
     await adapter.deleteBranch(branch);
     appStorageRemove(targetKernel, branch);
 
@@ -414,7 +394,7 @@ export async function deleteSession(branch) {
 export async function forkSession() {
     const sourceBranch = state.currentBranch;
     const sourceKernel = _kernelFor(sourceBranch);
-    const adapter = await _adapterEnsure(sourceKernel);
+    const adapter = await resolveAdapter(sourceKernel);
     const sourceMeta = state.sessions.find((s) => s.branch === sourceBranch);
     const newBranch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
     await adapter.createBranch(newBranch, { from: sourceBranch });
@@ -529,7 +509,7 @@ export async function undoToCommit(commitHash) {
 
 /** Cheap preview of what a bundle export would contain. */
 export async function getBundleStats(branch) {
-    const adapter = await _adapterEnsure(_kernelFor(branch));
+    const adapter = await resolveAdapter(_kernelFor(branch));
     const stats = await adapter.getBundleStats(branch);
     // Adapter's BundleStats already includes the metadata fields the
     // export modal renders (title/name/description). Pass through.
@@ -546,7 +526,7 @@ export async function getBundleStats(branch) {
  *  @returns {Promise<{ bytes: Uint8Array, manifest: object }>}
  */
 export async function exportBundle(branch, onProgress) {
-    const adapter = await _adapterEnsure(_kernelFor(branch));
+    const adapter = await resolveAdapter(_kernelFor(branch));
     return adapter.exportBundlePayload(branch, { onProgress });
 }
 
@@ -555,7 +535,7 @@ export async function exportBundle(branch, onProgress) {
 export async function importBundle(bytes, { external = false } = {}) {
     const manifest = await inspectBundleAsync(bytes);
     const kernel = manifest?.kernel === "ts" ? "ts" : "py";
-    const adapter = await _adapterEnsure(kernel);
+    const adapter = await resolveAdapter(kernel);
     const result = await adapter.importBundlePayload(bytes);
     const branch = result.branch;
 
@@ -690,7 +670,7 @@ export async function persistSessionMeta(title) {
 
 /** Set the user-curated name + description for a session branch. */
 export async function setSessionMeta(branch, name, description) {
-    const adapter = await _adapterEnsure(_kernelFor(branch));
+    const adapter = await resolveAdapter(_kernelFor(branch));
     await adapter.writeBranchMeta(branch, {
         name: name || "",
         description: description || "",
@@ -705,6 +685,6 @@ export async function setSessionMeta(branch, name, description) {
 /** Get debug info for a session branch: commit count, keyset size,
  *  HEAD hash. */
 export async function getSessionDebugInfo(branch) {
-    const adapter = await _adapterEnsure(_kernelFor(branch));
+    const adapter = await resolveAdapter(_kernelFor(branch));
     return adapter.getSessionDebugInfo(branch);
 }
