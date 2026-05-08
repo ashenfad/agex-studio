@@ -33,6 +33,7 @@ const EXPECTED_METHODS = [
     // VFS
     "listFiles",
     "readFile",
+    "fileSize",
     "writeFiles",
     "deleteFiles",
     // Bundle payloads

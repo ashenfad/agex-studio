@@ -77,52 +77,85 @@ peek(key, branch=...)` pattern translates near-1:1 to agex-ts. No
 divergence, no shell-side session enumeration, no special primitives in
 the adapter. The branch model stays.
 
-### 2. Two parallel IDB stores, format-incompatible
+### 2. Different substrates, format-incompatible
 
-This is the **real** storage-layer divergence. kvgit-py's IDB backend and
-kvgit-ts's IDB backend write to **separate IndexedDB databases** in the
-same origin and use **incompatible binary formats**:
+The two kernels persist to **different browser storage layers**:
 
-- **kvgit-py (Pyodide path):** default `db_name="kvgit"`, store `"kv"`,
-  values encoded via `kvgit.encoding.dumps` (Python pickle-extended).
-- **kvgit-ts:** default `dbName="kvgit-ts"`. Studio's `connectState({
-  storage: 'indexeddb' })` overrides this to `"kvgit/<session>"` — for
-  our `session="default"` plan that's `"kvgit/default"`. Store `"kv"`,
-  values encoded via the polymorphic encoder from `termish-ts/fs/kvgit`.
-- **Different DB names** → no IDB-level collision. They coexist cleanly.
-- **Different encoders + HAMT layouts** → bytes are not interoperable.
-  Even if you forced both onto the same dbName, the same logical content
-  produces different hashes on each side.
+- **Py (Pyodide path):** kvgit-py's disk backend over **OPFS**, mounted
+  at `/persist` inside Pyodide. The studio configures
+  `connect_state(type="versioned", storage="disk", path="/persist")`,
+  and `worker.js` sets up `mountNativeFS('/persist', ...)` against the
+  `agex_persist` OPFS directory. kvgit-py's IDB backend exists, but the
+  studio doesn't use it — Safari/Firefox don't support all the IDB
+  features kvgit-py's IDB backend relies on.
+- **Ts:** kvgit-ts's IDB backend, default `dbName="kvgit-ts"`, with
+  `connectState({ storage: 'indexeddb' })` opening `kvgit/<session>`
+  (for our pinned `session="default"` that's `"kvgit/default"`).
 
-Implication: the studio has two parallel substrates. Cross-kernel
-migration ("convert a py session to ts") isn't a substrate-level
-operation; it'd require replaying through the target kernel's API.
-Bundles produced by the two kernels are likewise distinct (the
-manifest carries a `kernel` field — see Phase 1 work).
+The encoders are also different — kvgit-py uses
+`kvgit.encoding.dumps` (Python pickle-extended), kvgit-ts uses the
+polymorphic encoder from `termish-ts/fs/kvgit`. Even if you forced
+both onto the same substrate, the same logical content would produce
+different hashes on each side. Bytes are not interoperable.
 
-### 3. Cold-start without booting either kernel
+Implication: the studio has two **parallel, asymmetric substrates**.
+Cross-kernel migration ("convert a py session to ts") isn't a
+substrate-level operation; it'd require replaying through the target
+kernel's API. Bundles produced by the two kernels are likewise
+distinct (the manifest carries a `kernel` field — see Phase 1 work).
+
+### 3. Cold-start: localStorage cache is the source of truth
 
 The unified UI's drawer has to render before any kernel is running, so
-the user can browse / pick / open without paying Pyodide cost up front.
-Two layers of read:
+the user can browse / pick / open without paying Pyodide / Worker boot
+cost up front. **The cache is authoritative for the cold-start path.**
 
-- **Pure-JS IDB introspection (no kernel needed).** From the main
-  thread: `indexedDB.databases()` enumerates DB names; opening either
-  store and listing keys with the branch-HEAD prefix yields branch
-  *names*. The values are encoded HEAD hashes, which we don't need to
-  decode for the drawer to show "this session exists."
-- **localStorage metadata cache (write-through).** Title, last-updated,
-  app-storage size, custom name, description — these require the right
-  kernel's decoder to read. We cache them per `(kernel, branch)` in
-  `localStorage` after every read, write through on each commit. Cold
-  app start renders the drawer instantly from cache; revalidation only
-  happens when the user engages with that kernel's sessions.
+How it stays current:
 
-So **Pyodide boots only on user intent to engage with Python**, not on
-"does Python data exist." A user with only TS sessions never pays the
-Pyodide cost; a user with only Py sessions never pays the TS-worker
-cost; mixed-kernel users only warm a kernel when they touch one of its
-sessions.
+- **Adapter writes through to cache on every branch / metadata
+  mutation.** `createBranch`, `deleteBranch`, `writeBranchMeta`,
+  `loadHistory`, etc. update the localStorage cache as a side effect
+  of their kernel call. A new session is visible in the cold-start
+  drawer the moment it's created — no first-boot priming needed beyond
+  the action that created it.
+- **Cache survives across page reloads** (localStorage), shares across
+  tabs at the same origin (so multi-tab session creates show up after
+  the next read in the other tab), and works identically for both
+  kernels — the substrate asymmetry stops being visible at this layer.
+
+What the cache holds: `(kernel, branch)` keys; per-record title, name,
+description, updated, external. Bare branch names alone aren't
+enough; the drawer wants meta to render usefully.
+
+What we deliberately **don't** do:
+
+- **No IDB enumeration as a primary read.** Earlier drafts of this doc
+  proposed `indexedDB.databases()` + branch-HEAD scans across both
+  stores as a recovery layer. That's TS-only at the substrate level
+  (Py is in OPFS, not IDB), and the cache covers the typical case;
+  reaching into IDB to second-guess the cache adds complexity without
+  buying much. `session-index.js` keeps the enum helpers but doesn't
+  use them in the cold-start path; they remain available as a future
+  TS-only recovery hook for "cache cleared but TS data exists" if
+  that case ever needs handling.
+- **No OPFS-side enumeration for Py.** Diskcache stores keys as opaque
+  sqlite blobs; reading them without booting Pyodide isn't worth the
+  effort.
+
+Edge cases the design accepts:
+
+- Cache cleared (devtools "Clear site data") → drawer empty until the
+  user creates a new session (which boots a kernel and re-populates
+  the cache). Agent state isn't lost — it lives in OPFS / IDB — only
+  the index over it.
+- Tab-close mid-write → cache may not reflect the last action; next
+  read after the storage settles picks it up.
+
+So **kernels boot on user intent to engage**, not on "does that
+kernel's data exist." A user with only TS sessions never pays the
+Pyodide cost; a user with only Py sessions never pays the TS worker
+cost; mixed-kernel users only warm a kernel when they touch one of
+its sessions.
 
 ### 4. Init flow: 2-wave Pyodide bootstrap vs. `createAgent` + register
 

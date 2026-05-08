@@ -311,6 +311,12 @@
  * @property {(branch: string, path: string) => Promise<Uint8Array>} readFile
  *   Read a file's bytes from the branch's VFS.  Shell decodes as needed.
  *
+ * @property {(branch: string, path: string) => Promise<number>} fileSize
+ *   Byte length of the file at `path`.  Cheaper than reading the
+ *   full file just to count its size — used by FileModal to render
+ *   the "binary file: NNN bytes" placeholder before any preview
+ *   download.
+ *
  * @property {(branch: string, files: Record<string, Uint8Array>) => Promise<void>} writeFiles
  *   Write multiple files to the branch's VFS in one atomic commit.  The
  *   adapter loops `fs.write(...)` per file; the buffered Staged batches

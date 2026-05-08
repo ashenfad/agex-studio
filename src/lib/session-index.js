@@ -2,34 +2,28 @@
  * Cold-start session index — the unified-app drawer's source of truth
  * before any kernel boots.
  *
- * The studio ships a Py adapter (Pyodide / agex-py) and (eventually) a
- * Ts adapter (Web Worker / agex-ts). They write to *different* IDB
- * databases at the same origin (`kvgit` for py; `kvgit/<session>` for
- * ts), with format-incompatible binary encodings — neither kernel can
- * read the other's data. The drawer needs to render the union of both
- * without paying the boot cost of either.
+ * **The localStorage cache is authoritative.** Kernel adapters write
+ * through to it on every branch / metadata mutation; cold-start renders
+ * directly from `loadCache()`. No reconciliation against the kernel's
+ * own substrate is needed in the typical path — the cache becomes the
+ * unifying primitive that hides the substrate asymmetry between Py
+ * (OPFS / diskcache) and Ts (IndexedDB).
  *
- * Two layers:
+ * The IDB-enumeration helpers in this module (`enumerateBareNames`,
+ * `_readBranchNames`, `reconcileCache`, `reconcileWithBareNames`)
+ * exist for a future TS-only recovery case: if the localStorage cache
+ * is cleared but the Ts kernel's IDB data is intact, the IDB scan
+ * lets us rebuild the cache without booting the worker. They are
+ * **not used in the primary cold-start path** and are TS-specific in
+ * scope (Py's OPFS+diskcache substrate isn't enumerable from JS
+ * without booting Pyodide).
  *
- *   1. **Pure-JS IDB enumeration** (`enumerateBareNames`) — discovers
- *      which kvgit-shaped IDB databases exist via
- *      `indexedDB.databases()` and lists their branch names by
- *      scanning keys with the `__branch_head__` prefix. No kernel
- *      runtime needed. Branch HEAD *values* (encoded commit hashes)
- *      are skipped — we only need the names for "this session
- *      exists."
- *
- *   2. **localStorage metadata cache** (`loadCache` / `cacheSession` /
- *      `uncacheSession`) — title, name, description, updated, and the
- *      external flag. Populated as kernels engage and read metadata;
- *      survives page reloads. Drawer reads from here on cold start
- *      for instant render; revalidation happens lazily as kernels
- *      boot.
- *
- * Reconciliation (`reconcileWithBareNames`) handles drift between the
- * two: a branch removed in another tab is dropped from the cache; a
- * branch present in IDB but absent from the cache is flagged for
- * lazy metadata fill (returned in `missing`).
+ * If you're consuming this module:
+ *   - `loadCache()` / `cacheSession()` / `uncacheSession()` /
+ *     `clearCache()` are the everyday API. Use these.
+ *   - `enumerateBareNames()` and friends are recovery-path only;
+ *     reach for them when implementing a TS-side "rebuild cache from
+ *     IDB" flow, not as a routine consistency check.
  */
 
 const CACHE_KEY = "agex-sessions-cache";
