@@ -117,58 +117,72 @@
         const type = fileType
 
         // Track blob URLs we create so we can revoke them when path
-        // changes — Blob URLs don't get GC'd automatically.
+        // changes — Blob URLs don't get GC'd automatically.  Also
+        // track a `cancelled` flag so that if the effect tears down
+        // *during* an await (e.g. user clicks another file before
+        // readFile resolves), the post-await branch can short-circuit
+        // and revoke any URL it had time to create.
         let createdBlobUrl = null
+        let cancelled = false
 
         const run = async () => {
             try {
                 const { adapter, branch } = await getActiveAdapter()
-                if (path !== currentPath) return
+                if (cancelled) return
 
                 if (type === 'text' || type === 'csv' || type === 'markdown') {
                     const bytes = await adapter.readFile(branch, currentPath)
-                    if (path === currentPath) {
-                        content = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-                    }
+                    if (cancelled) return
+                    content = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
                 } else if (type === 'image') {
                     const bytes = await adapter.readFile(branch, currentPath)
-                    if (path === currentPath) {
-                        const ext = getExt(currentPath)
-                        const mime = ext === '.svg' ? 'image/svg+xml'
-                            : ext === '.gif' ? 'image/gif'
-                            : ext === '.webp' ? 'image/webp'
-                            : ext === '.png' ? 'image/png'
-                            : 'image/jpeg'
-                        createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
-                        content = createdBlobUrl
+                    if (cancelled) return
+                    const ext = getExt(currentPath)
+                    const mime = ext === '.svg' ? 'image/svg+xml'
+                        : ext === '.gif' ? 'image/gif'
+                        : ext === '.webp' ? 'image/webp'
+                        : ext === '.png' ? 'image/png'
+                        : 'image/jpeg'
+                    createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
+                    if (cancelled) {
+                        // Effect torn down between createObjectURL and
+                        // assignment — clean up the just-leaked URL.
+                        URL.revokeObjectURL(createdBlobUrl)
+                        createdBlobUrl = null
+                        return
                     }
+                    content = createdBlobUrl
                 } else if (type === 'pdf') {
                     const bytes = await adapter.readFile(branch, currentPath)
-                    if (path !== currentPath) return
+                    if (cancelled) return
                     content = 'pdf'  // truthy sentinel; we render into pdfContainer below
                     loading = false
                     await tick()
-                    if (pdfContainer && path === currentPath) {
+                    if (cancelled) return
+                    if (pdfContainer) {
                         pdfContainer.innerHTML = ''
                         await renderPdf(bytes, pdfContainer)
                     }
                     return  // skip the finally-loading toggle; already handled
                 } else {
                     const s = await adapter.fileSize(branch, currentPath)
-                    if (path === currentPath) size = s
+                    if (cancelled) return
+                    size = s
                 }
             } catch (e) {
-                if (path === currentPath) error = e.message
+                if (!cancelled) error = e.message
             } finally {
-                if (path === currentPath) loading = false
+                if (!cancelled) loading = false
             }
         }
         run()
 
-        // Cleanup on path change / unmount: revoke any blob URL we
-        // created above. Captured by closure — the cleanup fires
-        // before the next $effect run.
+        // Cleanup on path change / unmount: mark cancelled, then
+        // revoke whatever blob URL exists. The cancelled flag closes
+        // the race where `run()` is in the middle of an await; the
+        // post-await branches re-check `cancelled` and short-circuit.
         return () => {
+            cancelled = true
             if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl)
         }
     })

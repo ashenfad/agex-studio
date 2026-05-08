@@ -96,6 +96,98 @@ describe("kernelRegistry.ensure", () => {
             registry.ensure("ts", { apiKey: "k", model: "m" }),
         ).rejects.toThrow(/ts kernel adapter not yet implemented/);
     });
+
+    it("fans onStage milestones out to multiple listeners", async () => {
+        const registry = createKernelRegistry();
+        const stages1 = [];
+        const stages2 = [];
+        // Use a slow init so we can register the second listener
+        // before any stage fires.
+        let resolveInit;
+        let dispatchedFromInit = null;
+        mockInitImpl = async (_settings, opts) => {
+            dispatchedFromInit = opts.onStage;
+            await new Promise((r) => { resolveInit = r; });
+            // Fire stages once both listeners have registered
+            await opts.onStage("history-ready");
+            await opts.onStage("send-ready");
+        };
+
+        const p1 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: (s) => { stages1.push(s); },
+        });
+        // Second caller registers an onStage on the in-flight init
+        const p2 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: (s) => { stages2.push(s); },
+        });
+        // Both ensure calls await the same init; let it run
+        resolveInit();
+        await Promise.all([p1, p2]);
+
+        // Both listeners saw both stages
+        expect(stages1).toEqual(["history-ready", "send-ready"]);
+        expect(stages2).toEqual(["history-ready", "send-ready"]);
+        // The init was passed a dispatcher (not the raw caller's onStage)
+        expect(dispatchedFromInit).not.toBe(stages1);
+    });
+
+    it("late-registered onStage listeners only see subsequent stages", async () => {
+        const registry = createKernelRegistry();
+        const earlyStages = [];
+        const lateStages = [];
+        let resolveAfterFirstStage;
+        let registryDispatcher;
+        mockInitImpl = async (_settings, opts) => {
+            registryDispatcher = opts.onStage;
+            await opts.onStage("history-ready");
+            // Pause so the test can register a late listener BETWEEN
+            // history-ready and send-ready.
+            await new Promise((r) => { resolveAfterFirstStage = r; });
+            await opts.onStage("send-ready");
+        };
+
+        const p1 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: (s) => { earlyStages.push(s); },
+        });
+        // Wait until the first stage has fired
+        await new Promise((r) => setTimeout(r, 5));
+        // Now register a late listener — should only see send-ready
+        const p2 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: (s) => { lateStages.push(s); },
+        });
+        resolveAfterFirstStage();
+        await Promise.all([p1, p2]);
+
+        expect(earlyStages).toEqual(["history-ready", "send-ready"]);
+        // No replay — late listener only saw post-registration stages.
+        expect(lateStages).toEqual(["send-ready"]);
+    });
+
+    it("a throwing onStage listener doesn't break others", async () => {
+        const registry = createKernelRegistry();
+        const goodStages = [];
+        let resolveInit;
+        mockInitImpl = async (_settings, opts) => {
+            await new Promise((r) => { resolveInit = r; });
+            await opts.onStage("history-ready");
+        };
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        // Register both listeners BEFORE init's onStage fires.
+        const p1 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: () => { throw new Error("oops"); },
+        });
+        const p2 = registry.ensure("py", { apiKey: "k", model: "m" }, {
+            onStage: (s) => { goodStages.push(s); },
+        });
+        resolveInit();
+        await Promise.all([p1, p2]);
+
+        // Bad listener swallowed via console.warn; good listener still ran.
+        expect(goodStages).toEqual(["history-ready"]);
+        expect(warnSpy).toHaveBeenCalled();
+        warnSpy.mockRestore();
+    });
 });
 
 describe("kernelRegistry.has / get", () => {

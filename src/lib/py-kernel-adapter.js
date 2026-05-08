@@ -65,28 +65,37 @@ import { runPython, startWorker, startWave3, pyodideStore } from "./pyodide.js";
 
 const STAGE_ORDER = ["idle", "loading", "history-ready", "send-ready"];
 
-/** Resolve once `pyodideStore` reaches `target` (or higher). */
+/** Resolve once `pyodideStore` reaches `target` (or higher).
+ *
+ *  Svelte stores invoke the subscriber synchronously on `subscribe(...)`.
+ *  If the store is already past `target`, the subscriber sets `settled`
+ *  and tries to call `unsub()` — but `unsub` hasn't been assigned yet
+ *  at that point, so the subscription would leak. The post-subscribe
+ *  fixup line catches that case: when the synchronous fire already
+ *  resolved, we call the now-defined `unsub` from the outer scope. */
 function _waitForStage(target) {
     const targetIdx = STAGE_ORDER.indexOf(target);
     return new Promise((resolve, reject) => {
         let unsub = null;
         let settled = false;
-        const stop = () => {
-            settled = true;
-            if (unsub) unsub();
-        };
         unsub = pyodideStore.subscribe((s) => {
             if (settled) return;
             if (s.stage === "error") {
-                stop();
+                settled = true;
+                if (unsub) unsub();
                 reject(new Error(s.error || "pyodide stage error"));
                 return;
             }
             if (STAGE_ORDER.indexOf(s.stage) >= targetIdx) {
-                stop();
+                settled = true;
+                if (unsub) unsub();
                 resolve();
             }
         });
+        // Subscriber may have settled synchronously above (store
+        // already at or past target). `unsub` was null at that
+        // moment; call it now that we have the real reference.
+        if (settled && unsub) unsub();
     });
 }
 
@@ -94,9 +103,18 @@ function _waitForStage(target) {
  *  Branch names from session creation are uuid-style, so this is
  *  defense-in-depth — but external bundles can land arbitrary strings
  *  on import, and we want the kvgit reads/writes to fail loudly rather
- *  than silently target the wrong branch on a malformed name. */
+ *  than silently target the wrong branch on a malformed name.
+ *
+ *  Escapes backslashes, double quotes, and newlines — a literal
+ *  newline in a branch name would terminate the Python string literal
+ *  inside the heredoc and produce a SyntaxError in the worker.
+ *  (sessions.js uses a similar two-replace pattern; once Phase 5
+ *  surfaces a real cross-kernel escaper need, consolidate.) */
 function _esc(branch) {
-    return String(branch || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return String(branch || "")
+        .replace(/\\/g, "\\\\")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, "\\n");
 }
 
 function _b64encode(bytes) {
