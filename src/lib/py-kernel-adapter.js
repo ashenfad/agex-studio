@@ -34,6 +34,7 @@ import {
     downloadFile as agentDownloadFile,
     uploadFiles as agentUploadFiles,
     deleteFiles as agentDeleteFiles,
+    readAppFiles as agentReadAppFiles,
     sendMessage as agentSendMessage,
     runQuery as agentRunQuery,
     runChaptering as agentRunChaptering,
@@ -374,6 +375,11 @@ finally:
         async deleteFiles(branch, paths) {
             await _ensureBranch(branch);
             await agentDeleteFiles(paths);
+        },
+
+        async readAppFiles(branch) {
+            await _ensureBranch(branch);
+            return agentReadAppFiles();
         },
 
         // --- Bundle payloads --------------------------------------------
