@@ -134,3 +134,17 @@ export function copy(kernel, srcBranch, dstBranch) {
     if (Object.keys(data).length === 0) return;
     write(kernel, dstBranch, data);
 }
+
+/**
+ * Wipe every app-storage entry across all sessions. Used by the
+ * "Purge all data" flow alongside IDB / cache deletion. Preserves
+ * unrelated localStorage entries (settings, API keys, UI prefs).
+ */
+export function clearAll() {
+    const toDelete = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(PREFIX)) toDelete.push(k);
+    }
+    for (const k of toDelete) localStorage.removeItem(k);
+}

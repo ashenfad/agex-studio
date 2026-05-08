@@ -32,7 +32,9 @@ function _decorateAppStorage(sessions) {
     }));
 }
 
-const CURRENT_BRANCH_KEY = "agex-current-branch";
+/** localStorage key for the active-session pointer. Exported so the
+ *  purge flow can wipe it alongside the rest of the session state. */
+export const CURRENT_BRANCH_KEY = "agex-current-branch";
 
 /** @type {((s: SessionState) => void)[]} */
 let subscribers = [];
