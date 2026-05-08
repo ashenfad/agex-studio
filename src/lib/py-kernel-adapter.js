@@ -30,7 +30,8 @@ import {
     initAgentBasics,
     initAgentRich,
     listFiles as agentListFiles,
-    readFile as agentReadFile,
+    fileSize as agentFileSize,
+    downloadFile as agentDownloadFile,
     uploadFiles as agentUploadFiles,
     deleteFiles as agentDeleteFiles,
     sendMessage as agentSendMessage,
@@ -98,8 +99,18 @@ function _esc(branch) {
 }
 
 function _b64encode(bytes) {
+    // Chunked apply: `String.fromCharCode(...arr)` blows the call
+    // stack on multi-MB Uint8Arrays, and byte-at-a-time concat is
+    // O(n²). 8192 is a typical safe chunk size that keeps both
+    // failure modes off the table for files up to ~hundreds of MB.
+    const CHUNK = 8192;
     let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(
+            null,
+            bytes.subarray(i, i + CHUNK),
+        );
+    }
     return btoa(bin);
 }
 
@@ -337,13 +348,17 @@ finally:
 
         async readFile(branch, path) {
             await _ensureBranch(branch);
-            // Existing readFile returns the decoded UTF-8 string; the
-            // adapter contract is bytes. Re-encode to bytes here. Lossy
-            // for binary files — once call-site migration lands, the
-            // existing readFile will be replaced with one that returns
-            // raw bytes natively (using fs.read(path) directly).
-            const text = await agentReadFile(path);
-            return new TextEncoder().encode(text);
+            // Use the base64 transport so binary files round-trip
+            // intact. The agent.js text-decoded `readFile` is lossy
+            // for non-UTF-8 content; `downloadFile` returns base64 of
+            // the raw bytes which we decode back to a Uint8Array.
+            const b64 = await agentDownloadFile(path);
+            return _b64decode(b64);
+        },
+
+        async fileSize(branch, path) {
+            await _ensureBranch(branch);
+            return agentFileSize(path);
         },
 
         async writeFiles(branch, files) {

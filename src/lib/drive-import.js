@@ -13,7 +13,7 @@
 
 import { requestAccessToken, isGoogleAvailable } from "./google-auth.js";
 import { openPicker, isPickerAvailable } from "./google-picker.js";
-import { writeDownloadedFile } from "./pyodide.js";
+import { getActiveAdapter } from "./active-adapter.js";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
 
@@ -122,27 +122,38 @@ export async function importFromDrive() {
         const picked = await openPicker(token);
         if (picked.length === 0) return [];
 
-        // 3. Download each file in parallel and write to worker VFS.
-        //    Errors on individual files surface but don't abort the batch.
-        const written = [];
-        const errors = [];
-        await Promise.all(picked.map(async (file) => {
-            try {
+        // 3. Fetch each file in parallel; collect successes and surface
+        //    per-file errors. allSettled (not all) so one bad fetch
+        //    doesn't drop the whole batch.
+        const results = await Promise.allSettled(
+            picked.map(async (file) => {
                 const { filename, bytes } = await _fetchFile(file, token);
-                const path = `downloads/${filename}`;
-                await writeDownloadedFile(path, bytes);
-                written.push(path);
-            } catch (e) {
-                errors.push(`${file.name}: ${e.message}`);
-            }
-        }));
+                return { path: `downloads/${filename}`, bytes };
+            }),
+        );
 
+        const writeBatch = {};
+        const errors = [];
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            if (r.status === "fulfilled") {
+                writeBatch[r.value.path] = r.value.bytes;
+            } else {
+                errors.push(`${picked[i].name}: ${r.reason?.message || r.reason}`);
+            }
+        }
         if (errors.length > 0) {
-            // Write errors to the return channel but don't throw — the
-            // files that did download are still useful.
             console.warn("[drive-import] Some files failed:", errors);
         }
 
+        // 4. One adapter write commits all the downloads atomically;
+        //    one kvgit commit instead of N (the previous per-file
+        //    `writeDownloadedFile` path).
+        const written = Object.keys(writeBatch);
+        if (written.length > 0) {
+            const { adapter, branch } = await getActiveAdapter();
+            await adapter.writeFiles(branch, writeBatch);
+        }
         return written;
     } finally {
         // Token falls out of scope — main thread drops its reference.

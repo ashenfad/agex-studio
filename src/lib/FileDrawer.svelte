@@ -1,7 +1,7 @@
 <script>
-    import { uploadFiles, downloadFile, deleteFiles, listFiles } from './agent.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
-    import { sessionStore, getCurrentCommit } from './sessions.js'
+    import { sessionStore } from './sessions.js'
+    import { getActiveAdapter } from './active-adapter.js'
     import FileModal from './FileModal.svelte'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
@@ -25,7 +25,8 @@
             const written = await importFromDrive()
             if (written.length > 0) {
                 // Refresh the file list so /downloads/... appear
-                onFilesChanged?.(await listFiles())
+                const { adapter, branch } = await getActiveAdapter()
+                onFilesChanged?.(await adapter.listFiles(branch))
             }
         } catch (e) {
             console.error('Drive import failed:', e)
@@ -58,9 +59,9 @@
         if (selected.size === 0 || operating) return
         operating = true
         try {
+            const { adapter, branch } = await getActiveAdapter()
             for (const path of selected) {
-                const b64 = await downloadFile(path)
-                const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+                const bytes = await adapter.readFile(branch, path)
                 const blob = new Blob([bytes])
                 const url = URL.createObjectURL(blob)
                 const a = document.createElement('a')
@@ -81,31 +82,16 @@
         const names = [...selected]
         operating = true
         try {
-            const commitHash = await getCurrentCommit()
-            const driveNames = names.filter(n => n.startsWith('drive/'))
-            const regularNames = names.filter(n => !n.startsWith('drive/'))
-
-            // Unshare drive files by removing matching picks
-            if (driveNames.length) {
-                const current = await getDrivePicks()
-                // Match picks whose name appears as the path component after drive/
-                // Handles extensions: drive/Doc.md → pick name "Doc", drive/Slides.pdf → "Slides"
-                const driveParts = driveNames.map(n => n.slice('drive/'.length).split('/')[0])
-                const updated = current.filter(f =>
-                    !driveParts.some(p => p === f.name || p.startsWith(f.name + '.'))
-                )
-                setDriveFiles(updated)
-                await setDrivePicks(updated)
-            }
-
-            // Delete regular files
-            if (regularNames.length) {
-                await deleteFiles(regularNames)
-            }
+            const { adapter, branch } = await getActiveAdapter()
+            const commitHash = await adapter.getCurrentCommit(branch)
+            // The legacy `/drive/` live mount is gone — Drive imports
+            // now land under `/downloads/` and are deleted like any
+            // other VFS file. Filter dropped.
+            await adapter.deleteFiles(branch, names)
 
             onDelete?.(names, commitHash)
             selected = new Set()
-            onFilesChanged?.(await listFiles())
+            onFilesChanged?.(await adapter.listFiles(branch))
         } catch (e) {
             console.error('Delete failed:', e)
         } finally {
@@ -117,20 +103,14 @@
         if (!fileList.length) return
         uploading = true
         try {
-            const payload = []
+            const files = {}
             for (const file of fileList) {
-                const buf = await file.arrayBuffer()
-                const bytes = new Uint8Array(buf)
-                let binary = ''
-                for (let j = 0; j < bytes.length; j += 8192) {
-                    binary += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192))
-                }
-                const b64 = btoa(binary)
-                payload.push({ name: file.name, data: b64 })
+                files[file.name] = new Uint8Array(await file.arrayBuffer())
             }
-            const commitHash = await getCurrentCommit()
-            await uploadFiles(payload)
-            onUpload?.(payload.map(f => f.name), commitHash)
+            const { adapter, branch } = await getActiveAdapter()
+            const commitHash = await adapter.getCurrentCommit(branch)
+            await adapter.writeFiles(branch, files)
+            onUpload?.(Object.keys(files), commitHash)
         } catch (e) {
             console.error('Upload failed:', e)
         } finally {

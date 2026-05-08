@@ -1,7 +1,7 @@
 <script>
     import { highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
-    import { readFile, downloadFile, fileSize } from './agent.js'
+    import { getActiveAdapter } from './active-adapter.js'
     import { tick } from 'svelte'
     import Papa from 'papaparse'
 
@@ -80,9 +80,8 @@
         return window.pdfjsLib
     }
 
-    async function renderPdf(b64, container) {
+    async function renderPdf(bytes, container) {
         const pdfjsLib = await loadPdfJs()
-        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
         const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
         const containerWidth = container.clientWidth
 
@@ -117,14 +116,22 @@
         const currentPath = path
         const type = fileType
 
-        if (type === 'text' || type === 'csv' || type === 'markdown') {
-            readFile(currentPath)
-                .then(text => { if (path === currentPath) content = text })
-                .catch(e => { if (path === currentPath) error = e.message })
-                .finally(() => { if (path === currentPath) loading = false })
-        } else if (type === 'image') {
-            downloadFile(currentPath)
-                .then(b64 => {
+        // Track blob URLs we create so we can revoke them when path
+        // changes — Blob URLs don't get GC'd automatically.
+        let createdBlobUrl = null
+
+        const run = async () => {
+            try {
+                const { adapter, branch } = await getActiveAdapter()
+                if (path !== currentPath) return
+
+                if (type === 'text' || type === 'csv' || type === 'markdown') {
+                    const bytes = await adapter.readFile(branch, currentPath)
+                    if (path === currentPath) {
+                        content = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+                    }
+                } else if (type === 'image') {
+                    const bytes = await adapter.readFile(branch, currentPath)
                     if (path === currentPath) {
                         const ext = getExt(currentPath)
                         const mime = ext === '.svg' ? 'image/svg+xml'
@@ -132,33 +139,37 @@
                             : ext === '.webp' ? 'image/webp'
                             : ext === '.png' ? 'image/png'
                             : 'image/jpeg'
-                        content = `data:${mime};base64,${b64}`
+                        createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
+                        content = createdBlobUrl
                     }
-                })
-                .catch(e => { if (path === currentPath) error = e.message })
-                .finally(() => { if (path === currentPath) loading = false })
-        } else if (type === 'pdf') {
-            downloadFile(currentPath)
-                .then(async b64 => {
+                } else if (type === 'pdf') {
+                    const bytes = await adapter.readFile(branch, currentPath)
                     if (path !== currentPath) return
-                    content = b64
+                    content = 'pdf'  // truthy sentinel; we render into pdfContainer below
                     loading = false
                     await tick()
                     if (pdfContainer && path === currentPath) {
                         pdfContainer.innerHTML = ''
-                        try {
-                            await renderPdf(b64, pdfContainer)
-                        } catch (e) {
-                            error = e.message
-                        }
+                        await renderPdf(bytes, pdfContainer)
                     }
-                })
-                .catch(e => { if (path === currentPath) { error = e.message; loading = false } })
-        } else {
-            fileSize(currentPath)
-                .then(s => { if (path === currentPath) size = s })
-                .catch(e => { if (path === currentPath) error = e.message })
-                .finally(() => { if (path === currentPath) loading = false })
+                    return  // skip the finally-loading toggle; already handled
+                } else {
+                    const s = await adapter.fileSize(branch, currentPath)
+                    if (path === currentPath) size = s
+                }
+            } catch (e) {
+                if (path === currentPath) error = e.message
+            } finally {
+                if (path === currentPath) loading = false
+            }
+        }
+        run()
+
+        // Cleanup on path change / unmount: revoke any blob URL we
+        // created above. Captured by closure — the cleanup fires
+        // before the next $effect run.
+        return () => {
+            if (createdBlobUrl) URL.revokeObjectURL(createdBlobUrl)
         }
     })
 
@@ -168,8 +179,8 @@
 
     async function handleDownload() {
         try {
-            const b64 = await downloadFile(path)
-            const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+            const { adapter, branch } = await getActiveAdapter()
+            const bytes = await adapter.readFile(branch, path)
             const blob = new Blob([bytes])
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
