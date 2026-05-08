@@ -1,23 +1,20 @@
 /**
- * `getActiveAdapter` — resolve the kernel adapter for the currently
- * active session.
+ * Adapter-resolver helpers — the single chokepoint for "give me the
+ * adapter for kernel X" across the studio shell.
  *
- * The studio shell exposes a "current session" via `sessionStore`.
- * Most kernel-touching call sites (FileDrawer, AppPreview, etc.)
- * operate on that active session; this helper centralizes the
- * (kernel, branch, adapter) lookup so individual components don't
- * each re-derive it.
- *
- * Side-effecting: calls `kernelRegistry.ensure(...)`, which lazy-boots
- * the kernel if it hasn't started yet. Most call sites fire after
- * ChatShell has already booted the kernel, so this is a no-op fast
- * path; cold-start callers (cache-only drawer renders, etc.) get the
- * boot here.
+ * Why a shared helper: two earlier bugs (one in `getActiveAdapter`,
+ * one in sessions.js's `_adapterEnsure`) had the same shape — a
+ * caller fired from inside `kernelRegistry.ensure(...)`'s onStage
+ * callback re-entered `ensure(...)` and deadlocked awaiting its own
+ * init promise. The fix is the same in both cases: prefer the sync
+ * `get()` (returns the constructed adapter even mid-init) over the
+ * awaiting `ensure()`. Centralizing here means the deadlock-avoidance
+ * lives in one place; future callers can't accidentally regress.
  *
  * Reads `sessionStore` and `settingsStore` synchronously via
  * `svelte/store`'s `get` — adequate for the imperative call sites
- * that use this helper. Reactive consumers should subscribe to those
- * stores directly and call this helper from event handlers.
+ * that use these helpers. Reactive consumers should subscribe to
+ * those stores directly and call from event handlers.
  */
 
 import { get } from "svelte/store";
@@ -37,6 +34,22 @@ import { settingsStore } from "./settings.js";
  */
 
 /**
+ * Resolve the adapter for a specific kernel. Boots if not already
+ * booted; returns the existing adapter if it is — including
+ * mid-init (the adapter is constructed synchronously, only its
+ * `init()` promise is in flight). The mid-init fast path is what
+ * makes this safe to call from inside an onStage callback.
+ *
+ * @param {'py' | 'ts'} kernel
+ * @returns {Promise<KernelAdapter>}
+ */
+export async function resolveAdapter(kernel) {
+    const existing = kernelRegistry.get(kernel);
+    if (existing) return existing;
+    return kernelRegistry.ensure(kernel, get(settingsStore));
+}
+
+/**
  * Resolve and return the adapter + branch for whatever session is
  * currently active. Boots the kernel if needed.
  *
@@ -45,15 +58,6 @@ import { settingsStore } from "./settings.js";
  * target the original branch (which is what the user would expect:
  * the operation they started on session X lands on session X).
  *
- * Prefers `kernelRegistry.get(kernel)` over `ensure(...)` so callers
- * inside an adapter's own init flow (notably ChatShell's onStage
- * callback that fires from inside `kernelRegistry.ensure`) don't
- * deadlock awaiting the init promise that just called them. The
- * adapter is already constructed at that point — only its init is
- * mid-flight, and the methods called from onStage operate against
- * post-Wave-2 state which is already live by then. Callers from
- * outside any init flow get the ensure() fast path on cold start.
- *
  * @returns {Promise<ActiveAdapter>}
  */
 export async function getActiveAdapter() {
@@ -61,9 +65,6 @@ export async function getActiveAdapter() {
     const branch = ss.currentBranch;
     const session = ss.sessions.find((s) => s.branch === branch);
     const kernel = /** @type {'py' | 'ts'} */ (session?.kernel || "py");
-    let adapter = kernelRegistry.get(kernel);
-    if (!adapter) {
-        adapter = await kernelRegistry.ensure(kernel, get(settingsStore));
-    }
+    const adapter = await resolveAdapter(kernel);
     return { adapter, branch, kernel };
 }
