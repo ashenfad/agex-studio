@@ -1,8 +1,9 @@
 <script>
-    import { readAppFiles, runQuery, disableQueries, enableQueries } from './agent.js'
+    import { disableQueries, enableQueries } from './agent.js'
     import { buildAppHtml, setLiveIframe } from './pyodide.js'
     import { sessionStore } from './sessions.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
+    import { getActiveAdapter } from './active-adapter.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
@@ -20,12 +21,16 @@
     let iframeReady = $state(false)
     let iframeReadyTimer = null
 
-    // The (kernel, branch) this iframe was built against. App-storage
-    // writes posted from the iframe are persisted under this pair, not
-    // the live $sessionStore.currentBranch — preserves correct routing
-    // if the user switches sessions mid-flight.
+    // The (kernel, branch, adapter) this iframe was built against.
+    // App-storage writes posted from the iframe are persisted under
+    // this pair, not the live $sessionStore.currentBranch — preserves
+    // correct routing if the user switches sessions mid-flight. The
+    // adapter is captured once at loadPreview time so the synchronous
+    // query-message handler can dispatch without an extra await.
     let appBranch = ''
     let appKernel = 'py'
+    /** @type {import('./kernel-adapter.js').KernelAdapter | null} */
+    let appAdapter = null
     let pendingStorageData = null
     let storageFlushTimer = null
     const STORAGE_FLUSH_MS = 300
@@ -170,16 +175,17 @@
         loading = true
         error = ''
         try {
-            const appFiles = await readAppFiles()
+            const { adapter, branch, kernel } = await getActiveAdapter()
+            appAdapter = adapter
+            appBranch = branch
+            appKernel = kernel
+            const appFiles = await adapter.readAppFiles(branch)
             if (!appFiles || Object.keys(appFiles).length === 0) {
                 error = 'No app files found'
                 return
             }
 
-            appBranch = $sessionStore.currentBranch
-            const session = $sessionStore.sessions.find(s => s.branch === appBranch)
-            appKernel = session?.kernel || 'py'
-            const seed = appBranch ? readAppStorage(appKernel, appBranch) : {}
+            const seed = branch ? readAppStorage(kernel, branch) : {}
             const html = buildAppHtml(appFiles, {
                 appStorage: { seed, writeable: true },
             })
@@ -225,7 +231,20 @@
             return
         }
 
-        runQuery(code, result)
+        if (!appAdapter) {
+            // Iframe sent a query before the adapter was captured —
+            // shouldn't happen in practice (query messages only fire
+            // after the iframe loads, which is after loadPreview's
+            // adapter capture), but be defensive.
+            iframe?.contentWindow?.postMessage({
+                type: 'agex-query-result',
+                id,
+                data: null,
+                error: 'app preview adapter not ready',
+            }, '*')
+            return
+        }
+        appAdapter.runQuery(appBranch, code, result)
             .then(data => {
                 iframe?.contentWindow?.postMessage({
                     type: 'agex-query-result',

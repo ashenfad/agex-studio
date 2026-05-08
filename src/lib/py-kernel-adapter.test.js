@@ -36,6 +36,7 @@ const EXPECTED_METHODS = [
     "fileSize",
     "writeFiles",
     "deleteFiles",
+    "readAppFiles",
     // Bundle payloads
     "exportBundlePayload",
     "importBundlePayload",

@@ -325,6 +325,13 @@
  * @property {(branch: string, paths: string[]) => Promise<void>} deleteFiles
  *   Remove multiple files atomically (one commit).
  *
+ * @property {(branch: string) => Promise<Record<string, string>>} readAppFiles
+ *   Read every text file under `app/` in one call, returning a
+ *   path-to-string dict.  Used by AppPreview to build the iframe
+ *   HTML.  UTF-8 decoded with `errors="replace"`; treats app/ as
+ *   source-text-only by convention.  Saves N JS↔kernel round-trips
+ *   over per-file `readFile` for typical multi-file apps.
+ *
  * --- Bundle payloads (kvgit subgraph only — shell handles app-storage) ---
  *
  * @property {(branch: string, opts?: ExportBundleOptions) => Promise<BundlePayload>} exportBundlePayload
