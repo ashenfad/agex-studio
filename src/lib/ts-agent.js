@@ -26,15 +26,25 @@
  */
 
 import { createAgent } from "agex-ts";
+import { Anthropic } from "agex-anthropic";
+import { OpenAI } from "agex-openai";
+import { workerRuntime } from "agex-runtime-worker";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
+ * @typedef {import('agex-ts').LLMClient} LLMClient
  * @typedef {import('kvgit-ts').VersionedKV} VersionedKV
  * @typedef {import('./kernel-adapter.js').KernelSettings} KernelSettings
  * @typedef {import('./kernel-adapter.js').BranchMeta} BranchMeta
  */
 
 const SESSION = "default";
+
+/** Default chaptering trigger when settings.chapteringTrigger is unset.
+ *  Mirrors the value the studio's Py side passes. Big enough to avoid
+ *  thrashing for short conversations; well below typical context
+ *  windows so multi-turn sessions actually fold. */
+const DEFAULT_CHAPTERING_TRIGGER = 100_000;
 
 const META_KEYS = /** @type {const} */ ({
     title: "__session_title__",
@@ -57,21 +67,63 @@ let _activeBranch = /** @type {string | null} */ (null);
 /**
  * Construct (or reuse) the agex-ts Agent for the studio.  Idempotent
  * for the lifetime of the page — the second caller's settings are
- * ignored.  PR 2 will add llm + runtime + chat task here.
+ * ignored.
  *
- * @param {KernelSettings} _settings
+ * @param {KernelSettings} settings
  */
-export async function initAgent(_settings) {
+export async function initAgent(settings) {
     if (_agent) return;
+    const llm = _buildLlmClient(settings);
+    const runtime = workerRuntime({
+        // Vite resolves `new URL('./worker.js', import.meta.url)`
+        // inside the agex-runtime-worker package via its own
+        // import.meta context, so we just pass the default by
+        // omitting `workerUrl` — agex-runtime-worker handles it.
+    });
     _agent = await createAgent({
         name: "chat",
-        // PR 2: add `llm`, `runtime`, `chapteringTrigger`, and a
-        // `chapterTask` registration here. Without llm/runtime the
-        // agent can't run tasks but state/fs/events ops all work,
-        // which is enough surface for the branch / VFS / bundle /
-        // telemetry methods this PR exercises.
+        primer: "You are a helpful assistant.",
+        llm,
+        runtime,
         state: { type: "versioned", storage: "indexeddb" },
         fs: { type: "kvgit" },
+        chapteringTrigger:
+            typeof settings.chapteringTrigger === "number"
+                ? settings.chapteringTrigger
+                : DEFAULT_CHAPTERING_TRIGGER,
+    });
+    // Chat task + skills get registered by the caller (ts-kernel-adapter
+    // wires this up after init resolves) so the registration code stays
+    // alongside the adapter's task surface rather than spreading across
+    // two files. PR 2a-ii will land that registration.
+}
+
+/** Construct the LLM client for the configured provider. The studio's
+ *  settings shape (apiKey / model / provider / baseUrl /
+ *  reasoningEffort / toolUseWireFormat) is already kernel-agnostic; we
+ *  just translate to the right provider's options shape. */
+function _buildLlmClient(settings) {
+    const provider = settings.provider || "anthropic";
+    const apiKey = settings.apiKey;
+    const model = settings.model;
+    if (!apiKey) {
+        throw new Error("LLM API key required");
+    }
+    if (!model) {
+        throw new Error("LLM model required");
+    }
+    if (provider === "anthropic") {
+        return new Anthropic({
+            apiKey,
+            model,
+            ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
+        });
+    }
+    // openai / openai-compatible (OpenRouter, local servers, etc.)
+    return new OpenAI({
+        apiKey,
+        model,
+        ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
     });
 }
 
