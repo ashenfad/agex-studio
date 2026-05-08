@@ -73,11 +73,50 @@ export const CURRENT_BRANCH_KEY = "agex-current-branch";
  */
 
 /** @type {SessionState} */
-let state = {
-    currentBranch: "",
-    sessions: [],
-    currentSessionExternal: false,
-};
+let state = _initialStateFromCache();
+
+/** Build the in-memory session state from the localStorage cache so
+ *  the drawer can render before any kernel boots. ChatShell's
+ *  runStartup will overwrite this with live data once init resolves;
+ *  the cache version is the cold-start UX win — drawer is interactive
+ *  immediately, no "Loading sessions..." gap.
+ *
+ *  Reads `CURRENT_BRANCH_KEY` from localStorage as the active session
+ *  pointer; falls back to the most-recently-updated cached session if
+ *  the saved pointer doesn't match anything in cache (cache cleared,
+ *  session deleted in another tab, etc.).
+ */
+function _initialStateFromCache() {
+    /** @type {Session[]} */
+    let sessions = [];
+    let currentBranch = "";
+    let currentSessionExternal = false;
+    try {
+        const cached = loadSessionCache();
+        sessions = cached.map((r) => ({
+            branch: r.branch,
+            title: r.title || "New Chat",
+            name: r.name || "",
+            description: r.description || "",
+            updated: r.updated || "",
+            external: !!r.external,
+            kernel: r.kernel,
+            app_storage_bytes: appStorageSize(r.kernel, r.branch),
+        }));
+        sessions.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+        const saved = localStorage.getItem(CURRENT_BRANCH_KEY) || "";
+        if (saved && sessions.some((s) => s.branch === saved)) {
+            currentBranch = saved;
+        } else if (sessions.length > 0) {
+            currentBranch = sessions[0].branch;
+        }
+        const cur = sessions.find((s) => s.branch === currentBranch);
+        currentSessionExternal = !!(cur && cur.external);
+    } catch {
+        // Best-effort; bail to empty state on any cache read failure.
+    }
+    return { currentBranch, sessions, currentSessionExternal };
+}
 
 /** @type {((s: SessionState) => void)[]} */
 let subscribers = [];
