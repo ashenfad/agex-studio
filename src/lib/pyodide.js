@@ -143,13 +143,6 @@ export function startWorker() {
             handleLlmStream(msg.requestJson, msg.id);
         } else if (msg.type === "llm-stream-cancel") {
             cancelLlmStream(msg.id);
-        } else if (msg.type === "write-downloaded-file-result") {
-            const entry = downloadWritePending.get(msg.id);
-            if (entry) {
-                downloadWritePending.delete(msg.id);
-                if (msg.error) entry.reject(new Error(msg.error));
-                else entry.resolve();
-            }
         }
     };
 
@@ -514,7 +507,7 @@ export function setLiveIframe(iframe) {
 // warnings — those fire as error events on elements (img/script/etc.)
 // and DON'T bubble to window.onerror, so a capture-phase listener is
 // needed to see them.
-export const CONSOLE_INTERCEPTOR = `
+const CONSOLE_INTERCEPTOR = `
 <script>
 (function() {
     window.__agex_logs = [];
@@ -558,7 +551,7 @@ export const CONSOLE_INTERCEPTOR = `
 })();
 <\/script>`;
 
-export const QUERY_BRIDGE_SCRIPT = `
+const QUERY_BRIDGE_SCRIPT = `
 <script>
 window.query = function(opts) {
     if (typeof opts === 'string') opts = { code: opts };
@@ -595,6 +588,9 @@ window.query = function(opts) {
  * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
  * @returns {string}
  */
+// Exported so pyodide.test.js can verify the shim's seed encoding,
+// quota, and writeable=false read-only path. Otherwise internal —
+// callers should go through buildAppHtml.
 export function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
@@ -696,7 +692,7 @@ export function buildAppStorageShim(opts = {}) {
 // allow-same-origin). The dispatch logic lives in ./iframe-bridge.js;
 // this is just the inline-module shim that imports it by text and wires
 // to the iframe's window.
-export const AGENT_CONTROL_BRIDGE_SCRIPT = `
+const AGENT_CONTROL_BRIDGE_SCRIPT = `
 <script type="module">
 ${_iframeBridgeSource}
 installControlBridge(window);
@@ -1244,34 +1240,6 @@ async function runLiveApp(actionsJson, requestId) {
         });
     }
 }
-
-/**
- * Write a downloaded file (e.g. from Drive import) to the agent's VFS.
- * The main thread fetches bytes and passes them here; the worker does
- * the actual VFS write. Returns when the write is confirmed.
- *
- * @param {string} path - VFS-relative path (e.g. "downloads/foo.xlsx")
- * @param {Uint8Array} bytes
- * @returns {Promise<void>}
- */
-export function writeDownloadedFile(path, bytes) {
-    if (!worker || state.status !== "ready") {
-        return Promise.reject(new Error("Worker not ready"));
-    }
-    return new Promise((resolve, reject) => {
-        const id = ++_downloadWriteId;
-        downloadWritePending.set(id, { resolve, reject });
-        // Transfer the buffer to avoid copying — faster for large files
-        worker.postMessage(
-            { type: "write-downloaded-file", id, path, bytes },
-            [bytes.buffer],
-        );
-    });
-}
-
-/** @type {Map<number, {resolve: Function, reject: Function}>} */
-const downloadWritePending = new Map();
-let _downloadWriteId = 0;
 
 /**
  * Stages at which the worker is ready to accept Python runs. We allow

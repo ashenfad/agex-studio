@@ -119,8 +119,9 @@ export const sessionStore = {
     },
 };
 
-/** Initialize session system — call after agent init. Creates first session if needed. */
-export async function initSessions() {
+/** Initialize session system — call after agent init. Creates first session if needed.
+ *  Internal; public entry is `initSessionsFromUrl`. */
+async function initSessions() {
     const saved = localStorage.getItem(CURRENT_BRANCH_KEY);
 
     const json = await runPython(`
@@ -756,7 +757,7 @@ _json.dumps({"branch": _branch, "manifest": _manifest})
  * @param {string} url
  * @returns {Promise<{ branch: string, manifest: object }>}
  */
-export async function openExternalBundle(url) {
+async function openExternalBundle(url) {
     const resp = await fetch(url);
     if (!resp.ok) {
         throw new Error(

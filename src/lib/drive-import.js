@@ -146,9 +146,8 @@ export async function importFromDrive() {
             console.warn("[drive-import] Some files failed:", errors);
         }
 
-        // 4. One adapter write commits all the downloads atomically;
-        //    one kvgit commit instead of N (the previous per-file
-        //    `writeDownloadedFile` path).
+        // 4. One adapter write commits all the downloads atomically —
+        //    one kvgit commit instead of one per file.
         const written = Object.keys(writeBatch);
         if (written.length > 0) {
             const { adapter, branch } = await getActiveAdapter();

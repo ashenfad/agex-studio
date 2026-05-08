@@ -377,21 +377,6 @@ _list_result
 }
 
 /**
- * Read a file's content from the agent's virtual filesystem.
- * @param {string} path
- * @returns {Promise<string>}
- */
-export async function readFile(path) {
-  const json = await runPython(`
-import json as _json
-_fs = _agent.fs()
-_content = _fs.read(${JSON.stringify(path)})
-_json.dumps(_content.decode("utf-8", errors="replace"))
-    `);
-  return JSON.parse(json);
-}
-
-/**
  * Get file size in bytes from the agent's virtual filesystem.
  * @param {string} path
  * @returns {Promise<number>}
