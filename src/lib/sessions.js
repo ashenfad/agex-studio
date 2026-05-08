@@ -124,10 +124,9 @@ else:
     _state["__session_kernel__"] = "py"
     _state.commit()
 
-# Build session list.  ``__session_kernel__`` defaults to ``"py"``
-# for any branch missing it — legacy sessions created before the
-# kernel discriminator existed.  ``app_storage_bytes`` is added on
-# the JS side via ``_decorateAppStorage`` (lives in localStorage).
+# Build session list. __session_kernel__ defaults to "py" for any
+# branch missing it (legacy sessions). app_storage_bytes is added
+# on the JS side via _decorateAppStorage (lives in localStorage).
 _sessions = []
 for _b in _branches:
     if not _b.startswith("chat-"):
