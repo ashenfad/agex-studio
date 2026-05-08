@@ -45,6 +45,15 @@ import { settingsStore } from "./settings.js";
  * target the original branch (which is what the user would expect:
  * the operation they started on session X lands on session X).
  *
+ * Prefers `kernelRegistry.get(kernel)` over `ensure(...)` so callers
+ * inside an adapter's own init flow (notably ChatShell's onStage
+ * callback that fires from inside `kernelRegistry.ensure`) don't
+ * deadlock awaiting the init promise that just called them. The
+ * adapter is already constructed at that point — only its init is
+ * mid-flight, and the methods called from onStage operate against
+ * post-Wave-2 state which is already live by then. Callers from
+ * outside any init flow get the ensure() fast path on cold start.
+ *
  * @returns {Promise<ActiveAdapter>}
  */
 export async function getActiveAdapter() {
@@ -52,6 +61,9 @@ export async function getActiveAdapter() {
     const branch = ss.currentBranch;
     const session = ss.sessions.find((s) => s.branch === branch);
     const kernel = /** @type {'py' | 'ts'} */ (session?.kernel || "py");
-    const adapter = await kernelRegistry.ensure(kernel, get(settingsStore));
+    let adapter = kernelRegistry.get(kernel);
+    if (!adapter) {
+        adapter = await kernelRegistry.ensure(kernel, get(settingsStore));
+    }
     return { adapter, branch, kernel };
 }
