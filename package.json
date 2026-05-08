@@ -18,6 +18,9 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "agex-anthropic": "file:../agex-ts/packages/agex-anthropic",
+    "agex-openai": "file:../agex-ts/packages/agex-openai",
+    "agex-runtime-worker": "file:../agex-ts/packages/agex-runtime-worker",
     "agex-ts": "file:../agex-ts/packages/agex-ts",
     "fflate": "^0.8.2",
     "highlight.js": "^11.11.1",
