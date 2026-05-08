@@ -90,24 +90,14 @@ describe("TsKernelAdapter shape", () => {
 });
 
 describe("TsKernelAdapter PR-1-deferred contracts", () => {
-    it("sendMessage throws 'not yet implemented'", async () => {
-        const adapter = createTsAdapter();
-        await expect(
-            adapter.sendMessage("chat-x", "hi", {}),
-        ).rejects.toThrow(/not yet implemented/);
-    });
+    // sendMessage and runChaptering became real in PR 2a-iii.
+    // runQuery still throws — needs RuntimeAdapter namespace-capture
+    // support (tracked as a follow-up after PR 2c).
 
-    it("runChaptering throws 'not yet implemented'", async () => {
-        const adapter = createTsAdapter();
-        await expect(adapter.runChaptering("chat-x")).rejects.toThrow(
-            /not yet implemented/,
-        );
-    });
-
-    it("runQuery throws 'not yet implemented'", async () => {
+    it("runQuery throws with the deferral message", async () => {
         const adapter = createTsAdapter();
         await expect(
             adapter.runQuery("chat-x", "1+1", null),
-        ).rejects.toThrow(/not yet implemented/);
+        ).rejects.toThrow(/runQuery not yet implemented/);
     });
 });

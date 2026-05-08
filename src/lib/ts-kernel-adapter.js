@@ -20,6 +20,7 @@ import {
     initAgent,
     _getAgent,
     _resetForTesting,
+    chatMessage as agentChatMessage,
     listBranches as agentListBranches,
     createBranch as agentCreateBranch,
     deleteBranch as agentDeleteBranch,
@@ -57,7 +58,10 @@ import {
  * @typedef {import('kvgit-ts').VersionedKV} VersionedKV
  */
 
-const NOT_YET = "not yet implemented (Phase 5 PR 2 — chat task & skills)";
+const RUN_QUERY_NOT_YET =
+    "runQuery not yet implemented for the TS kernel — needs " +
+    "RuntimeAdapter.execute namespace-capture support; tracked as " +
+    "follow-up after Phase 5 PR 2c.";
 
 /** Switch kvgit's current branch to `branch`. The active-branch
  *  cache lives inside `ts-agent.js`; the underlying versioned ops
@@ -144,12 +148,30 @@ export function createTsAdapter() {
 
         // --- Messaging ---------------------------------------------------
 
-        async sendMessage(_branch, _message, _opts) {
-            throw new Error(NOT_YET);
+        async sendMessage(branch, message, opts = {}) {
+            await _ensureBranch(branch);
+            // Collect events from the chat task into a list parallel
+            // to the Py side's `{ result, events }` shape — the chat
+            // shell consumes this for inline-event rendering.
+            // Caller's onEvent (if any) fires too, in addition to
+            // our internal collection.
+            const events = [];
+            const userOnEvent = opts.onEvent;
+            const result = await agentChatMessage(message, {
+                signal: opts.signal,
+                onToken: opts.onToken,
+                onEvent: async (e) => {
+                    events.push(e);
+                    if (userOnEvent) await userOnEvent(e);
+                },
+            });
+            return { result, events };
         },
 
-        async runChaptering(_branch) {
-            throw new Error(NOT_YET);
+        async runChaptering(branch) {
+            await _ensureBranch(branch);
+            const agent = _getAgent();
+            await agent.runChaptering("default");
         },
 
         // --- State / commits --------------------------------------------
@@ -249,7 +271,7 @@ export function createTsAdapter() {
         // --- Query bridge -----------------------------------------------
 
         async runQuery(_branch, _code, _resultVars) {
-            throw new Error(NOT_YET);
+            throw new Error(RUN_QUERY_NOT_YET);
         },
 
         // --- Token telemetry --------------------------------------------
