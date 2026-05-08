@@ -11,11 +11,14 @@
         importBundle,
         inspectBundle,
         getBundleStats,
+        CURRENT_BRANCH_KEY,
     } from './sessions.js'
     import {
         remove as removeAppStorage,
         size as appStorageSize,
+        clearAll as clearAllAppStorage,
     } from './app-storage.js'
+    import { clearCache as clearSessionCache } from './session-index.js'
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
 
@@ -126,8 +129,17 @@
         }
         purging = true
         try {
-            // Delete all IndexedDB databases (session data).
-            // Settings and API keys live in localStorage and are preserved.
+            // Wipe session-related localStorage first — settings,
+            // API keys, and UI prefs (split ratio, debug toggles)
+            // stay. The "agex-current-branch" pointer is the active-
+            // session marker that initSessions reads on the next
+            // load; wiping it forces a clean restart.
+            clearSessionCache()
+            clearAllAppStorage()
+            try { localStorage.removeItem(CURRENT_BRANCH_KEY) } catch {}
+
+            // Delete all IndexedDB databases (kvgit-py session data
+            // for now; kvgit-ts when Phase 5 lands).
             const dbs = await indexedDB.databases()
             await Promise.all(dbs.map(db =>
                 new Promise((resolve) => {
