@@ -30,6 +30,7 @@ import { Anthropic } from "agex-anthropic";
 import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
+import { resolveBaseUrl } from "./settings.js";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
@@ -133,18 +134,19 @@ function _buildLlmClient(settings) {
     if (!model) {
         throw new Error("LLM model required");
     }
+    const baseUrl = resolveBaseUrl(settings);
     if (provider === "anthropic") {
         return new Anthropic({
             apiKey,
             model,
-            ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
+            ...(baseUrl ? { baseUrl } : {}),
         });
     }
     // openai / openai-compatible (OpenRouter, local servers, etc.)
     return new OpenAI({
         apiKey,
         model,
-        ...(settings.baseUrl ? { baseUrl: settings.baseUrl } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
     });
 }
 
@@ -248,9 +250,10 @@ export async function createBranch(name, opts = {}) {
         await versioned.switchBranch(opts.from);
         await versioned.createBranch(name);
     } else {
-        await versioned.createBranch(name, {
-            at: versioned.initialCommit,
-        });
+        // `initialCommit` is a sync accessor over an async parent-chain
+        // walk; first-call must `await initial()` to populate the cache.
+        const initialCommit = await versioned.initial();
+        await versioned.createBranch(name, { at: initialCommit });
     }
     await versioned.switchBranch(name);
     _activeBranch = name;
