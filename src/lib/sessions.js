@@ -218,20 +218,20 @@ function _decorateAppStorage(sessions) {
     }));
 }
 
-/** Read all known sessions across both kernels. Live-queries py
- *  (already booted by the time this runs); cache-queries ts to
- *  preserve lazy-boot. */
+/** Read all known sessions across both kernels. For each kernel:
+ *  live-query its adapter if booted (so writes through writeBranchMeta
+ *  / persistSessionMeta show up immediately), otherwise fall back to
+ *  the localStorage cache (preserves lazy-boot — opening a Py-only
+ *  session shouldn't fire up the Ts kernel just to enumerate, and
+ *  vice versa). */
 async function _gatherAllSessions() {
     /** @type {Array<Session>} */
     const out = [];
+    const cache = loadSessionCache();
 
-    const pyAdapter = _adapterIfBooted("py");
-    if (pyAdapter) {
-        const live = await pyAdapter.listBranchesWithMeta();
-        for (const s of live) out.push({ ...s, kernel: "py" });
-    } else {
-        // py not booted (rare cold-start race) — fall back to cache.
-        for (const r of loadSessionCache().filter((r) => r.kernel === "py")) {
+    /** @param {'py' | 'ts'} kernel */
+    const fromCache = (kernel) => {
+        for (const r of cache.filter((r) => r.kernel === kernel)) {
             out.push({
                 branch: r.branch,
                 title: r.title || "New Chat",
@@ -239,23 +239,19 @@ async function _gatherAllSessions() {
                 description: r.description || "",
                 updated: r.updated || "",
                 external: !!r.external,
-                kernel: "py",
+                kernel,
             });
         }
-    }
+    };
 
-    // ts: cache-only by design — booting ts just to enumerate would
-    // defeat lazy boot for users who haven't engaged with ts.
-    for (const r of loadSessionCache().filter((r) => r.kernel === "ts")) {
-        out.push({
-            branch: r.branch,
-            title: r.title || "New Chat",
-            name: r.name || "",
-            description: r.description || "",
-            updated: r.updated || "",
-            external: !!r.external,
-            kernel: "ts",
-        });
+    for (const kernel of /** @type {const} */ (["py", "ts"])) {
+        const adapter = _adapterIfBooted(kernel);
+        if (adapter) {
+            const live = await adapter.listBranchesWithMeta();
+            for (const s of live) out.push({ ...s, kernel });
+        } else {
+            fromCache(kernel);
+        }
     }
 
     out.sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
