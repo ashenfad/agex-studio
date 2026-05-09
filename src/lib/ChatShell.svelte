@@ -12,9 +12,27 @@
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
     import { cancelTask, pyodideStore } from './pyodide.js'
-    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore } from './sessions.js'
+    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
+
+    /** Resolve the active session's kernel synchronously from
+     *  localStorage (no kernel boot required). The session-index cache
+     *  records each session's kernel, and `CURRENT_BRANCH_KEY` points at
+     *  the active branch — the join is enough to pick the right kernel
+     *  before either runtime is touched.
+     *
+     *  Falls back to `'py'` when the cache is empty (cold-start) or
+     *  the current pointer doesn't match a cached record (cleared cache,
+     *  external-entry redirect, etc.). Py is the default kernel and
+     *  matches pre-unification studio behavior. */
+    function _resolveActiveKernel() {
+        const branch = localStorage.getItem(CURRENT_BRANCH_KEY)
+        if (!branch) return 'py'
+        const record = loadSessionCache().find((r) => r.branch === branch)
+        return record?.kernel === 'ts' ? 'ts' : 'py'
+    }
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
@@ -27,6 +45,8 @@
     let agentReady = $state(false)
     let initStatus = $state('')
     let initError = $state('')
+    /** @type {'py' | 'ts'} */
+    let activeKernel = $state(_resolveActiveKernel())
     /** @type {string[]} */
     let files = $state([])
     let inputPrefill = $state('')
@@ -140,14 +160,19 @@
         historyReady = false
         agentReady = false
         initError = ''
+        // Resolve fresh per-startup — settings changes can re-fire this
+        // effect after the user switched sessions.
+        activeKernel = _resolveActiveKernel()
         try {
-            initStatus = 'Loading core packages...'
-            // Drive the kernel boot through the registry. The adapter's
-            // init encapsulates the two-wave Pyodide install; we hook
-            // the 'history-ready' milestone via onStage to do shell-side
-            // session/history/files load between waves (matches the
-            // pre-migration serialized flow).
-            await kernelRegistry.ensure('py', s, {
+            initStatus = activeKernel === 'py'
+                ? 'Loading core packages...'
+                : 'Loading agent...'
+            // Drive the kernel boot through the registry. The Py adapter's
+            // init encapsulates the two-wave Pyodide install; the Ts
+            // adapter resolves quickly (no Pyodide). We hook the
+            // 'history-ready' milestone via onStage to do shell-side
+            // session/history/files load — same pattern for both kernels.
+            await kernelRegistry.ensure(activeKernel, s, {
                 onStage: async (stage) => {
                     if (stage === 'history-ready') {
                         initStatus = isExternalEntry
@@ -185,6 +210,13 @@
     // scenes. Empty string once the agent is fully ready.
     let warmingMessage = $derived.by(() => {
         if (agentReady) return ''
+        // TS path doesn't touch `pyodideStore`; the py store stays at
+        // its idle default. Reading it here would just shadow
+        // `initStatus` with an empty `py.message` — fall back to the
+        // shell-side status directly for non-py kernels.
+        if (activeKernel !== 'py') {
+            return initStatus || 'Initializing agent...'
+        }
         const py = $pyodideStore
         if (py.status === 'error') return ''  // shown as an error notice instead
         // During the 'history-ready' stage the worker is idle —
