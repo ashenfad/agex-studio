@@ -51,6 +51,7 @@ import {
     splitOutputEvents,
     makeLiveTokenTranslator,
 } from "./ts-event-translator.js";
+import { normalizeChatResponse } from "./ts-chat-response.js";
 
 /**
  * @typedef {import('./kernel-adapter.js').KernelAdapter} KernelAdapter
@@ -215,7 +216,13 @@ export function createTsAdapter() {
                     if (userOnEvent) await userOnEvent(e);
                 },
             });
-            return { result, events };
+            // Normalize the agent's freeform return value into the
+            // renderer's expected shape (text bubble or multi-part
+            // response). Single chokepoint — both the live path
+            // (ChatShell wraps `response.result` directly into
+            // `msg.content`) and the historical path (loadHistory
+            // calls the same normalizer) see the same shape.
+            return { result: normalizeChatResponse(result), events };
         },
 
         async runChaptering(branch) {

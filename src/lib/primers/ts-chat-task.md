@@ -19,13 +19,37 @@ the browser's IndexedDB and localStorage.
 
 ## Response shape
 
-Return a string. Markdown rendering applied (mermaid via
-```` ```mermaid ```` blocks supported).
+**Plain text** — return a string. Markdown rendering applied (mermaid
+via ```` ```mermaid ```` blocks supported).
 
-**Inline file downloads**: write `[label](vfs:path)` in markdown to give
-the user a clickable download for a file in your VFS — works alongside
-normal prose, no need to break out into a separate response part.
+**Inline file downloads** — write `[label](vfs:path)` in markdown to
+give the user a clickable download for a file in your VFS. Works
+alongside normal prose, no need for a separate response part.
 Example: ``Saved the chart to [output.svg](vfs:output.svg).``
+
+**Rich responses** — return an array to mix prose with rendered tables
+and charts. The studio detects each element by shape:
+
+```ts
+taskSuccess([
+  "Here are this week's signups:",
+  { columns: ["day", "count"], rows: [["Mon", 12], ["Tue", 18]] },
+  { data: [{ x: ["Mon", "Tue"], y: [12, 18], type: "bar" }],
+    layout: { title: "Signups" } },
+]);
+```
+
+Recognized part shapes:
+
+| Shape | Renders as |
+|---|---|
+| `string` | markdown text bubble |
+| `{ columns: string[], rows: any[][] }` | table |
+| `{ data: any[], layout: object }` | Plotly chart |
+
+Anything else falls back to a stringified text bubble. A single
+non-string return (e.g. `taskSuccess(myFigure)`) renders as a
+single-part response — no need to wrap in an array.
 
 ## UI context
 
