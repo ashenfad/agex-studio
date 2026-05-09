@@ -544,14 +544,9 @@ export async function importBundle(bytes, { external = false } = {}) {
     // name / description carry through cleanly.
     const meta = await adapter.readBranchMeta(branch);
     if (external) {
-        await adapter.writeBranchMeta(branch, {});  // bump updated
-        // Mark the branch as external so the shell knows to gate
-        // capability features. The flag lives in branch metadata —
-        // adapter.writeBranchMeta doesn't currently expose that
-        // field on its own; for now we set it post-import via a
-        // direct meta write. Accept that py-side external flag
-        // tracking lives in the session-store entry only until
-        // both adapters formalize the external bit in writeMeta.
+        // Persist the external flag in branch metadata so it survives
+        // reload — listBranchesWithMeta reads it back on the next boot.
+        await adapter.writeBranchMeta(branch, { external: true });
     }
 
     const newSession = {

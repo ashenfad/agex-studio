@@ -303,6 +303,7 @@ _json.dumps({
     "name": _state.peek("__session_name__", branch=_b) or "",
     "description": _state.peek("__session_description__", branch=_b) or "",
     "updated": _state.peek("__session_updated__", branch=_b) or "",
+    "external": bool(_state.peek("__session_external__", branch=_b)),
 })
             `);
             return JSON.parse(json);
@@ -321,6 +322,13 @@ _json.dumps({
             }
             if (patch.description !== undefined) {
                 setLines.push(`_state["__session_description__"] = ${JSON.stringify(patch.description)}`);
+            }
+            if (patch.external !== undefined) {
+                // Python wants `True` / `False`; JSON.stringify(true)
+                // produces lowercase `true` which raises NameError.
+                setLines.push(
+                    `_state["__session_external__"] = ${patch.external ? "True" : "False"}`,
+                );
             }
             if (patch.updated !== undefined) {
                 setLines.push(`_state["__session_updated__"] = ${JSON.stringify(patch.updated)}`);
