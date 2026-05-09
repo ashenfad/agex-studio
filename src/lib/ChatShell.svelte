@@ -332,9 +332,9 @@
             // Build the emissions-list shape EventDetail prefers (so
             // per-emission rendering ordered by emission_index takes
             // over from the flat-fields fallback).
-            if (b.kind === 'python') {
+            if (b.kind === 'python' || b.kind === 'ts') {
                 emissions.push({
-                    kind: 'python',
+                    kind: b.kind,
                     idx: b.idx,
                     code: b.code,
                     title: b.title,
@@ -493,6 +493,11 @@
         } else if (token.type === 'python') {
             const b = ensureBlock(eidx, 'python')
             updateBlock(eidx, { kind: 'python', code: (b.code || '') + (token.content || '') })
+        } else if (token.type === 'ts') {
+            // agex-ts code emission — same layout as 'python', different
+            // syntax highlighter downstream (EventDetail switches on kind).
+            const b = ensureBlock(eidx, 'ts')
+            updateBlock(eidx, { kind: 'ts', code: (b.code || '') + (token.content || '') })
         } else if (token.type === 'terminal') {
             const b = ensureBlock(eidx, 'terminal')
             updateBlock(eidx, {
