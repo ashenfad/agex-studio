@@ -30,6 +30,7 @@ import { Anthropic } from "agex-anthropic";
 import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
+import _numericalSkill from "./skills/numerical.md?raw";
 import { resolveBaseUrl } from "./settings.js";
 import {
     synthesizeAction,
@@ -104,11 +105,32 @@ export async function initAgent(settings) {
                 : DEFAULT_CHAPTERING_TRIGGER,
     });
 
-    // Chat task — `string -> string` for now. Multi-part responses
-    // (DataFrames, charts) come when the TS side has equivalent rich
-    // types to surface. The primer markdown lives alongside this
-    // file under primers/ and is inlined at build time via vite's
-    // ?raw loader.
+    // Lazy URL-shipped namespaces. agex-ts records the URL but does
+    // not fetch — the worker only triggers a network call on the first
+    // emission that actually does `import { ... } from 'arquero'`. Cold
+    // boot pays nothing; per-module first use pays one fetch; cached
+    // for the rest of the worker lifetime.
+    _agent.namespace(
+        { url: "https://esm.sh/apache-arrow" },
+        { name: "apache-arrow" },
+    );
+    _agent.namespace(
+        { url: "https://esm.sh/arquero" },
+        { name: "arquero" },
+    );
+
+    // Cat-on-demand skill describing the data libraries above. The
+    // agent reads `/skills/numerical/SKILL.md` (the agex skill VFS
+    // overlay) when a task touches data work; chaptering keeps it
+    // out of context when irrelevant. Skill content is bundled at
+    // build time via vite's ?raw loader.
+    _agent.skill(_numericalSkill, { name: "numerical" });
+
+    // Chat task — `string | array | object`. Rich multi-part responses
+    // are normalized at the adapter boundary (see `ts-chat-response.js`)
+    // so the chat shell renders text / tables / Plotly charts inline.
+    // The primer markdown lives alongside this file under primers/ and
+    // is inlined at build time via vite's ?raw loader.
     _chatTask = _agent.task({
         description: "Answer the user's chat message.",
         primer: _chatPrimer,
