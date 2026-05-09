@@ -134,3 +134,24 @@ export function updateSettings(patch) {
 export function isConfigured() {
     return settings.apiKey.length > 0;
 }
+
+/** Resolve the effective LLM base URL from a settings object.
+ *
+ *  Custom mode: the user's explicit `baseUrl` wins.
+ *  OpenRouter mode: maps to OpenRouter's OpenAI-compatible endpoint.
+ *  Anything else (no mode + no URL): empty string, which signals
+ *  "use the underlying client's default" to the kernel adapter.
+ *
+ *  Centralizing here means both kernels see the same URL — the
+ *  resolution doesn't depend on which client library happens to
+ *  have which default (agex-py's `PyfetchOpenAI` defaults to
+ *  OpenRouter; agex-ts's `OpenAI` defaults to api.openai.com).
+ *
+ *  @param {{ baseUrl?: string, accessMode?: string }} s
+ *  @returns {string}
+ */
+export function resolveBaseUrl(s) {
+    if (s.baseUrl) return s.baseUrl;
+    if (s.accessMode === "openrouter") return "https://openrouter.ai/api/v1";
+    return "";
+}

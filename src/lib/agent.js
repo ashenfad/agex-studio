@@ -8,6 +8,7 @@ import {
   setQueryHandler,
   setLiveIframe,
 } from "./pyodide.js";
+import { resolveBaseUrl } from "./settings.js";
 
 /**
  * Browser's resolved IANA timezone, or "UTC" if undetectable.
@@ -33,8 +34,11 @@ function _llmConfig(settings) {
     settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
   const llmClass =
     settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
-  const baseUrlLine = settings.baseUrl
-    ? `    base_url="${settings.baseUrl}",\n`
+  // Studio resolves OpenRouter mode → its base URL here so the kernel
+  // doesn't have to rely on a vendor-specific library default.
+  const resolvedBaseUrl = resolveBaseUrl(settings);
+  const baseUrlLine = resolvedBaseUrl
+    ? `    base_url="${resolvedBaseUrl}",\n`
     : "";
   // OpenRouter-specific headers — only meaningful for pyfetch_openai.
   const openrouterLines =
