@@ -36,6 +36,7 @@ import {
     serializeOutputParts,
     splitOutputEvents,
 } from "./ts-event-translator.js";
+import { normalizeChatResponse } from "./ts-chat-response.js";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
@@ -564,12 +565,13 @@ export async function loadHistory() {
                 currentTaskName = null;
                 continue;
             }
+            // Normalizer routes structured returns (`["text", figure,
+            // table]`, single figure / table, etc.) into the renderer's
+            // expected shape. Bare strings still land as a simple text
+            // bubble.
             messages.push({
                 role: "agent",
-                content:
-                    typeof result === "string"
-                        ? { type: "text", content: result }
-                        : { type: "text", content: String(result ?? "") },
+                content: normalizeChatResponse(result),
                 events: [...currentEvents],
                 timestamp: ts,
             });
