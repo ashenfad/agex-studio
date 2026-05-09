@@ -69,6 +69,7 @@ These have non-obvious idioms — `cat` the skill before you start:
 | Trigger | Skill |
 | --- | --- |
 | dashboards, data explorers, interactive UIs, games | `cat /skills/interactive-app/SKILL.md` |
+| tabular data, group-by / aggregation, charts, parquet / CSV / Arrow | `cat /skills/numerical/SKILL.md` |
 
 **After a chapter event** the prior `cat` output may have been
 summarized away. Re-cat the skill if you're still working in that area.
