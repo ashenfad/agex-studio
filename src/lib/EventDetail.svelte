@@ -1,5 +1,5 @@
 <script>
-    import { highlightPython, highlightCode } from './highlight.js'
+    import { highlightPython, highlightTypeScript, highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
     import { trim, computeDiff } from './event-utils.js'
 
@@ -12,6 +12,10 @@
 
     function highlightTrimmed(code) {
         return highlightPython(trim(code))
+    }
+
+    function highlightTrimmedTs(code) {
+        return highlightTypeScript(trim(code))
     }
 
     function renderThinking(text) {
@@ -62,6 +66,21 @@
                         <div class="section code">
                             <div class="section-label">Code{em.title ? ' — ' + em.title : ''}</div>
                             <pre class="section-content"><code>{@html highlightTrimmed(em.code)}</code></pre>
+                        </div>
+                    {/if}
+                {:else if em.kind === 'ts'}
+                    {#if em.thinking}
+                        <div class="section">
+                            <div class="section-label">Thinking</div>
+                            <blockquote class="thinking">
+                                <div class="thinking-content">{@html renderThinking(em.thinking)}</div>
+                            </blockquote>
+                        </div>
+                    {/if}
+                    {#if em.code}
+                        <div class="section code">
+                            <div class="section-label">Code{em.title ? ' — ' + em.title : ''}</div>
+                            <pre class="section-content"><code>{@html highlightTrimmedTs(em.code)}</code></pre>
                         </div>
                     {/if}
                 {:else if em.kind === 'terminal'}

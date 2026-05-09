@@ -45,6 +45,12 @@ import {
     importBundle as bundleImport,
     bundleStats as bundleGetStats,
 } from "./ts-bundle.js";
+import {
+    synthesizeAction,
+    serializeOutputParts,
+    splitOutputEvents,
+    makeLiveTokenTranslator,
+} from "./ts-event-translator.js";
 
 /**
  * @typedef {import('./kernel-adapter.js').KernelAdapter} KernelAdapter
@@ -63,6 +69,15 @@ const RUN_QUERY_NOT_YET =
     "runQuery not yet implemented for the TS kernel — needs " +
     "RuntimeAdapter.execute namespace-capture support; tracked as " +
     "follow-up after Phase 5 PR 2c.";
+
+// Future direction (note, not a TODO):
+// `runQuery` was a Pyodide-era affordance — apps in the live iframe
+// could call back into agent-space to read evaluated values. agex-ts
+// doesn't need the round-trip: there's no cross-language bridging
+// (the runtime is JS, the app is JS), so the natural successor is a
+// `getCacheValue(branch, key)` adapter method that reads cached state
+// values directly. Plumb that in instead of porting `runQuery` once
+// an app actually needs it; until then this stub stays.
 
 /** Switch kvgit's current branch to `branch`. The active-branch
  *  cache lives inside `ts-agent.js`; the underlying versioned ops
@@ -155,18 +170,49 @@ export function createTsAdapter() {
 
         async sendMessage(branch, message, opts = {}) {
             await _ensureBranch(branch);
-            // Collect events from the chat task into a list parallel
-            // to the Py side's `{ result, events }` shape — the chat
-            // shell consumes this for inline-event rendering.
-            // Caller's onEvent (if any) fires too, in addition to
-            // our internal collection.
-            const events = [];
+            // Translate streamed agex-ts TokenChunks into the shell's
+            // expected token shape on the way out, and accumulate
+            // shell-shape events for the returned `{ result, events }`.
+            // The shell renders both during streaming (via onToken) and
+            // after completion (via the message's `events` array), and
+            // both paths consume the py-flavored canonical shape.
             const userOnEvent = opts.onEvent;
+            const userOnToken = opts.onToken;
+            const translator = makeLiveTokenTranslator();
+            const events = [];
+
+            const sendTokens = async (tokens) => {
+                if (!userOnToken) return;
+                for (const t of tokens) await userOnToken(t);
+            };
+
             const result = await agentChatMessage(message, {
                 signal: opts.signal,
-                onToken: opts.onToken,
+                onToken: async (chunk) => {
+                    await sendTokens(translator.translate(chunk));
+                },
                 onEvent: async (e) => {
-                    events.push(e);
+                    // Translate the event into the shell's canonical
+                    // shape *before* user-facing forwarding so callers
+                    // that inspect events (e.g. for cancelled-detection)
+                    // see the same shape py emits.
+                    if (e?.type === "action") {
+                        events.push(synthesizeAction(e));
+                        // ActionEvent finished — flush the streaming
+                        // turn so any subsequent ActionEvent starts
+                        // fresh in the shell's snapshot accumulator.
+                        await sendTokens(translator.turnComplete());
+                    } else if (e?.type === "output") {
+                        const parts = serializeOutputParts(e);
+                        for (const out of splitOutputEvents(parts)) {
+                            events.push(out);
+                        }
+                    } else if (e?.type === "cancelled") {
+                        events.push({ type: "cancelled" });
+                    }
+                    // Forward the *raw* agex-ts event to the user
+                    // callback — the typed shape is the documented
+                    // surface for callers who want low-level access.
                     if (userOnEvent) await userOnEvent(e);
                 },
             });

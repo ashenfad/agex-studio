@@ -73,3 +73,10 @@ export function highlightCode(code, path) {
 export function highlightPython(code) {
     return hljs.highlight(code, { language: 'python' }).value
 }
+
+/**
+ * Highlight TypeScript code specifically (for agex-ts agent code blocks).
+ */
+export function highlightTypeScript(code) {
+    return hljs.highlight(code, { language: 'typescript' }).value
+}

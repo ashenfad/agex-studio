@@ -31,6 +31,11 @@ import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import { resolveBaseUrl } from "./settings.js";
+import {
+    synthesizeAction,
+    serializeOutputParts,
+    splitOutputEvents,
+} from "./ts-event-translator.js";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
@@ -107,6 +112,14 @@ export async function initAgent(settings) {
         description: "Answer the user's chat message.",
         primer: _chatPrimer,
     });
+
+    // TODO: TS skill set + agent.fn registrations (test_app, live_app,
+    // esbuild) — deferred from Phase 5 PR 2a-iv. The py side registers
+    // these at init time via agent_helpers.register; the TS side
+    // currently boots with just the chat task and the worker runtime's
+    // built-in surface (terminal, fileWrite, fileEdit, ts emissions).
+    // Add the skill registrations here once the matching TS helpers
+    // (esbuild-wasm pipeline, app-preview hooks) exist.
 }
 
 /** Send a chat message through the registered chat task. The
@@ -451,25 +464,21 @@ export async function readAppFiles() {
 // ---------------------------------------------------------------------------
 
 /**
- * Walk the active branch's event log and render UI-message rows.
+ * Walk the active branch's event log and render UI-message rows in
+ * the studio shell's canonical (agex-py-shaped) form.
  *
- * Mirrors the Py side's renderer (in sessions.js's `loadHistory`
- * heredoc) at the level of detail the chat shell consumes.  Differs
- * in scope:
+ * Per-event decoding is handed off to `ts-event-translator`, which
+ * produces the same `{ type, kind, ... }` dicts the shell's
+ * EventDetail / MessageList components consume on the py path.
+ *
+ * Still-deferred relative to the py renderer:
  *
  *   - **No chapter flattening.** ChapterEvents render as a single
  *     `'chaptering'` row carrying the chapter's name+message.  The
  *     Py side flattens chapters to show the original events inside
- *     them; the TS side will do that as a follow-up once chapter UX
- *     parity matters.  For now, the user sees that chaptering
- *     happened but can't expand to inspect.
- *   - **Action events render as a simple agent message.**  TS chat
- *     task currently returns a plain string from `taskSuccess`;
- *     multi-part responses (DataFrames, charts) aren't a thing yet
- *     on the TS side.  When they are, the action/output normalization
- *     here grows to match.
- *   - **No `_synthesize_action` / `_split_output_events` / `_serialize_output_parts`
- *     equivalents.**  Same reasoning — emissions are simpler today.
+ *     them; TS side will do that follow-up once chaptering parity
+ *     matters. For now, the user sees that chaptering happened but
+ *     can't expand to inspect.
  *
  * @returns {Promise<Array<Object>>}
  */
@@ -486,6 +495,7 @@ export async function loadHistory() {
     for await (const e of log.iter()) {
         const t = /** @type {any} */ (e).type;
         const ts = _toDate(/** @type {any} */ (e).timestamp);
+        const commitHash = /** @type {any} */ (e).commitHash || "";
         if (t === "taskStart") {
             currentEvents = [];
             currentTaskName = /** @type {any} */ (e).taskName ?? null;
@@ -493,7 +503,7 @@ export async function loadHistory() {
                 messages.push({
                     role: "chaptering",
                     timestamp: ts,
-                    commit_hash: "",
+                    commit_hash: commitHash,
                     chapters: [],
                 });
             } else {
@@ -508,30 +518,26 @@ export async function loadHistory() {
                     role: "user",
                     content,
                     timestamp: ts,
-                    commit_hash: "",
+                    commit_hash: commitHash,
                 });
             }
         } else if (t === "action") {
-            // Capture the action minimally so the chat shell can
-            // render an inline event marker. Detailed emission
-            // breakdown (per-emission outputs, reports, etc.) is a
-            // follow-up that lands when the TS chat task starts
-            // emitting structured Response parts.
-            currentEvents.push({ type: "action" });
-        } else if (t === "output") {
-            const parts = /** @type {any} */ (e).parts ?? [];
-            for (const p of parts) {
-                if (p && p.type === "text") {
-                    currentEvents.push({ type: "text", content: p.text ?? "" });
-                } else if (p && p.type === "image") {
-                    currentEvents.push({
-                        type: "image",
-                        format: p.format,
-                        data: p.data,
-                        altText: p.altText,
-                    });
-                }
+            const action = synthesizeAction(/** @type {any} */ (e));
+            currentEvents.push(action);
+            // Surface text-emission report bodies as their own agent
+            // messages, matching the py path. Lets the chat thread
+            // show the model's narration inline above the event card.
+            if (action.report) {
+                messages.push({
+                    role: "agent",
+                    content: action.report,
+                    isReport: true,
+                    timestamp: ts,
+                });
             }
+        } else if (t === "output") {
+            const parts = serializeOutputParts(/** @type {any} */ (e));
+            currentEvents.push(...splitOutputEvents(parts));
         } else if (t === "file") {
             // FileEvents from user uploads/deletes get rendered as
             // markdown user messages so the chat shows the action
@@ -542,7 +548,7 @@ export async function loadHistory() {
                     role: "user",
                     content: _renderFileEvent(fe),
                     timestamp: ts,
-                    commit_hash: "",
+                    commit_hash: commitHash,
                     isMarkdown: true,
                 });
             }
@@ -588,12 +594,19 @@ export async function loadHistory() {
         } else if (t === "chapter") {
             // Standalone ChapterEvent (yielded by `iter()` in place
             // of folded events). Render as a chaptering row with a
-            // single chapter entry. Chapter expansion is the follow-up.
+            // single chapter entry.
+            //
+            // TODO: chapter flattening. The py heredoc's `_do_flatten`
+            // recursively expands ChapterEvents back into their
+            // original events so the user can drill in and see what
+            // was folded; we currently surface only that chaptering
+            // happened. Mirror the py walk here once chaptering UX
+            // parity matters for TS sessions.
             const ce = /** @type {any} */ (e);
             messages.push({
                 role: "chaptering",
                 timestamp: ts,
-                commit_hash: "",
+                commit_hash: commitHash,
                 chapters: [{ name: ce.name, message: ce.message, events: [] }],
             });
         }
