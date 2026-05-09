@@ -238,19 +238,23 @@ export async function listBranchesWithMeta() {
             return false;
         }
     };
-    const out = [];
-    for (const branch of all) {
-        if (!branch.startsWith("chat-")) continue;
-        out.push({
-            branch,
-            title: (await peekStr(branch, META_KEYS.title)) || "New Chat",
-            name: await peekStr(branch, META_KEYS.name),
-            description: await peekStr(branch, META_KEYS.description),
-            updated: await peekStr(branch, META_KEYS.updated),
-            external: await peekBool(branch, META_KEYS.external),
-        });
-    }
-    return out;
+    // Fan out the per-branch peeks. Each peek is one IDB read, and on
+    // worker-backed substrates that's a cross-thread round-trip too —
+    // serializing N branches × 5 fields visibly stalls the drawer for
+    // sessions with more than a handful of branches.
+    return Promise.all(
+        all
+            .filter((b) => b.startsWith("chat-"))
+            .map(async (branch) => ({
+                branch,
+                title:
+                    (await peekStr(branch, META_KEYS.title)) || "New Chat",
+                name: await peekStr(branch, META_KEYS.name),
+                description: await peekStr(branch, META_KEYS.description),
+                updated: await peekStr(branch, META_KEYS.updated),
+                external: await peekBool(branch, META_KEYS.external),
+            })),
+    );
 }
 
 export async function createBranch(name, opts = {}) {
@@ -385,15 +389,18 @@ export async function listFiles() {
     // termish-ts's MountFS list filters by what backing reports, so
     // overlay-aware. Filter explicitly so the shell doesn't see
     // overlay infrastructure paths.
-    const out = [];
-    for (const path of all) {
-        // Skip /chapters and /skills overlay roots — those are
-        // synthesized read-only mounts; the shell wants the agent's
-        // actual VFS entries.
-        if (path.startsWith("chapters/") || path.startsWith("skills/")) continue;
-        if (await fs.isFile(path)) out.push(path);
-    }
-    return out.sort();
+    // Skip /chapters and /skills overlay roots — those are
+    // synthesized read-only mounts; the shell wants the agent's
+    // actual VFS entries. `isFile` is per-path round-trip; fan out.
+    const checked = await Promise.all(
+        all.map(async (path) => {
+            if (path.startsWith("chapters/") || path.startsWith("skills/")) {
+                return null;
+            }
+            return (await fs.isFile(path)) ? path : null;
+        }),
+    );
+    return checked.filter((p) => p !== null).sort();
 }
 
 export async function readFile(path) {
@@ -445,17 +452,22 @@ export async function readAppFiles() {
     } catch {
         return out;
     }
-    for (const rel of entries) {
-        const full = "app/" + rel;
-        try {
-            if (await fs.isFile(full)) {
-                const bytes = await fs.read(full);
-                out[full] = decoder.decode(bytes);
+    // Fan out the per-file `isFile` + `read` round-trips. App
+    // directories are usually small (a handful of HTML/JS files),
+    // so unbounded concurrency is fine here.
+    await Promise.all(
+        entries.map(async (rel) => {
+            const full = "app/" + rel;
+            try {
+                if (await fs.isFile(full)) {
+                    const bytes = await fs.read(full);
+                    out[full] = decoder.decode(bytes);
+                }
+            } catch {
+                // Skip files that vanish or fail to read mid-walk.
             }
-        } catch {
-            // Skip files that vanish or fail to read mid-walk.
-        }
-    }
+        }),
+    );
     return out;
 }
 
