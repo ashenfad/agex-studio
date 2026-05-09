@@ -184,14 +184,6 @@ async function _getStaged() {
     );
 }
 
-/** Read the underlying `VersionedKV` directly. Use for surface that
- *  Staged doesn't wrap (`peek`, `listBranches`, `createBranch`,
- *  `deleteBranch`, `initial`, `history`, etc.). For HEAD-movers use
- *  `_getStaged()` instead. */
-async function _getVersioned() {
-    return (await _getStaged()).versioned;
-}
-
 /** Switch kvgit's current branch if not already there. Mirrors the
  *  PyKernelAdapter's _ensureBranch pattern; cached so repeat calls
  *  on the same branch are zero-op. */
@@ -216,33 +208,25 @@ function _invalidateActiveBranch() {
 // ---------------------------------------------------------------------------
 
 export async function listBranches() {
-    const versioned = await _getVersioned();
-    const all = await versioned.listBranches();
+    const staged = await _getStaged();
+    const all = await staged.listBranches();
     return all.filter((b) => b.startsWith("chat-"));
 }
 
 export async function listBranchesWithMeta() {
-    const versioned = await _getVersioned();
-    const all = await versioned.listBranches();
-    const decoder = new TextDecoder();
+    const staged = await _getStaged();
+    const all = await staged.listBranches();
+    // staged.peek returns the already-decoded value (T | undefined),
+    // using the same encoder/decoder pair the underlying state was
+    // built with — so a `state.set(key, "string-value")` write round-
+    // trips back as a string here without manual JSON unwrap.
     const peekStr = async (branch, key) => {
-        const raw = await versioned.peek(key, { branch });
-        if (raw === null) return "";
-        try {
-            const v = JSON.parse(decoder.decode(raw));
-            return typeof v === "string" ? v : "";
-        } catch {
-            return "";
-        }
+        const v = await staged.peek(key, { branch });
+        return typeof v === "string" ? v : "";
     };
     const peekBool = async (branch, key) => {
-        const raw = await versioned.peek(key, { branch });
-        if (raw === null) return false;
-        try {
-            return Boolean(JSON.parse(decoder.decode(raw)));
-        } catch {
-            return false;
-        }
+        const v = await staged.peek(key, { branch });
+        return Boolean(v);
     };
     // Fan out the per-branch peeks. Each peek is one IDB read, and on
     // worker-backed substrates that's a cross-thread round-trip too —
@@ -266,18 +250,19 @@ export async function listBranchesWithMeta() {
 export async function createBranch(name, opts = {}) {
     const agent = _getAgent();
     const staged = await _getStaged();
-    const versioned = staged.versioned;
     if (opts.from) {
         // Fork-from semantics: switch to opts.from so the new branch
         // is created off its HEAD. Matches agex-py forkSession
         // (createBranch with no `at=` forks from current).
         await staged.switchBranch(opts.from);
-        await versioned.createBranch(name);
+        await staged.createBranch(name);
     } else {
         // `initialCommit` is a sync accessor over an async parent-chain
         // walk; first-call must `await initial()` to populate the cache.
-        const initialCommit = await versioned.initial();
-        await versioned.createBranch(name, { at: initialCommit });
+        // TODO(kvgit-ts): if Staged grows an `initial()` analog, drop
+        // the versioned reach-through here.
+        const initialCommit = await staged.versioned.initial();
+        await staged.createBranch(name, { at: initialCommit });
     }
     await staged.switchBranch(name);
     _activeBranch = name;
@@ -290,12 +275,11 @@ export async function createBranch(name, opts = {}) {
 
 export async function deleteBranch(name) {
     const staged = await _getStaged();
-    const versioned = staged.versioned;
     if (staged.currentBranch === name) {
         // Adapter's contract: the adapter falls back to another
         // chat- branch internally so subsequent ops don't trip on
         // a missing active branch. Shell decides what to render.
-        const others = (await versioned.listBranches()).filter(
+        const others = (await staged.listBranches()).filter(
             (b) => b.startsWith("chat-") && b !== name,
         );
         if (others.length > 0) {
@@ -304,7 +288,7 @@ export async function deleteBranch(name) {
             await staged.switchBranch(others[0]);
         } else {
             // No other chat- branches; switch to anything else.
-            const all = (await versioned.listBranches()).filter(
+            const all = (await staged.listBranches()).filter(
                 (b) => b !== name,
             );
             if (all.length > 0) {
@@ -312,33 +296,21 @@ export async function deleteBranch(name) {
             }
         }
     }
-    await versioned.deleteBranch(name);
+    await staged.deleteBranch(name);
     _invalidateActiveBranch();
 }
 
 export async function readBranchMeta(name) {
-    const versioned = await _getVersioned();
-    const decoder = new TextDecoder();
+    const staged = await _getStaged();
     /** @param {string} key */
     const peekStr = async (key) => {
-        const raw = await versioned.peek(key, { branch: name });
-        if (raw === null) return "";
-        try {
-            const v = JSON.parse(decoder.decode(raw));
-            return typeof v === "string" ? v : "";
-        } catch {
-            return "";
-        }
+        const v = await staged.peek(key, { branch: name });
+        return typeof v === "string" ? v : "";
     };
     /** @param {string} key */
     const peekBool = async (key) => {
-        const raw = await versioned.peek(key, { branch: name });
-        if (raw === null) return false;
-        try {
-            return Boolean(JSON.parse(decoder.decode(raw)));
-        } catch {
-            return false;
-        }
+        const v = await staged.peek(key, { branch: name });
+        return Boolean(v);
     };
     return /** @type {BranchMeta} */ ({
         title: (await peekStr(META_KEYS.title)) || "New Chat",
@@ -734,9 +706,10 @@ export async function getTokenHistory() {
 
 export async function getSessionDebugInfo(branch) {
     const staged = await _getStaged();
-    // TODO(kvgit-ts): once Staged exposes `history` / `getMany`
-    // (matching kvgit-py's surface), drop the `versioned` reach-through
-    // for those reads. Switch is already on Staged.
+    // TODO(kvgit-ts): bulk read still goes through `versioned.getMany`
+    // since Staged doesn't expose a cache-aware `getMany` yet (kvgit-py
+    // does — `get_many(*keys)`). Singleton-loop fallback would be
+    // cache-coherent but slower; this debug path tolerates the gap.
     const versioned = staged.versioned;
     const cur = staged.currentBranch;
     const switched = branch !== cur;
@@ -744,7 +717,7 @@ export async function getSessionDebugInfo(branch) {
     try {
         // Walk the commit chain
         let commits = 0;
-        for await (const _h of versioned.history()) commits++;
+        for await (const _h of staged.history()) commits++;
 
         // Count user-visible keys at HEAD (skip kvgit / agex internals)
         const userKeys = [];
