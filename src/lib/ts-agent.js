@@ -322,11 +322,22 @@ export async function readBranchMeta(name) {
             return "";
         }
     };
+    /** @param {string} key */
+    const peekBool = async (key) => {
+        const raw = await versioned.peek(key, { branch: name });
+        if (raw === null) return false;
+        try {
+            return Boolean(JSON.parse(decoder.decode(raw)));
+        } catch {
+            return false;
+        }
+    };
     return /** @type {BranchMeta} */ ({
         title: (await peekStr(META_KEYS.title)) || "New Chat",
         name: await peekStr(META_KEYS.name),
         description: await peekStr(META_KEYS.description),
         updated: await peekStr(META_KEYS.updated),
+        external: await peekBool(META_KEYS.external),
     });
 }
 
@@ -341,6 +352,7 @@ export async function writeBranchMeta(name, patch) {
         if (patch.title !== undefined) state.set(META_KEYS.title, patch.title);
         if (patch.name !== undefined) state.set(META_KEYS.name, patch.name);
         if (patch.description !== undefined) state.set(META_KEYS.description, patch.description);
+        if (patch.external !== undefined) state.set(META_KEYS.external, patch.external);
         // Always bump `updated` alongside any other write so the
         // session-list ordering reflects the edit.
         state.set(

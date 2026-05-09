@@ -62,6 +62,9 @@
  * @property {string} name - User-curated custom name (may be empty).
  * @property {string} description - User-curated description (may be empty).
  * @property {string} updated - ISO 8601 UTC timestamp of last activity.
+ * @property {boolean} [external] - true when the session was imported from
+ *   an external bundle (gates host-capability features the visitor might
+ *   not want to lend to a stranger's artifact). Persists in branch metadata.
  */
 
 // ---------------------------------------------------------------------------
