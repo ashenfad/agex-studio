@@ -79,17 +79,16 @@ const RUN_QUERY_NOT_YET =
 // values directly. Plumb that in instead of porting `runQuery` once
 // an app actually needs it; until then this stub stays.
 
-/** Switch kvgit's current branch to `branch`. The active-branch
- *  cache lives inside `ts-agent.js`; the underlying versioned ops
- *  re-read it on each call. The adapter delegates branch-switching
- *  through the helper module so a single chokepoint owns the
- *  caching. */
+/** Switch kvgit's current branch to `branch`. Goes through Staged
+ *  (not the underlying Versioned) so Staged's per-key read cache is
+ *  invalidated on switch — direct `versioned.switchBranch` would
+ *  leave Staged returning stale values from the prior branch. */
 async function _ensureBranch(branch) {
     const agent = _getAgent();
     const state = await agent.state("default");
-    const versioned = /** @type {any} */ (state).staged.versioned;
-    if (versioned.currentBranch !== branch) {
-        await versioned.switchBranch(branch);
+    const staged = /** @type {any} */ (state).staged;
+    if (staged.currentBranch !== branch) {
+        await staged.switchBranch(branch);
     }
 }
 

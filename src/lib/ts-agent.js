@@ -171,19 +171,25 @@ export function _getAgent() {
     return _agent;
 }
 
-/** Read the underlying kvgit-ts `Versioned` for the studio's pinned
- *  default session. Branch operations live below the agex-ts Agent's
- *  session abstraction — same pattern the studio uses on the Py side
- *  (`_state.versioned.list_branches()`). */
-async function _getVersioned() {
+/** Read the underlying kvgit-ts `Staged` for the studio's pinned
+ *  default session. HEAD-movers (`switchBranch`, `resetTo`, `refresh`)
+ *  must go through Staged so its read cache is invalidated — direct
+ *  reach-through to `staged.versioned.switchBranch(...)` would leave
+ *  Staged's per-key cache holding stale data from the prior branch. */
+async function _getStaged() {
     const agent = _getAgent();
     const state = await agent.state(SESSION);
-    // KvgitState exposes `.staged` for kvgit-specific surface; that's
-    // documented as the path for callers needing branches / history
-    // walks. `staged.versioned` is the underlying VersionedKV.
-    return /** @type {VersionedKV} */ (
-        /** @type {import('agex-ts/state').KvgitState} */ (state).staged.versioned
+    return /** @type {import('kvgit-ts').Staged} */ (
+        /** @type {import('agex-ts/state').KvgitState} */ (state).staged
     );
+}
+
+/** Read the underlying `VersionedKV` directly. Use for surface that
+ *  Staged doesn't wrap (`peek`, `listBranches`, `createBranch`,
+ *  `deleteBranch`, `initial`, `history`, etc.). For HEAD-movers use
+ *  `_getStaged()` instead. */
+async function _getVersioned() {
+    return (await _getStaged()).versioned;
 }
 
 /** Switch kvgit's current branch if not already there. Mirrors the
@@ -191,9 +197,9 @@ async function _getVersioned() {
  *  on the same branch are zero-op. */
 async function _ensureBranch(branch) {
     if (_activeBranch === branch) return;
-    const versioned = await _getVersioned();
-    if (versioned.currentBranch !== branch) {
-        await versioned.switchBranch(branch);
+    const staged = await _getStaged();
+    if (staged.currentBranch !== branch) {
+        await staged.switchBranch(branch);
     }
     _activeBranch = branch;
 }
@@ -259,12 +265,13 @@ export async function listBranchesWithMeta() {
 
 export async function createBranch(name, opts = {}) {
     const agent = _getAgent();
-    const versioned = await _getVersioned();
+    const staged = await _getStaged();
+    const versioned = staged.versioned;
     if (opts.from) {
         // Fork-from semantics: switch to opts.from so the new branch
         // is created off its HEAD. Matches agex-py forkSession
         // (createBranch with no `at=` forks from current).
-        await versioned.switchBranch(opts.from);
+        await staged.switchBranch(opts.from);
         await versioned.createBranch(name);
     } else {
         // `initialCommit` is a sync accessor over an async parent-chain
@@ -272,7 +279,7 @@ export async function createBranch(name, opts = {}) {
         const initialCommit = await versioned.initial();
         await versioned.createBranch(name, { at: initialCommit });
     }
-    await versioned.switchBranch(name);
+    await staged.switchBranch(name);
     _activeBranch = name;
 
     const state = await agent.state(SESSION);
@@ -282,8 +289,9 @@ export async function createBranch(name, opts = {}) {
 }
 
 export async function deleteBranch(name) {
-    const versioned = await _getVersioned();
-    if (versioned.currentBranch === name) {
+    const staged = await _getStaged();
+    const versioned = staged.versioned;
+    if (staged.currentBranch === name) {
         // Adapter's contract: the adapter falls back to another
         // chat- branch internally so subsequent ops don't trip on
         // a missing active branch. Shell decides what to render.
@@ -293,14 +301,14 @@ export async function deleteBranch(name) {
         if (others.length > 0) {
             // Pick whichever; shell will redirect via switchSession
             // immediately afterwards.
-            await versioned.switchBranch(others[0]);
+            await staged.switchBranch(others[0]);
         } else {
             // No other chat- branches; switch to anything else.
             const all = (await versioned.listBranches()).filter(
                 (b) => b !== name,
             );
             if (all.length > 0) {
-                await versioned.switchBranch(all[0]);
+                await staged.switchBranch(all[0]);
             }
         }
     }
@@ -343,10 +351,10 @@ export async function readBranchMeta(name) {
 
 export async function writeBranchMeta(name, patch) {
     const agent = _getAgent();
-    const versioned = await _getVersioned();
-    const cur = versioned.currentBranch;
+    const staged = await _getStaged();
+    const cur = staged.currentBranch;
     const switched = name !== cur;
-    if (switched) await versioned.switchBranch(name);
+    if (switched) await staged.switchBranch(name);
     try {
         const state = await agent.state(SESSION);
         if (patch.title !== undefined) state.set(META_KEYS.title, patch.title);
@@ -362,7 +370,7 @@ export async function writeBranchMeta(name, patch) {
         await agent.commit(SESSION);
     } finally {
         if (switched) {
-            await versioned.switchBranch(cur);
+            await staged.switchBranch(cur);
             _activeBranch = cur;
         } else {
             _activeBranch = name;
@@ -381,10 +389,10 @@ export async function getCurrentCommit() {
 }
 
 export async function undoToCommit(hash) {
-    const versioned = await _getVersioned();
-    await versioned.resetTo(hash);
-    // Staged buffer may hold cached reads against the pre-reset state.
-    // Drop our cached active branch so next op re-syncs.
+    const staged = await _getStaged();
+    // staged.resetTo clears Staged's read cache + buffered writes on
+    // success, so reads after the rewind see the post-reset state.
+    await staged.resetTo(hash);
     _invalidateActiveBranch();
 }
 
@@ -725,10 +733,14 @@ export async function getTokenHistory() {
 // ---------------------------------------------------------------------------
 
 export async function getSessionDebugInfo(branch) {
-    const versioned = await _getVersioned();
-    const cur = versioned.currentBranch;
+    const staged = await _getStaged();
+    // TODO(kvgit-ts): once Staged exposes `history` / `getMany`
+    // (matching kvgit-py's surface), drop the `versioned` reach-through
+    // for those reads. Switch is already on Staged.
+    const versioned = staged.versioned;
+    const cur = staged.currentBranch;
     const switched = branch !== cur;
-    if (switched) await versioned.switchBranch(branch);
+    if (switched) await staged.switchBranch(branch);
     try {
         // Walk the commit chain
         let commits = 0;
@@ -736,7 +748,7 @@ export async function getSessionDebugInfo(branch) {
 
         // Count user-visible keys at HEAD (skip kvgit / agex internals)
         const userKeys = [];
-        for await (const k of versioned.keys()) {
+        for await (const k of staged.keys()) {
             if (!k.startsWith("__")) userKeys.push(k);
         }
         userKeys.sort();
@@ -744,7 +756,7 @@ export async function getSessionDebugInfo(branch) {
         // Per-key sizes — use getMany for efficiency where possible.
         // Top-10 by byte count, mirroring the Py side's debug panel.
         const allKeys = [];
-        for await (const k of versioned.keys()) allKeys.push(k);
+        for await (const k of staged.keys()) allKeys.push(k);
         const valuesMap =
             allKeys.length > 0 ? await versioned.getMany(allKeys) : new Map();
         let totalBytes = 0;
@@ -759,7 +771,7 @@ export async function getSessionDebugInfo(branch) {
 
         return {
             branch,
-            commit: versioned.currentCommit?.slice(0, 12) ?? null,
+            commit: staged.currentCommit?.slice(0, 12) ?? null,
             commits,
             keys_total: allKeys.length,
             keys: userKeys,
@@ -768,7 +780,7 @@ export async function getSessionDebugInfo(branch) {
         };
     } finally {
         if (switched) {
-            await versioned.switchBranch(cur);
+            await staged.switchBranch(cur);
             _activeBranch = cur;
         }
     }
