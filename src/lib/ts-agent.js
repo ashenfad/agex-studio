@@ -235,6 +235,7 @@ export async function initAgent(settings) {
                 "  - `{ read: '#sel', prop: 'value' }` — read an element property",
                 "  - `{ eval: 'document.querySelectorAll(\"li\").length' }` — evaluate a JS expression in the iframe, capture the result",
                 "  - `{ assert: 'document.querySelector(\"#chart\")', message: 'chart rendered' }` — evaluate a JS expression as truthy/falsy. Passes are silent (no result entry); a failing assertion throws from `test_app`, which surfaces to your code as a thrown error and to the next agent turn as a recoverable error you can read and self-correct. Use this to gate `taskSuccess` on app correctness — just write the assertion and call `taskSuccess` next; if the assertion fails the throw bypasses success automatically.",
+                "  - `{ screenshot: true }` (full document) or `{ screenshot: '#sel' }` (specific element) — capture a base64 PNG via `html-to-image`. Returns `{ type: 'screenshot', data: '<base64>' }`. The base64 is large (200KB–1MB+); pass the data to `viewImage({ format: 'png', data })` immediately so the next turn sees the actual image, then drop the variable. Don't return the screenshot data through `taskSuccess` — it bloats event-log persistence.",
                 "",
                 "All values must be JSON-serializable — functions / closures will fail with DataCloneError. Use `eval` / `assert` actions for in-iframe JS.",
                 "",
