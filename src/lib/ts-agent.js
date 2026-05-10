@@ -196,11 +196,21 @@ function _buildLlmClient(settings) {
             apiKey,
             model,
             ...(baseUrl ? { baseUrl } : {}),
-            // OpenRouter's `/v1/messages` CORS allow-list rejects the
-            // `anthropic-version` header that agex-anthropic sends by
-            // default. `null` deletes it (per the headers contract).
             ...(isOpenRouter
-                ? { headers: { "anthropic-version": null } }
+                ? {
+                      // OpenRouter's `/v1/messages` CORS allow-list
+                      // rejects the `anthropic-version` header that
+                      // agex-anthropic sends by default. `null` deletes
+                      // it (per the headers contract).
+                      headers: { "anthropic-version": null },
+                      // Pin to Anthropic-direct so prompt-cache hits
+                      // are consistent across turns. Without this,
+                      // OpenRouter may route to Bedrock / Vertex on
+                      // some turns; each backend has its own separate
+                      // cache, so turn-N cache lookups against
+                      // turn-(N-1)'s write would miss.
+                      extras: { provider: { only: ["anthropic"] } },
+                  }
                 : {}),
         });
     }
