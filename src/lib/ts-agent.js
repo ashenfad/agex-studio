@@ -210,8 +210,28 @@ export async function initAgent(settings) {
             });
         },
         {
-            description:
-                "(Pre-registered global — call directly with `await test_app(...)`, no import needed.) Build a hidden iframe from the agent's app/ files, run optional UI actions, and return console + action results. Use to verify uncommitted app changes before taskSuccess(). Pass `fresh=true` to skip seeding the iframe's app-storage from the persisted session.",
+            description: [
+                "(Pre-registered global — call directly with `await test_app(...)`, no import needed.)",
+                "Build a hidden iframe from the agent's app/ files, run optional UI actions, return console + action results.",
+                "Use to verify uncommitted app changes before taskSuccess.",
+                "",
+                "Signature: `test_app(actions?: Array<ActionDict>, fresh?: boolean): Promise<Array<ResultDict>>`",
+                "",
+                "NOT a Playwright/Puppeteer callback API — there is no `page` object. `actions` is a flat array of plain objects, each one of:",
+                "  - `{ click: '#sel' }` — click an element",
+                "  - `{ type: '#sel', value: 'text' }` — type into an input",
+                "  - `{ select: '#sel', value: 'opt' }` — select an option",
+                "  - `{ wait: 500 }` — wait N milliseconds",
+                "  - `{ read: '#sel' }` — read element textContent",
+                "  - `{ read: '#sel', prop: 'value' }` — read an element property",
+                "  - `{ eval: 'document.querySelectorAll(\"li\").length' }` — evaluate a JS expression in the iframe, capture the result",
+                "",
+                "All values must be JSON-serializable — functions / closures will fail with DataCloneError. Use `eval` actions for in-iframe JS.",
+                "",
+                "`fresh=true` skips seeding the iframe's app-storage from the persisted session (useful when iterating on first-load behavior).",
+                "",
+                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results (`{type: 'eval' | 'read' | 'screenshot', data}`).",
+            ].join("\n"),
         },
     );
 
@@ -223,8 +243,15 @@ export async function initAgent(settings) {
             });
         },
         {
-            description:
-                "(Pre-registered global — call directly with `await live_app(...)`, no import needed.) Interact with the live app preview the user sees (the LAST COMMITTED files — uncommitted changes won't appear until taskSuccess). Use to read user-entered state, click UI elements, etc. Use `test_app` instead to verify changes you've made this turn.",
+            description: [
+                "(Pre-registered global — call directly with `await live_app(...)`, no import needed.)",
+                "Interact with the live app preview the user sees (the LAST COMMITTED app/ files — uncommitted changes won't appear until taskSuccess).",
+                "Use to read user-entered state, click UI elements, inspect DOM, etc. Use `test_app` instead to verify changes you've made this turn.",
+                "",
+                "Signature: `live_app(actions?: Array<ActionDict>): Promise<Array<ResultDict>>`",
+                "",
+                "Same `actions` shape as `test_app` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / etc. plain objects, all values JSON-serializable. NOT a Playwright/Puppeteer callback API.",
+            ].join("\n"),
         },
     );
 }
