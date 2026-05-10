@@ -373,7 +373,24 @@
  *   `/chapters/<slug>/` overlay) and the language-flavor mapping from
  *   raw events to the uniform `UiMessage` shape.
  *
- * --- Query bridge for iframe apps ---------------------------------------
+ * --- Query / cache bridges for iframe apps ------------------------------
+ *
+ * Two complementary affordances for app↔agent data passing — each
+ * kernel implements one fully and stubs the other today:
+ *
+ *   - `runQuery`: py-side affordance (live code execution in agent space).
+ *     TS adapter stubs this — agex-ts's worker runtime doesn't expose a
+ *     namespace-capture API yet (separate concern from the chat task's
+ *     `ts` emissions).
+ *   - `getCacheValue`: TS-side affordance (read pre-stashed values from
+ *     the agent's cache). Py adapter stubs this today — py apps use
+ *     `runQuery` for app↔agent data passing instead. Could land later
+ *     if py wants the same ergonomics.
+ *
+ * Both methods are in the typedef so the iframe bridge can call either
+ * without per-kernel branching at the call site; the adapter throws a
+ * clear "not implemented for this kernel" error when the wrong path is
+ * exercised, telling the agent which alternative to use.
  *
  * @property {(branch: string, code: string, resultVars: string[] | null) => Promise<Record<string, unknown>>} runQuery
  *   Execute `code` in the branch's sandbox with a snapshot of the
@@ -385,6 +402,15 @@
  *   isolation" for the asymmetric-state contract that both adapters
  *   honor identically.
  *
+ * @property {(branch: string, key: string) => Promise<unknown>} getCacheValue
+ *   Read a value from the branch's agent cache (`cache.set(key, value)`
+ *   in agent code stashes it; this method reads it back). Used by
+ *   iframe apps to pull pre-computed results without round-tripping
+ *   through `runQuery`. Returns `undefined` when the key isn't set.
+ *   Values must be JSON-roundtrippable (strings, numbers, arrays,
+ *   plain objects) so the iframe can deserialize them via postMessage.
+ *
+
  * --- Token telemetry -----------------------------------------------------
  *
  * @property {(branch: string) => Promise<number>} estimateLogTokens

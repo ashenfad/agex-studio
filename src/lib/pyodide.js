@@ -573,6 +573,28 @@ window.query = function(opts) {
         }, '*');
     });
 };
+
+// getCacheValue(key) — read a value the agent stashed via cache.set(key, value).
+// Lighter-weight than query(): no code execution, just a cache lookup.
+// The agent must have called cache.set on the key before the app reads it.
+window.getCacheValue = function(key) {
+    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return new Promise(function(resolve, reject) {
+        function handler(event) {
+            if (event.data && event.data.type === 'agex-cache-get-result' && event.data.id === id) {
+                window.removeEventListener('message', handler);
+                if (event.data.error) reject(new Error(event.data.error));
+                else resolve(event.data.data);
+            }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({
+            type: 'agex-cache-get',
+            id: id,
+            key: key,
+        }, '*');
+    });
+};
 <\/script>`;
 
 /**

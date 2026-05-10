@@ -503,6 +503,29 @@ export async function deleteFilesHelper(paths) {
     await agent.commit(SESSION);
 }
 
+/**
+ * Read a value from the agent's cache for the active session.
+ *
+ * Used by iframe apps via the `getCacheValue(key)` bridge to pull
+ * agent-stashed data without a full `runQuery` round-trip. Agent code
+ * stashes via `cache.set(key, value)`; this reads it back. Returns
+ * `undefined` for unset keys.
+ *
+ * Values are decoded by `polymorphicDecoder` (the same codec the
+ * event log uses) so `Map` / `Set` / `Date` / typed arrays etc. all
+ * round-trip — but the iframe bridge marshals the result through
+ * postMessage, which structured-clones into the iframe's realm. Stick
+ * to JSON-roundtrippable shapes for app↔agent passing.
+ *
+ * @param {string} key
+ * @returns {Promise<unknown>}
+ */
+export async function getCacheValue(key) {
+    const agent = _getAgent();
+    const cache = await agent.cache(SESSION);
+    return cache.get(key);
+}
+
 export async function readAppFiles() {
     const agent = _getAgent();
     const fs = await agent.fs(SESSION);

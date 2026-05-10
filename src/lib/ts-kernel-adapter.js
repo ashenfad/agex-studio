@@ -35,6 +35,7 @@ import {
     writeFiles as agentWriteFiles,
     deleteFilesHelper as agentDeleteFiles,
     readAppFiles as agentReadAppFiles,
+    getCacheValue as agentGetCacheValue,
     loadHistory as agentLoadHistory,
     estimateLogTokens as agentEstimateLogTokens,
     getTokenHistory as agentGetTokenHistory,
@@ -332,10 +333,15 @@ export function createTsAdapter() {
             return agentLoadHistory();
         },
 
-        // --- Query bridge -----------------------------------------------
+        // --- Query / cache bridges --------------------------------------
 
         async runQuery(_branch, _code, _resultVars) {
             throw new Error(RUN_QUERY_NOT_YET);
+        },
+
+        async getCacheValue(branch, key) {
+            await _ensureBranch(branch);
+            return agentGetCacheValue(key);
         },
 
         // --- Token telemetry --------------------------------------------

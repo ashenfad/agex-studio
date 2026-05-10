@@ -46,6 +46,7 @@ const EXPECTED_METHODS = [
     "loadHistory",
     // Query bridge
     "runQuery",
+    "getCacheValue",
     // Token telemetry
     "estimateLogTokens",
     "getTokenHistory",
