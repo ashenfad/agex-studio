@@ -59,12 +59,24 @@ describe("kernelRegistry.ensure", () => {
         expect(mockInitCalls).toBe(1);
     });
 
-    it("returns the cached adapter on subsequent calls without re-init", async () => {
+    it("returns the same adapter on subsequent calls and re-inits with new settings", async () => {
+        // Per the KernelAdapter typedef, `init` may be called more than
+        // once to propagate settings updates (model change, API key
+        // rotation, etc.). The bootstrap work happens once; subsequent
+        // ensure() calls hit the adapter's hot-swap path.
         const registry = createKernelRegistry();
+        const initSettingsSeen = [];
+        mockInitImpl = async (settings, _opts) => {
+            initSettingsSeen.push(settings);
+        };
         const a1 = await registry.ensure("py", { apiKey: "k", model: "m" });
         const a2 = await registry.ensure("py", { apiKey: "k2", model: "m2" });
         expect(a1).toBe(a2);
-        expect(mockInitCalls).toBe(1);
+        expect(mockInitCalls).toBe(2);
+        expect(initSettingsSeen).toEqual([
+            { apiKey: "k", model: "m" },
+            { apiKey: "k2", model: "m2" },
+        ]);
     });
 
     it("dedupes concurrent calls into a single init", async () => {

@@ -84,7 +84,23 @@ let _activeBranch = /** @type {string | null} */ (null);
  * @param {KernelSettings} settings
  */
 export async function initAgent(settings) {
-    if (_agent) return;
+    // Already-constructed agent: hot-swap the safe-to-mutate fields
+    // (LLM client, chaptering trigger) and bail. The runtime / state /
+    // fs are deliberately not in `reconfigure`'s surface — mutating
+    // those mid-session would orphan workers or break substrate
+    // invariants. Settings the user can change at runtime (model,
+    // API key, baseUrl, provider, chaptering threshold) all flow
+    // through `_buildLlmClient` + `chapteringTrigger`.
+    if (_agent) {
+        _agent.reconfigure({
+            llm: _buildLlmClient(settings),
+            chapteringTrigger:
+                typeof settings.chapteringTrigger === "number"
+                    ? settings.chapteringTrigger
+                    : DEFAULT_CHAPTERING_TRIGGER,
+        });
+        return;
+    }
     const llm = _buildLlmClient(settings);
     const runtime = workerRuntime({
         // Vite resolves `new URL('./worker.js', import.meta.url)`
