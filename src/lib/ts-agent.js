@@ -230,7 +230,7 @@ export async function initAgent(settings) {
                 "",
                 "`fresh=true` skips seeding the iframe's app-storage from the persisted session (useful when iterating on first-load behavior).",
                 "",
-                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results (`{type: 'eval' | 'read' | 'screenshot', data}`).",
+                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results — `{type: 'eval', expr, value}`, `{type: 'read', selector, value}`, `{type: 'screenshot', data}`. Note: eval/read results carry the result on `value`, not `data` (only screenshot uses `data`).",
             ].join("\n"),
         },
     );
