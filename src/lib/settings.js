@@ -159,25 +159,26 @@ export function resolveBaseUrl(s) {
 /** Resolve the effective LLM wire-format provider from a settings object.
  *
  *  Custom mode: the user's explicit `provider` choice wins.
- *  OpenRouter mode: pick wire shape from the model ID. Anthropic models
- *    (`anthropic/claude-…`) route to the Anthropic-shape endpoint
- *    (`/v1/messages`) so `cache_control` markers flow through —
- *    OpenRouter's OpenAI-shape endpoint silently drops those markers,
- *    so a Claude model addressed via the OpenAI shape gets no caching.
- *    Everything else (OpenAI, Gemini, Meta, Mistral, …) uses the
- *    OpenAI shape; Gemini's implicit caching still works there.
+ *  OpenRouter mode: always OpenAI shape today.
  *
- *  The `<provider>/<model>` ID convention is enforced consistently on
- *  OpenRouter, so prefix-matching `anthropic/` is reliable.
+ *  Why not auto-route Claude models to the Anthropic shape on
+ *  OpenRouter (which would unlock `cache_control`)?  OpenRouter's
+ *  `/v1/messages` CORS allow-list omits the `anthropic-version`
+ *  header — and `agex-anthropic` always sends it (no way to
+ *  customize). Browser preflight fails before any request lands.
+ *  Until either OpenRouter widens its allow-list or `agex-anthropic`
+ *  exposes header customization, OpenRouter mode stays on the
+ *  OpenAI-shape endpoint. (Gemini's implicit caching still works
+ *  there; Claude models get no caching for now.)
+ *
+ *  TODO(agex-anthropic): support omitting / customizing the
+ *  `anthropic-version` header so OpenRouter compat is reachable.
  *
  *  @param {{ provider?: string, accessMode?: string, model?: string }} s
  *  @returns {"openai" | "anthropic"}
  */
 export function resolveProvider(s) {
     if (s.accessMode === "openrouter") {
-        if (s.model && s.model.startsWith("anthropic/")) {
-            return "anthropic";
-        }
         return "openai";
     }
     return s.provider === "anthropic" ? "anthropic" : "openai";

@@ -1,5 +1,5 @@
 <script>
-    import { settingsStore, updateSettings, resolveProvider } from './settings.js'
+    import { settingsStore, updateSettings } from './settings.js'
 
     // Preset catalogs.  OpenRouter's IDs are namespaced
     // (``openai/gpt-5.4``); direct-shape providers use bare IDs
@@ -268,25 +268,10 @@
                     </select>
                 </label>
 
-                {#if accessMode === 'openrouter'}
-                    {@const wireFormat = resolveProvider({ accessMode, provider, model })}
-                    <div class="field">
-                        <span class="field-label">Wire format</span>
-                        <div class="field-readonly">
-                            {wireFormat === 'anthropic' ? 'Anthropic (auto)' : 'OpenAI (auto)'}
-                        </div>
-                        <div class="field-hint">
-                            {#if wireFormat === 'anthropic'}
-                                Anthropic models route via OpenRouter's <code>/v1/messages</code>
-                                endpoint so prompt-cache markers flow through.
-                            {:else}
-                                Non-Anthropic models use OpenRouter's
-                                <code>/v1/chat/completions</code> endpoint.
-                                Gemini's implicit caching still applies.
-                            {/if}
-                        </div>
-                    </div>
-                {/if}
+                <!-- OpenRouter mode: wire format is implicit (OpenAI shape).
+                     We don't surface the choice in the UI — `resolveProvider`
+                     handles it and the user has nothing actionable to pick
+                     here.  See settings.js for the routing details. -->
 
                 <div class="divider"></div>
 
@@ -417,28 +402,6 @@
         display: flex;
         flex-direction: column;
         gap: 0.4rem;
-    }
-
-    .field-readonly {
-        font-size: 0.85rem;
-        padding: 0.4rem 0.6rem;
-        background: var(--input-bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        color: var(--text);
-    }
-
-    .field-hint {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        line-height: 1.4;
-    }
-
-    .field-hint code {
-        font-size: 0.75rem;
-        background: var(--input-bg);
-        padding: 0.05rem 0.3rem;
-        border-radius: 3px;
     }
 
     .segmented {
