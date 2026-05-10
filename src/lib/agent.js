@@ -8,7 +8,7 @@ import {
   setQueryHandler,
   setLiveIframe,
 } from "./pyodide.js";
-import { resolveBaseUrl } from "./settings.js";
+import { resolveBaseUrl, resolveProvider } from "./settings.js";
 
 /**
  * Browser's resolved IANA timezone, or "UTC" if undetectable.
@@ -30,10 +30,14 @@ function _userTimezone() {
  * @param {{ provider?: string, baseUrl?: string }} settings
  */
 function _llmConfig(settings) {
+  // Resolve wire-format provider here too — in OpenRouter mode the
+  // shape is auto-picked from the model ID (Anthropic models go via
+  // `/v1/messages` so `cache_control` markers flow through).
+  const provider = resolveProvider(settings);
   const providerName =
-    settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
+    provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
   const llmClass =
-    settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
+    provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
   // Studio resolves OpenRouter mode → its base URL here so the kernel
   // doesn't have to rely on a vendor-specific library default.
   const resolvedBaseUrl = resolveBaseUrl(settings);
@@ -42,7 +46,7 @@ function _llmConfig(settings) {
     : "";
   // OpenRouter-specific headers — only meaningful for pyfetch_openai.
   const openrouterLines =
-    settings.provider === "anthropic"
+    provider === "anthropic"
       ? ""
       : `    app_url="https://agex.studio",\n    app_title="Agex Studio",\n`;
   // Optional: print raw SSE text deltas to the browser console.

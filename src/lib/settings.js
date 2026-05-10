@@ -155,3 +155,30 @@ export function resolveBaseUrl(s) {
     if (s.accessMode === "openrouter") return "https://openrouter.ai/api/v1";
     return "";
 }
+
+/** Resolve the effective LLM wire-format provider from a settings object.
+ *
+ *  Custom mode: the user's explicit `provider` choice wins.
+ *  OpenRouter mode: pick wire shape from the model ID. Anthropic models
+ *    (`anthropic/claude-…`) route to the Anthropic-shape endpoint
+ *    (`/v1/messages`) so `cache_control` markers flow through —
+ *    OpenRouter's OpenAI-shape endpoint silently drops those markers,
+ *    so a Claude model addressed via the OpenAI shape gets no caching.
+ *    Everything else (OpenAI, Gemini, Meta, Mistral, …) uses the
+ *    OpenAI shape; Gemini's implicit caching still works there.
+ *
+ *  The `<provider>/<model>` ID convention is enforced consistently on
+ *  OpenRouter, so prefix-matching `anthropic/` is reliable.
+ *
+ *  @param {{ provider?: string, accessMode?: string, model?: string }} s
+ *  @returns {"openai" | "anthropic"}
+ */
+export function resolveProvider(s) {
+    if (s.accessMode === "openrouter") {
+        if (s.model && s.model.startsWith("anthropic/")) {
+            return "anthropic";
+        }
+        return "openai";
+    }
+    return s.provider === "anthropic" ? "anthropic" : "openai";
+}
