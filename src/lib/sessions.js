@@ -284,9 +284,11 @@ async function initSessions() {
     } else if (sessions.length > 0) {
         current = sessions[0].branch;
     } else {
-        // No sessions exist anywhere — create a default py session.
-        // py is the default kernel (same as pre-unification studio).
-        const adapter = await resolveAdapter("py");
+        // No sessions exist anywhere — create a default ts session.
+        // ts is the lighter / faster cold-start kernel; py boots Pyodide
+        // (~30 s, ~30 MB) on first use, which is too heavy a starting
+        // experience for a fresh install or post-purge state.
+        const adapter = await resolveAdapter("ts");
         const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
         await adapter.createBranch(branch);
         current = branch;
@@ -298,7 +300,7 @@ async function initSessions() {
                 description: "",
                 updated: new Date().toISOString(),
                 external: false,
-                kernel: "py",
+                kernel: "ts",
             },
         ];
     }
@@ -314,10 +316,11 @@ async function initSessions() {
  *
  * @param {{ kernel?: 'py' | 'ts' }} [options]
  *   `kernel` selects the runtime the session will be bound to.
- *   Defaults to `"py"`. Once set, a session's kernel doesn't change.
+ *   Defaults to `"ts"` — lighter cold start than py (no Pyodide
+ *   install). Once set, a session's kernel doesn't change.
  */
-export async function createSession({ kernel = "py" } = {}) {
-    const safeKernel = kernel === "ts" ? "ts" : "py";
+export async function createSession({ kernel = "ts" } = {}) {
+    const safeKernel = kernel === "py" ? "py" : "ts";
     const adapter = await resolveAdapter(safeKernel);
     const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
     await adapter.createBranch(branch);
@@ -362,10 +365,10 @@ export async function deleteSession(branch) {
             s.branch !== branch && s.branch.startsWith(CHAT_BRANCH_PREFIX),
     );
     if (remaining.length === 0) {
-        // Last session — create a fresh py default. This
-        // effectively chains createSession's update() so we don't
-        // need to also update the store here.
-        await createSession({ kernel: "py" });
+        // Last session — create a fresh ts default (matches the
+        // initSessions cold-start choice). Chains createSession's
+        // update() so we don't need to also update the store here.
+        await createSession({ kernel: "ts" });
         return;
     }
 

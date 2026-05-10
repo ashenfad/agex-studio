@@ -23,15 +23,17 @@
      *  the active branch — the join is enough to pick the right kernel
      *  before either runtime is touched.
      *
-     *  Falls back to `'py'` when the cache is empty (cold-start) or
-     *  the current pointer doesn't match a cached record (cleared cache,
-     *  external-entry redirect, etc.). Py is the default kernel and
-     *  matches pre-unification studio behavior. */
+     *  Falls back to `'ts'` when the cache is empty (cold-start) — the
+     *  ts kernel boots in well under a second versus py's ~30s Pyodide
+     *  install. If the current pointer matches a cached py record, that
+     *  takes precedence. Matches the cold-start session creation default
+     *  in sessions.js's initSessions. */
     function _resolveActiveKernel() {
         const branch = localStorage.getItem(CURRENT_BRANCH_KEY)
-        if (!branch) return 'py'
+        if (!branch) return 'ts'
         const record = loadSessionCache().find((r) => r.branch === branch)
-        return record?.kernel === 'ts' ? 'ts' : 'py'
+        if (!record) return 'ts'
+        return record.kernel === 'py' ? 'py' : 'ts'
     }
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
