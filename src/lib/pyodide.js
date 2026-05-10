@@ -11,7 +11,12 @@
 // dispatch logic can be unit-tested against jsdom/happy-dom. See
 // src/lib/iframe-bridge.js and its tests.
 import _iframeBridgeSource from './iframe-bridge.js?raw';
-import { sendControl } from './iframe-bridge.js';
+import {
+    runTestApp as appControlRunTestApp,
+    runLiveApp as appControlRunLiveApp,
+    setLiveIframe as appControlSetLiveIframe,
+    getLiveIframe as appControlGetLiveIframe,
+} from './app-control.js';
 import { read as readAppStorage } from './app-storage.js';
 
 /** @type {Worker | null} */
@@ -134,9 +139,9 @@ export function startWorker() {
         } else if (msg.type === "pdf-page-count") {
             getPdfPageCount(msg.pdfBase64, msg.id);
         } else if (msg.type === "test-app") {
-            runTestApp(msg.appFilesJson, msg.actionsJson, msg.fresh, msg.id);
+            _handleTestApp(msg.appFilesJson, msg.actionsJson, msg.fresh, msg.id);
         } else if (msg.type === "live-app") {
-            runLiveApp(msg.actionsJson, msg.id);
+            _handleLiveApp(msg.actionsJson, msg.id);
         } else if (msg.type === "llm-fetch") {
             handleLlmFetch(msg.requestJson, msg.id);
         } else if (msg.type === "llm-stream") {
@@ -488,16 +493,17 @@ export function startWave3() {
     if (worker) worker.postMessage({ type: "start-wave3" });
 }
 
-/** @type {HTMLIFrameElement | null} */
-let liveIframe = null;
-
 /**
  * Register the live preview iframe for live_app().
- * Called by AppPreview.svelte when the iframe is mounted.
+ * Called by AppPreview.svelte when the iframe is mounted. Re-exports
+ * the app-control module's setter so AppPreview's existing
+ * `import { setLiveIframe } from './pyodide.js'` keeps working —
+ * the module-level state lives in app-control.js so the TS adapter
+ * can also read it.
  * @param {HTMLIFrameElement | null} iframe
  */
 export function setLiveIframe(iframe) {
-    liveIframe = iframe;
+    appControlSetLiveIframe(iframe);
 }
 
 // Console interceptor script — injected into both test and live iframes.
@@ -1038,227 +1044,71 @@ ${_plotlyScriptTag()}
 }
 
 /**
- * Wait for an iframe to become idle (no pending queries for 2s).
- * @param {HTMLIFrameElement} iframe
- * @param {number} maxMs
- */
-function waitForIdle(iframe, maxMs = 15000) {
-    return new Promise((resolve) => {
-        let idleTimer = null;
-        let maxTimer = setTimeout(() => {
-            clearTimeout(idleTimer);
-            resolve();
-        }, maxMs);
-
-        function resetIdle() {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                clearTimeout(maxTimer);
-                resolve();
-            }, 2000);
-        }
-
-        iframe.__onQueryDone = () => resetIdle();
-        resetIdle();
-    });
-}
-
-/**
- * Execute actions against an iframe and collect results.
- * Shared by runTestApp and runLiveApp.
+ * Worker-message wrappers around the kernel-agnostic
+ * `runTestApp` / `runLiveApp` orchestration in `app-control.js`.
  *
- * Action dispatch happens inside the iframe via the control bridge
- * (see iframe-bridge.js). This avoids reaching into iframe.contentDocument
- * from the parent, which would fail once the iframe has an opaque origin.
- *
- * @param {HTMLIFrameElement} iframe
- * @param {Array<object>} actions
- * @returns {Promise<Array<object>>} action results (read/eval/screenshot entries)
+ * The bulk of the iframe-control logic now lives in `app-control.js`
+ * so the TS adapter can register `test_app` / `live_app` as
+ * `agent.fn(...)` host-resident calls without going through the
+ * py-only worker round-trip. These wrappers keep the py side's
+ * existing `_js_test_app` / `_js_live_app` JS-bridge contract
+ * unchanged: parse the worker payload, invoke the orchestrator with
+ * the py-shaped query handler (no cache handler — py apps use
+ * `runQuery` for app↔agent data passing, not `getCacheValue`), and
+ * post results back to the worker.
  */
-async function executeActions(iframe, actions) {
-    const results = [];
-    for (const action of actions) {
-        if (action.wait) {
-            // Pure parent-side delay; no bridge call needed
-            await new Promise(r => setTimeout(r, action.wait));
-        } else {
-            try {
-                const data = await sendControl(iframe, action);
-                if (data != null) {
-                    results.push(data);
-                }
-            } catch (e) {
-                // Bridge-level errors (unknown action, bridge not installed,
-                // etc.) surface here. Sub-errors (eval that threw,
-                // screenshot target missing) are captured into the data
-                // payload by dispatchAction and resolve normally.
-                results.push({
-                    type: 'log', level: 'error',
-                    message: `Action failed: ${e.message}`,
-                });
-            }
-        }
-        // Wait for any triggered queries/effects to settle
-        await waitForIdle(iframe, 10000);
+
+async function _handleTestApp(appFilesJson, actionsJson, fresh, requestId) {
+    let appStorageSeed = {};
+    if (!fresh) {
+        const branch = localStorage.getItem("agex-current-branch") || "";
+        if (branch) appStorageSeed = readAppStorage("py", branch);
     }
-    return results;
-}
-
-/**
- * Collect console logs and action results from an iframe.
- * Logs are fetched from inside the iframe via the control bridge.
- *
- * @param {HTMLIFrameElement} iframe
- * @param {Array<object>} actionResults
- * @returns {Promise<Array<object>>}
- */
-async function collectResults(iframe, actionResults) {
-    let logs = [];
     try {
-        const data = await sendControl(iframe, { 'get-logs': true });
-        logs = (data?.logs || []).map(
-            (e) => ({ type: 'log', level: e.level, message: e.message })
-        );
-    } catch { /* ignore — collecting logs is best-effort */ }
-    return [...logs, ...actionResults].slice(0, 200);
-}
-
-/**
- * Run a headless app test: build a hidden iframe, optionally interact,
- * and collect console output + action results.
- */
-async function runTestApp(appFilesJson, actionsJson, fresh, requestId) {
-    let iframe = null;
-    let blobUrl = null;
-    let messageHandler = null;
-    // Promises for currently-running query handler invocations. The
-    // handler is an async arrow fired by a synchronous event listener,
-    // so the awaits inside it can outlive the executeActions loop. We
-    // drain this list before teardown so in-flight responses don't try
-    // to postMessage to a detached iframe.
-    let pendingHandlers = [];
-
-    try {
-        const appFiles = JSON.parse(appFilesJson);
-        const actions = actionsJson ? JSON.parse(actionsJson) : [];
-        // Look up the seed from the parent's localStorage via the
-        // app-storage module.  Only one kernel is active per studio
-        // session today; the agent invoking test_app is by definition
-        // on the current branch.  Kernel is hardcoded `'py'` here —
-        // when the TS adapter lands its own `test_app` will resolve
-        // its own bridge with `kernel: 'ts'`.
-        let seed = {};
-        if (!fresh) {
-            const branch = localStorage.getItem('agex-current-branch') || '';
-            if (branch) {
-                seed = readAppStorage('py', branch);
-            }
-        }
-
-        // Read-only: test_app shouldn't write speculative state back to
-        // the user's session — keeps tests isolated and deterministic.
-        const html = buildAppHtml(appFiles, {
-            appStorage: { seed, writeable: false },
+        const results = await appControlRunTestApp({
+            appFiles: JSON.parse(appFilesJson),
+            actions: actionsJson ? JSON.parse(actionsJson) : [],
+            appStorageSeed,
+            buildAppHtml,
+            queryHandler: queryHandler
+                ? (code, resultVars) => queryHandler(code, resultVars)
+                : null,
+            cacheHandler: null,
         });
-        blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-        iframe = document.createElement('iframe');
-        // Position in-viewport but visually hidden: in-viewport so the
-        // browser doesn't throttle CSS @keyframes animations on the
-        // assumption that nothing's visible (the classic "iframe at
-        // left:-9999px" trick triggers Chromium's animation-throttle
-        // optimization, leaving keyframe animations stuck at the
-        // initial frame even though transitions / rAF still run).
-        // opacity:0 + pointer-events:none + z-index:-1 keeps the
-        // user from seeing or interacting with it.
-        iframe.style.cssText =
-            'position:fixed;top:0;left:0;width:800px;height:600px;'
-            + 'opacity:0;pointer-events:none;z-index:-1;';
-        iframe.sandbox = 'allow-scripts';
-
-        // Handle query() messages from the test iframe
-        messageHandler = (event) => {
-            if (!iframe || event.source !== iframe.contentWindow) return;
-            if (event.data?.type !== 'agex-query') return;
-            const { id, code, result } = event.data;
-            const p = (async () => {
-                try {
-                    const data = queryHandler ? await queryHandler(code, result) : {};
-                    iframe.contentWindow?.postMessage(
-                        { type: 'agex-query-result', id, data, error: null }, '*');
-                } catch (err) {
-                    iframe.contentWindow?.postMessage(
-                        { type: 'agex-query-result', id, data: null,
-                          error: err.message || String(err) }, '*');
-                }
-                iframe.__onQueryDone?.();
-            })();
-            pendingHandlers.push(p);
-        };
-        window.addEventListener('message', messageHandler);
-
-        // Load and wait for initial idle
-        await new Promise((resolve) => {
-            iframe.onload = resolve;
-            iframe.src = blobUrl;
-            document.body.appendChild(iframe);
-        });
-        await waitForIdle(iframe);
-
-        const actionResults = await executeActions(iframe, actions);
-
-        // Drain any query handler promises that were spawned by the
-        // actions but haven't resolved yet (e.g. a long-running chunk
-        // generation kicked off by the final click). Handlers added
-        // while we're awaiting get picked up by the loop.
-        while (pendingHandlers.length > 0) {
-            const batch = pendingHandlers;
-            pendingHandlers = [];
-            await Promise.allSettled(batch);
-        }
-
-        const results = await collectResults(iframe, actionResults);
-
         worker.postMessage({
-            type: 'test-app-result', id: requestId,
+            type: "test-app-result",
+            id: requestId,
             resultsJson: JSON.stringify(results),
         });
     } catch (e) {
         worker.postMessage({
-            type: 'test-app-result', id: requestId,
-            resultsJson: JSON.stringify([{ type: 'log', level: 'error', message: 'test_app failed: ' + e.message }]),
+            type: "test-app-result",
+            id: requestId,
+            resultsJson: JSON.stringify([
+                { type: "log", level: "error", message: "test_app failed: " + e.message },
+            ]),
         });
-    } finally {
-        if (messageHandler) window.removeEventListener('message', messageHandler);
-        if (iframe) iframe.remove();
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
     }
 }
 
-/**
- * Interact with the live preview iframe and collect results.
- */
-async function runLiveApp(actionsJson, requestId) {
+async function _handleLiveApp(actionsJson, requestId) {
     try {
-        if (!liveIframe || !liveIframe.contentWindow) {
-            worker.postMessage({
-                type: 'live-app-result', id: requestId,
-                resultsJson: JSON.stringify([{ type: 'log', level: 'error', message: 'No live app preview is active' }]),
-            });
-            return;
-        }
-
-        const actions = actionsJson ? JSON.parse(actionsJson) : [];
-        const actionResults = await executeActions(liveIframe, actions);
-        const results = await collectResults(liveIframe, actionResults);
-
+        const results = await appControlRunLiveApp({
+            iframe: appControlGetLiveIframe(),
+            actions: actionsJson ? JSON.parse(actionsJson) : [],
+        });
         worker.postMessage({
-            type: 'live-app-result', id: requestId,
+            type: "live-app-result",
+            id: requestId,
             resultsJson: JSON.stringify(results),
         });
     } catch (e) {
         worker.postMessage({
-            type: 'live-app-result', id: requestId,
-            resultsJson: JSON.stringify([{ type: 'log', level: 'error', message: 'live_app failed: ' + e.message }]),
+            type: "live-app-result",
+            id: requestId,
+            resultsJson: JSON.stringify([
+                { type: "log", level: "error", message: "live_app failed: " + e.message },
+            ]),
         });
     }
 }
