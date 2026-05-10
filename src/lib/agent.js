@@ -33,7 +33,17 @@ function _llmConfig(settings) {
   // Resolve wire-format provider here too — in OpenRouter mode the
   // shape is auto-picked from the model ID (Anthropic models go via
   // `/v1/messages` so `cache_control` markers flow through).
-  const provider = resolveProvider(settings);
+  let provider = resolveProvider(settings);
+  // Py-side override: pyfetch_anthropic sends an `anthropic-version`
+  // header that OpenRouter's CORS allow-list rejects, and the py
+  // client doesn't expose header customization yet. Force OpenAI
+  // shape until agex-py adds the equivalent of agex-anthropic's
+  // `headers` option (filed upstream). The TS side picks up the
+  // auto-routing immediately because agex-anthropic already supports
+  // deleting the offending header.
+  if (settings.accessMode === "openrouter" && provider === "anthropic") {
+    provider = "openai";
+  }
   const providerName =
     provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
   const llmClass =
