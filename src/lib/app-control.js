@@ -50,9 +50,25 @@ export function getLiveIframe() {
 
 /** Settle once the iframe stops triggering query/effects, or
  *  `maxMs` elapses. The control bridge calls `iframe.__onQueryDone`
- *  whenever a query handler resolves; we watch for a 2-second gap
- *  to consider the app idle. */
-export function waitForIdle(iframe, maxMs = 15000) {
+ *  whenever a query handler resolves; we watch for an idle gap (no
+ *  resets) to consider the app idle.
+ *
+ *  Idle gap: 400ms by default. Tuned to:
+ *    - keep static apps (no JS at all) from paying a multi-second
+ *      tax on every action — for an HTML-only page, the gap is the
+ *      *only* delay between bridge calls, so 400ms × N actions adds
+ *      up fast.
+ *    - leave enough headroom for query/cache chains where the agent
+ *      iframe code does `await getCacheValue(...)` followed by
+ *      another query in the resolved handler. Chained queries
+ *      typically reset the timer well within 400ms; only a single
+ *      late-firing async chain (>400ms gap between calls) would
+ *      settle prematurely. Apps that need more can call `query` /
+ *      `getCacheValue` in faster succession or absorb a follow-up
+ *      `wait` action.
+ *
+ *  Override per-call when a known-slow path needs more headroom. */
+export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
     return new Promise((resolve) => {
         let idleTimer = null;
         const maxTimer = setTimeout(() => {
@@ -65,7 +81,7 @@ export function waitForIdle(iframe, maxMs = 15000) {
             idleTimer = setTimeout(() => {
                 clearTimeout(maxTimer);
                 resolve();
-            }, 2000);
+            }, idleGap);
         }
 
         iframe.__onQueryDone = () => resetIdle();
