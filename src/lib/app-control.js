@@ -95,6 +95,14 @@ function _isSyncAction(action) {
     return SYNC_ACTION_KEYS.some((k) => action[k] !== undefined);
 }
 
+/** Marker prefix the iframe bridge stamps on assertion-failure
+ *  errors. We use the prefix (not `instanceof AssertionError`)
+ *  because postMessage doesn't preserve Error subclass identity. */
+function _isAssertionError(e) {
+    return typeof e?.message === "string" &&
+        e.message.startsWith("AssertionError:");
+}
+
 /** Execute `actions` sequentially against `iframe`'s control bridge.
  *  Returns the read/eval/screenshot result entries (the bridge
  *  itself dispatches click/type/select with no return).
@@ -106,7 +114,14 @@ function _isSyncAction(action) {
  *  screenshot, get-logs) return their full result via the bridge
  *  and need no further wait. The agent can always insert an
  *  explicit `{ wait: N }` action if a sync action's expression
- *  itself spawned background work it wants to await. */
+ *  itself spawned background work it wants to await.
+ *
+ *  Error handling: most action-dispatch failures are caught and
+ *  surfaced as `error`-level log entries so a single bad selector
+ *  doesn't terminate the test. Assertion failures are the
+ *  exception — they propagate so the agent's emission errors out
+ *  and the recoverable-error path lets the agent see the failure
+ *  and self-correct on the next turn. */
 export async function executeActions(iframe, actions) {
     const results = [];
     for (const action of actions) {
@@ -118,6 +133,7 @@ export async function executeActions(iframe, actions) {
             const data = await sendControl(iframe, action);
             if (data != null) results.push(data);
         } catch (e) {
+            if (_isAssertionError(e)) throw e;
             results.push({
                 type: "log",
                 level: "error",
@@ -346,6 +362,14 @@ export async function runTestApp(opts) {
 
         return await collectResults(iframe, actionResults);
     } catch (e) {
+        // Assertion failures escape: agent's emission errors out
+        // (per agex-ts's recoverable-error path), agent sees the
+        // failure on the next turn and self-corrects. Other failures
+        // (test_app infrastructure / harness errors, malformed
+        // actions, iframe load failures) get wrapped as a result
+        // entry so the agent sees the failure but the chat loop
+        // continues normally.
+        if (_isAssertionError(e)) throw e;
         return [
             {
                 type: "log",
@@ -386,6 +410,8 @@ export async function runLiveApp(opts) {
         const actionResults = await executeActions(iframe, actions);
         return await collectResults(iframe, actionResults);
     } catch (e) {
+        // Same assertion-escape rule as `runTestApp`.
+        if (_isAssertionError(e)) throw e;
         return [
             {
                 type: "log",

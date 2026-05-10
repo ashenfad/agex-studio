@@ -117,27 +117,35 @@ committing via `taskSuccess`.
 
 When you just want to gate `taskSuccess` on "the app rendered correctly,"
 use `assert` actions. They evaluate a JS expression as truthy/falsy:
-passes are silent, failures become `error`-level log entries.
+**passes are silent; a failing assertion throws** so your code
+naturally bypasses `taskSuccess` and surfaces the failure to your
+next turn (where you can read the error and self-correct).
 
 ```ts
-const results = await test_app([
+await test_app([
   { assert: 'document.querySelectorAll("li").length === 5',
     message: '5 list items rendered' },
   { assert: '!document.querySelector(".error")',
     message: 'no error state' },
 ])
-const failures = results.filter(r => r.level === 'error')
-if (failures.length) {
-  taskFail(failures.map(f => f.message).join('\n'))
-}
 taskSuccess('App built and verified.')
 ```
 
-Using assertions instead of raw `eval` reads keeps the success path
-clean — you only pay attention to failures, and the agent's response
-naturally surfaces what broke when something does. Use `assert` when
-you have a known-good condition to check; use `eval` when you actually
-need the value back to decide what to do.
+That's it — no error inspection, no manual gate. If any assertion
+fails, `test_app` throws with a message like `AssertionError: 5 list
+items rendered — document.querySelectorAll("li").length === 5 (got 3)`.
+The throw propagates past your `taskSuccess` call. Your next turn
+sees the error as an observation, you fix the app, and try again.
+
+**Don't reach for `taskFail` to escalate assertion failures** —
+`taskFail` means "I cannot do this task at all" (refusal-shaped, ends
+the conversation loop). A failing assertion is "this iteration was
+wrong, try again" — exactly what the recoverable-error path handles
+when `test_app` throws.
+
+Use `assert` when you have a known-good condition to check; use
+`eval` when you actually need the value back to decide what to do
+next.
 
 ## Inspecting the live preview — `live_app`
 

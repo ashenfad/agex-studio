@@ -114,29 +114,31 @@ export async function dispatchAction(doc, action, global) {
         // One-shot test pattern: evaluate the expression as a JS
         // truthy/falsy check.
         //   - Pass (truthy) → return null so the action surfaces no
-        //     entry in the results array. Keeps the array clean for
-        //     "verify before taskSuccess" flows where the agent only
-        //     cares about failures.
-        //   - Fail (falsy or threw) → return an error-level log entry
-        //     containing the expression, the actual value (for
-        //     diagnostic), and the optional `message`. Agent picks
-        //     these out via `results.filter(r => r.level === 'error')`.
+        //     entry in the results array.
+        //   - Fail (falsy or threw) → THROW with an `AssertionError:`
+        //     prefix. The prefix is a marker the parent-side
+        //     orchestration (`executeActions`, `runTestApp`) checks
+        //     to distinguish "agent's app failed verification" (let
+        //     it propagate so the emission errors out and the agent
+        //     can self-correct on the next turn) from "an action
+        //     itself was malformed" (catch + log).
+        //
+        //     postMessage doesn't preserve Error subclass identity,
+        //     so we use a message prefix instead of an `instanceof
+        //     AssertionError` check.
         const tag = action.message ? `${action.message} — ` : '';
+        let val;
         try {
-            const val = scope.eval(action.assert);
-            if (val) return null; // pass — silent
-            return {
-                type: 'log',
-                level: 'error',
-                message: `${tag}Assertion failed: ${action.assert} (got ${_jsonifyEvalResult(val)})`,
-            };
+            val = scope.eval(action.assert);
         } catch (e) {
-            return {
-                type: 'log',
-                level: 'error',
-                message: `${tag}Assertion threw: ${action.assert} → ${e.message}`,
-            };
+            throw new Error(
+                `AssertionError: ${tag}${action.assert} threw — ${e.message}`,
+            );
         }
+        if (val) return null; // pass — silent
+        throw new Error(
+            `AssertionError: ${tag}${action.assert} (got ${_jsonifyEvalResult(val)})`,
+        );
     }
     if (action.screenshot !== undefined) {
         const selector = typeof action.screenshot === 'string' ? action.screenshot : null;
