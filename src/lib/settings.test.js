@@ -163,3 +163,88 @@ describe("updateSettings", () => {
         expect(values).toHaveLength(1);
     });
 });
+
+describe("resolveProvider", () => {
+    it("auto-detects anthropic in OpenRouter mode for anthropic/* models", async () => {
+        const { resolveProvider } = await loadSettings();
+        expect(
+            resolveProvider({
+                accessMode: "openrouter",
+                model: "anthropic/claude-sonnet-4.6",
+            }),
+        ).toBe("anthropic");
+        expect(
+            resolveProvider({
+                accessMode: "openrouter",
+                model: "anthropic/claude-haiku-4.5",
+            }),
+        ).toBe("anthropic");
+    });
+
+    it("returns openai in OpenRouter mode for non-anthropic models", async () => {
+        const { resolveProvider } = await loadSettings();
+        for (const model of [
+            "google/gemini-3-flash-preview",
+            "openai/gpt-5.4",
+            "meta-llama/llama-4",
+            "mistralai/mistral-large",
+        ]) {
+            expect(
+                resolveProvider({ accessMode: "openrouter", model }),
+            ).toBe("openai");
+        }
+    });
+
+    it("ignores stored provider in OpenRouter mode (auto-detect wins)", async () => {
+        // The stored provider field exists for Custom mode; in OpenRouter
+        // mode it's vestigial — the model-ID prefix decides the wire shape.
+        const { resolveProvider } = await loadSettings();
+        expect(
+            resolveProvider({
+                accessMode: "openrouter",
+                provider: "anthropic", // stored, but should be ignored
+                model: "google/gemini-3-flash-preview",
+            }),
+        ).toBe("openai");
+        expect(
+            resolveProvider({
+                accessMode: "openrouter",
+                provider: "openai", // stored, but should be ignored
+                model: "anthropic/claude-sonnet-4.6",
+            }),
+        ).toBe("anthropic");
+    });
+
+    it("respects explicit provider in Custom mode", async () => {
+        const { resolveProvider } = await loadSettings();
+        expect(
+            resolveProvider({
+                accessMode: "custom",
+                provider: "anthropic",
+                model: "claude-sonnet-4.6",
+            }),
+        ).toBe("anthropic");
+        expect(
+            resolveProvider({
+                accessMode: "custom",
+                provider: "openai",
+                model: "gpt-5.4",
+            }),
+        ).toBe("openai");
+    });
+
+    it("defaults to openai when neither openrouter nor custom-provider is set", async () => {
+        const { resolveProvider } = await loadSettings();
+        expect(resolveProvider({})).toBe("openai");
+        expect(resolveProvider({ accessMode: "custom" })).toBe("openai");
+        expect(resolveProvider({ accessMode: "openrouter" })).toBe("openai");
+    });
+
+    it("handles empty / missing model gracefully in OpenRouter mode", async () => {
+        const { resolveProvider } = await loadSettings();
+        expect(
+            resolveProvider({ accessMode: "openrouter", model: "" }),
+        ).toBe("openai");
+        expect(resolveProvider({ accessMode: "openrouter" })).toBe("openai");
+    });
+});

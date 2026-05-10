@@ -31,7 +31,7 @@ import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
-import { resolveBaseUrl } from "./settings.js";
+import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import {
     synthesizeAction,
     serializeOutputParts,
@@ -161,7 +161,10 @@ export async function chatMessage(message, opts = {}) {
  *  reasoningEffort / toolUseWireFormat) is already kernel-agnostic; we
  *  just translate to the right provider's options shape. */
 function _buildLlmClient(settings) {
-    const provider = settings.provider || "anthropic";
+    // Wire-format provider auto-resolves in OpenRouter mode (Anthropic
+    // models → anthropic shape so cache_control flows through). Custom
+    // mode honors the explicit provider choice.
+    const provider = resolveProvider(settings);
     const apiKey = settings.apiKey;
     const model = settings.model;
     if (!apiKey) {
