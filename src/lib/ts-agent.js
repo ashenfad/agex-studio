@@ -31,6 +31,7 @@ import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
+import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import {
     runTestApp as appControlRunTestApp,
@@ -142,12 +143,12 @@ export async function initAgent(settings) {
         { name: "arquero" },
     );
 
-    // Cat-on-demand skill describing the data libraries above. The
-    // agent reads `/skills/numerical/SKILL.md` (the agex skill VFS
-    // overlay) when a task touches data work; chaptering keeps it
-    // out of context when irrelevant. Skill content is bundled at
-    // build time via vite's ?raw loader.
+    // Cat-on-demand skills. Bundled at build time via vite's ?raw
+    // loader; agex creates the `/skills/<name>/SKILL.md` VFS overlay
+    // for `cat` access. Chaptering keeps these out of context when
+    // not relevant.
     _agent.skill(_numericalSkill, { name: "numerical" });
+    _agent.skill(_interactiveAppSkill, { name: "interactive-app" });
 
     // Chat task — `string | array | object`. Rich multi-part responses
     // are normalized at the adapter boundary (see `ts-chat-response.js`)
