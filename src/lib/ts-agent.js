@@ -148,7 +148,13 @@ export async function initAgent(settings) {
     // for `cat` access. Chaptering keeps these out of context when
     // not relevant.
     _agent.skill(_numericalSkill, { name: "numerical" });
-    _agent.skill(_interactiveAppSkill, { name: "interactive-app" });
+    // TODO: agex-ts's policy validator rejects hyphenated skill names
+    // (treats them as JS identifiers despite skill names being VFS path
+    // segments — the py side uses kebab-case for skill names by
+    // convention). Until the validator relaxes for skills (matching
+    // the URL-shipped relaxation in eb2ecb2), use an underscored name
+    // and the trigger row in the primer matches.
+    _agent.skill(_interactiveAppSkill, { name: "interactive_app" });
 
     // Chat task — `string | array | object`. Rich multi-part responses
     // are normalized at the adapter boundary (see `ts-chat-response.js`)
