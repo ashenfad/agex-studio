@@ -161,6 +161,65 @@ const results = await live_app([
 ])
 ```
 
+## Styling
+
+The preview iframe inherits a dark background (`#1a1a2e`) by
+default. Style your app for that — light-themed apps look broken
+against the surrounding pane.
+
+```css
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  padding: 1rem;
+  margin: 0;
+}
+input, select, button {
+  background: #0f3460;
+  color: #e0e0e0;
+  border: 1px solid #1a3a6e;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 16px;     /* prevents iOS zoom on focus */
+  min-height: 44px;    /* touch-friendly */
+}
+button { cursor: pointer; }
+button:hover { background: #1a3a6e; }
+```
+
+**For Plotly charts**, use the matching dark template:
+```js
+Plotly.newPlot('chart', traces, { template: 'plotly_dark', ...layout })
+```
+
+### Mobile-friendly layout
+
+Apps render on both desktop and mobile. A few patterns make the
+difference between "works on phones" and "looks broken" on phones:
+
+- **Viewport meta tag** in `app/index.html` (shown in the Quick
+  Start above): `<meta name="viewport" content="width=device-width, initial-scale=1">`.
+- **Flexible layouts** that wrap on narrow screens:
+  ```css
+  .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  ```
+- **Relative heights for charts** so they scale with viewport:
+  ```html
+  <div id="chart" style="width:100%;height:50vh;min-height:250px;max-height:600px"></div>
+  ```
+- **Landscape mode on phones** — vertical space is very limited;
+  reduce heights and tighten margins:
+  ```css
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* shrink tall elements, tighten gaps */
+  }
+  ```
+- **Touch targets at least 44px** (`min-height: 44px` on inputs,
+  buttons, interactive elements).
+- **`font-size: 16px` on inputs** prevents iOS Safari from
+  auto-zooming when the user taps an input field.
+
 ## Multi-file apps and helpers
 
 Beyond the single-file case, organize as:
