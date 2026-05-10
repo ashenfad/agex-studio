@@ -53,22 +53,16 @@ export function getLiveIframe() {
  *  whenever a query handler resolves; we watch for an idle gap (no
  *  resets) to consider the app idle.
  *
- *  Idle gap: 400ms by default. Tuned to:
- *    - keep static apps (no JS at all) from paying a multi-second
- *      tax on every action — for an HTML-only page, the gap is the
- *      *only* delay between bridge calls, so 400ms × N actions adds
- *      up fast.
- *    - leave enough headroom for query/cache chains where the agent
- *      iframe code does `await getCacheValue(...)` followed by
- *      another query in the resolved handler. Chained queries
- *      typically reset the timer well within 400ms; only a single
- *      late-firing async chain (>400ms gap between calls) would
- *      settle prematurely. Apps that need more can call `query` /
- *      `getCacheValue` in faster succession or absorb a follow-up
- *      `wait` action.
+ *  Default `idleGap` is 2000ms — conservative, designed for
+ *  unknown-latency async chains where one query resolving might
+ *  trigger another after a brief gap. Only fires when an action
+ *  could legitimately have started async work; sync actions in
+ *  `executeActions` skip the wait entirely (see SYNC_ACTIONS).
  *
- *  Override per-call when a known-slow path needs more headroom. */
-export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
+ *  The initial post-onload waitForIdle (in `runTestApp`) overrides
+ *  to a shorter gap — `onload` is itself a strong "page is ready"
+ *  signal, so we don't need the conservative cushion there. */
+export function waitForIdle(iframe, maxMs = 15000, idleGap = 2000) {
     return new Promise((resolve) => {
         let idleTimer = null;
         const maxTimer = setTimeout(() => {
@@ -89,27 +83,50 @@ export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
     });
 }
 
+/** Action keys whose dispatch is purely synchronous in the iframe —
+ *  the bridge response carries the full result and there's no
+ *  follow-on async work to wait for. Skip the post-action
+ *  `waitForIdle` for these to keep test_app turn-time bounded by
+ *  actual work, not a settling cushion that's only needed when an
+ *  action might trigger app-side queries / fetches. */
+const SYNC_ACTION_KEYS = ["read", "eval", "screenshot", "get-logs"];
+
+function _isSyncAction(action) {
+    return SYNC_ACTION_KEYS.some((k) => action[k] !== undefined);
+}
+
 /** Execute `actions` sequentially against `iframe`'s control bridge.
  *  Returns the read/eval/screenshot result entries (the bridge
- *  itself dispatches click/type/select with no return). */
+ *  itself dispatches click/type/select with no return).
+ *
+ *  Per-action settling: only async-triggering actions (click, type,
+ *  select) get an automatic `waitForIdle` after dispatch, since
+ *  those run app-side handlers that may fire `query()` /
+ *  `getCacheValue()` / `fetch()`. Sync actions (eval, read,
+ *  screenshot, get-logs) return their full result via the bridge
+ *  and need no further wait. The agent can always insert an
+ *  explicit `{ wait: N }` action if a sync action's expression
+ *  itself spawned background work it wants to await. */
 export async function executeActions(iframe, actions) {
     const results = [];
     for (const action of actions) {
         if (action.wait) {
             await new Promise((r) => setTimeout(r, action.wait));
-        } else {
-            try {
-                const data = await sendControl(iframe, action);
-                if (data != null) results.push(data);
-            } catch (e) {
-                results.push({
-                    type: "log",
-                    level: "error",
-                    message: `Action failed: ${e.message}`,
-                });
-            }
+            continue;
         }
-        await waitForIdle(iframe, 10000);
+        try {
+            const data = await sendControl(iframe, action);
+            if (data != null) results.push(data);
+        } catch (e) {
+            results.push({
+                type: "log",
+                level: "error",
+                message: `Action failed: ${e.message}`,
+            });
+        }
+        if (!_isSyncAction(action)) {
+            await waitForIdle(iframe, 10000);
+        }
     }
     return results;
 }
@@ -308,7 +325,12 @@ export async function runTestApp(opts) {
             iframe.src = blobUrl;
             document.body.appendChild(iframe);
         });
-        await waitForIdle(iframe);
+        // Initial settle uses a short idle gap — `onload` already
+        // fires after the document fully loads, so we don't need the
+        // conservative cushion that the per-async-action wait uses.
+        // Apps that fire queries from `onload` reset the timer
+        // through `__onQueryDone`; the gap auto-extends.
+        await waitForIdle(iframe, 15000, 400);
 
         const actionResults = await executeActions(iframe, actions);
 
