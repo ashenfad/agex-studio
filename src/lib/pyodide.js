@@ -729,6 +729,11 @@ installControlBridge(window);
 const CDN_IMPORTS = {
     "preact": "https://esm.sh/preact@10.25.4",
     "preact/": "https://esm.sh/preact@10.25.4/",
+    // htm: JSX-like template literals without a build step. Tiny
+    // (~3KB) and the standard "JSX without esbuild" companion to
+    // preact. Used by the TS-side interactive-app skill since esbuild
+    // isn't yet wired on that kernel.
+    "htm": "https://esm.sh/htm@3.1.1",
     // Alias 'react' → preact/compat so agent code that writes
     // idiomatic React (`import { useState } from 'react'`) runs on
     // the lighter Preact runtime.  Most React component libraries

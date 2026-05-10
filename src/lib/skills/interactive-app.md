@@ -6,26 +6,41 @@ Write files to `app/` and they appear automatically when
 
 ## Architecture
 
-Your app runs in a sandboxed iframe with these affordances baked in
-(no `<script>` tag needed for any of these):
+Your app runs in a sandboxed iframe with a fixed import map and a
+few injected globals. **Don't guess at module names** — only what's
+listed below resolves.
 
-- **React** — `import { useState } from 'react'` works (lightweight
-  Preact-compat under the hood). Most React component libraries
-  (Radix UI, Recharts, React Aria, etc.) work transparently via the
-  same import.
-- **Plotly.js** for charts — global `Plotly` (auto-injected).
-- **marked** for Markdown rendering — `import { marked } from 'marked'`.
-- **DOMPurify** for HTML sanitization — `import DOMPurify from 'dompurify'`.
-- **dayjs** for date formatting — `import dayjs from 'dayjs'`.
-- **`getCacheValue(key)` bridge** — global function that reads values
-  the agent stashed via `cache.set(key, value)`. The way to pass data
-  from your agent code to the running app.
+### Import map (use these specifiers, no build step required)
 
-## Quick start (recommended: plain JS, no build)
+| Import | What it gives you |
+| --- | --- |
+| `'preact'` → `{ h, render, Fragment, ... }` | Raw Preact — element factory, root render, etc. |
+| `'preact/hooks'` → `{ useState, useEffect, useCallback, useRef, ... }` | Preact's hooks. |
+| `'htm'` → default `htm` | JSX-like template literals (no build step). Bind to `h` to get `html`\`...\` syntax. |
+| `'react'` → re-exports preact-compat | React-shaped surface (`useState`, `useEffect`, `createElement`, etc.). Use this when you're following a React example or a React component library expects it. **Does NOT export `h` or `render`** — those live on raw `preact`. |
+| `'react-dom'`, `'react-dom/client'` | preact-compat shims. |
+| `'marked'` → `{ marked }` | Markdown → HTML. |
+| `'dompurify'` → default `DOMPurify` | HTML sanitization. |
+| `'dayjs'` → default `dayjs` | Date formatting. |
 
-For the static / lightly interactive case, write plain HTML + ESM JS
-in `app/`. No bundling step required — the import map resolves bare
-`'react'`-style specifiers at runtime.
+Plus these globals (no import needed):
+
+- `Plotly` — Plotly.js (auto-injected). Use `Plotly.newPlot(div, traces, layout)`.
+- `getCacheValue(key)` — read values the agent stashed via
+  `cache.set(key, value)`. The way to pass data from your agent
+  code to the running app.
+
+**Bare `import ... from 'lodash'` (or any other unlisted package)
+will fail to resolve.** If you need something else, write it
+inline or check whether it's already covered by the above (e.g.,
+date math via `dayjs` instead of `date-fns`).
+
+## Quick start (no build step required)
+
+JSX requires a build step (esbuild support is planned for the TS
+kernel but not yet wired). For now use **HTM** — JSX-shaped template
+literals — backed by **Preact**. The pattern is `htm.bind(h)` once,
+then write `html\`<Foo />\`` everywhere instead of `<Foo />`.
 
 ```html
 <!-- app/index.html -->
@@ -42,8 +57,8 @@ in `app/`. No bundling step required — the import map resolves bare
 
 ```js
 // app/index.js
-import { h, render } from 'preact'
-import { useState } from 'preact/hooks'
+import { h, render } from 'preact'           // ← `h` and `render` are on 'preact', NOT 'react'
+import { useState } from 'preact/hooks'      // ← hooks live on 'preact/hooks'
 import htm from 'htm'
 
 const html = htm.bind(h)
@@ -60,11 +75,23 @@ function App() {
 render(html`<${App} />`, document.getElementById('app'))
 ```
 
-(JSX requires a build step — `esbuild` support is planned but not yet
-wired on the TS kernel. For now use HTM, `h(...)` calls, or plain DOM.
-For pure-React syntax users: `htm` is JSX-compatible enough that LLMs
-fluent in JSX adapt instantly — same shape, backtick template instead
-of angle brackets.)
+**Common gotcha**: importing `h` or `render` from `'react'` fails —
+those are raw Preact exports, not on the React-compat shim. Use
+`'preact'` for those, `'preact/hooks'` for `useState` / `useEffect` /
+etc., and `'react'` only when a third-party React component library
+expects it.
+
+For trivial UIs where Preact is overkill, plain DOM is fine:
+```js
+// app/index.js
+const root = document.getElementById('app')
+root.innerHTML = '<button id="btn">Click me</button>'
+let count = 0
+document.getElementById('btn').addEventListener('click', () => {
+  count++
+  document.getElementById('btn').textContent = `Clicked ${count} times`
+})
+```
 
 ## Passing data from agent → app
 
