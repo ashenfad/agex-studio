@@ -219,6 +219,42 @@
             return
         }
 
+        if (event.data?.type === 'agex-cache-get') {
+            // Lighter-weight than `agex-query`: just a cache lookup, no
+            // code execution. Wired separately so the freeze /
+            // flood-detection logic stays scoped to runQuery's broader
+            // surface area.
+            if (!iframeReady) iframeReady = true
+            const { id, key } = event.data
+            if (!appAdapter) {
+                iframe?.contentWindow?.postMessage({
+                    type: 'agex-cache-get-result',
+                    id,
+                    data: null,
+                    error: 'app preview adapter not ready',
+                }, '*')
+                return
+            }
+            appAdapter.getCacheValue(appBranch, key)
+                .then(data => {
+                    iframe?.contentWindow?.postMessage({
+                        type: 'agex-cache-get-result',
+                        id,
+                        data: data === undefined ? null : data,
+                        error: null,
+                    }, '*')
+                })
+                .catch(err => {
+                    iframe?.contentWindow?.postMessage({
+                        type: 'agex-cache-get-result',
+                        id,
+                        data: null,
+                        error: err.message || String(err),
+                    }, '*')
+                })
+            return
+        }
+
         if (event.data?.type !== 'agex-query') return
 
         // Any postMessage from the iframe means app JS is running.

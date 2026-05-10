@@ -678,11 +678,23 @@ _json.dumps(_messages)
             }));
         },
 
-        // --- Query bridge -----------------------------------------------
+        // --- Query / cache bridges --------------------------------------
 
         async runQuery(branch, code, resultVars) {
             await _ensureBranch(branch);
             return agentRunQuery(code, resultVars);
+        },
+
+        async getCacheValue(_branch, _key) {
+            // Mirror to the TS adapter's `runQuery` stub — symmetric
+            // "each kernel has one bridge wired, one stub" until we
+            // close the gap on the other side. py apps use `runQuery`
+            // for app↔agent data passing today; if `getCacheValue` ergonomics
+            // become useful here too, wire via agex.cache.Cache.
+            throw new Error(
+                "getCacheValue not yet implemented for the Py kernel — " +
+                    "use runQuery for app↔agent data passing on this kernel.",
+            );
         },
 
         // --- Token telemetry --------------------------------------------
