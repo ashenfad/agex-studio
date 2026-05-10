@@ -76,6 +76,42 @@ op.min('col')      op.max('col')       op.stdev('col')
 Full list: see Arquero docs for `op`. If you guess a name and get
 "undefined function," check the docs.
 
+### Arquero gotcha — `loadCSV` vs `fromCSV`
+
+Easy to confuse. Different functions, different inputs:
+
+| Function | Input | Use when |
+| --- | --- | --- |
+| `fromCSV(text, opts?)` | a CSV string already in memory | parsing CSV you read from VFS or constructed in code |
+| `loadCSV(url, opts?)` | a URL string | fetching a CSV from the network |
+
+**For VFS files: read the bytes yourself, then `fromCSV` the text.**
+`loadCSV` will treat your CSV string as a URL and try to `fetch` it,
+which silently fails and pollutes the console.
+
+```ts
+// ✅ Read from VFS, parse as text:
+const text = await fs.readText('data/sales.csv')
+const dt = fromCSV(text)
+
+// ❌ Treats `text` as a URL and tries to fetch it:
+const dt = loadCSV(text)
+```
+
+`fromJSON` / `loadJSON` and `fromArrow` / `loadArrow` follow the same
+pattern.
+
+### Arquero gotcha — row count is a method
+
+`dt.numRows()` is a method, not a property. Same for `dt.numCols()`,
+`dt.columnNames()`, `dt.objects()`, etc. Forgetting the parens returns
+the function reference, leading to confusing errors downstream.
+
+```ts
+const n = dt.numRows()      // ✅ number
+const n = dt.numRows        // ❌ function reference
+```
+
 ## Apache Arrow
 
 Use Arrow when you need cross-language data exchange (reading
