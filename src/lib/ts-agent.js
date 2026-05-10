@@ -57,6 +57,12 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
 
 const SESSION = "default";
 
+/** Per-task iteration cap. agex-ts default is lower; chat-driven app
+ *  building can legitimately need more turns (write file → bundle →
+ *  test_app → fix → re-test → ...) and the user can interrupt via the
+ *  cancel button anyway, so we lift the cap. */
+const MAX_ITERATIONS = 40;
+
 /** Default chaptering trigger when settings.chapteringTrigger is unset.
  *  Mirrors the value the studio's Py side passes. Big enough to avoid
  *  thrashing for short conversations; well below typical context
@@ -106,6 +112,7 @@ export async function initAgent(settings) {
                 typeof settings.chapteringTrigger === "number"
                     ? settings.chapteringTrigger
                     : DEFAULT_CHAPTERING_TRIGGER,
+            maxIterations: MAX_ITERATIONS,
         });
         return;
     }
@@ -127,6 +134,7 @@ export async function initAgent(settings) {
             typeof settings.chapteringTrigger === "number"
                 ? settings.chapteringTrigger
                 : DEFAULT_CHAPTERING_TRIGGER,
+        maxIterations: MAX_ITERATIONS,
     });
 
     // Lazy URL-shipped namespaces. agex-ts records the URL but does
