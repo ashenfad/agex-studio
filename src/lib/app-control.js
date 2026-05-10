@@ -89,7 +89,7 @@ export function waitForIdle(iframe, maxMs = 15000, idleGap = 2000) {
  *  `waitForIdle` for these to keep test_app turn-time bounded by
  *  actual work, not a settling cushion that's only needed when an
  *  action might trigger app-side queries / fetches. */
-const SYNC_ACTION_KEYS = ["read", "eval", "screenshot", "get-logs"];
+const SYNC_ACTION_KEYS = ["read", "eval", "assert", "screenshot", "get-logs"];
 
 function _isSyncAction(action) {
     return SYNC_ACTION_KEYS.some((k) => action[k] !== undefined);
