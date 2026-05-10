@@ -139,60 +139,49 @@ describe("dispatchAction — assert", () => {
         expect(result).toBeNull();
     });
 
-    it("returns an error log entry for a failing (falsy) assertion", async () => {
+    it("throws AssertionError-prefixed Error for a failing (falsy) assertion", async () => {
+        // Throwing (not returning a result entry) is load-bearing:
+        // the prefix marker tells parent-side orchestration to let
+        // the error propagate so the agent's emission errors out and
+        // the recoverable-error path lets the agent self-correct on
+        // the next turn — instead of the agent silently committing
+        // a broken app because a check returned `false` in some array.
         const scope = { eval: (expr) => eval(expr) };
-        const result = await dispatchAction(
-            document,
-            { assert: "1 + 1 === 3" },
-            scope,
-        );
-        expect(result).toMatchObject({
-            type: "log",
-            level: "error",
-        });
-        expect(result.message).toContain("Assertion failed");
-        expect(result.message).toContain("1 + 1 === 3");
+        await expect(
+            dispatchAction(document, { assert: "1 + 1 === 3" }, scope),
+        ).rejects.toThrow(/^AssertionError: 1 \+ 1 === 3/);
     });
 
-    it("includes the agent's `message` tag in the failure output", async () => {
+    it("includes the agent's `message` tag in the throw", async () => {
         const scope = { eval: (expr) => eval(expr) };
-        const result = await dispatchAction(
-            document,
-            { assert: "false", message: "expected true here" },
-            scope,
-        );
-        expect(result.message).toContain("expected true here");
-        expect(result.message).toContain("Assertion failed");
+        await expect(
+            dispatchAction(
+                document,
+                { assert: "false", message: "expected true here" },
+                scope,
+            ),
+        ).rejects.toThrow(/expected true here/);
     });
 
     it("includes the actual value in the failure message", async () => {
-        // Justifies the diagnostic value — agent sees what the
-        // expression *did* evaluate to, not just that it failed.
         const scope = { eval: (expr) => eval(expr) };
-        const result = await dispatchAction(
-            document,
-            { assert: "0" },
-            scope,
-        );
-        expect(result.message).toMatch(/got/);
+        await expect(
+            dispatchAction(document, { assert: "0" }, scope),
+        ).rejects.toThrow(/got/);
     });
 
-    it("returns an error log entry when the assertion expression throws", async () => {
+    it("throws AssertionError when the assertion expression itself throws", async () => {
         const scope = { eval: (expr) => eval(expr) };
-        const result = await dispatchAction(
-            document,
-            {
-                assert: "nonexistentVariable.foo",
-                message: "should have nonexistent",
-            },
-            scope,
-        );
-        expect(result).toMatchObject({
-            type: "log",
-            level: "error",
-        });
-        expect(result.message).toContain("Assertion threw");
-        expect(result.message).toContain("should have nonexistent");
+        await expect(
+            dispatchAction(
+                document,
+                {
+                    assert: "nonexistentVariable.foo",
+                    message: "should have nonexistent",
+                },
+                scope,
+            ),
+        ).rejects.toThrow(/^AssertionError: should have nonexistent — .* threw/);
     });
 
     it("treats truthy non-boolean values as passing", async () => {
@@ -217,15 +206,12 @@ describe("dispatchAction — assert", () => {
         }
     });
 
-    it("treats falsy values as failing", async () => {
+    it("throws on every falsy value", async () => {
         const scope = { eval: (expr) => eval(expr) };
         for (const expr of ["false", "0", "''", "null", "undefined", "NaN"]) {
-            const result = await dispatchAction(
-                document,
-                { assert: expr },
-                scope,
-            );
-            expect(result?.level).toBe("error");
+            await expect(
+                dispatchAction(document, { assert: expr }, scope),
+            ).rejects.toThrow(/^AssertionError:/);
         }
     });
 });
