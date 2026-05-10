@@ -211,7 +211,7 @@ export async function initAgent(settings) {
         },
         {
             description:
-                "Build a hidden iframe from the agent's app/ files, run optional UI actions, and return console + action results. Use to verify uncommitted app changes before taskSuccess(). Pass `fresh=true` to skip seeding the iframe's app-storage from the persisted session.",
+                "(Pre-registered global — call directly with `await test_app(...)`, no import needed.) Build a hidden iframe from the agent's app/ files, run optional UI actions, and return console + action results. Use to verify uncommitted app changes before taskSuccess(). Pass `fresh=true` to skip seeding the iframe's app-storage from the persisted session.",
         },
     );
 
@@ -224,7 +224,7 @@ export async function initAgent(settings) {
         },
         {
             description:
-                "Interact with the live app preview the user sees (the LAST COMMITTED files — uncommitted changes won't appear until taskSuccess). Use to read user-entered state, click UI elements, etc. Use `test_app` instead to verify changes you've made this turn.",
+                "(Pre-registered global — call directly with `await live_app(...)`, no import needed.) Interact with the live app preview the user sees (the LAST COMMITTED files — uncommitted changes won't appear until taskSuccess). Use to read user-entered state, click UI elements, etc. Use `test_app` instead to verify changes you've made this turn.",
         },
     );
 }
