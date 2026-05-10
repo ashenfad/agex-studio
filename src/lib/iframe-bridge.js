@@ -110,6 +110,34 @@ export async function dispatchAction(doc, action, global) {
             };
         }
     }
+    if (action.assert !== undefined) {
+        // One-shot test pattern: evaluate the expression as a JS
+        // truthy/falsy check.
+        //   - Pass (truthy) → return null so the action surfaces no
+        //     entry in the results array. Keeps the array clean for
+        //     "verify before taskSuccess" flows where the agent only
+        //     cares about failures.
+        //   - Fail (falsy or threw) → return an error-level log entry
+        //     containing the expression, the actual value (for
+        //     diagnostic), and the optional `message`. Agent picks
+        //     these out via `results.filter(r => r.level === 'error')`.
+        const tag = action.message ? `${action.message} — ` : '';
+        try {
+            const val = scope.eval(action.assert);
+            if (val) return null; // pass — silent
+            return {
+                type: 'log',
+                level: 'error',
+                message: `${tag}Assertion failed: ${action.assert} (got ${_jsonifyEvalResult(val)})`,
+            };
+        } catch (e) {
+            return {
+                type: 'log',
+                level: 'error',
+                message: `${tag}Assertion threw: ${action.assert} → ${e.message}`,
+            };
+        }
+    }
     if (action.screenshot !== undefined) {
         const selector = typeof action.screenshot === 'string' ? action.screenshot : null;
         try {

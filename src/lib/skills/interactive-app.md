@@ -113,6 +113,32 @@ return giant blobs.
 files, so you can verify changes within the same turn before
 committing via `taskSuccess`.
 
+### `assert` actions for one-shot self-verification
+
+When you just want to gate `taskSuccess` on "the app rendered correctly,"
+use `assert` actions. They evaluate a JS expression as truthy/falsy:
+passes are silent, failures become `error`-level log entries.
+
+```ts
+const results = await test_app([
+  { assert: 'document.querySelectorAll("li").length === 5',
+    message: '5 list items rendered' },
+  { assert: '!document.querySelector(".error")',
+    message: 'no error state' },
+])
+const failures = results.filter(r => r.level === 'error')
+if (failures.length) {
+  taskFail(failures.map(f => f.message).join('\n'))
+}
+taskSuccess('App built and verified.')
+```
+
+Using assertions instead of raw `eval` reads keeps the success path
+clean — you only pay attention to failures, and the agent's response
+naturally surfaces what broke when something does. Use `assert` when
+you have a known-good condition to check; use `eval` when you actually
+need the value back to decide what to do.
+
 ## Inspecting the live preview — `live_app`
 
 Once you've shipped (called `taskSuccess`), the user sees your app in

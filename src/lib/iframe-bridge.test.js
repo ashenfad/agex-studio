@@ -128,6 +128,108 @@ describe("dispatchAction — eval", () => {
     });
 });
 
+describe("dispatchAction — assert", () => {
+    it("returns null for a passing (truthy) assertion", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { assert: "1 + 1 === 2" },
+            scope,
+        );
+        expect(result).toBeNull();
+    });
+
+    it("returns an error log entry for a failing (falsy) assertion", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { assert: "1 + 1 === 3" },
+            scope,
+        );
+        expect(result).toMatchObject({
+            type: "log",
+            level: "error",
+        });
+        expect(result.message).toContain("Assertion failed");
+        expect(result.message).toContain("1 + 1 === 3");
+    });
+
+    it("includes the agent's `message` tag in the failure output", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { assert: "false", message: "expected true here" },
+            scope,
+        );
+        expect(result.message).toContain("expected true here");
+        expect(result.message).toContain("Assertion failed");
+    });
+
+    it("includes the actual value in the failure message", async () => {
+        // Justifies the diagnostic value — agent sees what the
+        // expression *did* evaluate to, not just that it failed.
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { assert: "0" },
+            scope,
+        );
+        expect(result.message).toMatch(/got/);
+    });
+
+    it("returns an error log entry when the assertion expression throws", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            {
+                assert: "nonexistentVariable.foo",
+                message: "should have nonexistent",
+            },
+            scope,
+        );
+        expect(result).toMatchObject({
+            type: "log",
+            level: "error",
+        });
+        expect(result.message).toContain("Assertion threw");
+        expect(result.message).toContain("should have nonexistent");
+    });
+
+    it("treats truthy non-boolean values as passing", async () => {
+        // JS truthy semantics — strings, numbers, objects all count.
+        // (`{}` alone parses as a block statement and returns undefined
+        // — JS quirk, not the assertion's fault. Use `({})` for the
+        // object-literal case if you ever need it.)
+        const scope = { eval: (expr) => eval(expr) };
+        for (const expr of [
+            "'non-empty'",
+            "42",
+            "[]",
+            "({})",
+            "new Date()",
+        ]) {
+            const result = await dispatchAction(
+                document,
+                { assert: expr },
+                scope,
+            );
+            expect(result).toBeNull();
+        }
+    });
+
+    it("treats falsy values as failing", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        for (const expr of ["false", "0", "''", "null", "undefined", "NaN"]) {
+            const result = await dispatchAction(
+                document,
+                { assert: expr },
+                scope,
+            );
+            expect(result?.level).toBe("error");
+        }
+    });
+});
+
 describe("dispatchAction — screenshot error path", () => {
     it("returns a log-error entry when the target is missing", async () => {
         const result = await dispatchAction(document, { screenshot: "#gone" });
