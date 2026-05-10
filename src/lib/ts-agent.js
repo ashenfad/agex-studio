@@ -190,11 +190,18 @@ function _buildLlmClient(settings) {
         throw new Error("LLM model required");
     }
     const baseUrl = resolveBaseUrl(settings);
+    const isOpenRouter = settings.accessMode === "openrouter";
     if (provider === "anthropic") {
         return new Anthropic({
             apiKey,
             model,
             ...(baseUrl ? { baseUrl } : {}),
+            // OpenRouter's `/v1/messages` CORS allow-list rejects the
+            // `anthropic-version` header that agex-anthropic sends by
+            // default. `null` deletes it (per the headers contract).
+            ...(isOpenRouter
+                ? { headers: { "anthropic-version": null } }
+                : {}),
         });
     }
     // openai / openai-compatible (OpenRouter, local servers, etc.)
@@ -202,6 +209,18 @@ function _buildLlmClient(settings) {
         apiKey,
         model,
         ...(baseUrl ? { baseUrl } : {}),
+        // OpenRouter attribution headers — surface the studio in the
+        // OpenRouter analytics dashboard and earn fairer rate-limit
+        // weighting on free models. Mirrors the py side's
+        // `app_url` / `app_title` injection in agent.js.
+        ...(isOpenRouter
+            ? {
+                  headers: {
+                      "http-referer": "https://agex.studio",
+                      "x-title": "Agex Studio",
+                  },
+              }
+            : {}),
     });
 }
 
