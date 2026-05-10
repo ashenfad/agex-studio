@@ -157,7 +157,6 @@
     })
 
     async function runStartup(s) {
-        historyReady = false
         agentReady = false
         initError = ''
         // Resolve fresh per-startup — settings changes can re-fire this
@@ -172,9 +171,18 @@
             // adapter resolves quickly (no Pyodide). We hook the
             // 'history-ready' milestone via onStage to do shell-side
             // session/history/files load — same pattern for both kernels.
+            //
+            // `historyReady` is only torn down inside the onStage callback,
+            // i.e. only when we're actually about to reload history. A
+            // settings-change re-fire on an already-booted kernel sees
+            // `ensure` return immediately *without* firing onStage, so
+            // we don't want to reset historyReady at the top — that would
+            // hide the chat and leave it showing 'Loading…' until the
+            // next page reload.
             await kernelRegistry.ensure(activeKernel, s, {
                 onStage: async (stage) => {
                     if (stage === 'history-ready') {
+                        historyReady = false
                         initStatus = isExternalEntry
                             ? 'Downloading bundle...'
                             : 'Loading sessions...'
