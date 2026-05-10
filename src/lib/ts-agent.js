@@ -178,8 +178,28 @@ export async function initAgent(settings) {
     // The iframe's `query()` bridge throws (TS adapter doesn't
     // implement runQuery) — apps that need agent data should use
     // `getCacheValue(key)` instead, which we wire in via cacheHandler.
+    /** Iterate `results` from app-control; for any screenshot entries,
+     *  emit them as image observations to the calling emission via
+     *  `ctx.console.log` and replace the data field with a sentinel
+     *  so the agent's returned variable doesn't carry the giant base64
+     *  blob (which would bloat event-log persistence on taskSuccess).
+     *
+     *  This is what `wantsContext: true` enables: host-bound fns can
+     *  enqueue OutputParts into the worker-side calling emission via
+     *  `ctx.console.log(...)`, bridging the postMessage RPC boundary
+     *  that ALS-based propagation can't cross. */
+    function _emitScreenshots(ctx, results) {
+        for (const r of results) {
+            if (r?.type === "screenshot" && r.data) {
+                ctx.console.log({ format: "png", data: r.data });
+                r.data = "<emitted via console.log>";
+            }
+        }
+        return results;
+    }
+
     _agent.fn(
-        async function test_app(actions, fresh) {
+        async function test_app(actions, fresh, ctx) {
             const fs = await _agent.fs(SESSION);
             /** @type {Record<string, string>} */
             const appFiles = {};
@@ -209,7 +229,7 @@ export async function initAgent(settings) {
             if (!fresh && _activeBranch) {
                 appStorageSeed = readAppStorage("ts", _activeBranch);
             }
-            return appControlRunTestApp({
+            const results = await appControlRunTestApp({
                 appFiles,
                 actions: actions ?? [],
                 appStorageSeed,
@@ -217,8 +237,10 @@ export async function initAgent(settings) {
                 queryHandler: null, // TS adapter has no runQuery
                 cacheHandler: (key) => getCacheValue(key),
             });
+            return _emitScreenshots(ctx, results);
         },
         {
+            wantsContext: true,
             description: [
                 "(Pre-registered global — call directly with `await test_app(...)`, no import needed.)",
                 "Build a hidden iframe from the agent's app/ files, run optional UI actions, return console + action results.",
@@ -235,25 +257,27 @@ export async function initAgent(settings) {
                 "  - `{ read: '#sel', prop: 'value' }` — read an element property",
                 "  - `{ eval: 'document.querySelectorAll(\"li\").length' }` — evaluate a JS expression in the iframe, capture the result",
                 "  - `{ assert: 'document.querySelector(\"#chart\")', message: 'chart rendered' }` — evaluate a JS expression as truthy/falsy. Passes are silent (no result entry); a failing assertion throws from `test_app`, which surfaces to your code as a thrown error and to the next agent turn as a recoverable error you can read and self-correct. Use this to gate `taskSuccess` on app correctness — just write the assertion and call `taskSuccess` next; if the assertion fails the throw bypasses success automatically.",
-                "  - `{ screenshot: true }` (full document) or `{ screenshot: '#sel' }` (specific element) — capture a base64 PNG via `html-to-image`. Returns `{ type: 'screenshot', data: '<base64>' }`. The base64 is large (200KB–1MB+); pass the data to `viewImage({ format: 'png', data })` immediately so the next turn sees the actual image, then drop the variable. Don't return the screenshot data through `taskSuccess` — it bloats event-log persistence.",
+                "  - `{ screenshot: true }` (full document) or `{ screenshot: '#sel' }` (specific element) — capture a base64 PNG. **The image is auto-shipped to your next-turn observation** — no manual handling needed; just include the action and the rendered image appears in your context. Returned result entry's `data` is a sentinel; the actual base64 has already been emitted as an image observation.",
                 "",
                 "All values must be JSON-serializable — functions / closures will fail with DataCloneError. Use `eval` / `assert` actions for in-iframe JS.",
                 "",
                 "`fresh=true` skips seeding the iframe's app-storage from the persisted session (useful when iterating on first-load behavior).",
                 "",
-                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results — `{type: 'eval', expr, value}`, `{type: 'read', selector, value}`, `{type: 'screenshot', data}`. Note: eval/read results carry the result on `value`, not `data` (only screenshot uses `data`).",
+                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results — `{type: 'eval', expr, value}`, `{type: 'read', selector, value}`, `{type: 'screenshot', data}`. Note: eval/read results carry the result on `value`, not `data`; screenshot's `data` is the post-emit sentinel.",
             ].join("\n"),
         },
     );
 
     _agent.fn(
-        async function live_app(actions) {
-            return appControlRunLiveApp({
+        async function live_app(actions, ctx) {
+            const results = await appControlRunLiveApp({
                 iframe: appControlGetLiveIframe(),
                 actions: actions ?? [],
             });
+            return _emitScreenshots(ctx, results);
         },
         {
+            wantsContext: true,
             description: [
                 "(Pre-registered global — call directly with `await live_app(...)`, no import needed.)",
                 "Interact with the live app preview the user sees (the LAST COMMITTED app/ files — uncommitted changes won't appear until taskSuccess).",
@@ -261,7 +285,7 @@ export async function initAgent(settings) {
                 "",
                 "Signature: `live_app(actions?: Array<ActionDict>): Promise<Array<ResultDict>>`",
                 "",
-                "Same `actions` shape as `test_app` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / etc. plain objects, all values JSON-serializable. NOT a Playwright/Puppeteer callback API.",
+                "Same `actions` shape as `test_app` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / `{screenshot}` / etc. plain objects, all values JSON-serializable. Screenshots auto-flow as image observations to your next turn (no manual handling). NOT a Playwright/Puppeteer callback API.",
             ].join("\n"),
         },
     );
