@@ -121,8 +121,9 @@ export function createKernelRegistry() {
                     // `entries.get` check.
                     const adapter = createPyAdapter();
                     const ready = adapter.init(settings, { onStage: dispatchStage });
-                    entry = { adapter, ready, onStageListeners };
+                    entry = { adapter, ready, onStageListeners, bootDone: false };
                     entries.set(kernel, entry);
+                    ready.then(() => { entry.bootDone = true; }, () => {});
                     ready.catch(() => {
                         if (entries.get(kernel) === entry) entries.delete(kernel);
                     });
@@ -137,6 +138,7 @@ export function createKernelRegistry() {
                         /** @type {any} */ adapter: null,
                         /** @type {Promise<void>} */ ready: /** @type {any} */ (null),
                         onStageListeners,
+                        bootDone: false,
                     };
                     placeholder.ready = (async () => {
                         const { createTsAdapter } = await import("./ts-kernel-adapter.js");
@@ -145,6 +147,7 @@ export function createKernelRegistry() {
                         await adapter.init(settings, { onStage: dispatchStage });
                     })();
                     entries.set(kernel, placeholder);
+                    placeholder.ready.then(() => { placeholder.bootDone = true; }, () => {});
                     placeholder.ready.catch(() => {
                         if (entries.get(kernel) === placeholder) {
                             entries.delete(kernel);
@@ -159,7 +162,22 @@ export function createKernelRegistry() {
                 // set. Stages fired before this point won't be replayed.
                 entry.onStageListeners.add(opts.onStage);
             }
+            // Capture boot state BEFORE awaiting `entry.ready` so
+            // concurrent ensures (both seeing the same in-flight
+            // boot) all observe `bootDone === false` and skip the
+            // re-init branch. Only ensures called *after* the first
+            // boot has resolved get the settings-update treatment.
+            const isReConfigure = entry.bootDone === true;
             await entry.ready;
+            // For repeat ensure() calls (settings-change re-fires),
+            // the typedef contract on `init` says implementations
+            // should propagate the new settings to the live agent.
+            // Re-call with new settings + no onStage so the adapter's
+            // hot-swap path applies LLM / chaptering changes without
+            // retriggering history reload.
+            if (isReConfigure && entry.adapter) {
+                await entry.adapter.init(settings, {});
+            }
             return entry.adapter;
         },
 

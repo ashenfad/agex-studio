@@ -111,7 +111,14 @@ export function createTsAdapter() {
         // --- Lifecycle ---------------------------------------------------
 
         async init(/** @type {KernelSettings} */ settings, /** @type {InitOptions} */ opts = {}) {
-            if (initialized) return;
+            // Already booted — propagate settings to the live agent
+            // (LLM client, chaptering trigger) via initAgent's hot-
+            // swap path. No onStage replay; those fire only on first
+            // boot.
+            if (initialized) {
+                await initAgent(settings);
+                return;
+            }
             if (initInFlight) return initInFlight;
             initInFlight = (async () => {
                 await initAgent(settings);
