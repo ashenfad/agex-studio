@@ -140,31 +140,30 @@ return giant blobs.
 files, so you can verify changes within the same turn before
 committing via `taskSuccess`.
 
-### Screenshots — show the rendered app to your next turn
+### Screenshots — visually verify the rendered app
 
-`test_app` can capture a PNG of the rendered iframe. The bridge
-returns base64; you need to feed it through `viewImage(...)` so the
-image actually shows up in your next turn's observation (a base64
-blob in your variables doesn't reach the LLM as an image).
+`test_app` can capture a PNG of the rendered iframe and **auto-flow
+it into your next-turn observation**. No manual handling needed:
 
 ```ts
-const results = await test_app([
+await test_app([
   { screenshot: true },                       // full doc
   // or { screenshot: '#chart' },             // specific element
 ])
-results
-  .filter(r => r.type === 'screenshot')
-  .forEach(s => viewImage({ format: 'png', data: s.data }))
-// Don't return `results` from taskSuccess — the base64 (200KB–1MB+)
-// would bloat event-log persistence. viewImage already delivered the
-// image; the variable can be dropped.
 ```
+
+The image appears in your context on the next turn the same way
+`console.log(image)` would — you can describe what you see and
+decide what to fix or commit. The result entry's `data` is a
+sentinel after emit; the base64 has already been shipped as an
+image observation, so you don't need to do anything with the
+return value.
 
 When to use:
 - After a build, to verify visually that the app renders the way you
   intended before `taskSuccess`.
-- When debugging a layout issue — read the screenshot, see what
-  actually rendered vs. what you expected.
+- When debugging a layout issue — read the screenshot in your next
+  turn, see what actually rendered vs. what you expected.
 - Combine with `assert` to gate on functional correctness AND
   capture a screenshot for the user, e.g.,
   `await test_app([{ assert: '...' }, { screenshot: true }])`.
