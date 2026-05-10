@@ -13,9 +13,19 @@ the browser's IndexedDB and localStorage.
   `window`. Build interactive UIs by writing files under `app/` — the
   preview pane renders them in a sandboxed iframe (see the
   interactive-app skill below).
-- **Imports are restricted** to what the studio has registered for you.
-  Plus your own helper modules under `helpers/` — write `helpers/foo.ts`
-  and `import { x } from './helpers/foo'` from later turns.
+- **Two kinds of registrations** in your action space:
+  - **Libraries** (e.g. `arquero`, `apache-arrow`) — use a normal
+    `import { ... } from 'name'` statement. These are the only
+    third-party packages you have access to; arbitrary npm imports
+    will fail.
+  - **Host-bound functions** (e.g. `test_app`, `live_app`) — already
+    in your scope. Call them directly with `await`, **no import
+    needed**. If you see one in your action space and it isn't a
+    library, it's a global.
+- **Helper modules of your own** — write a file under `helpers/` and
+  later turns can `import { x } from './helpers/foo'` (or
+  `'/helpers/foo'`). Local imports use the path; library imports use
+  the bare name.
 
 ## Response shape
 
