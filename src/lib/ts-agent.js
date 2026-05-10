@@ -33,6 +33,13 @@ import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import {
+    runTestApp as appControlRunTestApp,
+    runLiveApp as appControlRunLiveApp,
+    getLiveIframe as appControlGetLiveIframe,
+} from "./app-control.js";
+import { buildAppHtml } from "./pyodide.js";
+import { read as readAppStorage } from "./app-storage.js";
+import {
     synthesizeAction,
     serializeOutputParts,
     splitOutputEvents,
@@ -152,13 +159,74 @@ export async function initAgent(settings) {
         primer: _chatPrimer,
     });
 
-    // TODO: TS skill set + agent.fn registrations (test_app, live_app,
-    // esbuild) — deferred from Phase 5 PR 2a-iv. The py side registers
-    // these at init time via agent_helpers.register; the TS side
-    // currently boots with just the chat task and the worker runtime's
-    // built-in surface (terminal, fileWrite, fileEdit, ts emissions).
-    // Add the skill registrations here once the matching TS helpers
-    // (esbuild-wasm pipeline, app-preview hooks) exist.
+    // App-preview agent.fn registrations. Both call host-resident
+    // orchestration in `app-control.js` directly (no worker round-trip
+    // — agent.fn host-bound functions invoke from the worker but
+    // execute on the main thread, where DOM access is fine).
+    //
+    // `test_app` builds a hidden iframe from the agent's app/ files,
+    // runs optional UI actions, and returns console + result entries.
+    // The iframe's `query()` bridge throws (TS adapter doesn't
+    // implement runQuery) — apps that need agent data should use
+    // `getCacheValue(key)` instead, which we wire in via cacheHandler.
+    _agent.fn(
+        async function test_app(actions, fresh) {
+            const fs = await _agent.fs(SESSION);
+            /** @type {Record<string, string>} */
+            const appFiles = {};
+            const decoder = new TextDecoder("utf-8", { fatal: false });
+            try {
+                const entries = await fs.list("app/", { recursive: true });
+                await Promise.all(
+                    entries.map(async (rel) => {
+                        const full = "app/" + rel;
+                        try {
+                            if (await fs.isFile(full)) {
+                                appFiles[full] = decoder.decode(
+                                    await fs.read(full),
+                                );
+                            }
+                        } catch {
+                            // Skip files that vanish or fail mid-walk.
+                        }
+                    }),
+                );
+            } catch {
+                // No `app/` dir yet — fall through with empty appFiles
+                // so the orchestrator returns a clean "no app files"
+                // entry rather than throwing.
+            }
+            let appStorageSeed = {};
+            if (!fresh && _activeBranch) {
+                appStorageSeed = readAppStorage("ts", _activeBranch);
+            }
+            return appControlRunTestApp({
+                appFiles,
+                actions: actions ?? [],
+                appStorageSeed,
+                buildAppHtml,
+                queryHandler: null, // TS adapter has no runQuery
+                cacheHandler: (key) => getCacheValue(key),
+            });
+        },
+        {
+            description:
+                "Build a hidden iframe from the agent's app/ files, run optional UI actions, and return console + action results. Use to verify uncommitted app changes before taskSuccess(). Pass `fresh=true` to skip seeding the iframe's app-storage from the persisted session.",
+        },
+    );
+
+    _agent.fn(
+        async function live_app(actions) {
+            return appControlRunLiveApp({
+                iframe: appControlGetLiveIframe(),
+                actions: actions ?? [],
+            });
+        },
+        {
+            description:
+                "Interact with the live app preview the user sees (the LAST COMMITTED files — uncommitted changes won't appear until taskSuccess). Use to read user-entered state, click UI elements, etc. Use `test_app` instead to verify changes you've made this turn.",
+        },
+    );
 }
 
 /** Send a chat message through the registered chat task. The
