@@ -199,7 +199,14 @@ export async function initAgent(settings) {
     }
 
     _agent.fn(
-        async function test_app(actions, fresh, ctx) {
+        async function test_app(...args) {
+            // agex-ts appends `ctx` as the trailing positional arg
+            // (per `wantsContext: true`). Since the agent may pass
+            // 0–2 user args, declaring fixed positions for actions /
+            // fresh would put ctx at the wrong index — pull it off
+            // the end and slice the user args explicitly.
+            const ctx = args[args.length - 1];
+            const [actions, fresh] = args.slice(0, -1);
             const fs = await _agent.fs(SESSION);
             /** @type {Record<string, string>} */
             const appFiles = {};
@@ -269,7 +276,11 @@ export async function initAgent(settings) {
     );
 
     _agent.fn(
-        async function live_app(actions, ctx) {
+        async function live_app(...args) {
+            // Same rest-and-extract pattern as `test_app` — ctx is
+            // the trailing arg per `wantsContext: true`.
+            const ctx = args[args.length - 1];
+            const [actions] = args.slice(0, -1);
             const results = await appControlRunLiveApp({
                 iframe: appControlGetLiveIframe(),
                 actions: actions ?? [],
