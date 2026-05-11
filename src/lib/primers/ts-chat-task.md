@@ -18,7 +18,7 @@ the browser's IndexedDB and localStorage.
     `import { ... } from 'name'` statement. These are the only
     third-party packages you have access to; arbitrary npm imports
     will fail.
-  - **Host-bound functions** (e.g. `test_app`, `live_app`) — already
+  - **Host-bound functions** (e.g. `testApp`, `liveApp`) — already
     in your scope. Call them directly with `await`, **no import
     needed**. If you see one in your action space and it isn't a
     library, it's a global.
