@@ -194,12 +194,16 @@ const results = await testApp([
   { eval: 'document.querySelector("#title").textContent' },
 ])
 // results: array of { type: 'eval', expr, value } and { type: 'log', level, message }
+// `value` is the native JS the expression evaluated to — number, string,
+// plain object, array, etc. No need to JSON.parse it.
 ```
 
 Action shapes are documented in `testApp`'s description — flat array
 of plain objects, NOT a Playwright callback. Keep the result reads
 narrow (`querySelector` + textContent / getAttribute) so you don't
-return giant blobs.
+return giant blobs. (DOM nodes / functions / circular refs are
+replaced with descriptive strings on the way back — don't try to
+return an `Element` and click it from the agent side.)
 
 `testApp` runs against a hidden iframe of your **uncommitted** app
 files, so you can verify changes within the same turn before

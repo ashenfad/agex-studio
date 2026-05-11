@@ -43,6 +43,10 @@ import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
 import {
+    emitObservations,
+    normalizeEvalValues,
+} from "./ts-result-helpers.js";
+import {
     synthesizeAction,
     serializeOutputParts,
     splitOutputEvents,
@@ -186,42 +190,21 @@ export async function initAgent(settings) {
     // The iframe's `query()` bridge throws (TS adapter doesn't
     // implement runQuery) — apps that need agent data should use
     // `getCacheValue(key)` instead, which we wire in via cacheHandler.
-    /** Iterate `results` from app-control; surface any auto-flow
-     *  observations (screenshot images, screenshot-capture failures)
-     *  to the calling emission via `ctx.console.log` so the agent's
-     *  next turn sees them even when the agent discarded testApp's
-     *  return value (`await testApp([...])` with no `const r = ...`).
+    /** Compose the TS-side result post-processors that turn raw
+     *  iframe-bridge output into what an agent-side caller wants:
      *
-     *  Screenshot success: emit the base64 PNG as an image OutputPart
-     *  and replace the data field with a sentinel so the returned
-     *  array doesn't carry the giant blob (which would bloat
-     *  event-log persistence on taskSuccess).
+     *    1. `normalizeEvalValues` — parse eval-value JSON strings
+     *       back to native JS (the bridge always JSON-stringifies
+     *       for py-side `reprobate` compatibility).
+     *    2. `emitObservations` — emit screenshot images + capture
+     *       failures via `ctx.console.log` so they auto-flow as
+     *       next-turn observations even when the agent discarded
+     *       the return value.
      *
-     *  Screenshot failure: bridge maps capture exceptions to a `log`
-     *  entry with a `Screenshot failed:` marker; emit that as a text
-     *  observation. Without this, the asymmetry — success auto-flows
-     *  but failure sits silently in the unread results array — leaves
-     *  the agent confused about why no screenshot showed up.
-     *
-     *  This is what `wantsContext: true` enables: host-bound fns can
-     *  enqueue OutputParts into the worker-side calling emission via
-     *  `ctx.console.log(...)`, bridging the postMessage RPC boundary
-     *  that ALS-based propagation can't cross. */
-    function _emitObservations(ctx, results) {
-        for (const r of results) {
-            if (r?.type === "screenshot" && r.data) {
-                ctx.console.log({ format: "png", data: r.data });
-                r.data = "<emitted via console.log>";
-            } else if (
-                r?.type === "log" &&
-                r.level === "error" &&
-                typeof r.message === "string" &&
-                r.message.startsWith("Screenshot failed:")
-            ) {
-                ctx.console.log(`[testApp] ${r.message}`);
-            }
-        }
-        return results;
+     *  Both helpers live in `ts-result-helpers.js` so they can be
+     *  unit-tested independently of the rest of `initAgent`. */
+    function _postProcessResults(ctx, results) {
+        return emitObservations(ctx, normalizeEvalValues(results));
     }
 
     _agent.fn(
@@ -270,7 +253,7 @@ export async function initAgent(settings) {
                 queryHandler: null, // TS adapter has no runQuery
                 cacheHandler: (key) => getCacheValue(key),
             });
-            return _emitObservations(ctx, results);
+            return _postProcessResults(ctx, results);
         },
         {
             wantsContext: true,
@@ -311,7 +294,7 @@ export async function initAgent(settings) {
                 iframe: appControlGetLiveIframe(),
                 actions: actions ?? [],
             });
-            return _emitObservations(ctx, results);
+            return _postProcessResults(ctx, results);
         },
         {
             wantsContext: true,
