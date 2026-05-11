@@ -40,6 +40,7 @@ import {
 } from "./app-control.js";
 import { buildAppHtml } from "./pyodide.js";
 import { read as readAppStorage } from "./app-storage.js";
+import { runEsbuildCommand } from "./esbuild-terminal.js";
 import {
     synthesizeAction,
     serializeOutputParts,
@@ -56,6 +57,12 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
  */
 
 const SESSION = "default";
+
+/** Static-asset URL for the esbuild bridge module (lives in
+ *  `public/`, so it's served at the site root). Defined as a
+ *  module-level constant rather than inline so vite's import-analysis
+ *  pass can't statically resolve it back to the source file. */
+const ESBUILD_BRIDGE_URL = "/esbuild-bridge.js";
 
 /** Per-task iteration cap. agex-ts default is lower; chat-driven app
  *  building can legitimately need more turns (write file → bundle →
@@ -316,6 +323,41 @@ export async function initAgent(settings) {
                 "",
                 "Same `actions` shape as `testApp` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / `{screenshot}` / etc. plain objects, all values JSON-serializable. Screenshots auto-flow as image observations to your next turn (no manual handling). NOT a Playwright/Puppeteer callback API.",
             ].join("\n"),
+        },
+    );
+
+    // `esbuild` terminal command — bundles agent JSX/TSX/JS/TS app
+    // sources into a runnable ES module via esbuild-wasm. The handler
+    // dynamic-imports `/esbuild-bridge.js` (shared with the py kernel)
+    // on first invocation so cold-boot pays nothing for the ~10MB
+    // wasm; subsequent invocations reuse the cached module + esbuild
+    // instance for the worker lifetime.
+    //
+    // Note that `agent.terminal` registrations don't have a
+    // `visibility` knob the way agex-py's `@agent.terminal(visibility=
+    // "low")` does — the description ships in the agent's tool list
+    // unconditionally. Kept short here, with the longer story in the
+    // interactive-app skill.
+    _agent.terminal(
+        async (ctx) => {
+            // `/esbuild-bridge.js` lives in `public/` so it's served
+            // as a static asset shared with the py kernel. Vite's
+            // import-analysis pass refuses to resolve `public/`
+            // paths through the bundler when the import target is a
+            // string literal — routing the URL through a variable
+            // (combined with `@vite-ignore`) keeps it opaque to the
+            // analyzer; the browser resolves it at runtime.
+            const url = ESBUILD_BRIDGE_URL;
+            const { runEsbuild } = await import(/* @vite-ignore */ url);
+            await runEsbuildCommand(ctx, runEsbuild);
+        },
+        {
+            name: "esbuild",
+            description:
+                "Bundle JSX/TSX/JS/TS source files under app/ and helpers/ into a single ES module. " +
+                "Bare imports (react, @scope/pkg) stay external and are resolved by the iframe's import map; " +
+                "local imports (./Chart.jsx) are bundled inline. Usage: `esbuild <entry> --outfile=<output> [--minify]`. " +
+                "Run `esbuild --help` for details.",
         },
     );
 }

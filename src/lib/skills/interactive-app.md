@@ -37,10 +37,13 @@ date math via `dayjs` instead of `date-fns`).
 
 ## Quick start (no build step required)
 
-JSX requires a build step (esbuild support is planned for the TS
-kernel but not yet wired). For now use **HTM** — JSX-shaped template
-literals — backed by **Preact**. The pattern is `htm.bind(h)` once,
-then write `html\`<Foo />\`` everywhere instead of `<Foo />`.
+For most apps, **HTM** + **Preact** is the lightest path: JSX-shaped
+template literals with no build step, no bundler, no source maps to
+manage. The pattern is `htm.bind(h)` once, then write
+`html\`<Foo />\`` everywhere instead of `<Foo />`.
+
+(If you need real JSX — e.g., copying a component from a tutorial
+verbatim — see the "JSX path" section below for the `esbuild` flow.)
 
 ```html
 <!-- app/index.html -->
@@ -92,6 +95,68 @@ document.getElementById('btn').addEventListener('click', () => {
   document.getElementById('btn').textContent = `Clicked ${count} times`
 })
 ```
+
+## JSX path (`esbuild`)
+
+When you want real JSX (copying a tutorial component verbatim, JSX
+ergonomics for a complex tree, etc.), use the `esbuild` terminal
+command. Bundles `app/`-and-`helpers/` sources into a single ES
+module the iframe can load directly.
+
+```html
+<!-- app/index.html -->
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head><body>
+<div id="app"></div>
+<script type="module" src="./bundle.js"></script>
+</body></html>
+```
+
+```jsx
+// app/index.jsx
+import { render } from 'preact'
+import { useState } from 'preact/hooks'
+
+function App() {
+  const [count, setCount] = useState(0)
+  return (
+    <button onClick={() => setCount(c => c + 1)}>
+      Clicked {count} times
+    </button>
+  )
+}
+
+render(<App />, document.getElementById('app'))
+```
+
+Then bundle:
+
+```
+esbuild app/index.jsx --outfile=app/bundle.js
+```
+
+How it works:
+- **Bare imports** (`react`, `preact`, `@radix-ui/...`) stay external
+  — the iframe's import map resolves them at runtime, so the bundle
+  only contains your local code.
+- **Local imports** (`./Chart.jsx`, `../helpers/util.ts`) are bundled
+  inline. JSX/TSX/JS/TS/CSS/JSON/SVG all supported. Image imports
+  (`./logo.png`) are inlined as data URLs (≤1MB each).
+- The JSX `automatic` runtime targets `react/jsx-runtime`, which the
+  iframe import map aliases to `preact/jsx-runtime`. So you can write
+  `import {...} from 'react'` in JSX and it ends up running on Preact.
+- Source maps are inlined by default — runtime errors point back at
+  your `.jsx` source.
+- First `esbuild` invocation downloads ~10MB of wasm; subsequent
+  builds are sub-second.
+
+Re-run `esbuild` whenever you change source. The iframe loads
+`bundle.js`, not `index.jsx`, so a re-bundle is required for changes
+to take effect.
+
+`esbuild --help` for the full flag list.
 
 ## Passing data from agent → app
 
