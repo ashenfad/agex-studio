@@ -164,6 +164,11 @@
      *  warning yet. `null` when the modal is closed. */
     let pendingPyConfirm = $state(false)
 
+    /** Whether the "more create options" dropdown is open. The split-
+     *  button design keeps `+ New` (TS) as the dominant action and
+     *  tucks the experimental py-create behind a chevron edge. */
+    let createMenuOpen = $state(false)
+
     async function handleNew(kernel) {
         if (kernel === 'py' && !hasSeenPyExperimentalWarning()) {
             pendingPyConfirm = true
@@ -489,16 +494,42 @@
             <h2>Sessions</h2>
             <div class="header-actions">
                 <button class="header-btn" onclick={openImportPicker} title="Import a bundle">Import</button>
-                <button
-                    class="new-btn kernel-ts new-btn-primary"
-                    onclick={() => handleNew('ts')}
-                    title="New TypeScript session (recommended)"
-                >+ New</button>
-                <button
-                    class="new-btn kernel-py new-btn-secondary"
-                    onclick={() => handleNew('py')}
-                    title="New Python session — experimental, larger sandbox surface"
-                >+ Py · experimental</button>
+                <div class="split-btn-group">
+                    <button
+                        class="new-btn kernel-ts split-btn-main"
+                        onclick={() => handleNew('ts')}
+                        title="New TypeScript session (recommended)"
+                    >+ New</button>
+                    <button
+                        class="split-btn-edge"
+                        onclick={() => (createMenuOpen = !createMenuOpen)}
+                        title="More create options"
+                        aria-label="More create options"
+                        aria-expanded={createMenuOpen}
+                    >
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 5 6 8 9 5"></polyline>
+                        </svg>
+                    </button>
+                    {#if createMenuOpen}
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div
+                            class="split-menu-backdrop"
+                            onclick={() => (createMenuOpen = false)}
+                            onkeydown={(e) => e.key === 'Escape' && (createMenuOpen = false)}
+                        ></div>
+                        <div class="split-menu" role="menu">
+                            <button
+                                class="split-menu-item"
+                                role="menuitem"
+                                onclick={() => { createMenuOpen = false; handleNew('py') }}
+                            >
+                                <span class="split-menu-item-label">+ Python session</span>
+                                <span class="split-menu-item-tag">experimental</span>
+                            </button>
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
         <input
@@ -1054,29 +1085,113 @@
         cursor: pointer;
     }
 
-    /* TS is the primary "new session" action — full-size blue button.
-       Py is the secondary "experimental" action — same vertical size
-       so they align, but transparent fill with a muted accent border /
-       text so it reads as the less-recommended option. The kernel-
-       color scheme still matches per-session badges in the list. */
-    .new-btn.kernel-ts.new-btn-primary {
+    /* Split-button group: primary `+ New` (creates TS) plus a small
+       chevron edge that opens a dropdown for alternates (currently
+       just py-experimental). Visual hierarchy is firmly on the
+       primary action; py-create is one click further in but
+       discoverable via the chevron affordance.
+
+       The two buttons render as visually fused — shared height,
+       borderless seam between them, single rounded rectangle
+       enclosing both. Chevron stays in the TS kernel color so the
+       group reads as a single unit. */
+    .split-btn-group {
+        position: relative;
+        display: inline-flex;
+        align-items: stretch;
+    }
+
+    .new-btn.kernel-ts {
         background: #3b82f6;
     }
 
-    .new-btn.kernel-ts.new-btn-primary:hover {
+    .new-btn.kernel-ts:hover {
         background: #2563eb;
     }
 
-    .new-btn.kernel-py.new-btn-secondary {
-        background: transparent;
-        color: var(--accent);
-        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-        font-weight: 500;
+    .split-btn-main {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
     }
 
-    .new-btn.kernel-py.new-btn-secondary:hover {
-        background: color-mix(in srgb, var(--accent) 12%, transparent);
-        border-color: var(--accent);
+    .split-btn-edge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0.4rem;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-left: 1px solid color-mix(in srgb, #ffffff 20%, transparent);
+        border-top-right-radius: 6px;
+        border-bottom-right-radius: 6px;
+        cursor: pointer;
+    }
+
+    .split-btn-edge:hover {
+        background: #2563eb;
+    }
+
+    .split-btn-edge svg {
+        flex-shrink: 0;
+    }
+
+    /* Dropdown menu sits below the split button, aligned to the
+       right edge so it stays inside the drawer on narrow viewports.
+       Backdrop is a full-viewport overlay that catches click-out
+       without forcing us to wire a document-level listener. */
+    .split-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+    }
+
+    .split-menu {
+        position: absolute;
+        top: calc(100% + 0.3rem);
+        right: 0;
+        z-index: 201;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        min-width: 220px;
+        padding: 0.25rem;
+    }
+
+    .split-menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        width: 100%;
+        padding: 0.45rem 0.6rem;
+        background: none;
+        color: var(--text);
+        border: none;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .split-menu-item:hover {
+        background: var(--surface-hover);
+    }
+
+    .split-menu-item-label {
+        color: var(--text);
+    }
+
+    .split-menu-item-tag {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--warning) 18%, transparent);
+        color: var(--warning);
     }
 
     .header-actions {
