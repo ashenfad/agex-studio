@@ -129,16 +129,16 @@
         {/if}
 
         {#if msg.streaming && !msg.isReport}
-            <!-- Activity panel shows the pulsing dot; no extra indicator needed -->
-        {:else if msg.streaming && msg.isReport}
-            <!-- Streaming report: render the content live as it accumulates -->
-            {#if msg.content}
-                <div class="message agent">
-                    <div class="bubble">
-                        <div class="content markdown">{@html renderMarkdown(msg.content)}</div>
-                    </div>
-                </div>
-            {/if}
+            <!-- Activity panel above shows the pulsing dot for in-flight
+                 turns; no extra indicator needed here. Streaming-report
+                 messages (msg.isReport && msg.streaming) deliberately
+                 fall through to the standard agent-bubble branch below,
+                 so the live → committed transition keeps the same
+                 `{#if}` slot (and the same Svelte component instance).
+                 An earlier dedicated branch for streaming reports caused
+                 a visible flicker on `done` — Svelte tore down the
+                 streaming-branch bubble before instantiating the
+                 standard-branch one for the same content. -->
         {:else if msg.cancelled}
             <div class="cancelled-band">Stopped</div>
         {:else if msg.role === 'agent' && typeof msg.content === 'object'}
