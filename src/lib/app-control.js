@@ -53,16 +53,25 @@ export function getLiveIframe() {
  *  whenever a query handler resolves; we watch for an idle gap (no
  *  resets) to consider the app idle.
  *
- *  Default `idleGap` is 2000ms — conservative, designed for
- *  unknown-latency async chains where one query resolving might
- *  trigger another after a brief gap. Only fires when an action
- *  could legitimately have started async work; sync actions in
- *  `executeActions` skip the wait entirely (see SYNC_ACTIONS).
+ *  Default `idleGap` is 400ms. Sized for the typical chat-app
+ *  pattern: a click fires a query (postMessage round-trip ~50ms),
+ *  the response handler may fire another query immediately. Tight
+ *  chains keep the timer extending via `__onQueryDone`; the gap
+ *  only fires when the chain genuinely ends. 400ms is also enough
+ *  margin for ~300ms debounced patterns (typical debounce sizes)
+ *  to fire their first query before we settle.
  *
- *  The initial post-onload waitForIdle (in `runTestApp`) overrides
- *  to a shorter gap — `onload` is itself a strong "page is ready"
- *  signal, so we don't need the conservative cushion there. */
-export function waitForIdle(iframe, maxMs = 15000, idleGap = 2000) {
+ *  Caps:
+ *    - Per-action waits use the default 400ms gap. With many
+ *      click-driven actions in a single `testApp` call (5+ clicks),
+ *      a 2000ms-per-click cushion would blow past the worker's
+ *      emission timeout for what's usually trivial work.
+ *    - Apps that need more time per action: agent inserts an
+ *      explicit `{ wait: N }` action. Apps with slow backends
+ *      (>400ms first-query latency): same.
+ *
+ *  Override per-call when a known-slow path needs more headroom. */
+export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
     return new Promise((resolve) => {
         let idleTimer = null;
         const maxTimer = setTimeout(() => {
@@ -341,12 +350,11 @@ export async function runTestApp(opts) {
             iframe.src = blobUrl;
             document.body.appendChild(iframe);
         });
-        // Initial settle uses a short idle gap — `onload` already
-        // fires after the document fully loads, so we don't need the
-        // conservative cushion that the per-async-action wait uses.
-        // Apps that fire queries from `onload` reset the timer
-        // through `__onQueryDone`; the gap auto-extends.
-        await waitForIdle(iframe, 15000, 400);
+        // Initial settle. `onload` already fires after the document
+        // fully loads, so the default 400ms gap is plenty — apps
+        // that fire queries from onload reset the timer through
+        // `__onQueryDone` and the gap auto-extends.
+        await waitForIdle(iframe);
 
         const actionResults = await executeActions(iframe, actions);
 
