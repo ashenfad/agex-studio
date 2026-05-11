@@ -406,7 +406,10 @@
  *   Read a value from the branch's agent cache (`cache.set(key, value)`
  *   in agent code stashes it; this method reads it back). Used by
  *   iframe apps to pull pre-computed results without round-tripping
- *   through `runQuery`. Returns `undefined` when the key isn't set.
+ *   through `runQuery`. Returns `null` when the key isn't set —
+ *   the iframe bridges (`app-control.js`, `AppPreview.svelte`) coerce
+ *   `undefined` → `null` before posting back so in-app callers see a
+ *   JSON-roundtrippable value uniformly.
  *   Values must be JSON-roundtrippable (strings, numbers, arrays,
  *   plain objects) so the iframe can deserialize them via postMessage.
  *
