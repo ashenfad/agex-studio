@@ -55,12 +55,19 @@ async function getEsbuild() {
                     `mod keys: [${keys}], default keys: [${defaultKeys}]`,
             );
         }
+        // Run esbuild in a Web Worker when our caller is on the main
+        // thread (TS kernel: terminal handlers dispatch from `task.ts`
+        // on the main thread, so a build would otherwise stall the
+        // UI). Skip the nested-worker dance when our caller is already
+        // a Worker (Py kernel: pyodide IS the worker — nesting workers
+        // there is unnecessary and brittle in some browsers).
+        const inWorker =
+            typeof WorkerGlobalScope !== "undefined" &&
+            typeof self !== "undefined" &&
+            self instanceof WorkerGlobalScope;
         await api.initialize({
             wasmURL: ESBUILD_WASM_URL,
-            // worker: false means esbuild runs in the current thread
-            // (we're already in a worker; nesting workers is
-            // unnecessary and brittle in some browsers).
-            worker: false,
+            worker: !inWorker,
         });
         _esbuild = api;
         return api;
