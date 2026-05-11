@@ -118,60 +118,101 @@ structured-clone constraints) — strings, numbers, arrays, plain
 objects, typed arrays. Stash before the user opens the preview;
 the app reads on mount.
 
-## Verifying your app — `test_app`
+## Verifying your app — `testApp`
 
 After writing app files, verify behavior **before** `taskSuccess` with
-`test_app`:
+`testApp`:
 
 ```ts
-const results = await test_app([
+const results = await testApp([
   { eval: 'document.querySelectorAll("li").length' },
   { eval: 'document.querySelector("#title").textContent' },
 ])
 // results: array of { type: 'eval', expr, value } and { type: 'log', level, message }
 ```
 
-Action shapes are documented in `test_app`'s description — flat array
+Action shapes are documented in `testApp`'s description — flat array
 of plain objects, NOT a Playwright callback. Keep the result reads
 narrow (`querySelector` + textContent / getAttribute) so you don't
 return giant blobs.
 
-`test_app` runs against a hidden iframe of your **uncommitted** app
+`testApp` runs against a hidden iframe of your **uncommitted** app
 files, so you can verify changes within the same turn before
 committing via `taskSuccess`.
 
+**Two timing rules to keep straight:**
+
+- **Action results returned via `await`** (`eval`, `read`, `assert`)
+  → visible **this turn**, in the result array. Inspect, decide, act.
+- **Image observations from `screenshot`** + **console output**
+  emitted from inside `testApp` → visible **next turn**, as
+  observations in your context. Don't `taskSuccess` immediately if
+  you intended to look at them. (See the screenshot section below
+  for the canonical "capture, then commit" pattern.)
+
 ### Screenshots — visually verify the rendered app
 
-`test_app` can capture a PNG of the rendered iframe and **auto-flow
-it into your next-turn observation**. No manual handling needed:
+`testApp` can capture a PNG of the rendered iframe and ship it as an
+image observation:
 
 ```ts
-await test_app([
+await testApp([
   { screenshot: true },                       // full doc
   // or { screenshot: '#chart' },             // specific element
 ])
 ```
 
-The image appears in your context on the next turn the same way
-`console.log(image)` would — you can describe what you see and
-decide what to fix or commit. The result entry's `data` is a
-sentinel after emit; the base64 has already been shipped as an
-image observation, so you don't need to do anything with the
-return value.
+#### ⚠ Act → observe: screenshots arrive on your NEXT turn, not this one
+
+The image is emitted to your context **between turns** — after this
+emission completes, before the next one begins. **Don't `taskSuccess`
+right after taking a screenshot if you intended to look at it first.**
+That commits before observing.
+
+The wrong pattern (you'll never see the screenshot):
+
+```ts
+await testApp([{ screenshot: true }])
+taskSuccess('Looks good!')   // ❌ committed before the image arrived
+```
+
+The correct pattern — capture, let the loop iterate, look in your
+next turn:
+
+```ts
+// Turn N — capture and stop. NO taskSuccess.
+await testApp([{ screenshot: true }])
+```
+
+```ts
+// Turn N+1 — image is now in your context. Describe / verify, then commit.
+taskSuccess('App renders the chart correctly — see screenshot above.')
+```
+
+Same rule applies to console output emitted from inside `testApp` /
+`liveApp`: anything captured during the action shows up on the
+**next** turn, not in this turn's local variables. (Action results
+that come back via `await testApp(...)` return value — `eval`,
+`read`, `assert` — ARE visible this turn, since they're returned
+synchronously.)
 
 When to use:
 - After a build, to verify visually that the app renders the way you
-  intended before `taskSuccess`.
+  intended before `taskSuccess` — capture this turn, look next turn,
+  commit if it looks right.
 - When debugging a layout issue — read the screenshot in your next
   turn, see what actually rendered vs. what you expected.
 - Combine with `assert` to gate on functional correctness AND
   capture a screenshot for the user, e.g.,
-  `await test_app([{ assert: '...' }, { screenshot: true }])`.
+  `await testApp([{ assert: '...' }, { screenshot: true }])`. The
+  assertion gates the success path this turn; the screenshot lands
+  in your next turn for visual confirmation.
 
 Skip when:
 - A few `read` / `assert` actions cover what you need to verify —
-  text-based checks are cheaper and the failure messages are more
-  precise than "looks wrong in this screenshot."
+  text-based checks are cheaper, faster (no extra turn needed), and
+  the failure messages are more precise than "looks wrong in this
+  screenshot."
 
 ### `assert` actions for one-shot self-verification
 
@@ -182,7 +223,7 @@ naturally bypasses `taskSuccess` and surfaces the failure to your
 next turn (where you can read the error and self-correct).
 
 ```ts
-await test_app([
+await testApp([
   { assert: 'document.querySelectorAll("li").length === 5',
     message: '5 list items rendered' },
   { assert: '!document.querySelector(".error")',
@@ -192,7 +233,7 @@ taskSuccess('App built and verified.')
 ```
 
 That's it — no error inspection, no manual gate. If any assertion
-fails, `test_app` throws with a message like `AssertionError: 5 list
+fails, `testApp` throws with a message like `AssertionError: 5 list
 items rendered — document.querySelectorAll("li").length === 5 (got 3)`.
 The throw propagates past your `taskSuccess` call. Your next turn
 sees the error as an observation, you fix the app, and try again.
@@ -201,21 +242,21 @@ sees the error as an observation, you fix the app, and try again.
 `taskFail` means "I cannot do this task at all" (refusal-shaped, ends
 the conversation loop). A failing assertion is "this iteration was
 wrong, try again" — exactly what the recoverable-error path handles
-when `test_app` throws.
+when `testApp` throws.
 
 Use `assert` when you have a known-good condition to check; use
 `eval` when you actually need the value back to decide what to do
 next.
 
-## Inspecting the live preview — `live_app`
+## Inspecting the live preview — `liveApp`
 
 Once you've shipped (called `taskSuccess`), the user sees your app in
 the preview pane. To read what they've selected/entered, use
-`live_app` with the same action shape — operates on the live pane,
+`liveApp` with the same action shape — operates on the live pane,
 not a hidden test iframe.
 
 ```ts
-const results = await live_app([
+const results = await liveApp([
   { read: '#name-input', prop: 'value' },
   { read: '#status-message' },
 ])

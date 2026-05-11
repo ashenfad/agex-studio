@@ -59,7 +59,7 @@ const SESSION = "default";
 
 /** Per-task iteration cap. agex-ts default is lower; chat-driven app
  *  building can legitimately need more turns (write file → bundle →
- *  test_app → fix → re-test → ...) and the user can interrupt via the
+ *  testApp → fix → re-test → ...) and the user can interrupt via the
  *  cancel button anyway, so we lift the cap. */
 const MAX_ITERATIONS = 40;
 
@@ -173,7 +173,7 @@ export async function initAgent(settings) {
     // — agent.fn host-bound functions invoke from the worker but
     // execute on the main thread, where DOM access is fine).
     //
-    // `test_app` builds a hidden iframe from the agent's app/ files,
+    // `testApp` builds a hidden iframe from the agent's app/ files,
     // runs optional UI actions, and returns console + result entries.
     // The iframe's `query()` bridge throws (TS adapter doesn't
     // implement runQuery) — apps that need agent data should use
@@ -199,7 +199,7 @@ export async function initAgent(settings) {
     }
 
     _agent.fn(
-        async function test_app(...args) {
+        async function testApp(...args) {
             // agex-ts appends `ctx` as the trailing positional arg
             // (per `wantsContext: true`). Since the agent may pass
             // 0–2 user args, declaring fixed positions for actions /
@@ -249,11 +249,11 @@ export async function initAgent(settings) {
         {
             wantsContext: true,
             description: [
-                "(Pre-registered global — call directly with `await test_app(...)`, no import needed.)",
+                "(Pre-registered global — call directly with `await testApp(...)`, no import needed.)",
                 "Build a hidden iframe from the agent's app/ files, run optional UI actions, return console + action results.",
                 "Use to verify uncommitted app changes before taskSuccess.",
                 "",
-                "Signature: `test_app(actions?: Array<ActionDict>, fresh?: boolean): Promise<Array<ResultDict>>`",
+                "Signature: `testApp(actions?: Array<ActionDict>, fresh?: boolean): Promise<Array<ResultDict>>`",
                 "",
                 "NOT a Playwright/Puppeteer callback API — there is no `page` object. `actions` is a flat array of plain objects, each one of:",
                 "  - `{ click: '#sel' }` — click an element",
@@ -263,7 +263,7 @@ export async function initAgent(settings) {
                 "  - `{ read: '#sel' }` — read element textContent",
                 "  - `{ read: '#sel', prop: 'value' }` — read an element property",
                 "  - `{ eval: 'document.querySelectorAll(\"li\").length' }` — evaluate a JS expression in the iframe, capture the result",
-                "  - `{ assert: 'document.querySelector(\"#chart\")', message: 'chart rendered' }` — evaluate a JS expression as truthy/falsy. Passes are silent (no result entry); a failing assertion throws from `test_app`, which surfaces to your code as a thrown error and to the next agent turn as a recoverable error you can read and self-correct. Use this to gate `taskSuccess` on app correctness — just write the assertion and call `taskSuccess` next; if the assertion fails the throw bypasses success automatically.",
+                "  - `{ assert: 'document.querySelector(\"#chart\")', message: 'chart rendered' }` — evaluate a JS expression as truthy/falsy. Passes are silent (no result entry); a failing assertion throws from `testApp`, which surfaces to your code as a thrown error and to the next agent turn as a recoverable error you can read and self-correct. Use this to gate `taskSuccess` on app correctness — just write the assertion and call `taskSuccess` next; if the assertion fails the throw bypasses success automatically.",
                 "  - `{ screenshot: true }` (full document) or `{ screenshot: '#sel' }` (specific element) — capture a base64 PNG. **The image is auto-shipped to your next-turn observation** — no manual handling needed; just include the action and the rendered image appears in your context. Returned result entry's `data` is a sentinel; the actual base64 has already been emitted as an image observation.",
                 "",
                 "All values must be JSON-serializable — functions / closures will fail with DataCloneError. Use `eval` / `assert` actions for in-iframe JS.",
@@ -276,8 +276,8 @@ export async function initAgent(settings) {
     );
 
     _agent.fn(
-        async function live_app(...args) {
-            // Same rest-and-extract pattern as `test_app` — ctx is
+        async function liveApp(...args) {
+            // Same rest-and-extract pattern as `testApp` — ctx is
             // the trailing arg per `wantsContext: true`.
             const ctx = args[args.length - 1];
             const [actions] = args.slice(0, -1);
@@ -290,13 +290,13 @@ export async function initAgent(settings) {
         {
             wantsContext: true,
             description: [
-                "(Pre-registered global — call directly with `await live_app(...)`, no import needed.)",
+                "(Pre-registered global — call directly with `await liveApp(...)`, no import needed.)",
                 "Interact with the live app preview the user sees (the LAST COMMITTED app/ files — uncommitted changes won't appear until taskSuccess).",
-                "Use to read user-entered state, click UI elements, inspect DOM, etc. Use `test_app` instead to verify changes you've made this turn.",
+                "Use to read user-entered state, click UI elements, inspect DOM, etc. Use `testApp` instead to verify changes you've made this turn.",
                 "",
-                "Signature: `live_app(actions?: Array<ActionDict>): Promise<Array<ResultDict>>`",
+                "Signature: `liveApp(actions?: Array<ActionDict>): Promise<Array<ResultDict>>`",
                 "",
-                "Same `actions` shape as `test_app` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / `{screenshot}` / etc. plain objects, all values JSON-serializable. Screenshots auto-flow as image observations to your next turn (no manual handling). NOT a Playwright/Puppeteer callback API.",
+                "Same `actions` shape as `testApp` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / `{screenshot}` / etc. plain objects, all values JSON-serializable. Screenshots auto-flow as image observations to your next turn (no manual handling). NOT a Playwright/Puppeteer callback API.",
             ].join("\n"),
         },
     );
