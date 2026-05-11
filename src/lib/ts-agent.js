@@ -178,21 +178,39 @@ export async function initAgent(settings) {
     // The iframe's `query()` bridge throws (TS adapter doesn't
     // implement runQuery) — apps that need agent data should use
     // `getCacheValue(key)` instead, which we wire in via cacheHandler.
-    /** Iterate `results` from app-control; for any screenshot entries,
-     *  emit them as image observations to the calling emission via
-     *  `ctx.console.log` and replace the data field with a sentinel
-     *  so the agent's returned variable doesn't carry the giant base64
-     *  blob (which would bloat event-log persistence on taskSuccess).
+    /** Iterate `results` from app-control; surface any auto-flow
+     *  observations (screenshot images, screenshot-capture failures)
+     *  to the calling emission via `ctx.console.log` so the agent's
+     *  next turn sees them even when the agent discarded testApp's
+     *  return value (`await testApp([...])` with no `const r = ...`).
+     *
+     *  Screenshot success: emit the base64 PNG as an image OutputPart
+     *  and replace the data field with a sentinel so the returned
+     *  array doesn't carry the giant blob (which would bloat
+     *  event-log persistence on taskSuccess).
+     *
+     *  Screenshot failure: bridge maps capture exceptions to a `log`
+     *  entry with a `Screenshot failed:` marker; emit that as a text
+     *  observation. Without this, the asymmetry — success auto-flows
+     *  but failure sits silently in the unread results array — leaves
+     *  the agent confused about why no screenshot showed up.
      *
      *  This is what `wantsContext: true` enables: host-bound fns can
      *  enqueue OutputParts into the worker-side calling emission via
      *  `ctx.console.log(...)`, bridging the postMessage RPC boundary
      *  that ALS-based propagation can't cross. */
-    function _emitScreenshots(ctx, results) {
+    function _emitObservations(ctx, results) {
         for (const r of results) {
             if (r?.type === "screenshot" && r.data) {
                 ctx.console.log({ format: "png", data: r.data });
                 r.data = "<emitted via console.log>";
+            } else if (
+                r?.type === "log" &&
+                r.level === "error" &&
+                typeof r.message === "string" &&
+                r.message.startsWith("Screenshot failed:")
+            ) {
+                ctx.console.log(`[testApp] ${r.message}`);
             }
         }
         return results;
@@ -244,7 +262,7 @@ export async function initAgent(settings) {
                 queryHandler: null, // TS adapter has no runQuery
                 cacheHandler: (key) => getCacheValue(key),
             });
-            return _emitScreenshots(ctx, results);
+            return _emitObservations(ctx, results);
         },
         {
             wantsContext: true,
@@ -285,7 +303,7 @@ export async function initAgent(settings) {
                 iframe: appControlGetLiveIframe(),
                 actions: actions ?? [],
             });
-            return _emitScreenshots(ctx, results);
+            return _emitObservations(ctx, results);
         },
         {
             wantsContext: true,
