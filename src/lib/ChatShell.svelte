@@ -840,6 +840,46 @@
                 <p>Set your OpenRouter API key in settings to get started.</p>
             </div>
         {/if}
+
+        <!--
+            Py-kernel boot modal.
+
+            Pyodide cold boot is ~30s + ~hundreds of MB of memory. The
+            existing `warming-area` only renders after `historyReady`
+            flips false (which happens at the 'history-ready' stage,
+            late in the boot timeline) — so the stretch between
+            "session switched to py" and "history-ready stage fires"
+            shows the *previous* session's chat with just a tiny
+            status-row spinner at the bottom. Agents reported the gap
+            as "no clear loading indicator when I created a Python
+            session."
+
+            Modal scope: while the active kernel is `py` AND Pyodide's
+            own status isn't `ready`. Once the worker reports ready,
+            the modal hides and any remaining shell-side loading
+            (sessions / history / files / Wave 3 packages) is covered
+            by the existing warming-area. No flash for already-booted
+            py switches (Pyodide's status is already `ready`).
+        -->
+        {#if activeKernel === 'py' && $pyodideStore.status !== 'ready' && $pyodideStore.status !== 'error' && !initError}
+            <div class="boot-modal-overlay" role="dialog" aria-modal="true" aria-live="polite">
+                <div class="boot-modal">
+                    <h3 class="boot-modal-title">Starting Python kernel</h3>
+                    <div class="boot-spinner"></div>
+                    <p class="boot-modal-message">{warmingMessage || 'Loading...'}</p>
+                    {#if $pyodideStore.progress > 0 && $pyodideStore.progress < 1}
+                        <div class="boot-progress-bar" aria-hidden="true">
+                            <div class="boot-progress-fill" style="width: {Math.round($pyodideStore.progress * 100)}%"></div>
+                        </div>
+                    {/if}
+                    <p class="boot-modal-hint">
+                        First boot downloads Pyodide and the scientific Python
+                        stack (~30 seconds, meaningful browser memory).
+                        Subsequent boots are cached by a Service Worker.
+                    </p>
+                </div>
+            </div>
+        {/if}
     </div>
 {/snippet}
 
@@ -1003,6 +1043,86 @@
 
     @keyframes spin {
         to { transform: rotate(360deg); }
+    }
+
+    /* Py-kernel cold-boot modal. Full-viewport backdrop with a
+       centered panel; covers the gap between "user switched to a
+       py session" and "Pyodide reports ready" so the stale chat
+       from the previous session isn't the only thing on screen.
+
+       Z-index puts this above SplitPane content but below the
+       existing global modals (settings drawer, session drawer,
+       etc., which open at 1000+) so the user can still bail out
+       via the drawer if needed. */
+    .boot-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        z-index: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .boot-modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.5rem 1.75rem;
+        max-width: 420px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.85rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .boot-modal-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .boot-spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        margin: 0.25rem 0;
+    }
+
+    .boot-modal-message {
+        margin: 0;
+        font-size: 0.88rem;
+        color: var(--text);
+        min-height: 1.2em;
+    }
+
+    .boot-progress-bar {
+        width: 100%;
+        height: 4px;
+        background: color-mix(in srgb, var(--text) 10%, transparent);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .boot-progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.2s ease-out;
+    }
+
+    .boot-modal-hint {
+        margin: 0;
+        font-size: 0.75rem;
+        line-height: 1.45;
+        color: var(--text-muted);
     }
 
     .undo-toast {
