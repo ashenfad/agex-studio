@@ -27,6 +27,14 @@ async function loadHtmlToImage() {
 
 /**
  * Render a DOM target to a base64 PNG.
+ *
+ * Returns RFC 4648 canonical base64 (no whitespace, correct
+ * padding) — Anthropic's API rejects loosely-encoded variants
+ * with "invalid base64 data" 400s, and we send screenshots into
+ * tool_result content for any model the agent's running. Other
+ * providers (Gemini, OpenAI) are more lenient but we treat the
+ * strictest as the contract so the agent's UX is consistent.
+ *
  * @param {Document} doc
  * @param {string|null} selector
  * @returns {Promise<string>} base64-encoded PNG (no data URI prefix)
@@ -37,7 +45,22 @@ async function captureScreenshot(doc, selector) {
     if (!target) throw new Error(`Screenshot target not found: ${selector}`);
 
     const dataUrl = await toPng(target, { cacheBust: true });
-    return dataUrl.replace(/^data:image\/png;base64,/, '');
+    // Strict prefix match: accept any `data:image/<type>[;params];base64,`
+    // shape (some encoders emit charset / vendor params before `base64`).
+    // The previous regex only matched `data:image/png;base64,` exactly,
+    // which silently kept the prefix bytes in the output for any
+    // variant — those non-base64 bytes blew up Anthropic's strict
+    // validator.
+    const match = dataUrl.match(/^data:image\/[^;,]+(?:;[^,]+)*?;base64,(.*)$/s);
+    if (!match) {
+        throw new Error(
+            `Screenshot encoder returned an unexpected data URL shape: ${dataUrl.slice(0, 64)}…`,
+        );
+    }
+    // Strip any whitespace/newlines just in case (canvas.toDataURL
+    // shouldn't insert them, but some encoders use MIME-style 76-char
+    // line wrapping). Anthropic's parser is whitespace-intolerant.
+    return match[1].replace(/\s/g, "");
 }
 
 /**
