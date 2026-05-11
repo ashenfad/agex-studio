@@ -58,7 +58,18 @@ export function parseEsbuildArgs(args) {
         } else if (arg.startsWith("-o=")) {
             outfile = arg.slice("-o=".length);
         } else if (arg.startsWith("-")) {
-            return { error: `esbuild: unknown flag: ${arg}` };
+            // Friendlier than a bare "unknown flag" — agents commonly
+            // reach for native esbuild flags (--bundle, --jsx=automatic,
+            // --format=esm) that are already enabled by default in our
+            // wrapper. The pointer at `esbuild --help` is the fastest
+            // route from "got an error" to "saw the flag list."
+            return {
+                error:
+                    `esbuild: unknown flag: ${arg}. Only --outfile=<path> ` +
+                    `and --minify are configurable here; bundling, JSX ` +
+                    `transform, and ESM output are on by default. Run ` +
+                    `\`esbuild --help\` for the full surface.`,
+            };
         } else if (entry === null) {
             entry = arg;
         } else {

@@ -126,13 +126,35 @@ describe("parseEsbuildArgs", () => {
         expect(r.error).toMatch(/--outfile=<path> is required/);
     });
 
-    it("errors on unknown flag", () => {
+    it("errors on unknown flag with a pointer at --help", () => {
         const r = parseEsbuildArgs([
             "app/x.jsx",
             "--outfile=app/x.js",
             "--platform=node",
         ]);
         expect(r.error).toMatch(/unknown flag: --platform=node/);
+        expect(r.error).toMatch(/esbuild --help/);
+    });
+
+    it.each([
+        // Native esbuild flags agents commonly reach for. Each one is
+        // already implied by our wrapper's defaults (bundle/jsx/esm),
+        // so they should error with the unknown-flag message rather
+        // than silently no-op — that's what bit the user-reported run.
+        "--jsx=automatic",
+        "--bundle",
+        "--format=esm",
+        "--platform=browser",
+        "--target=es2020",
+        "--loader=jsx",
+        "--sourcemap",
+    ])("errors on native esbuild flag %s (not in our wrapper's surface)", (flag) => {
+        const r = parseEsbuildArgs([
+            "app/x.jsx",
+            "--outfile=app/x.js",
+            flag,
+        ]);
+        expect(r.error).toMatch(new RegExp(`unknown flag: ${flag.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}`));
     });
 
     it("errors on extra positional", () => {

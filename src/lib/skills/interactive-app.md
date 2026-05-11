@@ -403,8 +403,9 @@ Beyond the single-file case, organize as:
 
 ## Things that don't work
 
-- **JSX / TSX without a build step** — esbuild is planned. For now,
-  HTM is the closest substitute.
+- **JSX / TSX without a build step** — run `esbuild` (see the
+  "JSX path" section above) to bundle to a runnable `.js`, or use
+  HTM for the no-build path.
 - **Bare `npm install <pkg>`** — your dependencies are fixed by the
   iframe's import map. React, Plotly, marked, DOMPurify, dayjs are
   in; arbitrary npm packages aren't.
