@@ -910,6 +910,12 @@
                     {formatBytes(importPreview.bytes.length)}
                 </div>
             </div>
+            {#if (importPreview.manifest.kernel || 'py') === 'py'}
+                <div class="import-py-warning">
+                    Python uses a softer sandbox than the TypeScript kernel.
+                    Only import Python sessions from sources you trust.
+                </div>
+            {/if}
             {#if importError}
                 <div class="import-error">{importError}</div>
             {/if}
@@ -932,18 +938,18 @@
     ></div>
     <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-header">
-            <h3>Python kernel · experimental</h3>
+            <h3>Heads up — Python kernel</h3>
         </div>
         <div class="modal-body">
             <p class="py-warning-text">
-                Python sessions run real Python on Pyodide. The agex-py sandbox
-                (sandtrap) is a softer boundary than the TypeScript interpreter
-                sandbox — sandbox escape is more plausible.
+                Python sessions boot Pyodide plus a curated set of scientific
+                packages. First boot takes ~30 seconds and uses meaningful
+                browser memory; subsequent boots are cached and fast.
             </p>
             <p class="py-warning-text">
-                Use Python kernels for code you trust — your own work or shared
-                sessions from sources you trust. New work is recommended on
-                TypeScript sessions.
+                Reach for the Python kernel when you need pandas / NumPy /
+                SciPy / Plotly — the TypeScript kernel covers most other
+                use cases with a much lighter footprint.
             </p>
         </div>
         <div class="modal-actions">
@@ -1226,6 +1232,21 @@
         border-radius: 4px;
         color: var(--error);
         font-size: 0.72rem;
+    }
+
+    /* Trust warning when importing a Python session bundle. Same
+       shape as `.import-error` but warning-colored rather than
+       error-colored — it's a heads-up, not a failure. Only renders
+       when the bundle's manifest declares kernel === 'py'. */
+    .import-py-warning {
+        margin: 0.5rem 0 0 0;
+        padding: 0.45rem 0.6rem;
+        background: color-mix(in srgb, var(--warning) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+        border-radius: 4px;
+        color: var(--warning);
+        font-size: 0.78rem;
+        line-height: 1.45;
     }
 
     .preview-field {
