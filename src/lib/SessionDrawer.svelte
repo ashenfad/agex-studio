@@ -12,6 +12,8 @@
         inspectBundle,
         getBundleStats,
         CURRENT_BRANCH_KEY,
+        hasSeenPyExperimentalWarning,
+        markPyExperimentalWarningSeen,
     } from './sessions.js'
     import {
         remove as removeAppStorage,
@@ -157,9 +159,29 @@
         }
     }
 
+    /** Pending kernel for the experimental-warning modal — set when
+     *  the user clicks `+ Py` on a browser that hasn't dismissed the
+     *  warning yet. `null` when the modal is closed. */
+    let pendingPyConfirm = $state(false)
+
     async function handleNew(kernel) {
+        if (kernel === 'py' && !hasSeenPyExperimentalWarning()) {
+            pendingPyConfirm = true
+            return
+        }
         try {
             await createSession({ kernel })
+            onClose()
+        } catch (e) {
+            console.error('Failed to create session:', e)
+        }
+    }
+
+    async function confirmPyCreate() {
+        markPyExperimentalWarningSeen()
+        pendingPyConfirm = false
+        try {
+            await createSession({ kernel: 'py' })
             onClose()
         } catch (e) {
             console.error('Failed to create session:', e)
@@ -468,15 +490,15 @@
             <div class="header-actions">
                 <button class="header-btn" onclick={openImportPicker} title="Import a bundle">Import</button>
                 <button
-                    class="new-btn kernel-py"
-                    onclick={() => handleNew('py')}
-                    title="New Python session — pandas / sklearn / plotly via Pyodide"
-                >+ Py</button>
-                <button
-                    class="new-btn kernel-ts"
+                    class="new-btn kernel-ts new-btn-primary"
                     onclick={() => handleNew('ts')}
-                    title="New TypeScript session — agex-ts in a Web Worker"
-                >+ TS</button>
+                    title="New TypeScript session (recommended)"
+                >+ New</button>
+                <button
+                    class="new-btn kernel-py new-btn-secondary"
+                    onclick={() => handleNew('py')}
+                    title="New Python session — experimental, larger sandbox surface"
+                >+ Py · experimental</button>
             </div>
         </div>
         <input
@@ -511,8 +533,8 @@
                         <span class="session-date">
                             <span
                                 class="kernel-badge kernel-{s.kernel || 'py'}"
-                                title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}"
-                            >{s.kernel || 'py'}</span>
+                                title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental, larger sandbox surface'}"
+                            >{s.kernel || 'py'}{(s.kernel || 'py') === 'py' ? ' · exp' : ''}</span>
                             {formatDate(s.updated)}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
@@ -844,9 +866,9 @@
                 <span class="field-label">Kernel</span>
                 <div class="preview-value">
                     <span class="kernel-badge kernel-{importPreview.manifest.kernel || 'py'}">
-                        {importPreview.manifest.kernel || 'py'}
+                        {importPreview.manifest.kernel || 'py'}{(importPreview.manifest.kernel || 'py') === 'py' ? ' · exp' : ''}
                     </span>
-                    {(importPreview.manifest.kernel || 'py') === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}
+                    {(importPreview.manifest.kernel || 'py') === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental'}
                 </div>
             </div>
             <div class="preview-field">
@@ -866,6 +888,36 @@
             <button type="button" class="btn-save" onclick={handleConfirmImport} disabled={importing}>
                 {importing ? 'Importing...' : 'Import as new session'}
             </button>
+        </div>
+    </div>
+{/if}
+
+{#if pendingPyConfirm}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="modal-overlay"
+        onclick={() => (pendingPyConfirm = false)}
+        onkeydown={(e) => e.key === 'Escape' && (pendingPyConfirm = false)}
+    ></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <h3>Python kernel · experimental</h3>
+        </div>
+        <div class="modal-body">
+            <p class="py-warning-text">
+                Python sessions run real Python on Pyodide. The agex-py sandbox
+                (sandtrap) is a softer boundary than the TypeScript interpreter
+                sandbox — sandbox escape is more plausible.
+            </p>
+            <p class="py-warning-text">
+                Use Python kernels for code you trust — your own work or shared
+                sessions from sources you trust. New work is recommended on
+                TypeScript sessions.
+            </p>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick={() => (pendingPyConfirm = false)}>Cancel</button>
+            <button type="button" class="btn-save" onclick={confirmPyCreate}>Got it, create session</button>
         </div>
     </div>
 {/if}
@@ -1002,23 +1054,29 @@
         cursor: pointer;
     }
 
-    /* Match the kernel-badge color scheme — accent (purple-ish) for
-       py, blue for ts. Same colors used on per-session badges in
-       the list, so the create buttons read as "of the same kind". */
-    .new-btn.kernel-py {
-        background: var(--accent);
-    }
-
-    .new-btn.kernel-py:hover {
-        background: var(--accent-hover);
-    }
-
-    .new-btn.kernel-ts {
+    /* TS is the primary "new session" action — full-size blue button.
+       Py is the secondary "experimental" action — same vertical size
+       so they align, but transparent fill with a muted accent border /
+       text so it reads as the less-recommended option. The kernel-
+       color scheme still matches per-session badges in the list. */
+    .new-btn.kernel-ts.new-btn-primary {
         background: #3b82f6;
     }
 
-    .new-btn.kernel-ts:hover {
+    .new-btn.kernel-ts.new-btn-primary:hover {
         background: #2563eb;
+    }
+
+    .new-btn.kernel-py.new-btn-secondary {
+        background: transparent;
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+        font-weight: 500;
+    }
+
+    .new-btn.kernel-py.new-btn-secondary:hover {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        border-color: var(--accent);
     }
 
     .header-actions {
@@ -1273,6 +1331,17 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .py-warning-text {
+        color: var(--text);
+        font-size: 0.88rem;
+        line-height: 1.5;
+        margin: 0 0 0.75rem;
+    }
+
+    .py-warning-text:last-child {
+        margin-bottom: 0;
     }
 
     .session-meta {

@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000 } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts' }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts' } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -25,6 +25,12 @@
         </svg>
     </button>
     <h1>agex</h1>
+    {#if activeKernel === 'py'}
+        <span
+            class="kernel-warn"
+            title="Python kernel: experimental. The agex-py sandbox (sandtrap) is a softer boundary than the TS interpreter sandbox; use only with trusted code."
+        >py · exp</span>
+    {/if}
     <div class="spacer"></div>
     {#if inputTokens != null}
         <button
@@ -85,6 +91,22 @@
     h1 {
         font-size: 1.1rem;
         font-weight: 600;
+    }
+
+    /* Active-kernel "experimental" badge. Visible only on py
+       sessions, sits next to the title so it's always in view
+       without nagging the user. Warning color tinted with low
+       saturation — informational, not alarming. */
+    .kernel-warn {
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--warning) 18%, transparent);
+        color: var(--warning);
+        cursor: help;
     }
 
     .token-btn {

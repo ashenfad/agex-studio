@@ -47,6 +47,22 @@ const CHAT_BRANCH_PREFIX = "chat-";
  *  purge flow can wipe it alongside the rest of the session state. */
 export const CURRENT_BRANCH_KEY = "agex-current-branch";
 
+/** localStorage key for the "I've seen the py-kernel experimental
+ *  warning" dismiss flag. Set once the user acknowledges the modal
+ *  on first Python-session creation; subsequent py creations skip
+ *  the modal. Scoped per-browser, not per-user — for a personal-
+ *  use studio that's the right granularity. */
+const PY_EXPERIMENTAL_SEEN_KEY = "agex-py-experimental-seen";
+
+/** @returns {boolean} */
+export function hasSeenPyExperimentalWarning() {
+    return localStorage.getItem(PY_EXPERIMENTAL_SEEN_KEY) === "1";
+}
+
+export function markPyExperimentalWarningSeen() {
+    localStorage.setItem(PY_EXPERIMENTAL_SEEN_KEY, "1");
+}
+
 /**
  * @typedef {Object} Session
  * @property {string} branch
