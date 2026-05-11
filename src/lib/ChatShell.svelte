@@ -844,24 +844,27 @@
         <!--
             Py-kernel boot modal.
 
-            Pyodide cold boot is ~30s + ~hundreds of MB of memory. The
-            existing `warming-area` only renders after `historyReady`
-            flips false (which happens at the 'history-ready' stage,
-            late in the boot timeline) — so the stretch between
-            "session switched to py" and "history-ready stage fires"
-            shows the *previous* session's chat with just a tiny
-            status-row spinner at the bottom. Agents reported the gap
-            as "no clear loading indicator when I created a Python
-            session."
+            Gated on Pyodide's own `status === 'loading'` rather than
+            on `activeKernel === 'py'`. Reason: when the user creates
+            a py session from a TS session, `createSession` awaits
+            `resolveAdapter('py')` (which boots Pyodide, ~30s) BEFORE
+            updating the session store / localStorage pointer. So
+            during the entire boot, `activeKernel` is still `'ts'` —
+            gating on it would never fire the modal for the case we
+            care about most.
 
-            Modal scope: while the active kernel is `py` AND Pyodide's
-            own status isn't `ready`. Once the worker reports ready,
-            the modal hides and any remaining shell-side loading
-            (sessions / history / files / Wave 3 packages) is covered
-            by the existing warming-area. No flash for already-booted
-            py switches (Pyodide's status is already `ready`).
+            `pyodideStore.status` transitions: `idle → loading →
+            ready` (or `error`). The `loading` state begins the
+            moment `kernelRegistry.ensure('py', ...)` calls
+            `startWorker`, covers all three Pyodide waves, and flips
+            to `ready` only after rich init completes — exactly the
+            window where the user sees nothing happening.
+
+            No flash for already-booted py-session switches: status
+            stays at `ready` from the previous session, modal stays
+            hidden. TS-only flows never touch pyodideStore.
         -->
-        {#if activeKernel === 'py' && $pyodideStore.status !== 'ready' && $pyodideStore.status !== 'error' && !initError}
+        {#if $pyodideStore.status === 'loading' && !initError}
             <div class="boot-modal-overlay" role="dialog" aria-modal="true" aria-live="polite">
                 <div class="boot-modal">
                     <h3 class="boot-modal-title">Starting Python kernel</h3>
