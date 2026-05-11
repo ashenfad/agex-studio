@@ -135,6 +135,21 @@ export function isConfigured() {
     return settings.apiKey.length > 0;
 }
 
+/** Return a snapshot of the current settings object.
+ *
+ *  Use over the Svelte-store `subscribe` contract when you need a
+ *  one-shot read inside a non-reactive code path (e.g. an `agent.fn`
+ *  handler that runs each time the agent calls it). The returned
+ *  reference is the live module-level object — callers must not
+ *  mutate it. `updateSettings` always assigns a fresh object, so the
+ *  snapshot is safe to retain locally for the duration of one call.
+ *
+ *  @returns {Settings}
+ */
+export function getSettings() {
+    return settings;
+}
+
 /** Resolve the effective LLM base URL from a settings object.
  *
  *  Custom mode: the user's explicit `baseUrl` wins.

@@ -72,6 +72,12 @@ single-part response — no need to wrap in an array.
 - **Preview pane** — automatically shows the app under `app/` when
   present.
 
+## Web search
+
+- `await search("query")` for the web; `deep: true` for multi-step
+  research. Run several in parallel with `Promise.all([search(a),
+  search(b), ...])` — independent fetches, concurrent on the wire.
+
 ## Skills (read on demand)
 
 These have non-obvious idioms — `cat` the skill before you start:

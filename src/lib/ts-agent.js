@@ -41,6 +41,7 @@ import {
 import { buildAppHtml } from "./pyodide.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
+import { search as runSearchHelper } from "./search.js";
 import {
     synthesizeAction,
     serializeOutputParts,
@@ -325,6 +326,38 @@ export async function initAgent(settings) {
             ].join("\n"),
         },
     );
+
+    // `search` host-bound fn — web search via OpenRouter's perplexity
+    // models. Routed through the same OpenAI-compatible endpoint the
+    // chat LLM uses; auth comes from the studio's settings store at
+    // call time so settings changes (model swap, key rotation) are
+    // picked up without re-init.
+    //
+    // Multiple in-flight host calls are supported by the runtime
+    // bridge (each gets its own callId), so `Promise.all([search(a),
+    // search(b), ...])` from the agent results in genuinely
+    // concurrent fetches — same parallelism the py-side
+    // `asyncio.gather(search(a), search(b), ...)` pattern unlocks.
+    _agent.fn(runSearchHelper, {
+        description: [
+            "(Pre-registered global — call directly with `await search(query)`, no import needed.)",
+            "Web search via perplexity. Returns a text summary with cited source URLs inline.",
+            "",
+            "Signature: `search(query: string, deep?: boolean): Promise<string>`",
+            "  - `query`: the question or search terms.",
+            "  - `deep`: when `true`, uses the multi-step `sonar-pro-search` model for complex research; default is the single-shot `sonar`.",
+            "",
+            "**Run several in parallel with `Promise.all`** when you need to gather distinct topics — each search is an independent HTTP fetch and the runtime dispatches them concurrently:",
+            "  ```ts",
+            "  const [a, b, c] = await Promise.all([",
+            "    search('topic A'),",
+            "    search('topic B'),",
+            "    search('topic C'),",
+            "  ]);",
+            "  ```",
+            "Sequential `await search(...); await search(...); ...` works but is slower by exactly the search latency × N.",
+        ].join("\n"),
+    });
 
     // `esbuild` terminal command — bundles agent JSX/TSX/JS/TS app
     // sources into a runnable ES module via esbuild-wasm. The handler
