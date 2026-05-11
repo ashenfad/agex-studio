@@ -524,7 +524,7 @@
                                 role="menuitem"
                                 onclick={() => { createMenuOpen = false; handleNew('py') }}
                             >
-                                <span class="split-menu-item-label">+ Python session</span>
+                                <span class="split-menu-item-label">Python session</span>
                                 <span class="split-menu-item-tag">experimental</span>
                             </button>
                         </div>
@@ -1181,6 +1181,7 @@
 
     .split-menu-item-label {
         color: var(--text);
+        white-space: nowrap;
     }
 
     .split-menu-item-tag {
@@ -1192,6 +1193,7 @@
         border-radius: 3px;
         background: color-mix(in srgb, var(--warning) 18%, transparent);
         color: var(--warning);
+        white-space: nowrap;
     }
 
     .header-actions {
