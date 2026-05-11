@@ -18,6 +18,11 @@ import {
     getLiveIframe as appControlGetLiveIframe,
 } from './app-control.js';
 import { read as readAppStorage } from './app-storage.js';
+// `?url` makes vite emit `esbuild-bridge.js` as a static asset and
+// hand back its resolved URL (hashed in production, /src/... in dev).
+// Forwarded to the py worker via the init postMessage so worker.js
+// can fetch the same vite-bundled bridge the TS kernel uses.
+import _esbuildBridgeUrl from './esbuild-bridge.js?url';
 
 /** @type {Worker | null} */
 let worker = null;
@@ -155,7 +160,7 @@ export function startWorker() {
         update({ status: "error", message: `Worker error: ${e.message}` });
     };
 
-    worker.postMessage({ type: "init" });
+    worker.postMessage({ type: "init", esbuildBridgeUrl: _esbuildBridgeUrl });
 }
 
 /**

@@ -3,6 +3,25 @@
  * filesystem (the agent's app/ files, passed in as a dict) and
  * returns transformed/bundled output.
  *
+ * Shared between the TS and Py kernels:
+ *   - **TS side** imports this module directly via vite
+ *     (`await import('./esbuild-bridge.js')` from `ts-agent.js`).
+ *     Vite emits it as a code-split chunk so cold boot pays nothing.
+ *   - **Py side** receives the vite-emitted URL at worker init
+ *     (`pyodide.js` does `import esbuildBridgeUrl from
+ *     './esbuild-bridge.js?url'` and forwards it to the worker
+ *     via the `init` message). `public/worker.js` then
+ *     `import(url)`s the same chunk through the browser's dynamic-
+ *     import path.
+ *
+ * The file used to live in `public/`, importable by both via the
+ * static URL `/esbuild-bridge.js`. That broke for the TS side
+ * because vite's dev-server import middleware refuses to resolve
+ * `public/...` paths as JS modules (they're meant for HTML-tag
+ * references). Moving the source into `src/lib/` makes vite the
+ * single owner — one source of truth, vite handles bundling +
+ * hashing for both consumers.
+ *
  * Architecture:
  * - Loaded lazily on first call (esbuild-wasm is ~10MB).
  * - Bare imports (`react`, `@radix-ui/...`) are marked external and

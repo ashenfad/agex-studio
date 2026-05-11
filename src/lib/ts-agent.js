@@ -63,57 +63,12 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
 
 const SESSION = "default";
 
-/** Static-asset URL for the esbuild bridge module. Lives in `public/`
- *  so the py-side worker can fetch it via `import('/esbuild-bridge.js')`
- *  — pyodide's worker is itself a `public/` static file, so it never
- *  goes through vite's import resolver and can dynamic-import siblings
- *  in `public/` freely. */
-const ESBUILD_BRIDGE_URL = "/esbuild-bridge.js";
-
-/** Lazily-resolved Promise for the esbuild bridge module on the TS
- *  side. Vite refuses to let main-thread code `import('/...')` a
- *  `public/` asset as a module — those paths are served as-is for
- *  HTML-tag references, and the dev server's import middleware
- *  rewrites every `import()` URL through its pipeline (adding the
- *  `?import` query the user saw 404), so even `@vite-ignore` doesn't
- *  rescue the call.
- *
- *  Workaround: `fetch()` the source (vite serves `public/` files
- *  verbatim for fetches — only `import()` calls go through the
- *  resolver), wrap in a Blob, and dynamic-import the Blob URL. The
- *  URL is browser-constructed at runtime so vite's analyzer never
- *  sees it. Bridge module + esbuild-wasm itself remain lazy: cold-
- *  boot pays nothing; first invocation pays the one-time fetch +
- *  module load; rest of worker lifetime hits the cached Promise. */
-let _esbuildBridgePromise = null;
-async function _loadEsbuildBridge() {
-    if (_esbuildBridgePromise) return _esbuildBridgePromise;
-    _esbuildBridgePromise = (async () => {
-        const response = await fetch(ESBUILD_BRIDGE_URL);
-        if (!response.ok) {
-            throw new Error(
-                `esbuild-bridge: ${response.status} ${response.statusText} fetching ${ESBUILD_BRIDGE_URL}`,
-            );
-        }
-        const src = await response.text();
-        const blob = new Blob([src], { type: "application/javascript" });
-        const blobUrl = URL.createObjectURL(blob);
-        try {
-            return await import(/* @vite-ignore */ blobUrl);
-        } finally {
-            // Safe to revoke immediately — the imported module is
-            // resolved + cached by the browser; subsequent uses go
-            // through the module map, not the URL.
-            URL.revokeObjectURL(blobUrl);
-        }
-    })().catch((e) => {
-        // Reset on failure so a transient error doesn't latch the
-        // promise into permanent rejection — agent can retry.
-        _esbuildBridgePromise = null;
-        throw e;
-    });
-    return _esbuildBridgePromise;
-}
+// `esbuild-bridge.js` is a sibling module — vite emits it as its
+// own code-split chunk, so the dynamic `import()` in the terminal
+// handler below pays nothing until the agent first runs `esbuild`.
+// The py kernel imports the same module via its vite-resolved URL
+// (forwarded into the worker via the `init` postMessage from
+// `pyodide.js`), so both kernels share one source of truth.
 
 /** Per-task iteration cap. agex-ts default is lower; chat-driven app
  *  building can legitimately need more turns (write file → bundle →
@@ -390,9 +345,10 @@ export async function initAgent(settings) {
 
     // `esbuild` terminal command — bundles agent JSX/TSX/JS/TS app
     // sources into a runnable ES module via esbuild-wasm. The handler
-    // dynamic-imports `/esbuild-bridge.js` (shared with the py kernel)
-    // on first invocation so cold-boot pays nothing for the ~10MB
-    // wasm; subsequent invocations reuse the cached module + esbuild
+    // dynamic-imports `./esbuild-bridge.js` (shared with the py
+    // kernel; vite code-splits it into its own chunk) on first
+    // invocation so cold-boot pays nothing for the ~10MB wasm;
+    // subsequent invocations reuse the cached module + esbuild
     // instance for the worker lifetime.
     //
     // Note that `agent.terminal` registrations don't have a
@@ -402,10 +358,7 @@ export async function initAgent(settings) {
     // interactive-app skill.
     _agent.terminal(
         async (ctx) => {
-            // See `_loadEsbuildBridge` above for why this routes
-            // through fetch + Blob URL instead of a direct
-            // `import('/esbuild-bridge.js')`.
-            const { runEsbuild } = await _loadEsbuildBridge();
+            const { runEsbuild } = await import("./esbuild-bridge.js");
             await runEsbuildCommand(ctx, runEsbuild);
         },
         {
