@@ -269,19 +269,12 @@
         font-style: italic;
     }
 
-    .chapter-summary.markdown :global(p) { margin: 0.3em 0; }
-    .chapter-summary.markdown :global(p:first-child) { margin-top: 0; }
-    .chapter-summary.markdown :global(p:last-child) { margin-bottom: 0; }
-    .chapter-summary.markdown :global(code) {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-size: 0.85em;
-    }
-    .chapter-summary.markdown :global(strong) { font-weight: 600; }
-    .chapter-summary.markdown :global(ul),
-    .chapter-summary.markdown :global(ol) { margin: 0.3em 0; padding-left: 1.4em; }
-    .chapter-summary.markdown :global(li) { margin: 0.1em 0; }
+    /* Tighten the shared `.markdown` defaults — chapter summaries
+       want a compact rhythm so the modal header stays short. */
+    .chapter-summary :global(p) { margin: 0.3em 0; }
+    .chapter-summary :global(ul),
+    .chapter-summary :global(ol) { margin: 0.3em 0; }
+    .chapter-summary :global(li) { margin: 0.1em 0; }
 
     .modal-body {
         flex: 1;
@@ -334,44 +327,8 @@
         white-space: pre-wrap;
         word-break: break-word;
     }
-
-    .content.markdown { white-space: normal; }
-    .content.markdown :global(p) { margin: 0.4em 0; }
-    .content.markdown :global(p:first-child) { margin-top: 0; }
-    .content.markdown :global(p:last-child) { margin-bottom: 0; }
-    .content.markdown :global(ul),
-    .content.markdown :global(ol) { margin: 0.4em 0; padding-left: 1.4em; }
-    .content.markdown :global(li) { margin: 0.15em 0; }
-    .content.markdown :global(code) {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-        font-size: 0.82em;
-    }
-    .content.markdown :global(pre) {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 6px;
-        padding: 0.5em 0.7em;
-        overflow-x: auto;
-        margin: 0.4em 0;
-    }
-    .content.markdown :global(pre code) { background: none; padding: 0; font-size: 0.8em; }
-    .content.markdown :global(strong) { font-weight: 600; }
-    .content.markdown :global(h1),
-    .content.markdown :global(h2),
-    .content.markdown :global(h3) { margin: 0.5em 0 0.3em; font-weight: 600; }
-    .content.markdown :global(h1) { font-size: 1.1em; }
-    .content.markdown :global(h2) { font-size: 1em; }
-    .content.markdown :global(h3) { font-size: 0.95em; }
-    .content.markdown :global(a) { color: #7cb7ff; text-decoration: underline; }
-    .content.markdown :global(blockquote) {
-        border-left: 3px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.06);
-        margin: 0.5em 0;
-        padding: 0.4em 0.8em;
-        border-radius: 0 4px 4px 0;
-    }
+    /* `.content.markdown` body styling lives in app.css's shared
+       `.markdown` rule set; nothing chapter-specific to override. */
 
     .rich-block {
         width: fit-content;
@@ -419,19 +376,11 @@
         line-height: 1.4;
     }
 
-    .chapter-card-summary.markdown :global(p) { margin: 0.2em 0; }
-    .chapter-card-summary.markdown :global(p:first-child) { margin-top: 0; }
-    .chapter-card-summary.markdown :global(p:last-child) { margin-bottom: 0; }
-    .chapter-card-summary.markdown :global(ul),
-    .chapter-card-summary.markdown :global(ol) { margin: 0.2em 0; padding-left: 1.4em; }
-    .chapter-card-summary.markdown :global(li) { margin: 0.1em 0; }
-    .chapter-card-summary.markdown :global(code) {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.1em 0.2em;
-        border-radius: 3px;
-        font-size: 0.85em;
-    }
-    .chapter-card-summary.markdown :global(strong) { font-weight: 600; }
+    /* Even tighter than chapter-summary — card previews are small. */
+    .chapter-card-summary :global(p) { margin: 0.2em 0; }
+    .chapter-card-summary :global(ul),
+    .chapter-card-summary :global(ol) { margin: 0.2em 0; }
+    .chapter-card-summary :global(li) { margin: 0.1em 0; }
 
     .bubble-footer {
         font-size: 0.7rem;

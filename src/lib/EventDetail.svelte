@@ -51,7 +51,7 @@
                 {:else if em.kind === 'text' && em.text}
                     <div class="section">
                         <div class="section-label report-label">Report</div>
-                        <div class="report-content">{@html renderMarkdown(em.text)}</div>
+                        <div class="report-content markdown">{@html renderMarkdown(em.text)}</div>
                     </div>
                 {:else if em.kind === 'python'}
                     {#if em.thinking}
@@ -230,57 +230,16 @@
         font-size: 0.82rem;
     }
 
+    /* Tighten vertical rhythm relative to the shared `.markdown`
+       defaults so reports stay compact inside the activity modal. */
     .report-content :global(p) { margin: 0.3em 0; }
-    .report-content :global(p:first-child) { margin-top: 0; }
-    .report-content :global(p:last-child) { margin-bottom: 0; }
-
-    /* Mirrors the markdown rules MessageList applies to inline chat
-       bubbles, with slightly tighter vertical rhythm so reports stay
-       compact inside the activity modal. Without these, list/code/
-       strong elements fall back to browser defaults and the bullets
-       end up indented past the modal's left-border accent. */
     .report-content :global(ul),
-    .report-content :global(ol) {
-        margin: 0.3em 0;
-        padding-left: 1.4em;
-    }
+    .report-content :global(ol) { margin: 0.3em 0; }
     .report-content :global(li) { margin: 0.1em 0; }
-    .report-content :global(strong) { font-weight: 600; color: var(--text); }
-    .report-content :global(code) {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-        font-size: 0.9em;
-    }
-    .report-content :global(pre) {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 4px;
-        padding: 0.4em 0.6em;
-        margin: 0.3em 0;
-        overflow-x: auto;
-        font-size: 0.9em;
-    }
-    .report-content :global(pre code) {
-        background: none;
-        padding: 0;
-        border-radius: 0;
-        font-size: 1em;
-    }
+    .report-content :global(pre) { margin: 0.3em 0; }
     .report-content :global(h1),
     .report-content :global(h2),
-    .report-content :global(h3) {
-        margin: 0.4em 0 0.25em;
-        font-weight: 600;
-    }
-    .report-content :global(h1) { font-size: 1.1em; }
-    .report-content :global(h2) { font-size: 1em; }
-    .report-content :global(h3) { font-size: 0.95em; }
-    .report-content :global(a) {
-        color: #7cb7ff;
-        text-decoration: none;
-    }
-    .report-content :global(a:hover) { text-decoration: underline; }
+    .report-content :global(h3) { margin: 0.4em 0 0.25em; }
 
     pre.section-content {
         background: var(--surface);

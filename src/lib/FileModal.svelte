@@ -249,7 +249,7 @@
                         </table>
                     </div>
                 {:else if fileType === 'markdown' && content != null}
-                    <div class="markdown-body">{@html renderMarkdown(content)}</div>
+                    <div class="markdown markdown-body">{@html renderMarkdown(content)}</div>
                 {:else if fileType === 'text' && content != null}
                     <pre><code>{@html highlightCode(content, path)}</code></pre>
                 {:else if fileType === 'image' && content}
@@ -397,6 +397,10 @@
         border-radius: 4px;
     }
 
+    /* Document-read mode: looser spacing, bigger headings, themed
+       accent colors. Layers on top of the shared `.markdown` rules
+       in app.css — only overrides that differ from the chat baseline
+       live here. */
     .markdown-body {
         padding: 1.25rem 1.5rem;
         font-size: 0.88rem;
@@ -411,56 +415,42 @@
         margin: 1.25em 0 0.5em;
         line-height: 1.3;
     }
-
     .markdown-body :global(h1) { font-size: 1.4em; }
     .markdown-body :global(h2) { font-size: 1.2em; }
     .markdown-body :global(h3) { font-size: 1.05em; }
 
-    .markdown-body :global(p) {
-        margin: 0.6em 0;
-    }
+    .markdown-body :global(p) { margin: 0.6em 0; }
 
     .markdown-body :global(ul),
     .markdown-body :global(ol) {
         margin: 0.5em 0;
         padding-left: 1.5em;
     }
+    .markdown-body :global(li) { margin: 0.2em 0; }
 
-    .markdown-body :global(li) {
-        margin: 0.2em 0;
-    }
-
+    /* Inline code + code blocks use the themed surface-hover
+       background instead of the chat baseline's rgba overlay. */
     .markdown-body :global(code) {
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-        font-size: 0.85em;
         background: var(--surface-hover);
         padding: 0.15em 0.35em;
-        border-radius: 3px;
+        font-size: 0.85em;
     }
-
     .markdown-body :global(pre) {
         margin: 0.75em 0;
         padding: 0.75rem 1rem;
         background: var(--surface-hover);
-        border-radius: 6px;
-        overflow-x: auto;
-    }
-
-    .markdown-body :global(pre code) {
-        background: none;
-        padding: 0;
     }
 
     .markdown-body :global(blockquote) {
         margin: 0.75em 0;
         padding: 0.25em 1em;
         border-left: 3px solid var(--border);
+        background: none;
         color: var(--text-muted);
+        border-radius: 0;
     }
 
-    .markdown-body :global(a) {
-        color: var(--accent);
-    }
+    .markdown-body :global(a) { color: var(--accent); }
 
     .markdown-body :global(hr) {
         border: none;
