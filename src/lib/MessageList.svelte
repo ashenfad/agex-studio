@@ -255,8 +255,17 @@
         white-space: pre-wrap;
         word-break: break-word;
     }
-    /* `.content.markdown` markdown-body styling lives in app.css's
-       shared `.markdown` rule set — chat bubbles are the baseline. */
+    /* `.content.markdown` body styling lives in app.css's shared
+       `.markdown` rule set. The one override that has to live here is
+       white-space: the bare `.content` rule's `pre-wrap` is for plain
+       user/agent text bubbles (preserves typed newlines), but on
+       markdown-rendered content `pre-wrap` makes the literal newlines
+       `marked` inserts between `<p>`/`<li>` elements render as blank
+       lines. Svelte's scoped `.content` selector beats the unscoped
+       `.markdown` rule in app.css on specificity, so the override has
+       to live here (compound `.content.markdown` selector is 3 classes
+       once Svelte adds its hash, winning the cascade). */
+    .content.markdown { white-space: normal; }
 
     .timestamp {
         font-size: 0.7rem;

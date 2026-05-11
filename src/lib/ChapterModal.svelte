@@ -328,7 +328,13 @@
         word-break: break-word;
     }
     /* `.content.markdown` body styling lives in app.css's shared
-       `.markdown` rule set; nothing chapter-specific to override. */
+       `.markdown` rule set. White-space has to be overridden here
+       though — Svelte's scoped `.content` rule beats the unscoped
+       `.markdown` rule on specificity, so without this the markdown
+       renderer's literal newlines between elements would render as
+       blank lines under `pre-wrap`. See the matching note in
+       MessageList.svelte. */
+    .content.markdown { white-space: normal; }
 
     .rich-block {
         width: fit-content;
