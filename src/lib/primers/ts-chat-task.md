@@ -26,6 +26,14 @@ the browser's IndexedDB and localStorage.
   later turns can `import { x } from './helpers/foo'` (or
   `'/helpers/foo'`). Local imports use the path; library imports use
   the bare name.
+- **Batch independent writes.** When you have several file writes or
+  edits that don't need to inform each other (HTML + CSS + JS for a
+  new app, mechanical edits across a module, scaffolding a helper
+  alongside the code that uses it), emit them in a **single
+  response**. Multiple emissions in one response apply in order with
+  one LLM round-trip; the same writes spread across three responses
+  cost three round-trips for no benefit. Don't batch when each
+  output should inform the next (write → test → fix is sequential).
 
 ## Response shape
 

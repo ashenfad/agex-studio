@@ -116,7 +116,7 @@ describe("dispatchAction — eval", () => {
         expect(result.value).toBeNull();
     });
 
-    it("captures error on throw", async () => {
+    it("captures error on throw with name + expression text", async () => {
         const scope = { eval: (expr) => eval(expr) };
         const result = await dispatchAction(document, { eval: "throw new Error('boom')" }, scope);
         expect(result).toMatchObject({
@@ -124,7 +124,26 @@ describe("dispatchAction — eval", () => {
             expr: "throw new Error('boom')",
             value: null,
         });
-        expect(result.error).toContain("boom");
+        // Error message includes the original message AND the
+        // expression text so agents looking at just the error
+        // string can correlate it to which eval threw.
+        expect(result.error).toContain("Error: boom");
+        expect(result.error).toContain("(in: throw new Error('boom'))");
+    });
+
+    it("preserves error name for typed errors (ReferenceError, TypeError, ...)", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { eval: "undefinedThing.foo" },
+            scope,
+        );
+        expect(result.type).toBe("eval");
+        // ReferenceError, TypeError, etc. — whichever the browser
+        // raises — keeps its class name in the message so the agent
+        // can pattern-match on it.
+        expect(result.error).toMatch(/^(ReferenceError|TypeError):/);
+        expect(result.error).toContain("(in: undefinedThing.foo)");
     });
 });
 

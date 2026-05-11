@@ -351,10 +351,17 @@ export async function runTestApp(opts) {
             document.body.appendChild(iframe);
         });
         // Initial settle. `onload` already fires after the document
-        // fully loads, so the default 400ms gap is plenty — apps
-        // that fire queries from onload reset the timer through
-        // `__onQueryDone` and the gap auto-extends.
-        await waitForIdle(iframe);
+        // fully loads, but apps that defer state init through a
+        // `useEffect` (vs synchronous `useState(() => init())`) take
+        // a couple of frames after onload before the DOM stabilizes.
+        // Use a more generous idle gap here than the per-action
+        // default (400ms) — agent-reported case: first assertion
+        // running 50ms after onload saw an empty board because the
+        // init effect hadn't committed yet. 1000ms covers the
+        // effect chain on a cold-loaded app without slowing per-
+        // action sequences (which keep their own tight 400ms gap).
+        const COLD_START_IDLE_GAP_MS = 1000;
+        await waitForIdle(iframe, 15000, COLD_START_IDLE_GAP_MS);
 
         const actionResults = await executeActions(iframe, actions);
 

@@ -125,11 +125,22 @@ export async function dispatchAction(doc, action, global) {
                 value: _jsonifyEvalResult(val),
             };
         } catch (e) {
+            // Embed the expression text (and error name) in the
+            // error message itself. The `expr` field on the result
+            // entry already carries the expression, but agents
+            // commonly look at just the error string and miss the
+            // correlation — `ReferenceError: foo is not defined`
+            // alone doesn't tell them which of their five evals
+            // threw. The shape is `<ErrorName>: <message> (in:
+            // <expr>)`, which keeps the original message intact
+            // for downstream pattern-matching.
+            const name = e.name || 'Error';
+            const expr = action.eval;
             return {
                 type: 'eval',
-                expr: action.eval,
+                expr,
                 value: null,
-                error: e.message,
+                error: `${name}: ${e.message} (in: ${expr})`,
             };
         }
     }

@@ -183,6 +183,30 @@ structured-clone constraints) — strings, numbers, arrays, plain
 objects, typed arrays. Stash before the user opens the preview;
 the app reads on mount.
 
+**The bridge isn't data-only.** Theme objects, layout config,
+feature flags — anything you'd otherwise bake into `app/styles.css`
+or hard-code in the app's JS — work just as well. Visual config in
+particular is worth thinking about, since CSS variables read at
+mount let the agent change a theme without rewriting any files:
+
+```ts
+// Agent code
+cache.set('theme', { accent: '#7c3aed', radius: '12px', glow: '0 0 24px rgba(124,58,237,0.4)' })
+```
+
+```js
+// app/index.js, before render
+const theme = (await getCacheValue('theme')) || {}
+const root = document.documentElement
+for (const [k, v] of Object.entries(theme)) {
+  root.style.setProperty(`--${k}`, v)
+}
+// then in styles.css: `color: var(--accent)`, etc.
+```
+
+The app picks up the new theme on next reload (or call `liveApp([{eval: 'location.reload()'}])` after `cache.set` to apply
+immediately).
+
 ## Verifying your app — `testApp`
 
 After writing app files, verify behavior **before** `taskSuccess` with
