@@ -40,6 +40,13 @@
     let messages = $state([])
     let busy = $state(false)
     let cancelling = $state(false)
+    /** AbortController for the in-flight task. The TS adapter forwards
+     *  `signal` into agex-ts's task call (which honors AbortSignal
+     *  natively); the py adapter ignores it and uses its own
+     *  worker-side `cancelTask` mechanism. handleCancel calls both
+     *  so cancellation works regardless of kernel.
+     *  @type {AbortController | null} */
+    let activeAbort = $state(null)
     let historyChunks = $state(null)
     let settingsOpen = $state(false)
     let sessionsOpen = $state(false)
@@ -722,9 +729,13 @@
         activeReportText = null
         activeReportIdx = null
 
+        activeAbort = new AbortController()
         try {
             tokenOverride = null
-            const response = await adapter.sendMessage(branch, prompt, { onToken: handleToken })
+            const response = await adapter.sendMessage(branch, prompt, {
+                onToken: handleToken,
+                signal: activeAbort.signal,
+            })
             const cancelled = response.events.some(e => e.type === 'cancelled')
 
             // Replace streaming message with final message
@@ -769,15 +780,33 @@
             if (liveSnapshot && liveSnapshot.emissions.length) {
                 eventsBeforeError.push(liveSnapshot)
             }
-            messages = [...finalMessages, {
-                role: 'agent',
-                content: `Error: ${e.message}`,
-                events: eventsBeforeError,
-                timestamp: new Date(),
-            }]
+            // User-initiated cancel (handleCancel set `cancelling` true
+            // before the abort fired) lands here when the adapter
+            // throws on signal abort instead of returning a response
+            // with a cancelled event. Render as cancelled, not as a
+            // crash — the partial events still show what the agent
+            // was doing up to the cancel.
+            const userCancelled = cancelling || e?.name === 'AbortError'
+            if (userCancelled) {
+                messages = [...finalMessages, {
+                    role: 'agent',
+                    content: { type: 'text', content: '' },
+                    events: eventsBeforeError,
+                    timestamp: new Date(),
+                    cancelled: true,
+                }]
+            } else {
+                messages = [...finalMessages, {
+                    role: 'agent',
+                    content: `Error: ${e.message}`,
+                    events: eventsBeforeError,
+                    timestamp: new Date(),
+                }]
+            }
         } finally {
             busy = false
             cancelling = false
+            activeAbort = null
             streamingEvents = []
             currentTurn = null
             activeReportText = null
@@ -787,7 +816,16 @@
 
     function handleCancel() {
         cancelling = true
+        // Two cancel paths, both safe to fire:
+        //   - cancelTask: py-only worker-side mechanism (sets a flag in
+        //     pyodide's globals; agent loop checks at iteration boundary).
+        //     No-op for ts sessions or when no py task is running.
+        //   - activeAbort.abort: AbortSignal that the TS adapter forwards
+        //     to agex-ts's task call. agex-ts honors AbortSignal natively.
+        // Calling both means cancellation works regardless of which
+        // kernel the active session is on.
         cancelTask()
+        activeAbort?.abort()
     }
 </script>
 
