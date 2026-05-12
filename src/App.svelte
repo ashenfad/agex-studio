@@ -1,7 +1,9 @@
 <script>
     import { preloadPlotly } from './lib/pyodide.js'
     import { handleVfsClick } from './lib/vfs-download.js'
+    import { viewingFile } from './lib/viewing-file.js'
     import ChatShell from './lib/ChatShell.svelte'
+    import FileModal from './lib/FileModal.svelte'
 
     // Pyodide boot is now driven lazily by `kernelRegistry.ensure('py', ...)`
     // in ChatShell — fired only after settings are configured. The shell
@@ -19,9 +21,15 @@
 </script>
 
 <!-- App-wide click delegation for [label](vfs:path) markdown links —
-     non-matching clicks are no-ops, matching clicks trigger a VFS
-     download.  Lives at the App level so it works wherever rendered
-     markdown surfaces in the UI. -->
+     non-matching clicks are no-ops, matching clicks open the shared
+     `FileModal` via the `viewingFile` store.  Lives at the App level
+     so it works wherever rendered markdown surfaces in the UI. -->
 <svelte:window onclick={handleVfsClick} />
 
 <ChatShell />
+
+<!-- Single app-level `FileModal` instance.  Both the file-drawer's
+     list-click and the markdown-link click route through the shared
+     `viewingFile` store, so the modal is reachable from anywhere a
+     VFS path is clickable. -->
+<FileModal path={$viewingFile} onClose={() => viewingFile.set(null)} />

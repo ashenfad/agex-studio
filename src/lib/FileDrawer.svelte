@@ -2,7 +2,7 @@
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
     import { sessionStore } from './sessions.js'
     import { getActiveAdapter } from './active-adapter.js'
-    import FileModal from './FileModal.svelte'
+    import { viewingFile } from './viewing-file.js'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
     let { open, onClose, files: rawFiles, onUpload, onDelete, onFilesChanged } = $props()
@@ -35,7 +35,6 @@
         }
     }
 
-    let viewingFile = $state(null)
     let uploading = $state(false)
     let dragOver = $state(false)
     /** @type {Set<string>} */
@@ -208,7 +207,7 @@
                         />
                         <button
                             class="file-item"
-                            onclick={() => viewingFile = f}
+                            onclick={() => viewingFile.set(f)}
                         >
                             {f}
                         </button>
@@ -221,8 +220,8 @@
             <div class="drop-overlay">Drop files here</div>
         {/if}
     </div>
-
-    <FileModal path={viewingFile} onClose={() => viewingFile = null} />
+    <!-- FileModal lives at App level subscribed to the `viewingFile`
+         store; this drawer just sets the store on file-click. -->
 {/if}
 
 <style>
