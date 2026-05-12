@@ -51,8 +51,13 @@ export const CURRENT_BRANCH_KEY = "agex-current-branch";
  *  warning" dismiss flag. Set once the user acknowledges the modal
  *  on first Python-session creation; subsequent py creations skip
  *  the modal. Scoped per-browser, not per-user — for a personal-
- *  use studio that's the right granularity. */
-const PY_EXPERIMENTAL_SEEN_KEY = "agex-py-experimental-seen";
+ *  use studio that's the right granularity.
+ *
+ *  Versioned suffix: bumped when the modal copy changes materially
+ *  (currently `-v2` after the CSP-loosening, when the modal added a
+ *  sandbox-asymmetry paragraph to its previously resource-only
+ *  framing). Anyone who dismissed the v1 modal sees v2 once. */
+const PY_EXPERIMENTAL_SEEN_KEY = "agex-py-experimental-seen-v2";
 
 /** @returns {boolean} */
 export function hasSeenPyExperimentalWarning() {

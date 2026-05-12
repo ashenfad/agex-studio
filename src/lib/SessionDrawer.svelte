@@ -942,14 +942,15 @@
         </div>
         <div class="modal-body">
             <p class="py-warning-text">
-                Python sessions boot Pyodide plus a curated set of scientific
-                packages. First boot takes ~30 seconds and uses meaningful
-                browser memory; subsequent boots are cached and fast.
+                Python sessions boot Pyodide plus pandas / NumPy / SciPy /
+                Plotly. First boot takes ~30 seconds and uses meaningful
+                browser memory; subsequent boots are cached.
             </p>
             <p class="py-warning-text">
-                Reach for the Python kernel when you need pandas / NumPy /
-                SciPy / Plotly — the TypeScript kernel covers most other
-                use cases with a much lighter footprint.
+                The Python sandbox is softer than the TypeScript interpreter
+                sandbox — broader network access, more plausible escape
+                paths if something goes wrong. Use only with code you trust.
+                The TypeScript kernel is recommended for new work.
             </p>
         </div>
         <div class="modal-actions">
