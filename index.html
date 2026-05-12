@@ -28,17 +28,24 @@
       Tighter directives we keep:
         - `worker-src 'self' blob:` — workers come from our bundle or
           blob URLs (e.g. esbuild-wasm worker), not arbitrary origins.
-        - `style-src 'self' 'unsafe-inline'` — agents can't inject
-          stylesheets from external URLs into the host page.
         - `frame-src` — restricted to our own origin, blob URLs, and
           Google OAuth endpoints. Agents iframe via blob URLs only.
         - `object-src 'none'` and `base-uri 'self'` — defense in depth.
+
+      `style-src` is open to https: — agent-authored app code (in the
+      sandboxed iframe) commonly loads Google Fonts via
+      `<link rel="stylesheet" href="https://fonts.googleapis.com/...">`
+      and similar third-party CSS. CSS isn't executable; an opaque-
+      origin iframe loading external stylesheets can affect its own
+      visual layout but can't read parent state or anything else.
+      Agent worker code has no DOM access regardless of CSP, so it
+      can't inject styles into the host page.
     -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
       script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: https:;
       worker-src 'self' blob:;
-      style-src 'self' 'unsafe-inline';
+      style-src 'self' 'unsafe-inline' https:;
       img-src 'self' data: blob: https:;
       font-src 'self' data: https:;
       connect-src 'self' blob: data: https: http://localhost:* http://127.0.0.1:*;
