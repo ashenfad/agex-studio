@@ -1,41 +1,6 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
-
-    // Preset catalogs.  OpenRouter's IDs are namespaced
-    // (``openai/gpt-5.4``); direct-shape providers use bare IDs
-    // (``gpt-5.4``, ``claude-opus-4-7``) since each provider's own
-    // API rejects the namespaced form.  Custom mode picks one of the
-    // bare lists based on the API-format choice — so a user pointing
-    // at e.g. Anthropic direct can still pick "Claude Opus 4.7" from
-    // a dropdown instead of typing it.
-    const OPENROUTER_MODELS = [
-        { id: "openai/gpt-5.4", label: "GPT-5.4" },
-        { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
-        { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
-        { id: "anthropic/claude-opus-4.7", label: "Claude Opus 4.7" },
-        { id: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
-        { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
-        { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-        { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
-        { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
-        { id: "qwen/qwen3-coder-next", label: "Qwen3 Coder Next" },
-    ]
-    const OPENAI_MODELS = [
-        { id: "gpt-5.4", label: "GPT-5.4" },
-        { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-        { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
-    ]
-    const ANTHROPIC_MODELS = [
-        { id: "claude-opus-4-7", label: "Claude Opus 4.7" },
-        { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-        { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-    ]
-
-    /** Return the active preset list for the given mode + provider. */
-    function presetsFor(mode, prov) {
-        if (mode === 'openrouter') return OPENROUTER_MODELS
-        return prov === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS
-    }
+    import { presetsFor } from './models.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()

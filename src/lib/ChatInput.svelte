@@ -29,6 +29,35 @@
         removeAttachment,
         clearAttachments,
     } from './pending-attachments.js'
+    import { settingsStore, updateSettings } from './settings.js'
+    import { presetsFor, labelFor } from './models.js'
+
+    /** Models available in the toolbar picker depend on the user's
+     *  current accessMode + provider — same gating the settings
+     *  drawer uses. Falls back to the OpenRouter list if neither
+     *  is set yet (covers fresh-installs before settings save). */
+    const modelPresets = $derived.by(() => {
+        const s = $settingsStore
+        const mode = s.accessMode || 'openrouter'
+        const prov = s.provider || 'openai'
+        return presetsFor(mode, prov)
+    })
+
+    const currentModelLabel = $derived(labelFor($settingsStore.model))
+    /** Shown in the dropdown footnote when the active session has
+     *  enough committed turns that switching mid-session would be
+     *  noticeably uncached. The label is the same regardless; the
+     *  footnote is informational only. */
+    let modelMenuOpen = $state(false)
+
+    function pickModel(id) {
+        modelMenuOpen = false
+        if (id === $settingsStore.model) return  // no-op
+        updateSettings({ model: id })
+        // settings effect in ChatShell auto re-runs runStartup, which
+        // calls _agent.reconfigure for the TS kernel (or restarts the
+        // py kernel). No additional plumbing here.
+    }
 
     let text = $state('')
     let menuOpen = $state(false)
@@ -202,6 +231,45 @@
             </div>
 
             <div class="toolbar-right">
+                <div class="model-wrap">
+                    <button
+                        class="model-btn"
+                        onclick={() => (modelMenuOpen = !modelMenuOpen)}
+                        title="Default model — applies to all sessions. Mid-session switches restart the prompt cache."
+                        aria-label="Choose model"
+                        aria-expanded={modelMenuOpen}
+                        disabled={busy}
+                    >
+                        <span class="model-label">{currentModelLabel || 'No model'}</span>
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="3 5 6 8 9 5"></polyline>
+                        </svg>
+                    </button>
+                    {#if modelMenuOpen}
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div
+                            class="menu-backdrop"
+                            onclick={() => (modelMenuOpen = false)}
+                            onkeydown={(e) => e.key === 'Escape' && (modelMenuOpen = false)}
+                        ></div>
+                        <div class="model-menu" role="menu">
+                            {#each modelPresets as preset (preset.id)}
+                                <button
+                                    class="menu-item"
+                                    class:selected={preset.id === $settingsStore.model}
+                                    role="menuitem"
+                                    onclick={() => pickModel(preset.id)}
+                                >
+                                    {preset.label}
+                                </button>
+                            {/each}
+                            <div class="model-menu-footnote">
+                                Switching mid-session restarts the prompt cache.
+                            </div>
+                        </div>
+                    {/if}
+                </div>
+
                 {#if busy}
                     <button class="action-btn stop" onclick={onCancel} disabled={cancelling}>
                         {cancelling ? 'Stopping…' : 'Stop'}
@@ -414,6 +482,90 @@
     .menu-item:disabled {
         opacity: 0.6;
         cursor: not-allowed;
+    }
+
+    /* Model picker — sits left of Send in the toolbar's right half.
+       Borderless trigger that reads as text-with-chevron until
+       hovered (consistent with Claude.ai's `[Opus 4.7 ▾]` pattern).
+       Opens upward like the attach menu. */
+    .model-wrap {
+        position: relative;
+        display: inline-flex;
+    }
+
+    .model-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        background: none;
+        color: var(--text-muted);
+        border: none;
+        border-radius: 6px;
+        padding: 0.3rem 0.45rem;
+        font-size: 0.78rem;
+        cursor: pointer;
+        white-space: nowrap;
+        max-width: 200px;
+    }
+
+    .model-btn:hover:not(:disabled) {
+        background: var(--surface-hover);
+        color: var(--text);
+    }
+
+    .model-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .model-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .model-menu {
+        position: absolute;
+        bottom: calc(100% + 0.4rem);
+        right: 0;
+        z-index: 201;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+        min-width: 220px;
+        padding: 0.25rem;
+    }
+
+    .model-menu .menu-item {
+        display: block;
+        width: 100%;
+        padding: 0.4rem 0.6rem;
+        background: none;
+        color: var(--text);
+        border: none;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .model-menu .menu-item:hover {
+        background: var(--surface-hover);
+    }
+
+    .model-menu .menu-item.selected {
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        color: var(--text);
+        font-weight: 500;
+    }
+
+    .model-menu-footnote {
+        margin-top: 0.25rem;
+        padding: 0.4rem 0.6rem 0.2rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        line-height: 1.3;
     }
 
     /* Primary action — send (icon) or stop (text). Compact square
