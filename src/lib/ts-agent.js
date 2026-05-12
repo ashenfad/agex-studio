@@ -148,13 +148,41 @@ export async function initAgent(settings) {
                 ? settings.chapteringTrigger
                 : DEFAULT_CHAPTERING_TRIGGER,
         maxIterations: MAX_ITERATIONS,
+        // Open-mode imports: any bare specifier the agent writes that
+        // isn't in the registered namespace map (the explicit
+        // `agent.namespace(...)` calls below) falls through to here
+        // and gets routed to esm.sh. Direct URL imports pass through
+        // as-is. Net effect: agents can `import x from 'd3'` for any
+        // npm package without us needing to pre-declare it.
+        //
+        // Why this is fine in our threat model: agex-ts's interpreter
+        // bounds what imported code can do (only registered host fns
+        // are reachable; no fs / env / raw-fetch access). A
+        // compromised library can return weird values but can't
+        // exfil or escape the worker. CSP + CORS bound network reach
+        // for anything the host fns might do downstream. Namespaces
+        // in browser/worker aren't a security gate; they're a UX +
+        // quality concern, and esm.sh handles ~all of npm cleanly.
+        //
+        // See namespaceResolver-v0.md for the full rationale.
+        namespaceResolver: (specifier) => {
+            if (
+                specifier.startsWith("http://") ||
+                specifier.startsWith("https://")
+            ) {
+                return specifier;
+            }
+            return `https://esm.sh/${specifier}`;
+        },
     });
 
-    // Lazy URL-shipped namespaces. agex-ts records the URL but does
-    // not fetch — the worker only triggers a network call on the first
-    // emission that actually does `import { ... } from 'arquero'`. Cold
-    // boot pays nothing; per-module first use pays one fetch; cached
-    // for the rest of the worker lifetime.
+    // Pinned namespace registrations — take precedence over the
+    // resolver. Useful as version-pinning hooks: today these resolve
+    // to the same esm.sh URLs the resolver would return, but having
+    // them as explicit registrations means we can pin to a known-
+    // good version (e.g. `https://esm.sh/arquero@5.4.0`) if a future
+    // release breaks something we depend on without affecting the
+    // open-resolver fallback for everything else.
     _agent.namespace(
         { url: "https://esm.sh/apache-arrow" },
         { name: "apache-arrow" },

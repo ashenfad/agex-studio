@@ -14,14 +14,19 @@ the browser's IndexedDB and localStorage.
   preview pane renders them in a sandboxed iframe (see the
   interactive-app skill below).
 - **Two kinds of registrations** in your action space:
-  - **Libraries** (e.g. `arquero`, `apache-arrow`) — use a normal
-    `import { ... } from 'name'` statement. These are the only
-    third-party packages you have access to; arbitrary npm imports
-    will fail.
-  - **Host-bound functions** (e.g. `testApp`, `liveApp`) — already
-    in your scope. Call them directly with `await`, **no import
-    needed**. If you see one in your action space and it isn't a
-    library, it's a global.
+  - **Libraries** — write a normal `import { ... } from 'name'`
+    statement. **Any npm package works** — bare specifiers resolve
+    to `https://esm.sh/<name>` automatically. `arquero`,
+    `apache-arrow`, `lodash`, `dayjs`, `d3`, `three`, etc. — all
+    available. Sub-paths work too (`import { useState } from
+    'preact/hooks'`). First import per package fetches; subsequent
+    imports are cached for the rest of the session. If a package
+    isn't on npm or doesn't compile to ESM, the import fails on the
+    next turn with a clear error you can adapt around.
+  - **Host-bound functions** (e.g. `testApp`, `liveApp`, `search`) —
+    already in your scope. Call them directly with `await`, **no
+    import needed**. If you see one in your action space and it
+    isn't a library, it's a global.
 - **Helper modules of your own** — write a file under `helpers/` and
   later turns can `import { x } from './helpers/foo'` (or
   `'/helpers/foo'`). Local imports use the path; library imports use
