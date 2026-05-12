@@ -429,19 +429,56 @@
         }
     }
 
+    /** Commit the in-flight report text as a permanent chat bubble
+     *  before any clear-state path that would discard it. Called from
+     *  both the explicit `report.done` token AND the `turn_complete`
+     *  fallback — agex-ts's token stream doesn't always set
+     *  `done: true` on the last text chunk for a TextEmission, so
+     *  relying solely on `report.done` would leave the streaming
+     *  bubble accumulated but never committed; `turn_complete` then
+     *  cleared `activeReportText` and the bubble vanished after the
+     *  turn finished. Idempotent — if there's no in-flight text or
+     *  it was already committed, this is a no-op. */
+    function commitActiveReport() {
+        const finalText = activeReportText
+        if (!finalText) return
+        const eidx = activeReportIdx
+        if (eidx != null) {
+            updateBlock(eidx, { kind: 'text', text: finalText })
+        }
+        const committedMsg = {
+            role: 'agent',
+            content: finalText,
+            isReport: true,
+            timestamp: new Date(),
+        }
+        const insertIdx = messages.findIndex(m => m.streaming)
+        if (insertIdx === -1) {
+            messages = [...messages, committedMsg]
+        } else {
+            messages = [
+                ...messages.slice(0, insertIdx),
+                committedMsg,
+                ...messages.slice(insertIdx),
+            ]
+        }
+        activeReportText = null
+        activeReportIdx = null
+    }
+
     function handleToken(token) {
-        // ``turn_complete`` is the explicit end-of-turn signal from
-        // Python's ``_on_event`` (fires after ActionEvent lands).  Any
-        // lingering ``currentTurn`` is flushed into ``streamingEvents``
-        // here; subsequent tokens start a fresh turn.
+        // ``turn_complete`` is the explicit end-of-turn signal —
+        // fires after each ActionEvent lands. Flushes any lingering
+        // ``currentTurn`` into ``streamingEvents`` AND commits any
+        // un-flushed report text into a permanent bubble (see
+        // `commitActiveReport` for the rationale).
         if (token.type === 'turn_complete') {
             const snapshot = snapshotTurn()
             if (snapshot && snapshot.emissions.length) {
                 streamingEvents = [...streamingEvents, snapshot]
             }
             currentTurn = null
-            activeReportText = null
-            activeReportIdx = null
+            commitActiveReport()
             rebuildStreamingMessages()
             return
         }
@@ -484,28 +521,7 @@
                 updateBlock(eidx, { kind: 'text', text: activeReportText })
             }
             if (token.done) {
-                const finalText = activeReportText || ''
-                if (finalText) {
-                    updateBlock(eidx, { kind: 'text', text: finalText })
-                    const committedMsg = {
-                        role: 'agent',
-                        content: finalText,
-                        isReport: true,
-                        timestamp: new Date(),
-                    }
-                    const insertIdx = messages.findIndex(m => m.streaming)
-                    if (insertIdx === -1) {
-                        messages = [...messages, committedMsg]
-                    } else {
-                        messages = [
-                            ...messages.slice(0, insertIdx),
-                            committedMsg,
-                            ...messages.slice(insertIdx),
-                        ]
-                    }
-                }
-                activeReportText = null
-                activeReportIdx = null
+                commitActiveReport()
             }
         } else if (token.type === 'python') {
             const b = ensureBlock(eidx, 'python')
@@ -804,13 +820,19 @@
                 }]
             }
         } finally {
+            // Flush any in-flight report text into a permanent bubble
+            // before tearing down. Symmetric with eventsBeforeError —
+            // when a cancel / error fires mid-text-emission (before
+            // `turn_complete` arrives), the streaming bubble's content
+            // would otherwise vanish along with `activeReportText`.
+            // No-op for the success path (turn_complete already
+            // committed). Idempotent in any case.
+            commitActiveReport()
             busy = false
             cancelling = false
             activeAbort = null
             streamingEvents = []
             currentTurn = null
-            activeReportText = null
-            activeReportIdx = null
         }
     }
 
