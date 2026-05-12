@@ -755,10 +755,24 @@
                 await persistSessionMeta(lastAction?.title || '')
             }
         } catch (e) {
+            // Preserve the agent's in-flight emissions when the task
+            // errors mid-stream. Without this, the streaming activity
+            // card vanishes (filter strips `streaming: true` entries)
+            // and the chat just shows a bare "Error: ..." — the user
+            // loses all context about what the agent was doing right
+            // up to the failure. Snapshot the active turn (if any)
+            // and pair the partial events with the error message so
+            // the activity card stays visible alongside the error.
             const finalMessages = messages.filter(m => !m.streaming)
+            const eventsBeforeError = [...streamingEvents]
+            const liveSnapshot = snapshotTurn()
+            if (liveSnapshot && liveSnapshot.emissions.length) {
+                eventsBeforeError.push(liveSnapshot)
+            }
             messages = [...finalMessages, {
                 role: 'agent',
                 content: `Error: ${e.message}`,
+                events: eventsBeforeError,
                 timestamp: new Date(),
             }]
         } finally {
