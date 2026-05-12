@@ -69,10 +69,44 @@ Recognized part shapes:
 | `string` | markdown text bubble |
 | `{ columns: string[], rows: any[][] }` | table |
 | `{ data: any[], layout: object }` | Plotly chart |
+| `{ type: 'stat', label: string, value: string, sublabel?: string }` | metric card (label + big value) |
+| `{ type: 'callout', title: string, body: string, tone?: 'info'\|'success'\|'warning' }` | titled card with icon + body text |
+| `{ type: 'cards', items: Array<stat \| callout> }` | horizontal row of stat / callout cards (wraps when needed) |
 
 Anything else falls back to a stringified text bubble. A single
 non-string return (e.g. `taskSuccess(myFigure)`) renders as a
 single-part response — no need to wrap in an array.
+
+**Dashboard-style summaries.** When you have a metrics-and-insights
+shape (numbers worth highlighting + observations to call out),
+combine `cards` rows with prose and charts:
+
+```ts
+taskSuccess([
+  "Here's the week at a glance:",
+  { type: "cards", items: [
+    { type: "stat", label: "Work meetings / week", value: "~3.5 hrs" },
+    { type: "stat", label: "Kids' activities / week", value: "4 sessions" },
+    { type: "stat", label: "Meeting-free days", value: "Mon, Fri" },
+  ]},
+  { data: [...], layout: {...} },  // chart of the schedule
+  { type: "cards", items: [
+    { type: "callout", tone: "success", title: "Solid hard boundaries",
+      body: "Nothing work-related before 9:30 AM, after 3 PM, or on weekends." },
+    { type: "callout", title: "Heavy focus-time runway",
+      body: "Mtgs cluster Tue–Thu mornings; Mon and Fri are heads-down." },
+    { type: "callout", tone: "warning", title: "Family load is uneven",
+      body: "Arthur has 3 weekly activities; Ada has 1." },
+  ]},
+])
+```
+
+Reach for cards when the user asks for a "summary" / "overview" /
+"dashboard" / "report" — they pack more information per inch than
+prose. Use a chart for the actual visualization (cards are static
+text/numbers, not custom data viz). Skip cards for short
+conversational answers — a paragraph of prose is friendlier than
+two stat cards.
 
 ## UI context
 

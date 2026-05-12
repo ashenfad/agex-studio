@@ -5,6 +5,9 @@
     import ActivityPanel from './ActivityPanel.svelte'
     import DataTable from './DataTable.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
+    import StatCard from './StatCard.svelte'
+    import CalloutCard from './CalloutCard.svelte'
+    import CardRow from './CardRow.svelte'
     import TextModal from './TextModal.svelte'
     import ChapteringBand from './ChapteringBand.svelte'
 
@@ -159,6 +162,15 @@
                         <div class="rich-block chart-block">
                             <PlotlyChart figure={seg.data.figure} />
                         </div>
+                    {:else if seg.kind === 'stat'}
+                        <!-- Bare stat (not inside a `cards` row) — wrap
+                             in a single-item row so it gets the same
+                             card sizing as one inside a row. -->
+                        <CardRow items={[seg.data]} />
+                    {:else if seg.kind === 'callout'}
+                        <CardRow items={[seg.data]} />
+                    {:else if seg.kind === 'cards'}
+                        <CardRow items={seg.data.items} />
                     {/if}
                 {/each}
             </div>

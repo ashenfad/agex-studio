@@ -176,3 +176,139 @@ describe("normalizeChatResponse", () => {
         ]);
     });
 });
+
+describe("normalizePart — dashboard primitives", () => {
+    it("translates a stat shape into a stat part", () => {
+        expect(
+            normalizePart({
+                type: "stat",
+                label: "Work meetings / week",
+                value: "~3.5 hrs",
+            }),
+        ).toEqual({
+            type: "stat",
+            label: "Work meetings / week",
+            value: "~3.5 hrs",
+        });
+    });
+
+    it("preserves stat sublabel when present", () => {
+        expect(
+            normalizePart({
+                type: "stat",
+                label: "Foo",
+                value: 42,
+                sublabel: "since Monday",
+            }),
+        ).toEqual({
+            type: "stat",
+            label: "Foo",
+            value: "42",  // numeric values stringify
+            sublabel: "since Monday",
+        });
+    });
+
+    it("rejects malformed stat (missing label or value) — falls back to text", () => {
+        const r1 = normalizePart({ type: "stat", value: "v" });
+        expect(r1.type).toBe("text");
+        const r2 = normalizePart({ type: "stat", label: "L" });
+        expect(r2.type).toBe("text");
+    });
+
+    it("translates a callout with default info tone", () => {
+        expect(
+            normalizePart({
+                type: "callout",
+                title: "Heads up",
+                body: "Some observation.",
+            }),
+        ).toEqual({
+            type: "callout",
+            title: "Heads up",
+            body: "Some observation.",
+            tone: "info",
+        });
+    });
+
+    it("preserves valid tones (success / warning); rejects unknown", () => {
+        expect(
+            normalizePart({
+                type: "callout",
+                title: "x",
+                body: "y",
+                tone: "success",
+            }).tone,
+        ).toBe("success");
+        expect(
+            normalizePart({
+                type: "callout",
+                title: "x",
+                body: "y",
+                tone: "warning",
+            }).tone,
+        ).toBe("warning");
+        // unknown tone clamps to default 'info' rather than passing
+        // through — keeps the rendered icon set bounded.
+        expect(
+            normalizePart({
+                type: "callout",
+                title: "x",
+                body: "y",
+                tone: "danger",
+            }).tone,
+        ).toBe("info");
+    });
+
+    it("translates a cards row, normalizing each item", () => {
+        const r = normalizePart({
+            type: "cards",
+            items: [
+                { type: "stat", label: "A", value: "1" },
+                { type: "callout", title: "T", body: "B", tone: "warning" },
+            ],
+        });
+        expect(r.type).toBe("cards");
+        expect(r.items).toHaveLength(2);
+        expect(r.items[0].type).toBe("stat");
+        expect(r.items[1].type).toBe("callout");
+        expect(r.items[1].tone).toBe("warning");
+    });
+
+    it("filters non-card items out of a cards row", () => {
+        // A `cards` row should only contain stat/callout. Strings,
+        // tables, charts, etc. don't make visual sense in a card grid;
+        // silently drop instead of forcing a confused render.
+        const r = normalizePart({
+            type: "cards",
+            items: [
+                { type: "stat", label: "ok", value: "1" },
+                "ignored text",
+                { columns: ["c"], rows: [[1]] },
+            ],
+        });
+        expect(r.items).toHaveLength(1);
+        expect(r.items[0].type).toBe("stat");
+    });
+
+    it("dashboard parts compose with text + chart in a single response", () => {
+        const out = normalizeChatResponse([
+            "Summary:",
+            {
+                type: "cards",
+                items: [{ type: "stat", label: "L", value: "V" }],
+            },
+            { data: [{}], layout: {} },
+            {
+                type: "callout",
+                title: "Note",
+                body: "Worth knowing.",
+            },
+        ]);
+        expect(out.parts.map((p) => p.type)).toEqual([
+            "text",
+            "cards",
+            "plotly",
+            "callout",
+        ]);
+    });
+});

@@ -55,6 +55,45 @@ export function normalizePart(p) {
     }
     if (p && typeof p === "object") {
         const o = /** @type {Record<string, unknown>} */ (p);
+        // Tagged dashboard primitives — stat / callout / cards row.
+        // These use explicit `type` fields rather than shape-sniffing
+        // since the structures are too generic to detect reliably.
+        if (
+            o.type === "stat" &&
+            typeof o.label === "string" &&
+            o.value !== undefined
+        ) {
+            return {
+                type: "stat",
+                label: o.label,
+                value: String(o.value),
+                ...(o.sublabel !== undefined
+                    ? { sublabel: String(o.sublabel) }
+                    : {}),
+            };
+        }
+        if (
+            o.type === "callout" &&
+            (typeof o.title === "string" || typeof o.body === "string")
+        ) {
+            const tone =
+                o.tone === "success" || o.tone === "warning" ? o.tone : "info";
+            return {
+                type: "callout",
+                title: typeof o.title === "string" ? o.title : "",
+                body: typeof o.body === "string" ? o.body : "",
+                tone,
+            };
+        }
+        if (o.type === "cards" && Array.isArray(o.items)) {
+            // Recursively normalize items, but only keep stat/callout
+            // entries — a row of cards holding text/charts/tables
+            // would be visually weird and isn't the intended use.
+            const items = o.items
+                .map((it) => normalizePart(it))
+                .filter((it) => it.type === "stat" || it.type === "callout");
+            return { type: "cards", items };
+        }
         // Plotly figure: { data: [...], layout: {...} }
         if (Array.isArray(o.data) && o.layout && typeof o.layout === "object") {
             return { type: "plotly", figure: o };
