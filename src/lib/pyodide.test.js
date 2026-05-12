@@ -456,6 +456,35 @@ describe("buildAppHtml multi-file", () => {
         expect(result).not.toContain('href="./style.css"');
     });
 
+    it("inlines CSS link tags with no `./` prefix", async () => {
+        // Agent-reported: `<link href="style.css">` (no leading `./`)
+        // is valid HTML and a common pattern, but the previous
+        // inlining regex required `./` and silently let the no-prefix
+        // form 404 against the iframe's blob: URL.
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head><link rel="stylesheet" href="style.css"></head><body></body></html>',
+            'app/style.css': 'body { color: red; }',
+        });
+        expect(result).toContain('<style>body { color: red; }</style>');
+        expect(result).not.toContain('href="style.css"');
+    });
+
+    it("leaves external CSS link tags alone (not in appFiles)", async () => {
+        // The inlining regex only matches files in `appFiles` (escaped
+        // by name), so external URLs like Google Fonts pass through
+        // as-is for the browser to fetch. This is what made the
+        // CSP `style-src https:` change useful.
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html':
+                '<html><head>' +
+                '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">' +
+                '</head><body></body></html>',
+        });
+        expect(result).toContain('https://fonts.googleapis.com/css2?family=Inter');
+    });
+
     it("adds JS files to import map as data URIs", async () => {
         const { buildAppHtml } = await loadPyodide();
         const result = buildAppHtml({

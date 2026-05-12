@@ -541,8 +541,16 @@ const CONSOLE_INTERCEPTOR = `
         window.__agex_logs.push({ level: 'error', message: msg });
     });
 
-    // Diagnostic: capture resource-load errors and forward to parent
-    // with details about which element / attribute / URL failed.
+    // Capture resource-load errors (img / script / link / etc.)
+    // and surface them two ways:
+    //   1. Push to __agex_logs so testApp's collected logs include
+    //      them — without this the agent sees only the visual symptom
+    //      (page renders unstyled / image broken) and has to guess
+    //      what 404'd. Agent-reported gap.
+    //   2. Forward to parent for live-preview console diagnostics
+    //      (see AppPreview.svelte's listener).
+    // Resource-load errors don't bubble to window.onerror, so the
+    // capture-phase listener is the only way to see them.
     window.addEventListener('error', function(ev) {
         var el = ev.target;
         if (!el || el === window) return;  // uncaught JS errors handled above
@@ -550,6 +558,8 @@ const CONSOLE_INTERCEPTOR = `
             var tag = el.tagName ? el.tagName.toLowerCase() : '?';
             var url = el.src || el.href || el.data || '';
             var attr = el.src ? 'src' : (el.href ? 'href' : 'data');
+            var logMsg = '[resource load failed] <' + tag + ' ' + attr + '="' + String(url) + '"> failed to load';
+            window.__agex_logs.push({ level: 'error', message: logMsg });
             window.parent.postMessage({
                 type: 'agex-iframe-resource-error',
                 tag: tag,
@@ -928,10 +938,19 @@ function _resolveAppModules(appFiles, html) {
         }
     }
 
-    // Inline CSS: <link ... href="./style.css"> → <style>contents</style>
+    // Inline CSS: `<link ... href="./style.css">` (or `href="style.css"`,
+    // no prefix) → `<style>contents</style>`. Both prefix forms are
+    // valid HTML — agents commonly write the no-prefix form, and
+    // without inlining the browser tries to fetch relative to the
+    // iframe's blob: URL (which has no meaningful directory) and the
+    // stylesheet 404s silently. The `(?:\\./)?` group makes the prefix
+    // optional. The matched name is escaped, so `<link href="https://
+    // fonts.googleapis.com/...">` (full external URL) doesn't match
+    // any of our `cssFiles` entries and stays as a `<link>` for the
+    // browser to fetch.
     for (const [name, content] of cssFiles) {
         const pattern = new RegExp(
-            `<link[^>]*href=["']\\./${_escapeRegex(name)}["'][^>]*/?>`,
+            `<link[^>]*href=["'](?:\\./)?${_escapeRegex(name)}["'][^>]*/?>`,
             'g',
         );
         html = html.replace(pattern, `<style>${content}</style>`);
