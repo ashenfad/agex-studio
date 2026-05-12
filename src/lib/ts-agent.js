@@ -721,23 +721,63 @@ export async function fileSize(path) {
 export async function writeFiles(files) {
     const agent = _getAgent();
     const fs = await agent.fs(SESSION);
+    const added = [];
     for (const [path, bytes] of Object.entries(files)) {
         await fs.write(path, bytes);
+        added.push(path);
     }
+    // Persist a user-initiated FileEvent into the event log. agex-py
+    // auto-emits these on fs ops; agex-ts defines the type but
+    // doesn't auto-emit — that's the host's job. Without this, file
+    // uploads survive in kvgit (the file is in the FS) but the
+    // upload "bubble" doesn't render on reload (loadHistory has
+    // nothing to walk), AND the agent has no event in their context
+    // signaling "user added files."
+    const log = await agent.events(SESSION);
+    await log.add(
+        /** @type {any} */ ({
+            type: "file",
+            source: "user",
+            added,
+            modified: [],
+            removed: [],
+            timestamp: new Date().toISOString(),
+            agentName: "chat",
+        }),
+    );
     await agent.commit(SESSION);
 }
 
 export async function deleteFilesHelper(paths) {
     const agent = _getAgent();
     const fs = await agent.fs(SESSION);
+    const removed = [];
     for (const path of paths) {
         try {
             await fs.remove(path);
+            removed.push(path);
         } catch {
             // Ignore missing files — match agex-py's `remove_many`
             // tolerance (callers can pass stale paths if the list
             // was built before another delete).
         }
+    }
+    // Symmetric with writeFiles: log user-initiated deletes so
+    // history rendering shows the "Deleted:" bubble on reload and
+    // the agent's context reflects the change.
+    if (removed.length > 0) {
+        const log = await agent.events(SESSION);
+        await log.add(
+            /** @type {any} */ ({
+                type: "file",
+                source: "user",
+                added: [],
+                modified: [],
+                removed,
+                timestamp: new Date().toISOString(),
+                agentName: "chat",
+            }),
+        );
     }
     await agent.commit(SESSION);
 }
@@ -878,9 +918,12 @@ export async function loadHistory() {
         } else if (t === "file") {
             // FileEvents from user uploads/deletes get rendered as
             // markdown user messages so the chat shows the action
-            // alongside the conversation.
+            // alongside the conversation. agex-ts's FileEvent uses
+            // `source` (matching the type definition); previously
+            // checked `fileSource` here which silently filtered all
+            // events out — symptom: no upload bubbles on reload.
             const fe = /** @type {any} */ (e);
-            if (fe.fileSource === "user") {
+            if (fe.source === "user") {
                 messages.push({
                     role: "user",
                     content: _renderFileEvent(fe),
