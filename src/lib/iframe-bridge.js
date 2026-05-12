@@ -112,8 +112,21 @@ export async function dispatchAction(doc, action, global) {
     }
     if (action.eval) {
         try {
-            // Indirect eval runs in global scope, seeing app-level bindings
-            const val = scope.eval(action.eval);
+            // Indirect eval runs in global scope, seeing app-level bindings.
+            let val = scope.eval(action.eval);
+            // Auto-await Promise / thenable results. Without this,
+            // expressions like `Plotly.toImage(...)` or `fetch(url).
+            // then(r => r.json())` resolve to an opaque Promise that
+            // jsonifies as "[object Promise]"; the agent then has to
+            // stash results on globals + `{wait: N}` + read by separate
+            // eval — a fragile dance. Awaiting here lets the agent
+            // write idiomatic `await`-free expressions: the action
+            // takes as long as the Promise takes, and the result is
+            // the resolved value. Multi-call parallel works the same
+            // way via `Promise.all([..., ..., ...])`.
+            if (val && typeof val.then === 'function') {
+                val = await val;
+            }
             return {
                 type: 'eval',
                 expr: action.eval,
@@ -133,7 +146,9 @@ export async function dispatchAction(doc, action, global) {
             // alone doesn't tell them which of their five evals
             // threw. The shape is `<ErrorName>: <message> (in:
             // <expr>)`, which keeps the original message intact
-            // for downstream pattern-matching.
+            // for downstream pattern-matching. Async errors (rejected
+            // Promises from the auto-await above) flow through the
+            // same path.
             const name = e.name || 'Error';
             const expr = action.eval;
             return {

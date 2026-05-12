@@ -145,6 +145,68 @@ describe("dispatchAction — eval", () => {
         expect(result.error).toMatch(/^(ReferenceError|TypeError):/);
         expect(result.error).toContain("(in: undefinedThing.foo)");
     });
+
+    it("awaits Promise results and returns the resolved value", async () => {
+        // Without auto-await, agents fall back to a fragile pattern:
+        // stash results on globals, sleep, read by separate eval.
+        // With it, `await testApp([{ eval: 'Plotly.toImage(...)' }])`
+        // Just Works. Expression is self-contained — the scope-passed
+        // helper-fn approach wouldn't be visible to the inner eval
+        // (eval sees lexical scope, not the scope object's props).
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            {
+                eval: "new Promise((resolve) => setTimeout(() => resolve(42), 5))",
+            },
+            scope,
+        );
+        expect(result.type).toBe("eval");
+        // Bridge JSON-stringifies values for the py side (the studio's
+        // TS-side post-processor parses them back to native — see
+        // `normalizeEvalValues`). At the bridge layer the value is
+        // the JSON-encoded form.
+        expect(result.value).toBe("42");
+        expect(result.error).toBeUndefined();
+    });
+
+    it("awaits Promise.all and returns the resolved array", async () => {
+        // Parallel pattern: `Promise.all([fn(), fn(), fn()])` runs
+        // multiple async operations concurrently and returns one
+        // array. This is how the agent should chain parallel
+        // Plotly.toImage / fetch / etc. calls — no globals,
+        // no `{wait: N}` guess.
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            {
+                eval:
+                    "Promise.all([" +
+                    "  new Promise((r) => setTimeout(() => r(1), 3))," +
+                    "  new Promise((r) => setTimeout(() => r(2), 5))," +
+                    "  new Promise((r) => setTimeout(() => r(3), 1))," +
+                    "])",
+            },
+            scope,
+        );
+        expect(result.value).toBe("[1,2,3]");
+    });
+
+    it("surfaces rejected Promise as an error with the expression text", async () => {
+        // Async errors flow through the same `<ErrorName>: <msg>
+        // (in: <expr>)` shape as synchronous throws.
+        const scope = { eval: (expr) => eval(expr) };
+        const evalExpr =
+            "new Promise((_, reject) => setTimeout(() => reject(new Error('nope')), 3))";
+        const result = await dispatchAction(
+            document,
+            { eval: evalExpr },
+            scope,
+        );
+        expect(result.value).toBeNull();
+        expect(result.error).toContain("Error: nope");
+        expect(result.error).toContain(`(in: ${evalExpr})`);
+    });
 });
 
 describe("dispatchAction — assert", () => {

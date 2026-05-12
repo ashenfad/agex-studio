@@ -222,6 +222,25 @@ const results = await testApp([
 // plain object, array, etc. No need to JSON.parse it.
 ```
 
+**`eval` awaits Promises automatically.** If your expression returns
+a Promise (or thenable), the action waits for it to resolve and
+returns the resolved value. Use this for async work — image
+generation, fetch, etc. — without resorting to globals + `{wait:N}`
++ separate-eval-to-read patterns:
+
+```ts
+// Async work in one shot. The action takes as long as the Promise
+// takes; rejected Promises surface as an error on the result entry.
+const r = await testApp([
+  { eval: `Promise.all([
+      Plotly.toImage('#chart-1', { format: 'png', width: 1800, height: 800 }),
+      Plotly.toImage('#chart-2', { format: 'png', width: 1800, height: 800 }),
+      Plotly.toImage('#chart-3', { format: 'png', width: 1800, height: 800 }),
+  ])` },
+])
+const [img1, img2, img3] = r[0].value
+```
+
 Action shapes are documented in `testApp`'s description — flat array
 of plain objects, NOT a Playwright callback. Keep the result reads
 narrow (`querySelector` + textContent / getAttribute) so you don't
