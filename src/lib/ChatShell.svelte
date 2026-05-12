@@ -13,6 +13,8 @@
     import TokenModal from './TokenModal.svelte'
     import { cancelTask, pyodideStore } from './pyodide.js'
     import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
+    import { queueFiles } from './pending-attachments.js'
     import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
@@ -725,16 +727,47 @@
         }
     }
 
-    async function handleSend(prompt) {
-        if (!prompt.trim() || busy || !agentReady) return
+    async function handleSend(prompt, attachments = []) {
+        if (busy || !agentReady) return
+        const trimmed = (prompt || '').trim()
+        if (!trimmed && attachments.length === 0) return
         inputPrefill = ''
 
         const { adapter, branch } = await getActiveAdapter()
-        const commitHash = await adapter.getCurrentCommit(branch)
 
+        // 1. Push attachments first (if any). This writes them to the
+        //    VFS, fires `handleUpload` (creates the upload bubble),
+        //    and the FileEvent we now log makes the agent aware on
+        //    their next turn. Doing this BEFORE the prompt means the
+        //    upload bubble appears above the user's message — natural
+        //    reading order ("here are the files I'm asking about").
+        if (attachments.length > 0) {
+            const uploadCommit = await adapter.getCurrentCommit(branch)
+            const fileMap = {}
+            for (const att of attachments) fileMap[att.name] = att.bytes
+            try {
+                await adapter.writeFiles(branch, fileMap)
+                await handleUpload(Object.keys(fileMap), uploadCommit)
+            } catch (e) {
+                console.error('Attachment upload failed:', e)
+                messages = [...messages, {
+                    role: 'agent',
+                    content: `Error uploading files: ${e.message || String(e)}`,
+                    timestamp: new Date(),
+                }]
+                return
+            }
+        }
+
+        // 2. If there's no text, we're done — files-only "send"
+        //    just creates the upload bubble. The agent will see the
+        //    file event next time they get a turn.
+        if (!trimmed) return
+
+        const commitHash = await adapter.getCurrentCommit(branch)
         messages = [...messages, {
             role: 'user',
-            content: prompt,
+            content: trimmed,
             timestamp: new Date(),
             commit_hash: commitHash,
         }]
@@ -748,7 +781,7 @@
         activeAbort = new AbortController()
         try {
             tokenOverride = null
-            const response = await adapter.sendMessage(branch, prompt, {
+            const response = await adapter.sendMessage(branch, trimmed, {
                 onToken: handleToken,
                 signal: activeAbort.signal,
             })
@@ -836,6 +869,60 @@
         }
     }
 
+    /** Drive import — opens Google Drive picker, downloads selected
+     *  files, writes them to the VFS, and renders the upload bubble.
+     *
+     *  Different shape from local-file attachments: Drive imports
+     *  persist immediately (the existing `importFromDrive` writes
+     *  directly to VFS rather than returning byte buffers we'd queue).
+     *  So Drive bypasses the pending-attachments queue and goes
+     *  straight to "uploaded" state. UX-wise that matches the user's
+     *  mental model — "I'm importing from Drive" reads as a complete
+     *  action, not as queueing for a later send. */
+    async function handleDriveImport() {
+        try {
+            const written = await importFromDrive()
+            if (written.length === 0) return
+            const { adapter, branch } = await getActiveAdapter()
+            const commitHash = await adapter.getCurrentCommit(branch)
+            await handleUpload(written, commitHash)
+        } catch (e) {
+            console.error('Drive import failed:', e)
+        }
+    }
+
+    /** Drive availability is gated on (a) the Drive import script
+     *  being loaded + auth available and (b) the session not being
+     *  external (visitors viewing someone else's published artifact
+     *  shouldn't be able to pull from their own Drive). */
+    const driveAvailable = $derived(
+        isDriveImportAvailable() && !$sessionStore.currentSessionExternal,
+    )
+
+    /** Chat-area drag-drop handler. Files dropped anywhere on the
+     *  chat surface queue into the pending-attachments store, which
+     *  ChatInput renders as chips. Same end-state as `+ Local files`
+     *  in the input bar's menu. */
+    function handleChatDragOver(e) {
+        // Only react to file drags; ignore text-selection drags etc.
+        if (!e.dataTransfer?.types?.includes('Files')) return
+        e.preventDefault()
+        chatDragOver = true
+    }
+
+    function handleChatDragLeave(e) {
+        if (e.currentTarget === e.target) chatDragOver = false
+    }
+
+    async function handleChatDrop(e) {
+        if (!e.dataTransfer?.files?.length) return
+        e.preventDefault()
+        chatDragOver = false
+        await queueFiles(e.dataTransfer.files)
+    }
+
+    let chatDragOver = $state(false)
+
     function handleCancel() {
         cancelling = true
         // Two cancel paths, both safe to fire:
@@ -852,7 +939,17 @@
 </script>
 
 {#snippet chatContent()}
-    <div class="chat-shell">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="chat-shell"
+        class:drag-over={chatDragOver}
+        ondragover={handleChatDragOver}
+        ondragleave={handleChatDragLeave}
+        ondrop={handleChatDrop}
+    >
+        {#if chatDragOver}
+            <div class="chat-drop-overlay">Drop files to attach</div>
+        {/if}
         <Header
             onSettingsClick={() => settingsOpen = true}
             onSessionsClick={() => sessionsOpen = true}
@@ -886,6 +983,8 @@
             <ChatInput
                 onSend={handleSend}
                 onCancel={handleCancel}
+                onDriveImport={handleDriveImport}
+                {driveAvailable}
                 {busy}
                 {cancelling}
                 sendDisabled={busy || !agentReady || !configured}
@@ -987,7 +1086,6 @@
     open={filesOpen}
     onClose={() => filesOpen = false}
     {files}
-    onUpload={handleUpload}
     onDelete={handleDelete}
     onFilesChanged={(f) => files = f}
 />
@@ -1029,11 +1127,32 @@
 
 <style>
     .chat-shell {
+        position: relative;
         height: 100%;
         display: flex;
         flex-direction: column;
         max-width: 900px;
         margin: 0 auto;
+    }
+
+    /* Drop overlay covers the whole chat-shell during a drag-over.
+       Files dropped anywhere on the chat surface queue into the
+       pending-attachments store (rendered as chips in ChatInput).
+       Same end-state as the `+ Local files` menu action. */
+    .chat-drop-overlay {
+        position: absolute;
+        inset: 0.5rem;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border: 2px dashed var(--accent);
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--accent);
+        pointer-events: none;
     }
 
     .warming-area {
