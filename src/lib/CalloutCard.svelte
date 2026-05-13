@@ -1,20 +1,19 @@
 <script>
+    import { renderMarkdown } from './markdown.js'
+
     /** A callout card — icon (per tone) + title + body text.
      *  Used inside CardRow as one of the items. Designed for emphasized
      *  observations / insights / warnings that benefit from a card
      *  treatment instead of a paragraph in a markdown bubble.
      *
+     *  Body content is rendered as markdown so agents can use the same
+     *  inline emphasis they would in any other text part — `code`,
+     *  **bold**, *italic*, links, multi-paragraph. Shared `.markdown`
+     *  CSS from app.css handles the heavy lifting; per-callout tweaks
+     *  (tighter spacing for the small card context) live below.
+     *
      *  @type {{ title: string, body: string, tone?: 'info' | 'success' | 'warning' }} */
     let { title, body, tone = 'info' } = $props()
-
-    /** Render the body as multiple paragraphs if the agent included
-     *  blank-line separators. Otherwise single paragraph. Markdown
-     *  is intentionally NOT applied here — callouts are short text
-     *  blurbs, not arbitrary markdown. Keeps the visual contract
-     *  predictable. */
-    const paragraphs = $derived(
-        body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
-    )
 </script>
 
 <div class="callout-card" class:tone-success={tone === 'success'} class:tone-warning={tone === 'warning'}>
@@ -44,12 +43,8 @@
         </span>
         <h4 class="callout-title">{title}</h4>
     </div>
-    {#if paragraphs.length > 0}
-        <div class="callout-body">
-            {#each paragraphs as p}
-                <p>{p}</p>
-            {/each}
-        </div>
+    {#if body}
+        <div class="callout-body markdown">{@html renderMarkdown(body)}</div>
     {/if}
 </div>
 
@@ -94,17 +89,21 @@
         line-height: 1.25;
     }
 
+    /* Card-sized markdown — tighter than the chat-bubble defaults
+       from app.css's `.markdown` rules. Overrides only the rhythm;
+       inline styling (code, bold, links) inherits the shared rules. */
     .callout-body {
         font-size: 0.82rem;
         color: var(--text);
         line-height: 1.45;
     }
 
-    .callout-body p {
-        margin: 0 0 0.4em;
-    }
-
-    .callout-body p:last-child {
-        margin-bottom: 0;
-    }
+    .callout-body :global(p) { margin: 0 0 0.35em; }
+    .callout-body :global(p:first-child) { margin-top: 0; }
+    .callout-body :global(p:last-child) { margin-bottom: 0; }
+    .callout-body :global(ul),
+    .callout-body :global(ol) { margin: 0.3em 0; padding-left: 1.2em; }
+    .callout-body :global(li) { margin: 0.1em 0; }
+    .callout-body :global(code) { font-size: 0.85em; }
+    .callout-body :global(pre) { margin: 0.3em 0; font-size: 0.78em; }
 </style>

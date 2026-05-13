@@ -88,7 +88,7 @@ Recognized part shapes:
 | `{ columns: string[], rows: any[][] }` | table |
 | `{ data: any[], layout: object }` | Plotly chart |
 | `{ type: 'stat', label: string, value: string, sublabel?: string }` | metric card (label + big value) |
-| `{ type: 'callout', title: string, body: string, tone?: 'info'\|'success'\|'warning' }` | titled card with icon + body text |
+| `{ type: 'callout', title: string, body: string, tone?: 'info'\|'success'\|'warning' }` | titled card with icon + body. Body is rendered as markdown — use `**bold**` / `` `code` `` / lists / etc. as you would in a text bubble. |
 | `{ type: 'cards', items: Array<stat \| callout> }` | horizontal row of stat / callout cards (wraps when needed) |
 
 Anything else falls back to a stringified text bubble. A single
