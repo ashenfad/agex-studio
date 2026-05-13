@@ -111,16 +111,30 @@
 </div>
 
 <style>
+    /* Table styled to sit comfortably alongside cards / charts in
+       a rich response. Key choices vs. the prior REPL-shaped look:
+         - System sans-serif throughout (was monospace).
+           `font-variant-numeric: tabular-nums` keeps numbers in
+           visually-aligned columns without the debug aesthetic.
+         - Sentence-case headers (was UPPERCASE + letter-spaced).
+         - Soft surface-hover background on the wrapper, matching
+           the StatCard / CalloutCard treatment.
+         - 10px border-radius matching cards (was 6px).
+         - Zebra striping dropped — at sans-serif weight, row
+           borders give plenty of separation without the
+           horizontal-band busyness.
+         - Cell padding bumped for breathing room. */
     .table-wrapper {
+        background: var(--surface-hover);
         border: 1px solid var(--border);
-        border-radius: 6px;
+        border-radius: 10px;
         overflow: hidden;
     }
 
     .row-count {
-        font-size: 0.65rem;
+        font-size: 0.72rem;
         color: var(--text-muted);
-        padding: 0.3rem 0.6rem;
+        padding: 0.45rem 0.85rem;
         border-bottom: 1px solid var(--border);
         background: var(--surface);
     }
@@ -133,8 +147,9 @@
     table {
         width: 100%;
         border-collapse: collapse;
-        font-size: 0.78rem;
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.85rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--text);
     }
 
     thead {
@@ -147,10 +162,8 @@
         background: var(--surface);
         color: var(--text-muted);
         font-weight: 600;
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        padding: 0.4rem 0.6rem;
+        font-size: 0.78rem;
+        padding: 0.55rem 0.85rem;
         border-bottom: 1px solid var(--border);
         cursor: pointer;
         user-select: none;
@@ -167,13 +180,21 @@
     }
 
     .sort-arrow {
-        font-size: 0.55rem;
-        margin-left: 0.2rem;
+        font-size: 0.6rem;
+        margin-left: 0.25rem;
+        color: var(--accent);
     }
 
     td {
-        padding: 0.3rem 0.6rem;
+        padding: 0.45rem 0.85rem;
         border-bottom: 1px solid var(--border);
+    }
+
+    /* Drop the bottom border on the last row — the wrapper's
+       border + the row-count divider already bound the table
+       cleanly, and a trailing border looks unfinished. */
+    tbody tr:last-child td {
+        border-bottom: none;
     }
 
     td.numeric {
@@ -181,11 +202,15 @@
         white-space: nowrap;
     }
 
-    tr:nth-child(even) td {
-        background: var(--surface);
+    /* Subtle row hover — gives a "data" feel without being noisy. */
+    tbody tr:hover td {
+        background: color-mix(in srgb, var(--accent) 6%, transparent);
     }
 
     tr.spacer {
         border: none;
+    }
+    tr.spacer:hover td {
+        background: transparent;
     }
 </style>

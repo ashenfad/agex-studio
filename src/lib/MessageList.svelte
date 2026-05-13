@@ -155,7 +155,7 @@
                             </div>
                         </div>
                     {:else if seg.kind === 'dataframe'}
-                        <div class="rich-block">
+                        <div class="rich-block table-block">
                             <DataTable columns={seg.data.columns} rows={seg.data.rows} />
                         </div>
                     {:else if seg.kind === 'plotly'}
@@ -326,6 +326,16 @@
 
     .rich-block.chart-block {
         width: min(700px, 95%);
+    }
+
+    /* Tables get the same width treatment as charts — without it,
+       `width: fit-content` shrinks a 2-column table to ~300px and
+       it looks orphaned next to full-width cards / charts above
+       and below. Wide tables overflow the wrapper horizontally
+       via DataTable's own scroll container. */
+    .rich-block.table-block {
+        width: min(700px, 95%);
+        background: transparent;
     }
 
     .load-more {
