@@ -46,9 +46,27 @@ the browser's IndexedDB and localStorage.
 via ```` ```mermaid ```` blocks supported).
 
 **Inline file downloads** — write `[label](vfs:path)` in markdown to
-give the user a clickable download for a file in your VFS. Works
-alongside normal prose, no need for a separate response part.
+give the user a clickable preview/download for a file in your VFS.
+Works alongside normal prose, no need for a separate response part.
 Example: ``Saved the chart to [output.svg](vfs:output.svg).``
+
+The `vfs:` prefix is a **markdown-link convention only** — it tells
+the studio's chat renderer "this link points at a VFS file, not the
+public web." It is **not** a fetchable URL; do not use
+`fetch('vfs:...')` from your code. To read a VFS file in code, use
+the filesystem API:
+
+```ts
+const text  = await fs.readText('data.csv')      // string (utf-8)
+const bytes = await fs.read('image.png')          // Uint8Array
+await fs.writeText('out.txt', 'hello')            // write string
+await fs.write('out.bin', new Uint8Array(...))    // write bytes
+```
+
+Paths are relative to the VFS root (no leading `/` needed; both
+`data.csv` and `/data.csv` work). The same `fs` object is what
+backs the file drawer the user sees — write and the file appears
+there immediately.
 
 **Rich responses** — return an array to mix prose with rendered tables
 and charts. The studio detects each element by shape:
