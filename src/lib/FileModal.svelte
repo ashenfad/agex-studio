@@ -21,6 +21,21 @@
 
     const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174'
 
+    // Preview caps for text-like files. Large CSVs/logs were crashing
+    // the modal because the full file was read, decoded, papa-parsed,
+    // and rendered as one big `{#each}` (no virtualization). Three
+    // tiers of defense:
+    //   - HARD_READ_CAP: above this size, skip the read entirely and
+    //     show download-only. Protects against true OOM on giant files.
+    //   - PREVIEW_BYTES: cap of bytes we hand to the decoder. The full
+    //     bytes were already in memory from the read, so this is about
+    //     bounding decode + render cost, not RAM at read time.
+    //   - PREVIEW_CSV_ROWS: papaparse `preview` option, hard-stops the
+    //     parser after this many rows even within the byte cap.
+    const HARD_READ_CAP = 50 * 1024 * 1024     // 50 MB
+    const PREVIEW_BYTES = 1 * 1024 * 1024      // 1 MB of head
+    const PREVIEW_CSV_ROWS = 5000
+
     function getExt(p) {
         const dot = p.lastIndexOf('.')
         return dot >= 0 ? p.slice(dot).toLowerCase() : ''
@@ -50,7 +65,11 @@
 
     function parseCsv(text) {
         if (!text) return null
-        const result = Papa.parse(text.trim(), { header: false, skipEmptyLines: true })
+        const result = Papa.parse(text.trim(), {
+            header: false,
+            skipEmptyLines: true,
+            preview: PREVIEW_CSV_ROWS,
+        })
         if (!result.data || result.data.length === 0) return null
         return { header: result.data[0], rows: result.data.slice(1) }
     }
@@ -62,6 +81,13 @@
     let loading = $state(false)
     let error = $state(null)
     let pdfContainer = $state(null)
+
+    // Truncation banner state. Set when we cap a text/csv preview so
+    // the user knows there's more behind what's shown.
+    /** @type {{ shownBytes: number, fullBytes: number, kind: 'bytes' | 'rows' } | null} */
+    let truncated = $state(null)
+    /** @type {boolean} */
+    let tooLargeToPreview = $state(false)
 
     async function loadPdfJs() {
         if (window.pdfjsLib) return window.pdfjsLib
@@ -112,6 +138,8 @@
         size = null
         error = null
         loading = true
+        truncated = null
+        tooLargeToPreview = false
 
         const currentPath = path
         const type = fileType
@@ -131,9 +159,47 @@
                 if (cancelled) return
 
                 if (type === 'text' || type === 'csv' || type === 'markdown') {
+                    // Probe size first so we can refuse oversized files
+                    // before attempting the full read (read alone could
+                    // OOM on multi-GB files even before decode/parse).
+                    const fullSize = await adapter.fileSize(branch, currentPath)
+                    if (cancelled) return
+                    if (fullSize > HARD_READ_CAP) {
+                        size = fullSize
+                        tooLargeToPreview = true
+                        return
+                    }
                     const bytes = await adapter.readFile(branch, currentPath)
                     if (cancelled) return
-                    content = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+                    // Cap before decode: even a successful read of a 40 MB
+                    // CSV will hang the renderer if we let papa-parse it
+                    // and Svelte render every row. Bytes are already in
+                    // memory at this point — slicing is just bounding the
+                    // downstream cost, not RAM at read time.
+                    let head = bytes
+                    if (bytes.length > PREVIEW_BYTES) {
+                        head = bytes.subarray(0, PREVIEW_BYTES)
+                        truncated = {
+                            shownBytes: head.length,
+                            fullBytes: bytes.length,
+                            kind: 'bytes',
+                        }
+                    }
+                    content = new TextDecoder('utf-8', { fatal: false }).decode(head)
+                    // For CSVs, papaparse `preview: PREVIEW_CSV_ROWS`
+                    // hard-stops the parser. If we didn't already mark
+                    // a byte-truncation banner and we hit the row cap,
+                    // surface it as a row-cap banner instead.
+                    if (type === 'csv' && truncated === null) {
+                        const parsed = parseCsv(content)
+                        if (parsed && parsed.rows.length >= PREVIEW_CSV_ROWS - 1) {
+                            truncated = {
+                                shownBytes: head.length,
+                                fullBytes: bytes.length,
+                                kind: 'rows',
+                            }
+                        }
+                    }
                 } else if (type === 'image') {
                     const bytes = await adapter.readFile(branch, currentPath)
                     if (cancelled) return
@@ -227,7 +293,24 @@
                     <div class="centered">Loading...</div>
                 {:else if error}
                     <div class="centered error">Error: {error}</div>
+                {:else if tooLargeToPreview}
+                    <div class="centered meta">
+                        <div class="meta-name">{getFileName(path)}</div>
+                        <div class="meta-ext">Too large to preview</div>
+                        {#if size != null}
+                            <div class="meta-size">{formatSize(size)}</div>
+                        {/if}
+                        <div class="meta-hint">Files over {formatSize(HARD_READ_CAP)} are download-only.</div>
+                        <button class="download-action" onclick={handleDownload}>Download</button>
+                    </div>
                 {:else if fileType === 'csv' && parsedCsv}
+                    {#if truncated}
+                        <div class="truncation-banner">
+                            Showing first {parsedCsv.rows.length.toLocaleString()} rows
+                            ({formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}).
+                            <button class="banner-action" onclick={handleDownload}>Download full file</button>
+                        </div>
+                    {/if}
                     <div class="table-container">
                         <table>
                             <thead>
@@ -249,8 +332,20 @@
                         </table>
                     </div>
                 {:else if fileType === 'markdown' && content != null}
+                    {#if truncated}
+                        <div class="truncation-banner">
+                            Showing first {formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}.
+                            <button class="banner-action" onclick={handleDownload}>Download full file</button>
+                        </div>
+                    {/if}
                     <div class="markdown markdown-body">{@html renderMarkdown(content)}</div>
                 {:else if fileType === 'text' && content != null}
+                    {#if truncated}
+                        <div class="truncation-banner">
+                            Showing first {formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}.
+                            <button class="banner-action" onclick={handleDownload}>Download full file</button>
+                        </div>
+                    {/if}
                     <pre><code>{@html highlightCode(content, path)}</code></pre>
                 {:else if fileType === 'image' && content}
                     <div class="image-container">
@@ -511,5 +606,46 @@
 
     .download-action:hover {
         background: var(--accent-hover);
+    }
+
+    .meta-hint {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        max-width: 320px;
+        text-align: center;
+    }
+
+    /* Sticky banner above the table / pre / markdown body when we've
+       truncated the preview. Stays visible while the user scrolls
+       through the head so they don't forget there's more behind it. */
+    .truncation-banner {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.45rem 0.85rem;
+        background: var(--surface-hover);
+        border-bottom: 1px solid var(--border);
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .banner-action {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-size: 0.7rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: auto;
+    }
+
+    .banner-action:hover {
+        background: var(--surface);
+        border-color: var(--accent);
+        color: var(--accent);
     }
 </style>
