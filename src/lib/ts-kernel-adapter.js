@@ -29,6 +29,7 @@ import {
     writeBranchMeta as agentWriteBranchMeta,
     getCurrentCommit as agentGetCurrentCommit,
     undoToCommit as agentUndoToCommit,
+    commitSession as agentCommitSession,
     listFiles as agentListFiles,
     readFile as agentReadFile,
     fileSize as agentFileSize,
@@ -194,36 +195,48 @@ export function createTsAdapter() {
                 for (const t of tokens) await userOnToken(t);
             };
 
-            const result = await agentChatMessage(message, {
-                signal: opts.signal,
-                onToken: async (chunk) => {
-                    await sendTokens(translator.translate(chunk));
-                },
-                onEvent: async (e) => {
-                    // Translate the event into the shell's canonical
-                    // shape *before* user-facing forwarding so callers
-                    // that inspect events (e.g. for cancelled-detection)
-                    // see the same shape py emits.
-                    if (e?.type === "action") {
-                        events.push(synthesizeAction(e));
-                        // ActionEvent finished — flush the streaming
-                        // turn so any subsequent ActionEvent starts
-                        // fresh in the shell's snapshot accumulator.
-                        await sendTokens(translator.turnComplete());
-                    } else if (e?.type === "output") {
-                        const parts = serializeOutputParts(e);
-                        for (const out of splitOutputEvents(parts)) {
-                            events.push(out);
+            // Always commit the session on the way out — success or
+            // failure — so events that streamed into the Staged buffer
+            // via `eventLog.add` survive a reload. agex-ts has no
+            // auto-commit anywhere; on cancel especially, the partial
+            // events would otherwise vanish (nothing later in the
+            // session forces a flush). Commit landing twice in a row
+            // is a no-op when the buffer is clean.
+            let result;
+            try {
+                result = await agentChatMessage(message, {
+                    signal: opts.signal,
+                    onToken: async (chunk) => {
+                        await sendTokens(translator.translate(chunk));
+                    },
+                    onEvent: async (e) => {
+                        // Translate the event into the shell's canonical
+                        // shape *before* user-facing forwarding so callers
+                        // that inspect events (e.g. for cancelled-detection)
+                        // see the same shape py emits.
+                        if (e?.type === "action") {
+                            events.push(synthesizeAction(e));
+                            // ActionEvent finished — flush the streaming
+                            // turn so any subsequent ActionEvent starts
+                            // fresh in the shell's snapshot accumulator.
+                            await sendTokens(translator.turnComplete());
+                        } else if (e?.type === "output") {
+                            const parts = serializeOutputParts(e);
+                            for (const out of splitOutputEvents(parts)) {
+                                events.push(out);
+                            }
+                        } else if (e?.type === "cancelled") {
+                            events.push({ type: "cancelled" });
                         }
-                    } else if (e?.type === "cancelled") {
-                        events.push({ type: "cancelled" });
-                    }
-                    // Forward the *raw* agex-ts event to the user
-                    // callback — the typed shape is the documented
-                    // surface for callers who want low-level access.
-                    if (userOnEvent) await userOnEvent(e);
-                },
-            });
+                        // Forward the *raw* agex-ts event to the user
+                        // callback — the typed shape is the documented
+                        // surface for callers who want low-level access.
+                        if (userOnEvent) await userOnEvent(e);
+                    },
+                });
+            } finally {
+                await agentCommitSession();
+            }
             // Normalize the agent's freeform return value into the
             // renderer's expected shape (text bubble or multi-part
             // response). Single chokepoint — both the live path

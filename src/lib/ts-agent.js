@@ -695,6 +695,19 @@ export async function getCurrentCommit() {
     return state.currentCommit ?? null;
 }
 
+/** Flush the active session's pending state writes to kvgit. agex-ts
+ *  doesn't auto-commit anywhere — `task.ts` writes events into the
+ *  Staged buffer via `eventLog.add()` and re-throws on abort without
+ *  flushing. The host is responsible for committing both successful
+ *  and cancelled turns; otherwise the events vanish on the next
+ *  reload (only side-effect ops like uploads, which commit on their
+ *  own, accidentally salvage them). Idempotent — committing with no
+ *  staged changes is a no-op. */
+export async function commitSession() {
+    const agent = _getAgent();
+    await agent.commit(SESSION);
+}
+
 export async function undoToCommit(hash) {
     const staged = await _getStaged();
     // staged.resetTo clears Staged's read cache + buffered writes on
