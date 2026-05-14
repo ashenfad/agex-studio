@@ -452,8 +452,16 @@ function _buildLlmClient(settings) {
                       // OpenRouter's `/v1/messages` CORS allow-list
                       // rejects the `anthropic-version` header that
                       // agex-anthropic sends by default. `null` deletes
-                      // it (per the headers contract).
-                      headers: { "anthropic-version": null },
+                      // it (per the headers contract). Attribution
+                      // headers (`http-referer` / `x-title`) match
+                      // what the OpenAI branch sends so Anthropic
+                      // calls show up as "Agex Studio" in the
+                      // OpenRouter dashboard instead of "unknown".
+                      headers: {
+                          "anthropic-version": null,
+                          "http-referer": "https://agex.studio",
+                          "x-title": "Agex Studio",
+                      },
                       // Pin to Anthropic-direct so prompt-cache hits
                       // are consistent across turns. Without this,
                       // OpenRouter may route to Bedrock / Vertex on
