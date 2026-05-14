@@ -33,6 +33,7 @@ import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
+import { extrasFor } from "./models.js";
 import {
     runTestApp as appControlRunTestApp,
     runLiveApp as appControlRunLiveApp,
@@ -454,6 +455,10 @@ function _buildLlmClient(settings) {
         });
     }
     // openai / openai-compatible (OpenRouter, local servers, etc.)
+    // Per-model `extras` (e.g. provider routing pins) only make
+    // sense against OpenRouter — direct OpenAI ignores `provider`,
+    // and local servers wouldn't recognize it either.
+    const modelExtras = isOpenRouter ? extrasFor(model) : {};
     return new OpenAI({
         apiKey,
         model,
@@ -470,6 +475,7 @@ function _buildLlmClient(settings) {
                   },
               }
             : {}),
+        ...(Object.keys(modelExtras).length > 0 ? { extras: modelExtras } : {}),
     });
 }
 

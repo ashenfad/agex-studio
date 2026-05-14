@@ -18,7 +18,12 @@
  * passed to the LLM client.
  */
 
-/** @typedef {{ id: string, label: string }} ModelPreset */
+/** @typedef {{ id: string, label: string, extras?: Record<string, unknown> }} ModelPreset
+ *  `extras` flows into the LLM client's `extras` option, which the
+ *  client merges into the request body. Today's only use is pinning
+ *  OpenRouter provider routing for models that have provider-specific
+ *  capability constraints (e.g. only some endpoints support
+ *  `tool_choice`). */
 
 /** @type {ReadonlyArray<ModelPreset>} */
 export const OPENROUTER_MODELS = [
@@ -31,7 +36,16 @@ export const OPENROUTER_MODELS = [
     { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
     { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
     { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
-    { id: "qwen/qwen3-coder-next", label: "Qwen3 Coder Next" },
+    { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    {
+        id: "qwen/qwen3.6-35b-a3b",
+        label: "Qwen 3.6 35B A3B",
+        // Pin to AkashML — other OpenRouter endpoints for this model
+        // don't expose `tool_choice`, which agex needs to force the
+        // task_success / task_fail call.
+        extras: { provider: { only: ["akashml"] } },
+    },
+    { id: "google/gemma-4-31b-it", label: "Gemma 4 31B" },
 ];
 
 /** @type {ReadonlyArray<ModelPreset>} */
@@ -72,4 +86,22 @@ export function labelFor(id) {
         if (hit) return hit.label;
     }
     return id;
+}
+
+/**
+ * Per-model `extras` to fold into the LLM client (request body).
+ * Returns an empty object when the model has no extras or isn't in
+ * any preset list (custom models). Caller decides whether to honor —
+ * today we only inject these in OpenRouter mode, since the only
+ * recognized keys (`provider`) are OpenRouter-specific.
+ * @param {string} id
+ * @returns {Record<string, unknown>}
+ */
+export function extrasFor(id) {
+    if (!id) return {};
+    for (const list of [OPENROUTER_MODELS, OPENAI_MODELS, ANTHROPIC_MODELS]) {
+        const hit = list.find((m) => m.id === id);
+        if (hit) return hit.extras ?? {};
+    }
+    return {};
 }
