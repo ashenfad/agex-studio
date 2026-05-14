@@ -53,18 +53,22 @@
             </svg>
         </button>
     {/if}
-    <button
-        class="files-btn"
-        onclick={onFilesClick}
-        title="Files"
-    >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-        {#if fileCount > 0}
+    {#if fileCount > 0}
+        <!-- File drawer is browse-only since uploads moved to the
+             chat input's `+` button. With nothing to show and no
+             controls inside, an empty drawer is just dead UI — hide
+             the entry point until at least one file exists. -->
+        <button
+            class="files-btn"
+            onclick={onFilesClick}
+            title="Files"
+        >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
             <span class="file-badge">{fileCount}</span>
-        {/if}
-    </button>
+        </button>
+    {/if}
     <button
         class="settings-btn"
         class:unconfigured={!configured}
