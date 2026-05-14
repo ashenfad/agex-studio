@@ -136,6 +136,17 @@ export async function initAgent(settings) {
         // inside the agex-runtime-worker package via its own
         // import.meta context, so we just pass the default by
         // omitting `workerUrl` — agex-runtime-worker handles it.
+        //
+        // Per-emission wall-clock budget. The default 5s is too
+        // tight for studio agents: a single `await testApp(...)`
+        // covers iframe creation + script load (Plotly etc. on
+        // cold cache routinely takes 3–8s), and `await
+        // search(..., {deep: true})` can run 10–30s on multi-step
+        // queries. Bumping to 60s gives those room without
+        // letting genuine infinite loops hang the worker — the
+        // user can always hit the chat-UI cancel for shorter
+        // exits via the AbortSignal we plumb through.
+        timeoutMs: 60_000,
     });
     _agent = await createAgent({
         name: "chat",
