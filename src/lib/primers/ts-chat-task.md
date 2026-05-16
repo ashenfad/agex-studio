@@ -143,6 +143,15 @@ two stat cards.
   research. Run several in parallel with `Promise.all([search(a),
   search(b), ...])` — independent fetches, concurrent on the wire.
 
+## PDFs
+
+- `await renderPdf(bytes, pages?, scale?)` → `Uint8Array[]` of PNG
+  pages. `await pdfPageCount(bytes)` for length. Bytes come from
+  `fs.read('doc.pdf')`. `console.log(pages[0])` to view a page as
+  an image observation; return via `taskSuccess(["caption", page])`
+  to embed in the chat response. Default cap is 20 pages — pass
+  explicit indices for longer docs.
+
 ## Skills (read on demand)
 
 These have non-obvious idioms — `cat` the skill before you start:

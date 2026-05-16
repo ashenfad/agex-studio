@@ -44,6 +44,10 @@ import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
 import {
+    renderPdfPagesToBytes,
+    getPdfPageCount,
+} from "./pdf-render.js";
+import {
     emitObservations,
     normalizeEvalValues,
 } from "./ts-result-helpers.js";
@@ -382,6 +386,53 @@ export async function initAgent(settings) {
             "Sequential `await search(...); await search(...); ...` works but is slower by exactly the search latency × N.",
         ].join("\n"),
     });
+
+    // PDF helpers — render selected pages to PNG `Uint8Array`s. The
+    // shared module in `pdf-render.js` does the actual pdf.js work
+    // (same path the py kernel uses, just without the base64
+    // round-trip the py worker needs). Returning `Uint8Array[]`
+    // means the agent can `console.log(pages[0])` to surface a page
+    // as an image observation directly — agex-ts's console-capture
+    // detects PNG magic bytes and routes through the image pipeline.
+    _agent.fn(
+        async function renderPdf(bytes, pages = null, scale = 2) {
+            return await renderPdfPagesToBytes(bytes, pages, scale);
+        },
+        {
+            description: [
+                "(Pre-registered global — call directly with `await renderPdf(bytes)`, no import needed.)",
+                "Render PDF pages to PNG images.",
+                "",
+                "Signature: `renderPdf(bytes: Uint8Array, pages?: number[] | null, scale?: number): Promise<Uint8Array[]>`",
+                "  - `bytes`: PDF file bytes — typically `await fs.read('doc.pdf')`.",
+                "  - `pages`: 0-based page indices to render. `null` (default) renders the first 20 pages.",
+                "  - `scale`: pdf.js viewport scale factor (default `2` ≈ 144 DPI). Higher = sharper but larger.",
+                "",
+                "Returns one PNG `Uint8Array` per requested page, in the order you asked for them. Out-of-range page indices yield empty `Uint8Array` slots — check `.length` before using.",
+                "",
+                "**To view a page as an image**: `console.log(pages[0])` — agex-ts detects PNG magic bytes on `Uint8Array`s and routes through the image-observation pipeline so you can reason over the page contents.",
+                "",
+                "**To embed in the chat response**: return via `taskSuccess([\"Here's page 3:\", pages[0]])` — PNG `Uint8Array`s render as inline images in rich responses.",
+            ].join("\n"),
+        },
+    );
+
+    _agent.fn(
+        async function pdfPageCount(bytes) {
+            return await getPdfPageCount(bytes);
+        },
+        {
+            description: [
+                "(Pre-registered global — call directly with `await pdfPageCount(bytes)`, no import needed.)",
+                "Return the number of pages in a PDF.",
+                "",
+                "Signature: `pdfPageCount(bytes: Uint8Array): Promise<number>`",
+                "  - `bytes`: PDF file bytes — typically `await fs.read('doc.pdf')`.",
+                "",
+                "Use before `renderPdf` when you need to know how many pages exist (e.g. to render the last page, or to pick a stride through a long doc).",
+            ].join("\n"),
+        },
+    );
 
     // `esbuild` terminal command — bundles agent JSX/TSX/JS/TS app
     // sources into a runnable ES module via esbuild-wasm. The handler

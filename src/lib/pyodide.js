@@ -208,50 +208,52 @@ async function renderPlotlyOffscreen(figureJson, requestId) {
     }
 }
 
-const PDFJS_CDN = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build";
+// PDF rendering implementation moved to `pdf-render.js` so the TS
+// kernel can share the same pdf.js loader + page-render path. This
+// file keeps the py-bridge wrappers — they base64-encode/decode at
+// the boundary because the agex-py worker round-trips through JSON
+// strings, while the shared module operates on raw bytes.
+import {
+    renderPdfPagesToBytes as _renderPdfPagesToBytes,
+    getPdfPageCount as _getPdfPageCount,
+} from "./pdf-render.js";
 
-/**
- * Ensure pdf.js is loaded (lazily, once).
- */
-async function ensurePdfJs() {
-    if (window.pdfjsLib) return;
-    const mod = await import(/* @vite-ignore */ `${PDFJS_CDN}/pdf.min.mjs`);
-    window.pdfjsLib = mod;
-    mod.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
+/** Convert a Uint8Array to base64 without blowing the call stack on
+ *  large inputs (`String.fromCharCode(...arr)` over big arrays
+ *  hits arg-list limits in some browsers). Chunked apply pattern. */
+function _bytesToBase64(bytes) {
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(
+            null,
+            /** @type {any} */ (bytes.subarray(i, i + CHUNK)),
+        );
+    }
+    return btoa(bin);
 }
 
 /**
- * Render PDF pages to base64 PNGs using pdf.js.
+ * Render PDF pages and post results back to the py worker as a
+ * JSON-encoded list of base64 strings. Out-of-range pages are sent
+ * as `null` to preserve the indices/positions the py side expects.
  */
 async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
     try {
-        await ensurePdfJs();
-
-        const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
-        const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
-
+        const pdfData = Uint8Array.from(atob(pdfBase64), (c) =>
+            c.charCodeAt(0),
+        );
         const pages = pagesJson ? JSON.parse(pagesJson) : null;
-        const pageNums = pages || Array.from({ length: Math.min(pdf.numPages, 20) }, (_, i) => i);
-
-        const results = [];
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-
-        for (const pageIdx of pageNums) {
-            if (pageIdx < 0 || pageIdx >= pdf.numPages) {
-                results.push(null);
-                continue;
-            }
-            const page = await pdf.getPage(pageIdx + 1); // pdf.js is 1-indexed
-            const viewport = page.getViewport({ scale: scale || 2 });
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            const dataUrl = canvas.toDataURL("image/png");
-            results.push(dataUrl.split(",")[1]);
-        }
-
-        canvas.remove();
+        const pageBytes = await _renderPdfPagesToBytes(
+            pdfData,
+            pages,
+            scale || 2,
+        );
+        // Empty Uint8Array (out-of-range marker from the shared
+        // module) → null in the py-shaped result list.
+        const results = pageBytes.map((b) =>
+            b.length === 0 ? null : _bytesToBase64(b),
+        );
         worker.postMessage({
             type: "pdf-rendered",
             id: requestId,
@@ -268,19 +270,18 @@ async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
 }
 
 /**
- * Get PDF page count using pdf.js.
+ * Get PDF page count and post back to the py worker.
  */
 async function getPdfPageCount(pdfBase64, requestId) {
     try {
-        await ensurePdfJs();
-
-        const pdfData = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
-        const pdf = await window.pdfjsLib.getDocument({ data: pdfData }).promise;
-
+        const pdfData = Uint8Array.from(atob(pdfBase64), (c) =>
+            c.charCodeAt(0),
+        );
+        const numPages = await _getPdfPageCount(pdfData);
         worker.postMessage({
             type: "pdf-rendered",
             id: requestId,
-            pagesJson: JSON.stringify(pdf.numPages),
+            pagesJson: JSON.stringify(numPages),
         });
     } catch (e) {
         console.error("PDF page count failed:", e);
