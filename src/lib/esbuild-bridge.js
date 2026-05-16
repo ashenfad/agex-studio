@@ -3,6 +3,25 @@
  * filesystem (the agent's app/ files, passed in as a dict) and
  * returns transformed/bundled output.
  *
+ * Shared between the TS and Py kernels:
+ *   - **TS side** imports this module directly via vite
+ *     (`await import('./esbuild-bridge.js')` from `ts-agent.js`).
+ *     Vite emits it as a code-split chunk so cold boot pays nothing.
+ *   - **Py side** receives the vite-emitted URL at worker init
+ *     (`pyodide.js` does `import esbuildBridgeUrl from
+ *     './esbuild-bridge.js?url'` and forwards it to the worker
+ *     via the `init` message). `public/worker.js` then
+ *     `import(url)`s the same chunk through the browser's dynamic-
+ *     import path.
+ *
+ * The file used to live in `public/`, importable by both via the
+ * static URL `/esbuild-bridge.js`. That broke for the TS side
+ * because vite's dev-server import middleware refuses to resolve
+ * `public/...` paths as JS modules (they're meant for HTML-tag
+ * references). Moving the source into `src/lib/` makes vite the
+ * single owner — one source of truth, vite handles bundling +
+ * hashing for both consumers.
+ *
  * Architecture:
  * - Loaded lazily on first call (esbuild-wasm is ~10MB).
  * - Bare imports (`react`, `@radix-ui/...`) are marked external and
@@ -55,12 +74,19 @@ async function getEsbuild() {
                     `mod keys: [${keys}], default keys: [${defaultKeys}]`,
             );
         }
+        // Run esbuild in a Web Worker when our caller is on the main
+        // thread (TS kernel: terminal handlers dispatch from `task.ts`
+        // on the main thread, so a build would otherwise stall the
+        // UI). Skip the nested-worker dance when our caller is already
+        // a Worker (Py kernel: pyodide IS the worker — nesting workers
+        // there is unnecessary and brittle in some browsers).
+        const inWorker =
+            typeof WorkerGlobalScope !== "undefined" &&
+            typeof self !== "undefined" &&
+            self instanceof WorkerGlobalScope;
         await api.initialize({
             wasmURL: ESBUILD_WASM_URL,
-            // worker: false means esbuild runs in the current thread
-            // (we're already in a worker; nesting workers is
-            // unnecessary and brittle in some browsers).
-            worker: false,
+            worker: !inWorker,
         });
         _esbuild = api;
         return api;

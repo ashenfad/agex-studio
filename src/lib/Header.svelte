@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000 } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts' }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts' } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -25,6 +25,12 @@
         </svg>
     </button>
     <h1>agex</h1>
+    {#if activeKernel === 'py'}
+        <span
+            class="kernel-warn"
+            title="Python kernel: experimental. The agex-py sandbox (sandtrap) is a softer boundary than the TS interpreter sandbox; use only with trusted code."
+        >py · exp</span>
+    {/if}
     <div class="spacer"></div>
     {#if inputTokens != null}
         <button
@@ -47,18 +53,22 @@
             </svg>
         </button>
     {/if}
-    <button
-        class="files-btn"
-        onclick={onFilesClick}
-        title="Files"
-    >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-        </svg>
-        {#if fileCount > 0}
+    {#if fileCount > 0}
+        <!-- File drawer is browse-only since uploads moved to the
+             chat input's `+` button. With nothing to show and no
+             controls inside, an empty drawer is just dead UI — hide
+             the entry point until at least one file exists. -->
+        <button
+            class="files-btn"
+            onclick={onFilesClick}
+            title="Files"
+        >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
             <span class="file-badge">{fileCount}</span>
-        {/if}
-    </button>
+        </button>
+    {/if}
     <button
         class="settings-btn"
         class:unconfigured={!configured}
@@ -85,6 +95,22 @@
     h1 {
         font-size: 1.1rem;
         font-weight: 600;
+    }
+
+    /* Active-kernel "experimental" badge. Visible only on py
+       sessions, sits next to the title so it's always in view
+       without nagging the user. Warning color tinted with low
+       saturation — informational, not alarming. */
+    .kernel-warn {
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--warning) 18%, transparent);
+        color: var(--warning);
+        cursor: help;
     }
 
     .token-btn {

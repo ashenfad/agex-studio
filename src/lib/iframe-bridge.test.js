@@ -116,7 +116,7 @@ describe("dispatchAction — eval", () => {
         expect(result.value).toBeNull();
     });
 
-    it("captures error on throw", async () => {
+    it("captures error on throw with name + expression text", async () => {
         const scope = { eval: (expr) => eval(expr) };
         const result = await dispatchAction(document, { eval: "throw new Error('boom')" }, scope);
         expect(result).toMatchObject({
@@ -124,7 +124,176 @@ describe("dispatchAction — eval", () => {
             expr: "throw new Error('boom')",
             value: null,
         });
-        expect(result.error).toContain("boom");
+        // Error message includes the original message AND the
+        // expression text so agents looking at just the error
+        // string can correlate it to which eval threw.
+        expect(result.error).toContain("Error: boom");
+        expect(result.error).toContain("(in: throw new Error('boom'))");
+    });
+
+    it("preserves error name for typed errors (ReferenceError, TypeError, ...)", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { eval: "undefinedThing.foo" },
+            scope,
+        );
+        expect(result.type).toBe("eval");
+        // ReferenceError, TypeError, etc. — whichever the browser
+        // raises — keeps its class name in the message so the agent
+        // can pattern-match on it.
+        expect(result.error).toMatch(/^(ReferenceError|TypeError):/);
+        expect(result.error).toContain("(in: undefinedThing.foo)");
+    });
+
+    it("awaits Promise results and returns the resolved value", async () => {
+        // Without auto-await, agents fall back to a fragile pattern:
+        // stash results on globals, sleep, read by separate eval.
+        // With it, `await testApp([{ eval: 'Plotly.toImage(...)' }])`
+        // Just Works. Expression is self-contained — the scope-passed
+        // helper-fn approach wouldn't be visible to the inner eval
+        // (eval sees lexical scope, not the scope object's props).
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            {
+                eval: "new Promise((resolve) => setTimeout(() => resolve(42), 5))",
+            },
+            scope,
+        );
+        expect(result.type).toBe("eval");
+        // Bridge JSON-stringifies values for the py side (the studio's
+        // TS-side post-processor parses them back to native — see
+        // `normalizeEvalValues`). At the bridge layer the value is
+        // the JSON-encoded form.
+        expect(result.value).toBe("42");
+        expect(result.error).toBeUndefined();
+    });
+
+    it("awaits Promise.all and returns the resolved array", async () => {
+        // Parallel pattern: `Promise.all([fn(), fn(), fn()])` runs
+        // multiple async operations concurrently and returns one
+        // array. This is how the agent should chain parallel
+        // Plotly.toImage / fetch / etc. calls — no globals,
+        // no `{wait: N}` guess.
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            {
+                eval:
+                    "Promise.all([" +
+                    "  new Promise((r) => setTimeout(() => r(1), 3))," +
+                    "  new Promise((r) => setTimeout(() => r(2), 5))," +
+                    "  new Promise((r) => setTimeout(() => r(3), 1))," +
+                    "])",
+            },
+            scope,
+        );
+        expect(result.value).toBe("[1,2,3]");
+    });
+
+    it("surfaces rejected Promise as an error with the expression text", async () => {
+        // Async errors flow through the same `<ErrorName>: <msg>
+        // (in: <expr>)` shape as synchronous throws.
+        const scope = { eval: (expr) => eval(expr) };
+        const evalExpr =
+            "new Promise((_, reject) => setTimeout(() => reject(new Error('nope')), 3))";
+        const result = await dispatchAction(
+            document,
+            { eval: evalExpr },
+            scope,
+        );
+        expect(result.value).toBeNull();
+        expect(result.error).toContain("Error: nope");
+        expect(result.error).toContain(`(in: ${evalExpr})`);
+    });
+});
+
+describe("dispatchAction — assert", () => {
+    it("returns null for a passing (truthy) assertion", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const result = await dispatchAction(
+            document,
+            { assert: "1 + 1 === 2" },
+            scope,
+        );
+        expect(result).toBeNull();
+    });
+
+    it("throws AssertionError-prefixed Error for a failing (falsy) assertion", async () => {
+        // Throwing (not returning a result entry) is load-bearing:
+        // the prefix marker tells parent-side orchestration to let
+        // the error propagate so the agent's emission errors out and
+        // the recoverable-error path lets the agent self-correct on
+        // the next turn — instead of the agent silently committing
+        // a broken app because a check returned `false` in some array.
+        const scope = { eval: (expr) => eval(expr) };
+        await expect(
+            dispatchAction(document, { assert: "1 + 1 === 3" }, scope),
+        ).rejects.toThrow(/^AssertionError: 1 \+ 1 === 3/);
+    });
+
+    it("includes the agent's `message` tag in the throw", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        await expect(
+            dispatchAction(
+                document,
+                { assert: "false", message: "expected true here" },
+                scope,
+            ),
+        ).rejects.toThrow(/expected true here/);
+    });
+
+    it("includes the actual value in the failure message", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        await expect(
+            dispatchAction(document, { assert: "0" }, scope),
+        ).rejects.toThrow(/got/);
+    });
+
+    it("throws AssertionError when the assertion expression itself throws", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        await expect(
+            dispatchAction(
+                document,
+                {
+                    assert: "nonexistentVariable.foo",
+                    message: "should have nonexistent",
+                },
+                scope,
+            ),
+        ).rejects.toThrow(/^AssertionError: should have nonexistent — .* threw/);
+    });
+
+    it("treats truthy non-boolean values as passing", async () => {
+        // JS truthy semantics — strings, numbers, objects all count.
+        // (`{}` alone parses as a block statement and returns undefined
+        // — JS quirk, not the assertion's fault. Use `({})` for the
+        // object-literal case if you ever need it.)
+        const scope = { eval: (expr) => eval(expr) };
+        for (const expr of [
+            "'non-empty'",
+            "42",
+            "[]",
+            "({})",
+            "new Date()",
+        ]) {
+            const result = await dispatchAction(
+                document,
+                { assert: expr },
+                scope,
+            );
+            expect(result).toBeNull();
+        }
+    });
+
+    it("throws on every falsy value", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        for (const expr of ["false", "0", "''", "null", "undefined", "NaN"]) {
+            await expect(
+                dispatchAction(document, { assert: expr }, scope),
+            ).rejects.toThrow(/^AssertionError:/);
+        }
     });
 });
 

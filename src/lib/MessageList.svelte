@@ -5,6 +5,9 @@
     import ActivityPanel from './ActivityPanel.svelte'
     import DataTable from './DataTable.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
+    import StatCard from './StatCard.svelte'
+    import CalloutCard from './CalloutCard.svelte'
+    import CardRow from './CardRow.svelte'
     import TextModal from './TextModal.svelte'
     import ChapteringBand from './ChapteringBand.svelte'
 
@@ -129,16 +132,16 @@
         {/if}
 
         {#if msg.streaming && !msg.isReport}
-            <!-- Activity panel shows the pulsing dot; no extra indicator needed -->
-        {:else if msg.streaming && msg.isReport}
-            <!-- Streaming report: render the content live as it accumulates -->
-            {#if msg.content}
-                <div class="message agent">
-                    <div class="bubble">
-                        <div class="content markdown">{@html renderMarkdown(msg.content)}</div>
-                    </div>
-                </div>
-            {/if}
+            <!-- Activity panel above shows the pulsing dot for in-flight
+                 turns; no extra indicator needed here. Streaming-report
+                 messages (msg.isReport && msg.streaming) deliberately
+                 fall through to the standard agent-bubble branch below,
+                 so the live → committed transition keeps the same
+                 `{#if}` slot (and the same Svelte component instance).
+                 An earlier dedicated branch for streaming reports caused
+                 a visible flicker on `done` — Svelte tore down the
+                 streaming-branch bubble before instantiating the
+                 standard-branch one for the same content. -->
         {:else if msg.cancelled}
             <div class="cancelled-band">Stopped</div>
         {:else if msg.role === 'agent' && typeof msg.content === 'object'}
@@ -152,13 +155,22 @@
                             </div>
                         </div>
                     {:else if seg.kind === 'dataframe'}
-                        <div class="rich-block">
+                        <div class="rich-block table-block">
                             <DataTable columns={seg.data.columns} rows={seg.data.rows} />
                         </div>
                     {:else if seg.kind === 'plotly'}
                         <div class="rich-block chart-block">
                             <PlotlyChart figure={seg.data.figure} />
                         </div>
+                    {:else if seg.kind === 'stat'}
+                        <!-- Bare stat (not inside a `cards` row) — wrap
+                             in a single-item row so it gets the same
+                             card sizing as one inside a row. -->
+                        <CardRow items={[seg.data]} />
+                    {:else if seg.kind === 'callout'}
+                        <CardRow items={[seg.data]} />
+                    {:else if seg.kind === 'cards'}
+                        <CardRow items={seg.data.items} />
                     {/if}
                 {/each}
             </div>
@@ -255,117 +267,17 @@
         white-space: pre-wrap;
         word-break: break-word;
     }
-
-    .content.markdown {
-        white-space: normal;
-    }
-
-    .content.markdown :global(p) {
-        margin: 0.4em 0;
-    }
-
-    .content.markdown :global(p:first-child) {
-        margin-top: 0;
-    }
-
-    .content.markdown :global(p:last-child) {
-        margin-bottom: 0;
-    }
-
-    .content.markdown :global(ul),
-    .content.markdown :global(ol) {
-        margin: 0.4em 0;
-        padding-left: 1.4em;
-    }
-
-    .content.markdown :global(li) {
-        margin: 0.15em 0;
-    }
-
-    .content.markdown :global(code) {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.1em 0.3em;
-        border-radius: 3px;
-        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-        font-size: 0.82em;
-    }
-
-    .content.markdown :global(pre) {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 6px;
-        padding: 0.5em 0.7em;
-        overflow-x: auto;
-        margin: 0.4em 0;
-    }
-
-    .content.markdown :global(pre code) {
-        background: none;
-        padding: 0;
-        font-size: 0.8em;
-    }
-
-    .content.markdown :global(strong) {
-        font-weight: 600;
-    }
-
-    .content.markdown :global(h1),
-    .content.markdown :global(h2),
-    .content.markdown :global(h3) {
-        margin: 0.5em 0 0.3em;
-        font-weight: 600;
-    }
-
-    .content.markdown :global(h1) { font-size: 1.1em; }
-    .content.markdown :global(h2) { font-size: 1em; }
-    .content.markdown :global(h3) { font-size: 0.95em; }
-
-    .content.markdown :global(a) {
-        color: #7cb7ff;
-        text-decoration: underline;
-    }
-
-    .content.markdown :global(table) {
-        border-collapse: collapse;
-        margin: 0.5em 0;
-        width: 100%;
-        font-size: 0.88em;
-    }
-
-    .content.markdown :global(th),
-    .content.markdown :global(td) {
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        padding: 0.35em 0.6em;
-        text-align: left;
-    }
-
-    .content.markdown :global(th) {
-        background: rgba(255, 255, 255, 0.08);
-        font-weight: 600;
-    }
-
-    .content.markdown :global(tr:nth-child(even)) {
-        background: rgba(255, 255, 255, 0.03);
-    }
-
-    .content.markdown :global(blockquote) {
-        border-left: 3px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.06);
-        margin: 0.5em 0;
-        padding: 0.4em 0.8em;
-        border-radius: 0 4px 4px 0;
-    }
-
-    .content.markdown :global(pre.mermaid) {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-        padding: 1em;
-        overflow-x: auto;
-        text-align: center;
-    }
-
-    .content.markdown :global(pre.mermaid svg) {
-        max-width: 100%;
-    }
+    /* `.content.markdown` body styling lives in app.css's shared
+       `.markdown` rule set. The one override that has to live here is
+       white-space: the bare `.content` rule's `pre-wrap` is for plain
+       user/agent text bubbles (preserves typed newlines), but on
+       markdown-rendered content `pre-wrap` makes the literal newlines
+       `marked` inserts between `<p>`/`<li>` elements render as blank
+       lines. Svelte's scoped `.content` selector beats the unscoped
+       `.markdown` rule in app.css on specificity, so the override has
+       to live here (compound `.content.markdown` selector is 3 classes
+       once Svelte adds its hash, winning the cascade). */
+    .content.markdown { white-space: normal; }
 
     .timestamp {
         font-size: 0.7rem;
@@ -414,6 +326,16 @@
 
     .rich-block.chart-block {
         width: min(700px, 95%);
+    }
+
+    /* Tables get the same width treatment as charts — without it,
+       `width: fit-content` shrinks a 2-column table to ~300px and
+       it looks orphaned next to full-width cards / charts above
+       and below. Wide tables overflow the wrapper horizontally
+       via DataTable's own scroll container. */
+    .rich-block.table-block {
+        width: min(700px, 95%);
+        background: transparent;
     }
 
     .load-more {

@@ -2,6 +2,13 @@
 dist/
 node_modules/
 
+# Re-include the vendored agex-ts dists. The `dist/` rule above
+# matches recursively, but vendor/agex-ts/<pkg>/dist holds the
+# committed build artifacts the deploy depends on (see
+# vendor/agex-ts/README.md).
+!vendor/agex-ts/*/dist/
+!vendor/agex-ts/*/dist/**
+
 # Dev tooling
 .vscode/
 .idea/

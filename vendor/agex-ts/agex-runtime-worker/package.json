@@ -1,0 +1,29 @@
+{
+  "name": "agex-runtime-worker",
+  "version": "0.0.1",
+  "description": "Worker-isolated RuntimeAdapter for agex-ts. Browser-first (Web Worker); ts-blank-space transpile by default with a transform hook for embedders that need fuller TS coverage (e.g. esbuild-wasm).",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "import": "./dist/worker.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "agex-ts": "file:../agex-ts"
+  },
+  "dependencies": {
+    "ts-blank-space": "^0.6.0"
+  }
+}

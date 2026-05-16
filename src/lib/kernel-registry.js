@@ -29,6 +29,10 @@
  */
 
 import { createPyAdapter } from "./py-kernel-adapter.js";
+// ts-kernel-adapter is dynamic-imported below so the agex-ts chunk
+// only loads when a user actually engages with a TS session. Keeps
+// cold-start payload small for py-only users — matches the
+// lazy-boot story for the kernel itself.
 
 /**
  * @typedef {import('./kernel-adapter.js').KernelAdapter} KernelAdapter
@@ -73,24 +77,18 @@ export function createKernelRegistry() {
      */
     const entries = new Map();
 
-    function _construct(kernel) {
-        if (kernel === "py") return createPyAdapter();
-        if (kernel === "ts") {
-            // Phase 5 lands the Ts adapter; until then, attempting to
-            // ensure 'ts' is a clean error rather than a silent
-            // misroute.
-            throw new Error(
-                "ts kernel adapter not yet implemented (planned for Phase 5)",
-            );
-        }
-        throw new Error(`unknown kernel: ${String(kernel)}`);
-    }
+    // Construction is split inline in `ensure` below: py is sync (no
+    // dynamic import) so it sets the entry before any await — preserves
+    // the sync-construct-then-init dedup timing the original tests
+    // expect. ts is async (chunk-split via dynamic import so the
+    // agex-ts bundle only ships when a user actually opens a TS
+    // session) and uses a placeholder-entry pattern that's race-
+    // correct under async construct.
 
     return {
         async ensure(kernel, settings, opts = {}) {
             let entry = entries.get(kernel);
             if (!entry) {
-                const adapter = _construct(kernel);
                 // Per-kernel listener set; first caller seeds it,
                 // subsequent callers append. Wrap init's onStage
                 // option with a dispatcher that fans every milestone
@@ -116,25 +114,70 @@ export function createKernelRegistry() {
                         }
                     }
                 };
-                // Capture ready before awaiting — concurrent callers
-                // see the same in-flight promise.
-                const ready = adapter.init(settings, { onStage: dispatchStage });
-                entry = { adapter, ready, onStageListeners };
-                entries.set(kernel, entry);
-                // If init throws, evict the entry so a future caller
-                // can retry with a fresh adapter rather than being
-                // stuck on a dead promise.
-                ready.catch(() => {
-                    if (entries.get(kernel) === entry) {
-                        entries.delete(kernel);
-                    }
-                });
+
+                if (kernel === "py") {
+                    // Synchronous construct — set entry before any
+                    // await so concurrent callers see it on their
+                    // `entries.get` check.
+                    const adapter = createPyAdapter();
+                    const ready = adapter.init(settings, { onStage: dispatchStage });
+                    entry = { adapter, ready, onStageListeners, bootDone: false };
+                    entries.set(kernel, entry);
+                    ready.then(() => { entry.bootDone = true; }, () => {});
+                    ready.catch(() => {
+                        if (entries.get(kernel) === entry) entries.delete(kernel);
+                    });
+                } else if (kernel === "ts") {
+                    // Async construct via dynamic import. Placeholder
+                    // pattern: set the entry synchronously with a
+                    // ready promise that does the import + init
+                    // internally. Concurrent callers see the entry on
+                    // their first check; the adapter slot stays null
+                    // until construction resolves.
+                    const placeholder = {
+                        /** @type {any} */ adapter: null,
+                        /** @type {Promise<void>} */ ready: /** @type {any} */ (null),
+                        onStageListeners,
+                        bootDone: false,
+                    };
+                    placeholder.ready = (async () => {
+                        const { createTsAdapter } = await import("./ts-kernel-adapter.js");
+                        const adapter = createTsAdapter();
+                        placeholder.adapter = adapter;
+                        await adapter.init(settings, { onStage: dispatchStage });
+                    })();
+                    entries.set(kernel, placeholder);
+                    placeholder.ready.then(() => { placeholder.bootDone = true; }, () => {});
+                    placeholder.ready.catch(() => {
+                        if (entries.get(kernel) === placeholder) {
+                            entries.delete(kernel);
+                        }
+                    });
+                    entry = placeholder;
+                } else {
+                    throw new Error(`unknown kernel: ${String(kernel)}`);
+                }
             } else if (typeof opts.onStage === "function") {
                 // Subsequent caller — append to the existing listener
                 // set. Stages fired before this point won't be replayed.
                 entry.onStageListeners.add(opts.onStage);
             }
+            // Capture boot state BEFORE awaiting `entry.ready` so
+            // concurrent ensures (both seeing the same in-flight
+            // boot) all observe `bootDone === false` and skip the
+            // re-init branch. Only ensures called *after* the first
+            // boot has resolved get the settings-update treatment.
+            const isReConfigure = entry.bootDone === true;
             await entry.ready;
+            // For repeat ensure() calls (settings-change re-fires),
+            // the typedef contract on `init` says implementations
+            // should propagate the new settings to the live agent.
+            // Re-call with new settings + no onStage so the adapter's
+            // hot-swap path applies LLM / chaptering changes without
+            // retriggering history reload.
+            if (isReConfigure && entry.adapter) {
+                await entry.adapter.init(settings, {});
+            }
             return entry.adapter;
         },
 
@@ -150,16 +193,27 @@ export function createKernelRegistry() {
             const all = [...entries.values()];
             entries.clear();
             await Promise.all(
-                all.map((e) =>
-                    e.adapter
-                        .dispose()
-                        .catch((err) =>
-                            console.warn(
-                                "[agex] kernel adapter dispose failed:",
-                                err,
-                            ),
-                        ),
-                ),
+                all.map(async (e) => {
+                    // Wait out any in-flight construction before
+                    // disposing, so we don't leak a half-constructed
+                    // adapter. Tolerate construction failures (the
+                    // catch handler in ensure() already evicts the
+                    // entry, but dispose may race with that).
+                    try {
+                        await e.ready;
+                    } catch {
+                        return;
+                    }
+                    if (!e.adapter) return;
+                    try {
+                        await e.adapter.dispose();
+                    } catch (err) {
+                        console.warn(
+                            "[agex] kernel adapter dispose failed:",
+                            err,
+                        );
+                    }
+                }),
             );
         },
     };

@@ -42,15 +42,12 @@ import {
     getTokenHistory as agentGetTokenHistory,
 } from "./agent.js";
 import {
-    loadHistory,
-    getCurrentCommit,
-    undoToCommit,
-    getBundleStats,
-    exportBundle,
-    importBundle,
-    getSessionDebugInfo,
-} from "./sessions.js";
-import { runPython, startWorker, startWave3, pyodideStore } from "./pyodide.js";
+    runPython,
+    runPythonStreaming,
+    startWorker,
+    startWave3,
+    pyodideStore,
+} from "./pyodide.js";
 
 /**
  * @typedef {import('./kernel-adapter.js').KernelAdapter} KernelAdapter
@@ -223,6 +220,27 @@ _json.dumps(_branches)
             return JSON.parse(json);
         },
 
+        async listBranchesWithMeta() {
+            const json = await runPython(`
+import json as _json
+_state = _agent.state("default")
+_out = []
+for _b in _state.list_branches():
+    if not _b.startswith("chat-"):
+        continue
+    _out.append({
+        "branch": _b,
+        "title": _state.peek("__session_title__", branch=_b) or "New Chat",
+        "name": _state.peek("__session_name__", branch=_b) or "",
+        "description": _state.peek("__session_description__", branch=_b) or "",
+        "updated": _state.peek("__session_updated__", branch=_b) or "",
+        "external": bool(_state.peek("__session_external__", branch=_b)),
+    })
+_json.dumps(_out)
+            `);
+            return JSON.parse(json);
+        },
+
         async createBranch(name, /** @type {CreateBranchOptions} */ opts = {}) {
             // Two modes:
             //   - opts.from set:  fork from the named branch's HEAD.
@@ -285,6 +303,7 @@ _json.dumps({
     "name": _state.peek("__session_name__", branch=_b) or "",
     "description": _state.peek("__session_description__", branch=_b) or "",
     "updated": _state.peek("__session_updated__", branch=_b) or "",
+    "external": bool(_state.peek("__session_external__", branch=_b)),
 })
             `);
             return JSON.parse(json);
@@ -303,6 +322,13 @@ _json.dumps({
             }
             if (patch.description !== undefined) {
                 setLines.push(`_state["__session_description__"] = ${JSON.stringify(patch.description)}`);
+            }
+            if (patch.external !== undefined) {
+                // Python wants `True` / `False`; JSON.stringify(true)
+                // produces lowercase `true` which raises NameError.
+                setLines.push(
+                    `_state["__session_external__"] = ${patch.external ? "True" : "False"}`,
+                );
             }
             if (patch.updated !== undefined) {
                 setLines.push(`_state["__session_updated__"] = ${JSON.stringify(patch.updated)}`);
@@ -354,12 +380,20 @@ finally:
 
         async getCurrentCommit(branch) {
             await _ensureBranch(branch);
-            return getCurrentCommit();
+            const json = await runPython(`
+import json as _json
+_state = _agent.state("default")
+_json.dumps(_state.current_commit)
+            `);
+            return JSON.parse(json);
         },
 
         async undoToCommit(branch, hash) {
             await _ensureBranch(branch);
-            await undoToCommit(hash);
+            await runPython(`
+_state = _agent.state("default")
+_state.reset_to("${_esc(hash)}")
+            `);
         },
 
         // --- VFS ---------------------------------------------------------
@@ -407,38 +441,260 @@ finally:
         // --- Bundle payloads --------------------------------------------
 
         async exportBundlePayload(branch, /** @type {ExportBundleOptions} */ opts = {}) {
-            // exportBundle is branch-parameterized at the kvgit level —
-            // doesn't need _ensureBranch, but harmless if called.
-            const { bytes, manifest } = await exportBundle(branch, opts.onProgress);
-            return { bytes, manifest };
+            const onProgress = opts.onProgress;
+            const code = `
+import json as _json, base64 as _b64
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_branch = ${JSON.stringify(branch)}
+_name = _state.peek("__session_name__", branch=_branch) or ""
+_desc = _state.peek("__session_description__", branch=_branch) or ""
+_title = _state.peek("__session_title__", branch=_branch) or ""
+_kernel = _state.peek("__session_kernel__", branch=_branch) or "py"
+_display = _name or _title
+
+def _progress(phase, done, total):
+    _post_token(_run_id, {"phase": phase, "done": done, "total": total})
+
+_data = _bundle.export_bundle(_v, _branch, name=_display, description=_desc, kernel=_kernel, progress=_progress)
+_manifest = _bundle.inspect_bundle(_data)
+_json.dumps({"b64": _b64.b64encode(_data).decode(), "manifest": _manifest})
+            `;
+            const json = await runPythonStreaming(code, (token) => {
+                if (onProgress && token && typeof token.phase === "string") {
+                    onProgress(token);
+                }
+            });
+            const obj = JSON.parse(json);
+            const bytes = _b64decode(obj.b64);
+            return { bytes, manifest: obj.manifest };
         },
 
         async importBundlePayload(payload) {
-            const { branch, manifest } = await importBundle(payload);
-            // The existing importBundle switches kvgit to the new
-            // branch; mirror that in our cached active-branch.
-            activeBranch = branch;
-            return { branch, manifest };
+            const b64 = _b64encode(payload);
+            const json = await runPython(`
+import json as _json, base64 as _b64
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_data = _b64.b64decode(${JSON.stringify(b64)})
+_branch, _manifest = _bundle.import_bundle(_v, _data)
+_state.switch_branch(_branch)
+_json.dumps({"branch": _branch, "manifest": _manifest})
+            `);
+            const result = JSON.parse(json);
+            activeBranch = result.branch;
+            return { branch: result.branch, manifest: result.manifest };
         },
 
         async getBundleStats(branch) {
-            // getBundleStats walks the kvgit subgraph for `branch`
-            // directly — branch-parameterized, no _ensureBranch needed.
-            return getBundleStats(branch);
+            const json = await runPython(`
+import json as _json
+import bundle as _bundle
+_state = _agent.state("default")
+_v = _state.versioned
+_branch = ${JSON.stringify(branch)}
+_stats = _bundle.bundle_stats(_v, _branch)
+_stats["name"] = _state.peek("__session_name__", branch=_branch) or ""
+_stats["description"] = _state.peek("__session_description__", branch=_branch) or ""
+_stats["title"] = _state.peek("__session_title__", branch=_branch) or ""
+_stats["kernel"] = _state.peek("__session_kernel__", branch=_branch) or "py"
+_json.dumps(_stats)
+            `);
+            return JSON.parse(json);
         },
 
         // --- History rendering ------------------------------------------
 
         async loadHistory(branch) {
             await _ensureBranch(branch);
-            return loadHistory();
+            const json = await runPython(`
+import json as _json
+from agex import events as _get_events
+from agex.agent.events import (
+    TaskStartEvent as _TaskStart,
+    SuccessEvent as _SuccessEvent,
+    FailEvent as _FailEvent,
+    FileEvent as _FileEvent,
+    CancelledEvent as _CancelledEvent,
+)
+# Helper functions (_output_text, _serialize_output_parts, _split_output_events,
+# _serialize_chapter_events) and event types (_ActionEvent, _OutputEvent,
+# _ChapterEvent) are defined in initAgent
+
+_state = _agent.state("default")
+_all = _get_events(_state)
+_pre = [e for e in _all if e.source != "setup"]
+
+# Flatten chapters: expand ChapterEvents into their original events,
+# collecting chapter metadata for the chaptering bands.
+_flat = []
+_chapter_meta = []
+
+def _do_flatten(evts, collect=True):
+    for _e in evts:
+        if isinstance(_e, _ChapterEvent):
+            if collect:
+                _chapter_meta.append({
+                    "name": _e.name,
+                    "message": _e.message,
+                    "events": _serialize_chapter_events(_e.resolve_events(_state), _state),
+                })
+            _do_flatten(_e.resolve_events(_state), collect=False)
+        else:
+            _flat.append(_e)
+
+_do_flatten(_pre)
+
+_messages = []
+_current_events = []
+_current_task = None
+
+for _evt in _flat:
+    if isinstance(_evt, _TaskStart):
+        _current_events = []
+        _current_task = _evt.task_name
+        if _evt.task_name == "__chapter__":
+            _messages.append({
+                "role": "chaptering",
+                "timestamp": _evt.timestamp.isoformat(),
+                "commit_hash": getattr(_evt, "commit_hash", None) or "",
+                "chapters": [],
+            })
+        else:
+            _messages.append({
+                "role": "user",
+                "content": _evt.inputs.get("message", str(_evt.inputs)),
+                "timestamp": _evt.timestamp.isoformat(),
+                "commit_hash": getattr(_evt, "commit_hash", None) or "",
+            })
+    elif isinstance(_evt, _ActionEvent):
+        _action_dict = _synthesize_action(_evt)
+        _report_text = _action_dict.get("report", "") or ""
+        _current_events.append(_action_dict)
+        if _report_text:
+            _messages.append({
+                "role": "agent",
+                "content": _report_text,
+                "isReport": True,
+                "timestamp": _evt.timestamp.isoformat(),
+            })
+    elif isinstance(_evt, _OutputEvent):
+        _current_events.extend(_split_output_events(_serialize_output_parts(_evt)))
+    elif isinstance(_evt, _FileEvent) and _evt.file_source == "user":
+        _parts = []
+        _upload_items = []
+        if _evt.added:
+            _upload_items.extend(f"\`{f}\`" for f in sorted(_evt.added))
+        if _evt.modified:
+            _upload_items.extend(f"\`{f}\`" for f in sorted(_evt.modified))
+        if _upload_items:
+            if len(_upload_items) == 1:
+                _parts.append(f"**Uploaded:** {_upload_items[0]}")
+            else:
+                _list = "\\n".join(f"- {i}" for i in _upload_items)
+                _parts.append(f"**Uploaded {len(_upload_items)} files:**\\n{_list}")
+        if _evt.removed:
+            _del_items = [f"\`{f}\`" for f in sorted(_evt.removed)]
+            if len(_del_items) == 1:
+                _parts.append(f"**Deleted:** {_del_items[0]}")
+            else:
+                _list = "\\n".join(f"- {i}" for i in _del_items)
+                _parts.append(f"**Deleted {len(_del_items)} files:**\\n{_list}")
+        _content = "  \\n".join(_parts) if _parts else "**File change**"
+        _messages.append({
+            "role": "user",
+            "content": _content,
+            "timestamp": _evt.timestamp.isoformat(),
+            "commit_hash": getattr(_evt, "commit_hash", None) or "",
+            "isMarkdown": True,
+        })
+    elif isinstance(_evt, _SuccessEvent):
+        if _current_task == "__chapter__":
+            _n = 0
+            if isinstance(_evt.result, list):
+                _n = sum(1 for _ch in _evt.result if hasattr(_ch, 'name'))
+            _take = min(_n, len(_chapter_meta))
+            if _take > 0:
+                for _bm in reversed(_messages):
+                    if _bm["role"] == "chaptering":
+                        _bm["chapters"] = list(_chapter_meta[:_take])
+                        break
+                _chapter_meta = _chapter_meta[_take:]
+            _current_events = []
+            _current_task = None
+        else:
+            _r = _evt.result
+            if hasattr(_r, "normalize") and hasattr(_r, "parts"):
+                _result_data = {"type": "response", "parts": _r.normalize()}
+            else:
+                _result_data = {"type": "text", "content": str(_r) if _r is not None else ""}
+            _messages.append({
+                "role": "agent",
+                "content": _result_data,
+                "events": list(_current_events),
+                "timestamp": _evt.timestamp.isoformat(),
+            })
+            _current_events = []
+            _current_task = None
+    elif isinstance(_evt, _CancelledEvent):
+        _messages.append({
+            "role": "agent",
+            "content": {"type": "text", "content": ""},
+            "events": list(_current_events),
+            "timestamp": _evt.timestamp.isoformat(),
+            "cancelled": True,
+        })
+        _current_events = []
+        _current_task = None
+    elif isinstance(_evt, _FailEvent):
+        _err_msg = str(_evt.error) if hasattr(_evt, "error") else "Task failed"
+        _messages.append({
+            "role": "agent",
+            "content": {"type": "text", "content": f"Error: {_err_msg}"},
+            "events": list(_current_events),
+            "timestamp": _evt.timestamp.isoformat(),
+        })
+        _current_events = []
+        _current_task = None
+
+# Flush any orphan events (no TaskStart preceded them)
+if _current_events and _current_task is None:
+    from datetime import datetime as _dt
+    _messages.append({
+        "role": "agent",
+        "content": {"type": "text", "content": ""},
+        "events": list(_current_events),
+        "timestamp": _dt.now().isoformat(),
+    })
+
+_json.dumps(_messages)
+            `);
+            const raw = JSON.parse(json);
+            return raw.map((m) => ({
+                ...m,
+                timestamp: new Date(m.timestamp),
+            }));
         },
 
-        // --- Query bridge -----------------------------------------------
+        // --- Query / cache bridges --------------------------------------
 
         async runQuery(branch, code, resultVars) {
             await _ensureBranch(branch);
             return agentRunQuery(code, resultVars);
+        },
+
+        async getCacheValue(_branch, _key) {
+            // Mirror to the TS adapter's `runQuery` stub — symmetric
+            // "each kernel has one bridge wired, one stub" until we
+            // close the gap on the other side. py apps use `runQuery`
+            // for app↔agent data passing today; if `getCacheValue` ergonomics
+            // become useful here too, wire via agex.cache.Cache.
+            throw new Error(
+                "getCacheValue not yet implemented for the Py kernel — " +
+                    "use runQuery for app↔agent data passing on this kernel.",
+            );
         },
 
         // --- Token telemetry --------------------------------------------
@@ -456,9 +712,45 @@ finally:
         // --- Debug -------------------------------------------------------
 
         async getSessionDebugInfo(branch) {
-            // Existing getSessionDebugInfo handles its own switch+restore
-            // dance internally, so it works on any branch.
-            return getSessionDebugInfo(branch);
+            const json = await runPython(`
+import json as _json
+
+_state = _agent.state("default")
+_v = _state.versioned
+
+# Temporarily switch to the target branch to read its state
+_prev = _v.current_branch
+_v.switch_branch("${_esc(branch)}")
+
+_commits = list(_v.history())
+_all_keys = list(_v.keys())
+_user_keys = sorted(k for k in _all_keys if not k.startswith("__"))
+
+# Measure storage: sum raw byte sizes of all values at HEAD
+_values = _v.get_many(*_all_keys) if _all_keys else {}
+_total_bytes = sum(len(v) for v in _values.values())
+
+# Per-key sizes for the top consumers
+_key_sizes = {}
+for _k, _val in _values.items():
+    _key_sizes[_k] = len(_val)
+_top_keys = sorted(_key_sizes.items(), key=lambda x: -x[1])[:10]
+
+_result = _json.dumps({
+    "branch": "${_esc(branch)}",
+    "commit": _v.current_commit[:12] if _v.current_commit else None,
+    "commits": len(_commits),
+    "keys_total": len(_all_keys),
+    "keys": _user_keys,
+    "bytes": _total_bytes,
+    "top_keys": [{"key": k, "bytes": s} for k, s in _top_keys],
+})
+
+# Switch back
+_v.switch_branch(_prev)
+_result
+            `);
+            return JSON.parse(json);
         },
     };
 }

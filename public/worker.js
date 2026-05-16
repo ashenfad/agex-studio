@@ -281,10 +281,26 @@ _ns_mod._ViewImage.__call__ = _async_vi_call
         // the main thread), esbuild-wasm runs entirely inside the
         // worker — no postMessage ping-pong.  Lazy-imported so the
         // ~10MB wasm download only happens on first agent invocation.
+        //
+        // The URL comes from the host's `init` message — vite owns
+        // the bridge module (lives in src/lib/) and hands us its
+        // resolved URL via the init payload. We used to hard-code
+        // `/esbuild-bridge.js`, but that required keeping the source
+        // in `public/`, which broke the TS kernel's bundled import
+        // path. Single source now, vite handles hashing for both.
         let _esbuildBridgePromise = null;
         const getEsbuildBridge = () => {
             if (!_esbuildBridgePromise) {
-                _esbuildBridgePromise = import("/esbuild-bridge.js");
+                if (!self.__esbuildBridgeUrl) {
+                    return Promise.reject(
+                        new Error(
+                            "esbuild bridge URL not set — `init` message must include esbuildBridgeUrl",
+                        ),
+                    );
+                }
+                _esbuildBridgePromise = import(
+                    /* @vite-ignore */ self.__esbuildBridgeUrl
+                );
             }
             return _esbuildBridgePromise;
         };
@@ -516,6 +532,13 @@ let _llmStreamId = 0;
 self.onmessage = (e) => {
     const { type } = e.data;
     if (type === "init") {
+        // Host hands us the resolved esbuild-bridge URL (vite-emitted
+        // chunk in production, dev-server path in development).
+        // Stashed on `self` so the lazy esbuild bridge loader can
+        // reach it when the agent first invokes `esbuild ...`.
+        if (e.data.esbuildBridgeUrl) {
+            self.__esbuildBridgeUrl = e.data.esbuildBridgeUrl;
+        }
         init();
     } else if (type === "start-wave3") {
         // Host signals "history is loaded; safe to install heavy

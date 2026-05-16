@@ -1,5 +1,5 @@
 <script>
-    import { highlightPython, highlightCode } from './highlight.js'
+    import { highlightPython, highlightTypeScript, highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
     import { trim, computeDiff } from './event-utils.js'
 
@@ -12,6 +12,10 @@
 
     function highlightTrimmed(code) {
         return highlightPython(trim(code))
+    }
+
+    function highlightTrimmedTs(code) {
+        return highlightTypeScript(trim(code))
     }
 
     function renderThinking(text) {
@@ -47,7 +51,7 @@
                 {:else if em.kind === 'text' && em.text}
                     <div class="section">
                         <div class="section-label report-label">Report</div>
-                        <div class="report-content">{@html renderMarkdown(em.text)}</div>
+                        <div class="report-content markdown">{@html renderMarkdown(em.text)}</div>
                     </div>
                 {:else if em.kind === 'python'}
                     {#if em.thinking}
@@ -62,6 +66,21 @@
                         <div class="section code">
                             <div class="section-label">Code{em.title ? ' — ' + em.title : ''}</div>
                             <pre class="section-content"><code>{@html highlightTrimmed(em.code)}</code></pre>
+                        </div>
+                    {/if}
+                {:else if em.kind === 'ts'}
+                    {#if em.thinking}
+                        <div class="section">
+                            <div class="section-label">Thinking</div>
+                            <blockquote class="thinking">
+                                <div class="thinking-content">{@html renderThinking(em.thinking)}</div>
+                            </blockquote>
+                        </div>
+                    {/if}
+                    {#if em.code}
+                        <div class="section code">
+                            <div class="section-label">Code{em.title ? ' — ' + em.title : ''}</div>
+                            <pre class="section-content"><code>{@html highlightTrimmedTs(em.code)}</code></pre>
                         </div>
                     {/if}
                 {:else if em.kind === 'terminal'}
@@ -211,9 +230,16 @@
         font-size: 0.82rem;
     }
 
+    /* Tighten vertical rhythm relative to the shared `.markdown`
+       defaults so reports stay compact inside the activity modal. */
     .report-content :global(p) { margin: 0.3em 0; }
-    .report-content :global(p:first-child) { margin-top: 0; }
-    .report-content :global(p:last-child) { margin-bottom: 0; }
+    .report-content :global(ul),
+    .report-content :global(ol) { margin: 0.3em 0; }
+    .report-content :global(li) { margin: 0.1em 0; }
+    .report-content :global(pre) { margin: 0.3em 0; }
+    .report-content :global(h1),
+    .report-content :global(h2),
+    .report-content :global(h3) { margin: 0.4em 0 0.25em; }
 
     pre.section-content {
         background: var(--surface);

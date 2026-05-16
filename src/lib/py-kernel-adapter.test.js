@@ -20,6 +20,7 @@ const EXPECTED_METHODS = [
     "dispose",
     // Branch operations
     "listBranches",
+    "listBranchesWithMeta",
     "createBranch",
     "deleteBranch",
     "readBranchMeta",
@@ -45,6 +46,7 @@ const EXPECTED_METHODS = [
     "loadHistory",
     // Query bridge
     "runQuery",
+    "getCacheValue",
     // Token telemetry
     "estimateLogTokens",
     "getTokenHistory",

@@ -12,14 +12,43 @@
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
     import { cancelTask, pyodideStore } from './pyodide.js'
-    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore } from './sessions.js'
+    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
+    import { queueFiles } from './pending-attachments.js'
+    import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
+
+    /** Resolve the active session's kernel synchronously from
+     *  localStorage (no kernel boot required). The session-index cache
+     *  records each session's kernel, and `CURRENT_BRANCH_KEY` points at
+     *  the active branch — the join is enough to pick the right kernel
+     *  before either runtime is touched.
+     *
+     *  Falls back to `'ts'` when the cache is empty (cold-start) — the
+     *  ts kernel boots in well under a second versus py's ~30s Pyodide
+     *  install. If the current pointer matches a cached py record, that
+     *  takes precedence. Matches the cold-start session creation default
+     *  in sessions.js's initSessions. */
+    function _resolveActiveKernel() {
+        const branch = localStorage.getItem(CURRENT_BRANCH_KEY)
+        if (!branch) return 'ts'
+        const record = loadSessionCache().find((r) => r.branch === branch)
+        if (!record) return 'ts'
+        return record.kernel === 'py' ? 'py' : 'ts'
+    }
 
     /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
     let messages = $state([])
     let busy = $state(false)
     let cancelling = $state(false)
+    /** AbortController for the in-flight task. The TS adapter forwards
+     *  `signal` into agex-ts's task call (which honors AbortSignal
+     *  natively); the py adapter ignores it and uses its own
+     *  worker-side `cancelTask` mechanism. handleCancel calls both
+     *  so cancellation works regardless of kernel.
+     *  @type {AbortController | null} */
+    let activeAbort = $state(null)
     let historyChunks = $state(null)
     let settingsOpen = $state(false)
     let sessionsOpen = $state(false)
@@ -27,6 +56,8 @@
     let agentReady = $state(false)
     let initStatus = $state('')
     let initError = $state('')
+    /** @type {'py' | 'ts'} */
+    let activeKernel = $state(_resolveActiveKernel())
     /** @type {string[]} */
     let files = $state([])
     let inputPrefill = $state('')
@@ -137,19 +168,32 @@
     })
 
     async function runStartup(s) {
-        historyReady = false
         agentReady = false
         initError = ''
+        // Resolve fresh per-startup — settings changes can re-fire this
+        // effect after the user switched sessions.
+        activeKernel = _resolveActiveKernel()
         try {
-            initStatus = 'Loading core packages...'
-            // Drive the kernel boot through the registry. The adapter's
-            // init encapsulates the two-wave Pyodide install; we hook
-            // the 'history-ready' milestone via onStage to do shell-side
-            // session/history/files load between waves (matches the
-            // pre-migration serialized flow).
-            await kernelRegistry.ensure('py', s, {
+            initStatus = activeKernel === 'py'
+                ? 'Loading core packages...'
+                : 'Loading agent...'
+            // Drive the kernel boot through the registry. The Py adapter's
+            // init encapsulates the two-wave Pyodide install; the Ts
+            // adapter resolves quickly (no Pyodide). We hook the
+            // 'history-ready' milestone via onStage to do shell-side
+            // session/history/files load — same pattern for both kernels.
+            //
+            // `historyReady` is only torn down inside the onStage callback,
+            // i.e. only when we're actually about to reload history. A
+            // settings-change re-fire on an already-booted kernel sees
+            // `ensure` return immediately *without* firing onStage, so
+            // we don't want to reset historyReady at the top — that would
+            // hide the chat and leave it showing 'Loading…' until the
+            // next page reload.
+            await kernelRegistry.ensure(activeKernel, s, {
                 onStage: async (stage) => {
                     if (stage === 'history-ready') {
+                        historyReady = false
                         initStatus = isExternalEntry
                             ? 'Downloading bundle...'
                             : 'Loading sessions...'
@@ -185,6 +229,13 @@
     // scenes. Empty string once the agent is fully ready.
     let warmingMessage = $derived.by(() => {
         if (agentReady) return ''
+        // TS path doesn't touch `pyodideStore`; the py store stays at
+        // its idle default. Reading it here would just shadow
+        // `initStatus` with an empty `py.message` — fall back to the
+        // shell-side status directly for non-py kernels.
+        if (activeKernel !== 'py') {
+            return initStatus || 'Initializing agent...'
+        }
         const py = $pyodideStore
         if (py.status === 'error') return ''  // shown as an error notice instead
         // During the 'history-ready' stage the worker is idle —
@@ -300,9 +351,9 @@
             // Build the emissions-list shape EventDetail prefers (so
             // per-emission rendering ordered by emission_index takes
             // over from the flat-fields fallback).
-            if (b.kind === 'python') {
+            if (b.kind === 'python' || b.kind === 'ts') {
                 emissions.push({
-                    kind: 'python',
+                    kind: b.kind,
                     idx: b.idx,
                     code: b.code,
                     title: b.title,
@@ -380,19 +431,56 @@
         }
     }
 
+    /** Commit the in-flight report text as a permanent chat bubble
+     *  before any clear-state path that would discard it. Called from
+     *  both the explicit `report.done` token AND the `turn_complete`
+     *  fallback — agex-ts's token stream doesn't always set
+     *  `done: true` on the last text chunk for a TextEmission, so
+     *  relying solely on `report.done` would leave the streaming
+     *  bubble accumulated but never committed; `turn_complete` then
+     *  cleared `activeReportText` and the bubble vanished after the
+     *  turn finished. Idempotent — if there's no in-flight text or
+     *  it was already committed, this is a no-op. */
+    function commitActiveReport() {
+        const finalText = activeReportText
+        if (!finalText) return
+        const eidx = activeReportIdx
+        if (eidx != null) {
+            updateBlock(eidx, { kind: 'text', text: finalText })
+        }
+        const committedMsg = {
+            role: 'agent',
+            content: finalText,
+            isReport: true,
+            timestamp: new Date(),
+        }
+        const insertIdx = messages.findIndex(m => m.streaming)
+        if (insertIdx === -1) {
+            messages = [...messages, committedMsg]
+        } else {
+            messages = [
+                ...messages.slice(0, insertIdx),
+                committedMsg,
+                ...messages.slice(insertIdx),
+            ]
+        }
+        activeReportText = null
+        activeReportIdx = null
+    }
+
     function handleToken(token) {
-        // ``turn_complete`` is the explicit end-of-turn signal from
-        // Python's ``_on_event`` (fires after ActionEvent lands).  Any
-        // lingering ``currentTurn`` is flushed into ``streamingEvents``
-        // here; subsequent tokens start a fresh turn.
+        // ``turn_complete`` is the explicit end-of-turn signal —
+        // fires after each ActionEvent lands. Flushes any lingering
+        // ``currentTurn`` into ``streamingEvents`` AND commits any
+        // un-flushed report text into a permanent bubble (see
+        // `commitActiveReport` for the rationale).
         if (token.type === 'turn_complete') {
             const snapshot = snapshotTurn()
             if (snapshot && snapshot.emissions.length) {
                 streamingEvents = [...streamingEvents, snapshot]
             }
             currentTurn = null
-            activeReportText = null
-            activeReportIdx = null
+            commitActiveReport()
             rebuildStreamingMessages()
             return
         }
@@ -435,32 +523,16 @@
                 updateBlock(eidx, { kind: 'text', text: activeReportText })
             }
             if (token.done) {
-                const finalText = activeReportText || ''
-                if (finalText) {
-                    updateBlock(eidx, { kind: 'text', text: finalText })
-                    const committedMsg = {
-                        role: 'agent',
-                        content: finalText,
-                        isReport: true,
-                        timestamp: new Date(),
-                    }
-                    const insertIdx = messages.findIndex(m => m.streaming)
-                    if (insertIdx === -1) {
-                        messages = [...messages, committedMsg]
-                    } else {
-                        messages = [
-                            ...messages.slice(0, insertIdx),
-                            committedMsg,
-                            ...messages.slice(insertIdx),
-                        ]
-                    }
-                }
-                activeReportText = null
-                activeReportIdx = null
+                commitActiveReport()
             }
         } else if (token.type === 'python') {
             const b = ensureBlock(eidx, 'python')
             updateBlock(eidx, { kind: 'python', code: (b.code || '') + (token.content || '') })
+        } else if (token.type === 'ts') {
+            // agex-ts code emission — same layout as 'python', different
+            // syntax highlighter downstream (EventDetail switches on kind).
+            const b = ensureBlock(eidx, 'ts')
+            updateBlock(eidx, { kind: 'ts', code: (b.code || '') + (token.content || '') })
         } else if (token.type === 'terminal') {
             const b = ensureBlock(eidx, 'terminal')
             updateBlock(eidx, {
@@ -655,29 +727,75 @@
         }
     }
 
-    async function handleSend(prompt) {
-        if (!prompt.trim() || busy || !agentReady) return
+    async function handleSend(prompt, attachments = []) {
+        if (busy || !agentReady) return
+        const trimmed = (prompt || '').trim()
+        if (!trimmed && attachments.length === 0) return
+
+        // Claim `busy` BEFORE any await so a double-click on Send
+        // re-enters the busy-guard above instead of slipping through
+        // while we're partway through an upload. Every early-return
+        // path below must reset `busy` (the eventual try/finally for
+        // the agent send handles the long-running path); the
+        // upload-only path is the one the previous version missed.
+        busy = true
         inputPrefill = ''
 
         const { adapter, branch } = await getActiveAdapter()
-        const commitHash = await adapter.getCurrentCommit(branch)
 
+        // 1. Push attachments first (if any). This writes them to the
+        //    VFS, fires `handleUpload` (creates the upload bubble),
+        //    and the FileEvent we now log makes the agent aware on
+        //    their next turn. Doing this BEFORE the prompt means the
+        //    upload bubble appears above the user's message — natural
+        //    reading order ("here are the files I'm asking about").
+        if (attachments.length > 0) {
+            const uploadCommit = await adapter.getCurrentCommit(branch)
+            const fileMap = {}
+            for (const att of attachments) fileMap[att.name] = att.bytes
+            try {
+                await adapter.writeFiles(branch, fileMap)
+                await handleUpload(Object.keys(fileMap), uploadCommit)
+            } catch (e) {
+                console.error('Attachment upload failed:', e)
+                messages = [...messages, {
+                    role: 'agent',
+                    content: `Error uploading files: ${e.message || String(e)}`,
+                    timestamp: new Date(),
+                }]
+                busy = false
+                return
+            }
+        }
+
+        // 2. If there's no text, we're done — files-only "send"
+        //    just creates the upload bubble. The agent will see the
+        //    file event next time they get a turn.
+        if (!trimmed) {
+            busy = false
+            return
+        }
+
+        const commitHash = await adapter.getCurrentCommit(branch)
         messages = [...messages, {
             role: 'user',
-            content: prompt,
+            content: trimmed,
             timestamp: new Date(),
             commit_hash: commitHash,
         }]
 
-        busy = true
         streamingEvents = []
         currentTurn = null
         activeReportText = null
         activeReportIdx = null
 
+        activeAbort = new AbortController()
         try {
             tokenOverride = null
-            const response = await adapter.sendMessage(branch, prompt, { onToken: handleToken })
+            const response = await adapter.sendMessage(branch, trimmed, {
+                onToken: handleToken,
+                signal: activeAbort.signal,
+            })
             const cancelled = response.events.some(e => e.type === 'cancelled')
 
             // Replace streaming message with final message
@@ -708,30 +826,141 @@
                 await persistSessionMeta(lastAction?.title || '')
             }
         } catch (e) {
+            // Preserve the agent's in-flight emissions when the task
+            // errors mid-stream. Without this, the streaming activity
+            // card vanishes (filter strips `streaming: true` entries)
+            // and the chat just shows a bare "Error: ..." — the user
+            // loses all context about what the agent was doing right
+            // up to the failure. Snapshot the active turn (if any)
+            // and pair the partial events with the error message so
+            // the activity card stays visible alongside the error.
             const finalMessages = messages.filter(m => !m.streaming)
-            messages = [...finalMessages, {
-                role: 'agent',
-                content: `Error: ${e.message}`,
-                timestamp: new Date(),
-            }]
+            const eventsBeforeError = [...streamingEvents]
+            const liveSnapshot = snapshotTurn()
+            if (liveSnapshot && liveSnapshot.emissions.length) {
+                eventsBeforeError.push(liveSnapshot)
+            }
+            // User-initiated cancel (handleCancel set `cancelling` true
+            // before the abort fired) lands here when the adapter
+            // throws on signal abort instead of returning a response
+            // with a cancelled event. Render as cancelled, not as a
+            // crash — the partial events still show what the agent
+            // was doing up to the cancel.
+            const userCancelled = cancelling || e?.name === 'AbortError'
+            if (userCancelled) {
+                messages = [...finalMessages, {
+                    role: 'agent',
+                    content: { type: 'text', content: '' },
+                    events: eventsBeforeError,
+                    timestamp: new Date(),
+                    cancelled: true,
+                }]
+            } else {
+                messages = [...finalMessages, {
+                    role: 'agent',
+                    content: `Error: ${e.message}`,
+                    events: eventsBeforeError,
+                    timestamp: new Date(),
+                }]
+            }
         } finally {
+            // Flush any in-flight report text into a permanent bubble
+            // before tearing down. Symmetric with eventsBeforeError —
+            // when a cancel / error fires mid-text-emission (before
+            // `turn_complete` arrives), the streaming bubble's content
+            // would otherwise vanish along with `activeReportText`.
+            // No-op for the success path (turn_complete already
+            // committed). Idempotent in any case.
+            commitActiveReport()
             busy = false
             cancelling = false
+            activeAbort = null
             streamingEvents = []
             currentTurn = null
-            activeReportText = null
-            activeReportIdx = null
         }
     }
 
+    /** Drive import — opens Google Drive picker, downloads selected
+     *  files, writes them to the VFS, and renders the upload bubble.
+     *
+     *  Different shape from local-file attachments: Drive imports
+     *  persist immediately (the existing `importFromDrive` writes
+     *  directly to VFS rather than returning byte buffers we'd queue).
+     *  So Drive bypasses the pending-attachments queue and goes
+     *  straight to "uploaded" state. UX-wise that matches the user's
+     *  mental model — "I'm importing from Drive" reads as a complete
+     *  action, not as queueing for a later send. */
+    async function handleDriveImport() {
+        try {
+            const written = await importFromDrive()
+            if (written.length === 0) return
+            const { adapter, branch } = await getActiveAdapter()
+            const commitHash = await adapter.getCurrentCommit(branch)
+            await handleUpload(written, commitHash)
+        } catch (e) {
+            console.error('Drive import failed:', e)
+        }
+    }
+
+    /** Drive availability is gated on (a) the Drive import script
+     *  being loaded + auth available and (b) the session not being
+     *  external (visitors viewing someone else's published artifact
+     *  shouldn't be able to pull from their own Drive). */
+    const driveAvailable = $derived(
+        isDriveImportAvailable() && !$sessionStore.currentSessionExternal,
+    )
+
+    /** Chat-area drag-drop handler. Files dropped anywhere on the
+     *  chat surface queue into the pending-attachments store, which
+     *  ChatInput renders as chips. Same end-state as `+ Local files`
+     *  in the input bar's menu. */
+    function handleChatDragOver(e) {
+        // Only react to file drags; ignore text-selection drags etc.
+        if (!e.dataTransfer?.types?.includes('Files')) return
+        e.preventDefault()
+        chatDragOver = true
+    }
+
+    function handleChatDragLeave(e) {
+        if (e.currentTarget === e.target) chatDragOver = false
+    }
+
+    async function handleChatDrop(e) {
+        if (!e.dataTransfer?.files?.length) return
+        e.preventDefault()
+        chatDragOver = false
+        await queueFiles(e.dataTransfer.files)
+    }
+
+    let chatDragOver = $state(false)
+
     function handleCancel() {
         cancelling = true
+        // Two cancel paths, both safe to fire:
+        //   - cancelTask: py-only worker-side mechanism (sets a flag in
+        //     pyodide's globals; agent loop checks at iteration boundary).
+        //     No-op for ts sessions or when no py task is running.
+        //   - activeAbort.abort: AbortSignal that the TS adapter forwards
+        //     to agex-ts's task call. agex-ts honors AbortSignal natively.
+        // Calling both means cancellation works regardless of which
+        // kernel the active session is on.
         cancelTask()
+        activeAbort?.abort()
     }
 </script>
 
 {#snippet chatContent()}
-    <div class="chat-shell">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="chat-shell"
+        class:drag-over={chatDragOver}
+        ondragover={handleChatDragOver}
+        ondragleave={handleChatDragLeave}
+        ondrop={handleChatDrop}
+    >
+        {#if chatDragOver}
+            <div class="chat-drop-overlay">Drop files to attach</div>
+        {/if}
         <Header
             onSettingsClick={() => settingsOpen = true}
             onSessionsClick={() => sessionsOpen = true}
@@ -743,6 +972,7 @@
             showAppReload={hasAppFiles}
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
+            {activeKernel}
         />
 
         {#if historyReady}
@@ -764,6 +994,8 @@
             <ChatInput
                 onSend={handleSend}
                 onCancel={handleCancel}
+                onDriveImport={handleDriveImport}
+                {driveAvailable}
                 {busy}
                 {cancelling}
                 sendDisabled={busy || !agentReady || !configured}
@@ -790,6 +1022,49 @@
         {:else}
             <div class="warming-area">
                 <p>Set your OpenRouter API key in settings to get started.</p>
+            </div>
+        {/if}
+
+        <!--
+            Py-kernel boot modal.
+
+            Gated on Pyodide's own `status === 'loading'` rather than
+            on `activeKernel === 'py'`. Reason: when the user creates
+            a py session from a TS session, `createSession` awaits
+            `resolveAdapter('py')` (which boots Pyodide, ~30s) BEFORE
+            updating the session store / localStorage pointer. So
+            during the entire boot, `activeKernel` is still `'ts'` —
+            gating on it would never fire the modal for the case we
+            care about most.
+
+            `pyodideStore.status` transitions: `idle → loading →
+            ready` (or `error`). The `loading` state begins the
+            moment `kernelRegistry.ensure('py', ...)` calls
+            `startWorker`, covers all three Pyodide waves, and flips
+            to `ready` only after rich init completes — exactly the
+            window where the user sees nothing happening.
+
+            No flash for already-booted py-session switches: status
+            stays at `ready` from the previous session, modal stays
+            hidden. TS-only flows never touch pyodideStore.
+        -->
+        {#if $pyodideStore.status === 'loading' && !initError}
+            <div class="boot-modal-overlay" role="dialog" aria-modal="true" aria-live="polite">
+                <div class="boot-modal">
+                    <h3 class="boot-modal-title">Starting Python kernel</h3>
+                    <div class="boot-spinner"></div>
+                    <p class="boot-modal-message">{warmingMessage || 'Loading...'}</p>
+                    {#if $pyodideStore.progress > 0 && $pyodideStore.progress < 1}
+                        <div class="boot-progress-bar" aria-hidden="true">
+                            <div class="boot-progress-fill" style="width: {Math.round($pyodideStore.progress * 100)}%"></div>
+                        </div>
+                    {/if}
+                    <p class="boot-modal-hint">
+                        First boot downloads Pyodide and the scientific Python
+                        stack (~30 seconds, meaningful browser memory).
+                        Subsequent boots are cached by a Service Worker.
+                    </p>
+                </div>
             </div>
         {/if}
     </div>
@@ -822,7 +1097,6 @@
     open={filesOpen}
     onClose={() => filesOpen = false}
     {files}
-    onUpload={handleUpload}
     onDelete={handleDelete}
     onFilesChanged={(f) => files = f}
 />
@@ -864,11 +1138,32 @@
 
 <style>
     .chat-shell {
+        position: relative;
         height: 100%;
         display: flex;
         flex-direction: column;
         max-width: 900px;
         margin: 0 auto;
+    }
+
+    /* Drop overlay covers the whole chat-shell during a drag-over.
+       Files dropped anywhere on the chat surface queue into the
+       pending-attachments store (rendered as chips in ChatInput).
+       Same end-state as the `+ Local files` menu action. */
+    .chat-drop-overlay {
+        position: absolute;
+        inset: 0.5rem;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        border: 2px dashed var(--accent);
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--accent);
+        pointer-events: none;
     }
 
     .warming-area {
@@ -955,6 +1250,86 @@
 
     @keyframes spin {
         to { transform: rotate(360deg); }
+    }
+
+    /* Py-kernel cold-boot modal. Full-viewport backdrop with a
+       centered panel; covers the gap between "user switched to a
+       py session" and "Pyodide reports ready" so the stale chat
+       from the previous session isn't the only thing on screen.
+
+       Z-index puts this above SplitPane content but below the
+       existing global modals (settings drawer, session drawer,
+       etc., which open at 1000+) so the user can still bail out
+       via the drawer if needed. */
+    .boot-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        z-index: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+    }
+
+    .boot-modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.5rem 1.75rem;
+        max-width: 420px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.85rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .boot-modal-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .boot-spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+        margin: 0.25rem 0;
+    }
+
+    .boot-modal-message {
+        margin: 0;
+        font-size: 0.88rem;
+        color: var(--text);
+        min-height: 1.2em;
+    }
+
+    .boot-progress-bar {
+        width: 100%;
+        height: 4px;
+        background: color-mix(in srgb, var(--text) 10%, transparent);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .boot-progress-fill {
+        height: 100%;
+        background: var(--accent);
+        transition: width 0.2s ease-out;
+    }
+
+    .boot-modal-hint {
+        margin: 0;
+        font-size: 0.75rem;
+        line-height: 1.45;
+        color: var(--text-muted);
     }
 
     .undo-toast {

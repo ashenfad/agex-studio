@@ -33,4 +33,29 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  // ⚠ REMOVE BEFORE PUBLISHING: this entire `server` block exists
+  // only because the agex-ts packages are consumed via
+  // `file:../agex-ts/...`, putting their dist files in a sibling
+  // checkout outside Vite's default fs.allow root. Once `agex-ts`
+  // (and its sub-packages) are on npm, those file: deps get bumped
+  // to versioned ranges, the package files land under
+  // `node_modules/`, and this `server.fs.allow` becomes dead config.
+  // Drop the whole block as part of that migration.
+  server: {
+    fs: {
+      allow: ['..'],
+    },
+  },
+  optimizeDeps: {
+    // agex-runtime-worker spawns its worker via
+    // `new Worker(new URL('./worker.js', import.meta.url))` from
+    // inside its own dist. Vite's pre-bundling rewrites
+    // `import.meta.url` to point at `node_modules/.vite/deps/`,
+    // where `worker.js` doesn't exist — the worker fails to load
+    // with `worker failed during boot: undefined` (ErrorEvent has
+    // no message for a script-load 404 in workers). Excluding the
+    // package keeps Vite serving it from its original dist path,
+    // where `worker.js` and its chunk live alongside `index.js`.
+    exclude: ['agex-runtime-worker'],
+  },
 })

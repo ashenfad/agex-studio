@@ -1,0 +1,44 @@
+{
+  "name": "termish-ts",
+  "version": "0.0.1",
+  "description": "Pure-TypeScript shell parser + builtins over an async FileSystem. TypeScript port of agex-py's termish (minus jq).",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./glob": {
+      "types": "./dist/glob.d.ts",
+      "import": "./dist/glob.js"
+    },
+    "./fs/memory": {
+      "types": "./dist/fs/memory.d.ts",
+      "import": "./dist/fs/memory.js"
+    },
+    "./fs/real": {
+      "types": "./dist/fs/real.d.ts",
+      "import": "./dist/fs/real.js"
+    },
+    "./fs/kvgit": {
+      "types": "./dist/fs/kvgit.d.ts",
+      "import": "./dist/fs/kvgit.js"
+    },
+    "./fs/protocol": {
+      "types": "./dist/fs/protocol.d.ts",
+      "import": "./dist/fs/protocol.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "superjson": "^2.2.6"
+  }
+}

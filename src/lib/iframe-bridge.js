@@ -27,6 +27,14 @@ async function loadHtmlToImage() {
 
 /**
  * Render a DOM target to a base64 PNG.
+ *
+ * Returns RFC 4648 canonical base64 (no whitespace, correct
+ * padding) — Anthropic's API rejects loosely-encoded variants
+ * with "invalid base64 data" 400s, and we send screenshots into
+ * tool_result content for any model the agent's running. Other
+ * providers (Gemini, OpenAI) are more lenient but we treat the
+ * strictest as the contract so the agent's UX is consistent.
+ *
  * @param {Document} doc
  * @param {string|null} selector
  * @returns {Promise<string>} base64-encoded PNG (no data URI prefix)
@@ -37,7 +45,22 @@ async function captureScreenshot(doc, selector) {
     if (!target) throw new Error(`Screenshot target not found: ${selector}`);
 
     const dataUrl = await toPng(target, { cacheBust: true });
-    return dataUrl.replace(/^data:image\/png;base64,/, '');
+    // Strict prefix match: accept any `data:image/<type>[;params];base64,`
+    // shape (some encoders emit charset / vendor params before `base64`).
+    // The previous regex only matched `data:image/png;base64,` exactly,
+    // which silently kept the prefix bytes in the output for any
+    // variant — those non-base64 bytes blew up Anthropic's strict
+    // validator.
+    const match = dataUrl.match(/^data:image\/[^;,]+(?:;[^,]+)*?;base64,(.*)$/s);
+    if (!match) {
+        throw new Error(
+            `Screenshot encoder returned an unexpected data URL shape: ${dataUrl.slice(0, 64)}…`,
+        );
+    }
+    // Strip any whitespace/newlines just in case (canvas.toDataURL
+    // shouldn't insert them, but some encoders use MIME-style 76-char
+    // line wrapping). Anthropic's parser is whitespace-intolerant.
+    return match[1].replace(/\s/g, "");
 }
 
 /**
@@ -89,8 +112,21 @@ export async function dispatchAction(doc, action, global) {
     }
     if (action.eval) {
         try {
-            // Indirect eval runs in global scope, seeing app-level bindings
-            const val = scope.eval(action.eval);
+            // Indirect eval runs in global scope, seeing app-level bindings.
+            let val = scope.eval(action.eval);
+            // Auto-await Promise / thenable results. Without this,
+            // expressions like `Plotly.toImage(...)` or `fetch(url).
+            // then(r => r.json())` resolve to an opaque Promise that
+            // jsonifies as "[object Promise]"; the agent then has to
+            // stash results on globals + `{wait: N}` + read by separate
+            // eval — a fragile dance. Awaiting here lets the agent
+            // write idiomatic `await`-free expressions: the action
+            // takes as long as the Promise takes, and the result is
+            // the resolved value. Multi-call parallel works the same
+            // way via `Promise.all([..., ..., ...])`.
+            if (val && typeof val.then === 'function') {
+                val = await val;
+            }
             return {
                 type: 'eval',
                 expr: action.eval,
@@ -102,13 +138,56 @@ export async function dispatchAction(doc, action, global) {
                 value: _jsonifyEvalResult(val),
             };
         } catch (e) {
+            // Embed the expression text (and error name) in the
+            // error message itself. The `expr` field on the result
+            // entry already carries the expression, but agents
+            // commonly look at just the error string and miss the
+            // correlation — `ReferenceError: foo is not defined`
+            // alone doesn't tell them which of their five evals
+            // threw. The shape is `<ErrorName>: <message> (in:
+            // <expr>)`, which keeps the original message intact
+            // for downstream pattern-matching. Async errors (rejected
+            // Promises from the auto-await above) flow through the
+            // same path.
+            const name = e.name || 'Error';
+            const expr = action.eval;
             return {
                 type: 'eval',
-                expr: action.eval,
+                expr,
                 value: null,
-                error: e.message,
+                error: `${name}: ${e.message} (in: ${expr})`,
             };
         }
+    }
+    if (action.assert !== undefined) {
+        // One-shot test pattern: evaluate the expression as a JS
+        // truthy/falsy check.
+        //   - Pass (truthy) → return null so the action surfaces no
+        //     entry in the results array.
+        //   - Fail (falsy or threw) → THROW with an `AssertionError:`
+        //     prefix. The prefix is a marker the parent-side
+        //     orchestration (`executeActions`, `runTestApp`) checks
+        //     to distinguish "agent's app failed verification" (let
+        //     it propagate so the emission errors out and the agent
+        //     can self-correct on the next turn) from "an action
+        //     itself was malformed" (catch + log).
+        //
+        //     postMessage doesn't preserve Error subclass identity,
+        //     so we use a message prefix instead of an `instanceof
+        //     AssertionError` check.
+        const tag = action.message ? `${action.message} — ` : '';
+        let val;
+        try {
+            val = scope.eval(action.assert);
+        } catch (e) {
+            throw new Error(
+                `AssertionError: ${tag}${action.assert} threw — ${e.message}`,
+            );
+        }
+        if (val) return null; // pass — silent
+        throw new Error(
+            `AssertionError: ${tag}${action.assert} (got ${_jsonifyEvalResult(val)})`,
+        );
     }
     if (action.screenshot !== undefined) {
         const selector = typeof action.screenshot === 'string' ? action.screenshot : null;

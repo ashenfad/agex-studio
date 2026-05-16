@@ -1,0 +1,23 @@
+{
+  "name": "agex-openai",
+  "version": "0.0.1",
+  "description": "OpenAI Chat Completions provider for agex-ts. Lowers NeutralTurn[] to OpenAI messages; streams via SSE; baseUrl-friendly for OpenAI-compatible local servers (ollama, vLLM, LM Studio, OpenRouter, Together, etc.).",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "agex-ts": "file:../agex-ts"
+  }
+}

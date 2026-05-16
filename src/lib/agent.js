@@ -8,6 +8,7 @@ import {
   setQueryHandler,
   setLiveIframe,
 } from "./pyodide.js";
+import { resolveBaseUrl, resolveProvider } from "./settings.js";
 
 /**
  * Browser's resolved IANA timezone, or "UTC" if undetectable.
@@ -29,16 +30,33 @@ function _userTimezone() {
  * @param {{ provider?: string, baseUrl?: string }} settings
  */
 function _llmConfig(settings) {
+  // Resolve wire-format provider here too — in OpenRouter mode the
+  // shape is auto-picked from the model ID (Anthropic models go via
+  // `/v1/messages` so `cache_control` markers flow through).
+  let provider = resolveProvider(settings);
+  // Py-side override: pyfetch_anthropic sends an `anthropic-version`
+  // header that OpenRouter's CORS allow-list rejects, and the py
+  // client doesn't expose header customization yet. Force OpenAI
+  // shape until agex-py adds the equivalent of agex-anthropic's
+  // `headers` option (filed upstream). The TS side picks up the
+  // auto-routing immediately because agex-anthropic already supports
+  // deleting the offending header.
+  if (settings.accessMode === "openrouter" && provider === "anthropic") {
+    provider = "openai";
+  }
   const providerName =
-    settings.provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
+    provider === "anthropic" ? "pyfetch_anthropic" : "pyfetch_openai";
   const llmClass =
-    settings.provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
-  const baseUrlLine = settings.baseUrl
-    ? `    base_url="${settings.baseUrl}",\n`
+    provider === "anthropic" ? "PyfetchAnthropic" : "PyfetchOpenAI";
+  // Studio resolves OpenRouter mode → its base URL here so the kernel
+  // doesn't have to rely on a vendor-specific library default.
+  const resolvedBaseUrl = resolveBaseUrl(settings);
+  const baseUrlLine = resolvedBaseUrl
+    ? `    base_url="${resolvedBaseUrl}",\n`
     : "";
   // OpenRouter-specific headers — only meaningful for pyfetch_openai.
   const openrouterLines =
-    settings.provider === "anthropic"
+    provider === "anthropic"
       ? ""
       : `    app_url="https://agex.studio",\n    app_title="Agex Studio",\n`;
   // Optional: print raw SSE text deltas to the browser console.

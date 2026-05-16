@@ -67,6 +67,21 @@ export function renderMarkdown(text) {
     return marked.parse(prepare(text));
 }
 
+/** Parse markdown to inline HTML — no block elements (paragraphs,
+ *  lists, headings, fenced code). Suitable for places that must
+ *  stay on a single line, like table cells. The shared custom
+ *  renderer above still applies, so inline `code` and `vfs:` links
+ *  render the same as elsewhere.
+ *
+ *  Newlines in the source are flattened to spaces before parsing
+ *  because `breaks: true` (which we want in chat) would otherwise
+ *  insert `<br>` and grow a cell vertically — a problem for the
+ *  table's fixed ROW_HEIGHT virtualization. */
+export function renderMarkdownInline(text) {
+    const flat = String(text).replace(/\s*\n\s*/g, " ");
+    return marked.parseInline(flat);
+}
+
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 let mermaidPromise = null;
 

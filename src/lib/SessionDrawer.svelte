@@ -12,6 +12,8 @@
         inspectBundle,
         getBundleStats,
         CURRENT_BRANCH_KEY,
+        hasSeenPyExperimentalWarning,
+        markPyExperimentalWarningSeen,
     } from './sessions.js'
     import {
         remove as removeAppStorage,
@@ -21,6 +23,7 @@
     import { clearCache as clearSessionCache } from './session-index.js'
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
+    import { formatBytes } from './bytes.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -116,11 +119,6 @@
         }
     }
 
-    function formatBytes(bytes) {
-        if (bytes < 1024) return `${bytes} B`
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    }
 
     async function handlePurge() {
         if (!purgeConfirm) {
@@ -157,9 +155,34 @@
         }
     }
 
-    async function handleNew() {
+    /** Pending kernel for the experimental-warning modal — set when
+     *  the user clicks `+ Py` on a browser that hasn't dismissed the
+     *  warning yet. `null` when the modal is closed. */
+    let pendingPyConfirm = $state(false)
+
+    /** Whether the "more create options" dropdown is open. The split-
+     *  button design keeps `+ New` (TS) as the dominant action and
+     *  tucks the experimental py-create behind a chevron edge. */
+    let createMenuOpen = $state(false)
+
+    async function handleNew(kernel) {
+        if (kernel === 'py' && !hasSeenPyExperimentalWarning()) {
+            pendingPyConfirm = true
+            return
+        }
         try {
-            await createSession()
+            await createSession({ kernel })
+            onClose()
+        } catch (e) {
+            console.error('Failed to create session:', e)
+        }
+    }
+
+    async function confirmPyCreate() {
+        markPyExperimentalWarningSeen()
+        pendingPyConfirm = false
+        try {
+            await createSession({ kernel: 'py' })
             onClose()
         } catch (e) {
             console.error('Failed to create session:', e)
@@ -467,7 +490,42 @@
             <h2>Sessions</h2>
             <div class="header-actions">
                 <button class="header-btn" onclick={openImportPicker} title="Import a bundle">Import</button>
-                <button class="new-btn" onclick={handleNew}>+ New</button>
+                <div class="split-btn-group">
+                    <button
+                        class="new-btn kernel-ts split-btn-main"
+                        onclick={() => handleNew('ts')}
+                        title="New TypeScript session (recommended)"
+                    >+ New</button>
+                    <button
+                        class="split-btn-edge"
+                        onclick={() => (createMenuOpen = !createMenuOpen)}
+                        title="More create options"
+                        aria-label="More create options"
+                        aria-expanded={createMenuOpen}
+                    >
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 5 6 8 9 5"></polyline>
+                        </svg>
+                    </button>
+                    {#if createMenuOpen}
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div
+                            class="split-menu-backdrop"
+                            onclick={() => (createMenuOpen = false)}
+                            onkeydown={(e) => e.key === 'Escape' && (createMenuOpen = false)}
+                        ></div>
+                        <div class="split-menu" role="menu">
+                            <button
+                                class="split-menu-item"
+                                role="menuitem"
+                                onclick={() => { createMenuOpen = false; handleNew('py') }}
+                            >
+                                <span class="split-menu-item-label">Python session</span>
+                                <span class="split-menu-item-tag">experimental</span>
+                            </button>
+                        </div>
+                    {/if}
+                </div>
             </div>
         </div>
         <input
@@ -502,8 +560,8 @@
                         <span class="session-date">
                             <span
                                 class="kernel-badge kernel-{s.kernel || 'py'}"
-                                title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}"
-                            >{s.kernel || 'py'}</span>
+                                title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental, larger sandbox surface'}"
+                            >{s.kernel || 'py'}{(s.kernel || 'py') === 'py' ? ' · exp' : ''}</span>
                             {formatDate(s.updated)}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
@@ -835,9 +893,9 @@
                 <span class="field-label">Kernel</span>
                 <div class="preview-value">
                     <span class="kernel-badge kernel-{importPreview.manifest.kernel || 'py'}">
-                        {importPreview.manifest.kernel || 'py'}
+                        {importPreview.manifest.kernel || 'py'}{(importPreview.manifest.kernel || 'py') === 'py' ? ' · exp' : ''}
                     </span>
-                    {(importPreview.manifest.kernel || 'py') === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py)'}
+                    {(importPreview.manifest.kernel || 'py') === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental'}
                 </div>
             </div>
             <div class="preview-field">
@@ -848,6 +906,12 @@
                     {formatBytes(importPreview.bytes.length)}
                 </div>
             </div>
+            {#if (importPreview.manifest.kernel || 'py') === 'py'}
+                <div class="import-py-warning">
+                    Python uses a softer sandbox than the TypeScript kernel.
+                    Only import Python sessions from sources you trust.
+                </div>
+            {/if}
             {#if importError}
                 <div class="import-error">{importError}</div>
             {/if}
@@ -857,6 +921,37 @@
             <button type="button" class="btn-save" onclick={handleConfirmImport} disabled={importing}>
                 {importing ? 'Importing...' : 'Import as new session'}
             </button>
+        </div>
+    </div>
+{/if}
+
+{#if pendingPyConfirm}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="modal-overlay"
+        onclick={() => (pendingPyConfirm = false)}
+        onkeydown={(e) => e.key === 'Escape' && (pendingPyConfirm = false)}
+    ></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <h3>Heads up — Python kernel</h3>
+        </div>
+        <div class="modal-body">
+            <p class="py-warning-text">
+                Python sessions boot Pyodide plus pandas / NumPy / SciPy /
+                Plotly. First boot takes ~30 seconds and uses meaningful
+                browser memory; subsequent boots are cached.
+            </p>
+            <p class="py-warning-text">
+                The Python sandbox is softer than the TypeScript interpreter
+                sandbox — broader network access, more plausible escape
+                paths if something goes wrong. Use only with code you trust.
+                The TypeScript kernel is recommended for new work.
+            </p>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick={() => (pendingPyConfirm = false)}>Cancel</button>
+            <button type="button" class="btn-save" onclick={confirmPyCreate}>Got it, create session</button>
         </div>
     </div>
 {/if}
@@ -984,18 +1079,124 @@
     }
 
     .new-btn {
-        background: var(--accent);
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 0.35rem 0.75rem;
+        padding: 0.35rem 0.6rem;
         font-size: 0.8rem;
         font-weight: 600;
         cursor: pointer;
     }
 
-    .new-btn:hover {
-        background: var(--accent-hover);
+    /* Split-button group: primary `+ New` (creates TS) plus a small
+       chevron edge that opens a dropdown for alternates (currently
+       just py-experimental). Visual hierarchy is firmly on the
+       primary action; py-create is one click further in but
+       discoverable via the chevron affordance.
+
+       The two buttons render as visually fused — shared height,
+       borderless seam between them, single rounded rectangle
+       enclosing both. Chevron stays in the TS kernel color so the
+       group reads as a single unit. */
+    .split-btn-group {
+        position: relative;
+        display: inline-flex;
+        align-items: stretch;
+    }
+
+    .new-btn.kernel-ts {
+        background: #3b82f6;
+    }
+
+    .new-btn.kernel-ts:hover {
+        background: #2563eb;
+    }
+
+    .split-btn-main {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+    }
+
+    .split-btn-edge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0.4rem;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-left: 1px solid color-mix(in srgb, #ffffff 20%, transparent);
+        border-top-right-radius: 6px;
+        border-bottom-right-radius: 6px;
+        cursor: pointer;
+    }
+
+    .split-btn-edge:hover {
+        background: #2563eb;
+    }
+
+    .split-btn-edge svg {
+        flex-shrink: 0;
+    }
+
+    /* Dropdown menu sits below the split button, aligned to the
+       right edge so it stays inside the drawer on narrow viewports.
+       Backdrop is a full-viewport overlay that catches click-out
+       without forcing us to wire a document-level listener. */
+    .split-menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+    }
+
+    .split-menu {
+        position: absolute;
+        top: calc(100% + 0.3rem);
+        right: 0;
+        z-index: 201;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        min-width: 220px;
+        padding: 0.25rem;
+    }
+
+    .split-menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        width: 100%;
+        padding: 0.45rem 0.6rem;
+        background: none;
+        color: var(--text);
+        border: none;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .split-menu-item:hover {
+        background: var(--surface-hover);
+    }
+
+    .split-menu-item-label {
+        color: var(--text);
+        white-space: nowrap;
+    }
+
+    .split-menu-item-tag {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.1rem 0.35rem;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--warning) 18%, transparent);
+        color: var(--warning);
+        white-space: nowrap;
     }
 
     .header-actions {
@@ -1028,6 +1229,21 @@
         border-radius: 4px;
         color: var(--error);
         font-size: 0.72rem;
+    }
+
+    /* Trust warning when importing a Python session bundle. Same
+       shape as `.import-error` but warning-colored rather than
+       error-colored — it's a heads-up, not a failure. Only renders
+       when the bundle's manifest declares kernel === 'py'. */
+    .import-py-warning {
+        margin: 0.5rem 0 0 0;
+        padding: 0.45rem 0.6rem;
+        background: color-mix(in srgb, var(--warning) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+        border-radius: 4px;
+        color: var(--warning);
+        font-size: 0.78rem;
+        line-height: 1.45;
     }
 
     .preview-field {
@@ -1250,6 +1466,17 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    .py-warning-text {
+        color: var(--text);
+        font-size: 0.88rem;
+        line-height: 1.5;
+        margin: 0 0 0.75rem;
+    }
+
+    .py-warning-text:last-child {
+        margin-bottom: 0;
     }
 
     .session-meta {

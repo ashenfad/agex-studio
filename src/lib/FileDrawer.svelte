@@ -1,48 +1,14 @@
 <script>
-    import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
-    import { sessionStore } from './sessions.js'
     import { getActiveAdapter } from './active-adapter.js'
-    import FileModal from './FileModal.svelte'
+    import { viewingFile } from './viewing-file.js'
 
-    /** @type {{ open: boolean, onClose: () => void, files: string[], onUpload?: (names: string[], commitHash: string) => void, onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
-    let { open, onClose, files: rawFiles, onUpload, onDelete, onFilesChanged } = $props()
+    /** @type {{ open: boolean, onClose: () => void, files: string[], onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
+    let { open, onClose, files: rawFiles, onDelete, onFilesChanged } = $props()
     let files = $derived(rawFiles ?? [])
 
-    let importing = $state(false)
-    const isExternal = $derived($sessionStore.currentSessionExternal)
-    // Drive imports are gated off for external sessions — when a
-    // visitor opens someone else's published artifact, we don't want
-    // the artifact to be able to pull files from the visitor's own
-    // Google Drive.  The capability check (auth / picker present)
-    // still gates the underlying availability; this layer is the
-    // policy on top.
-    const showDriveImport = $derived(isDriveImportAvailable() && !isExternal)
-
-    async function handleImportFromDrive() {
-        if (importing) return
-        importing = true
-        try {
-            const written = await importFromDrive()
-            if (written.length > 0) {
-                // Refresh the file list so /downloads/... appear
-                const { adapter, branch } = await getActiveAdapter()
-                onFilesChanged?.(await adapter.listFiles(branch))
-            }
-        } catch (e) {
-            console.error('Drive import failed:', e)
-        } finally {
-            importing = false
-        }
-    }
-
-    let viewingFile = $state(null)
-    let uploading = $state(false)
-    let dragOver = $state(false)
     /** @type {Set<string>} */
     let selected = $state(new Set())
     let operating = $state(false)
-
-    let fileInput = $state(null)
 
     function toggleSelect(path) {
         const next = new Set(selected)
@@ -99,83 +65,19 @@
         }
     }
 
-    async function processFiles(fileList) {
-        if (!fileList.length) return
-        uploading = true
-        try {
-            const files = {}
-            for (const file of fileList) {
-                files[file.name] = new Uint8Array(await file.arrayBuffer())
-            }
-            const { adapter, branch } = await getActiveAdapter()
-            const commitHash = await adapter.getCurrentCommit(branch)
-            await adapter.writeFiles(branch, files)
-            onUpload?.(Object.keys(files), commitHash)
-        } catch (e) {
-            console.error('Upload failed:', e)
-        } finally {
-            uploading = false
-        }
-    }
-
-    function handleFileInput(e) {
-        processFiles([...e.target.files])
-        e.target.value = ''
-    }
-
-    function handleDrop(e) {
-        e.preventDefault()
-        dragOver = false
-        processFiles([...e.dataTransfer.files])
-    }
-
-    function handleDragOver(e) {
-        e.preventDefault()
-        dragOver = true
-    }
-
-    function handleDragLeave() {
-        dragOver = false
-    }
 </script>
 
 {#if open}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="overlay" onclick={onClose} onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-        class="drawer"
-        class:drag-over={dragOver}
-        ondrop={handleDrop}
-        ondragover={handleDragOver}
-        ondragleave={handleDragLeave}
-    >
+    <div class="drawer">
         <div class="drawer-header">
             <h2>Files</h2>
-            <div class="header-actions">
-                {#if showDriveImport}
-                    <button class="drive-btn" onclick={handleImportFromDrive} disabled={importing}>
-                        {importing ? 'Importing...' : 'Import from Drive'}
-                    </button>
-                {/if}
-                <button class="upload-btn" onclick={() => fileInput.click()} disabled={uploading}>
-                    {uploading ? 'Uploading...' : 'Upload'}
-                </button>
-            </div>
-            <input
-                bind:this={fileInput}
-                type="file"
-                multiple
-                onchange={handleFileInput}
-                class="hidden-input"
-            />
+            <!-- File uploads (local + Drive) moved to ChatInput's `+`
+                 menu and chat-area drag-drop. The drawer is now a
+                 browse-only view: list, select, delete, preview via
+                 the shared FileModal. -->
         </div>
-
-        {#if isExternal && isDriveImportAvailable()}
-            <div class="external-note" title="This session was opened from a shared artifact URL. Drive imports are disabled to keep the artifact's runtime from accessing your personal Drive.">
-                Shared artifact — Drive imports disabled
-            </div>
-        {/if}
 
         {#if selected.size > 0}
             <div class="selection-bar">
@@ -190,11 +92,8 @@
 
         {#if files.length === 0}
             <div class="empty">
-                {#if dragOver}
-                    Drop files here
-                {:else}
-                    No files — drag & drop or click Upload
-                {/if}
+                No files yet. Use the <strong>+</strong> button in the chat
+                input bar (or drag files into the chat area) to add files.
             </div>
         {:else}
             <div class="file-list">
@@ -208,7 +107,7 @@
                         />
                         <button
                             class="file-item"
-                            onclick={() => viewingFile = f}
+                            onclick={() => viewingFile.set(f)}
                         >
                             {f}
                         </button>
@@ -217,12 +116,9 @@
             </div>
         {/if}
 
-        {#if dragOver && files.length > 0}
-            <div class="drop-overlay">Drop files here</div>
-        {/if}
     </div>
-
-    <FileModal path={viewingFile} onClose={() => viewingFile = null} />
+    <!-- FileModal lives at App level subscribed to the `viewingFile`
+         store; this drawer just sets the store on file-click. -->
 {/if}
 
 <style>
@@ -249,10 +145,6 @@
         overflow-y: auto;
     }
 
-    .drawer.drag-over {
-        border-left-color: var(--accent);
-    }
-
     .drawer-header {
         display: flex;
         align-items: center;
@@ -260,69 +152,9 @@
         margin-bottom: 1rem;
     }
 
-    .header-actions {
-        display: flex;
-        gap: 0.4rem;
-    }
-
     h2 {
         font-size: 1.1rem;
         font-weight: 600;
-    }
-
-    .drive-btn {
-        background: none;
-        border: 1px solid var(--border);
-        color: var(--text-muted);
-        border-radius: 6px;
-        padding: 0.35rem 0.75rem;
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-    }
-
-    .drive-btn:hover:not(:disabled) {
-        background: var(--surface-hover);
-        color: var(--text);
-    }
-
-    .drive-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .external-note {
-        margin: 0.5rem 0.75rem 0;
-        padding: 0.4rem 0.6rem;
-        background: var(--surface-hover, rgba(120, 120, 120, 0.08));
-        border-left: 2px solid var(--text-muted);
-        border-radius: 0 4px 4px 0;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
-
-    .upload-btn {
-        background: var(--accent);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 0.35rem 0.75rem;
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-    }
-
-    .upload-btn:hover:not(:disabled) {
-        background: var(--accent-hover);
-    }
-
-    .upload-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .hidden-input {
-        display: none;
     }
 
     .selection-bar {
@@ -430,17 +262,4 @@
         background: var(--surface-hover);
     }
 
-    .drop-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--accent);
-        font-size: 1rem;
-        font-weight: 600;
-        border-radius: inherit;
-        pointer-events: none;
-    }
 </style>

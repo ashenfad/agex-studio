@@ -2,22 +2,53 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!--
+      Open-mode CSP: `script-src` / `connect-src` / `img-src` widened
+      to allow any HTTPS URL. This is deliberate — the TS kernel's
+      `namespaceResolver` lets the agent dynamic-import from arbitrary
+      esm.sh URLs (subject to CSP's `script-src` check), and future
+      Phase-2 fetch-origin grants need `connect-src` open for the
+      runtime to actually reach approved destinations.
+
+      Risk profile by component (revisit if changing):
+        - TS agent code: bounded by agex-ts's interpreter sandbox.
+          Agent can only call functions we register; no path to raw
+          fetch / IndexedDB / fs from agent code regardless of CSP.
+        - Py agent code: real Python via Pyodide, sandtrap is a softer
+          boundary. Open CSP removes the network backstop. Mitigated
+          by the per-session "experimental" labeling + first-time
+          create modal warning the user about sandbox-asymmetry.
+        - App preview iframes: sandboxed (`allow-scripts` only,
+          opaque origin). Can fire fetches but CORS gates response
+          reads for most APIs. Same risk shape as before.
+        - Studio host JS: only our published bundle runs here;
+          attacker-reachable surface is essentially the supply chain,
+          which CSP wasn't going to save us from anyway.
+
+      Tighter directives we keep:
+        - `worker-src 'self' blob:` — workers come from our bundle or
+          blob URLs (e.g. esbuild-wasm worker), not arbitrary origins.
+        - `frame-src` — restricted to our own origin, blob URLs, and
+          Google OAuth endpoints. Agents iframe via blob URLs only.
+        - `object-src 'none'` and `base-uri 'self'` — defense in depth.
+
+      `style-src` is open to https: — agent-authored app code (in the
+      sandboxed iframe) commonly loads Google Fonts via
+      `<link rel="stylesheet" href="https://fonts.googleapis.com/...">`
+      and similar third-party CSS. CSS isn't executable; an opaque-
+      origin iframe loading external stylesheets can affect its own
+      visual layout but can't read parent state or anything else.
+      Agent worker code has no DOM access regardless of CSP, so it
+      can't inject styles into the host page.
+    -->
     <meta http-equiv="Content-Security-Policy" content="
       default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: https://cdn.jsdelivr.net https://cdn.plot.ly https://cdnjs.cloudflare.com https://accounts.google.com https://apis.google.com https://esm.sh;
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' data: blob: https:;
       worker-src 'self' blob:;
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' data: blob:
-        https://tile.openstreetmap.org https://*.basemaps.cartocdn.com;
+      style-src 'self' 'unsafe-inline' https:;
+      img-src 'self' data: blob: https:;
       font-src 'self' data: https:;
-      connect-src 'self' blob: data:
-        https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh https://cdn.plot.ly
-        https://pypi.org https://files.pythonhosted.org
-        https://openrouter.ai https://api.anthropic.com
-        https://*.googleapis.com https://*.googleusercontent.com https://accounts.google.com
-        https://api.github.com https://gist.githubusercontent.com
-        https://tile.openstreetmap.org https://*.basemaps.cartocdn.com
-        http://localhost:* http://127.0.0.1:*;
+      connect-src 'self' blob: data: https: http://localhost:* http://127.0.0.1:*;
       frame-src 'self' blob: https://*.google.com https://*.googleusercontent.com https://accounts.google.com;
       object-src 'none';
       base-uri 'self';

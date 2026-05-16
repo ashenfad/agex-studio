@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderMarkdown } from "./markdown.js";
+import { renderMarkdown, renderMarkdownInline } from "./markdown.js";
 
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
@@ -112,5 +112,51 @@ describe("prepare (via renderMarkdown)", () => {
         expect(html).toContain("Saved ");
         expect(html).toContain(" and ");
         expect(html).toContain(" — done.");
+    });
+});
+
+describe("renderMarkdownInline", () => {
+    it("renders inline emphasis without a wrapping paragraph", () => {
+        const html = renderMarkdownInline("**bold** and *italic*");
+        expect(html).toContain("<strong>bold</strong>");
+        expect(html).toContain("<em>italic</em>");
+        // Inline mode → no <p> wrapper (block-mode would add one).
+        expect(html).not.toContain("<p>");
+    });
+
+    it("renders inline code", () => {
+        const html = renderMarkdownInline("use `foo()` here");
+        expect(html).toContain("<code>foo()</code>");
+    });
+
+    it("renders links (with vfs: handling intact)", () => {
+        const html = renderMarkdownInline("[open](vfs:doc.pdf)");
+        expect(html).toContain('class="vfs-download"');
+        expect(html).toContain('data-vfs-path="doc.pdf"');
+    });
+
+    it("does NOT produce block elements (no paragraphs, no headings, no lists)", () => {
+        // Block-shaped source — parseInline refuses to expand block
+        // structures even when the markdown asks for them.
+        const html = renderMarkdownInline("# heading\n- item 1\n- item 2");
+        expect(html).not.toContain("<h1>");
+        expect(html).not.toContain("<ul>");
+        expect(html).not.toContain("<li>");
+    });
+
+    it("flattens embedded newlines to spaces (keeps cells single-line)", () => {
+        // With `breaks: true`, a raw single-line render would inject
+        // `<br>`. The preprocessor strips newlines so table cells
+        // stay one line tall — important for fixed-row-height
+        // virtualization in DataTable.
+        const html = renderMarkdownInline("first\nsecond");
+        expect(html).not.toContain("<br");
+        expect(html).toContain("first second");
+    });
+
+    it("coerces non-string inputs via String()", () => {
+        // Defensive — DataTable filters non-strings before calling,
+        // but the helper itself should handle accidental misuse.
+        expect(renderMarkdownInline(42)).toContain("42");
     });
 });

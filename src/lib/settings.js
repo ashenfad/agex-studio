@@ -134,3 +134,70 @@ export function updateSettings(patch) {
 export function isConfigured() {
     return settings.apiKey.length > 0;
 }
+
+/** Return a snapshot of the current settings object.
+ *
+ *  Use over the Svelte-store `subscribe` contract when you need a
+ *  one-shot read inside a non-reactive code path (e.g. an `agent.fn`
+ *  handler that runs each time the agent calls it). The returned
+ *  reference is the live module-level object — callers must not
+ *  mutate it. `updateSettings` always assigns a fresh object, so the
+ *  snapshot is safe to retain locally for the duration of one call.
+ *
+ *  @returns {Settings}
+ */
+export function getSettings() {
+    return settings;
+}
+
+/** Resolve the effective LLM base URL from a settings object.
+ *
+ *  Custom mode: the user's explicit `baseUrl` wins.
+ *  OpenRouter mode: maps to OpenRouter's OpenAI-compatible endpoint.
+ *  Anything else (no mode + no URL): empty string, which signals
+ *  "use the underlying client's default" to the kernel adapter.
+ *
+ *  Centralizing here means both kernels see the same URL — the
+ *  resolution doesn't depend on which client library happens to
+ *  have which default (agex-py's `PyfetchOpenAI` defaults to
+ *  OpenRouter; agex-ts's `OpenAI` defaults to api.openai.com).
+ *
+ *  @param {{ baseUrl?: string, accessMode?: string }} s
+ *  @returns {string}
+ */
+export function resolveBaseUrl(s) {
+    if (s.baseUrl) return s.baseUrl;
+    if (s.accessMode === "openrouter") return "https://openrouter.ai/api/v1";
+    return "";
+}
+
+/** Resolve the effective LLM wire-format provider from a settings object.
+ *
+ *  Custom mode: the user's explicit `provider` choice wins.
+ *  OpenRouter mode: pick wire shape from the model ID. Anthropic models
+ *    (`anthropic/claude-…`) route to OpenRouter's Anthropic-shape
+ *    endpoint (`/v1/messages`) so `cache_control` markers flow
+ *    through — the OpenAI-shape endpoint silently drops them.
+ *    Everything else (OpenAI, Gemini, Meta, Mistral, …) uses the
+ *    OpenAI shape; Gemini's implicit caching still works there.
+ *
+ *  Caller must omit `agex-anthropic`'s default `anthropic-version`
+ *  header when targeting OpenRouter (their CORS allow-list rejects
+ *  it). See `_buildLlmClient` in `ts-agent.js` / `_llmConfig` in
+ *  `agent.js` for the per-target header overrides.
+ *
+ *  The `<provider>/<model>` ID convention is enforced consistently
+ *  on OpenRouter, so prefix-matching `anthropic/` is reliable.
+ *
+ *  @param {{ provider?: string, accessMode?: string, model?: string }} s
+ *  @returns {"openai" | "anthropic"}
+ */
+export function resolveProvider(s) {
+    if (s.accessMode === "openrouter") {
+        if (s.model && s.model.startsWith("anthropic/")) {
+            return "anthropic";
+        }
+        return "openai";
+    }
+    return s.provider === "anthropic" ? "anthropic" : "openai";
+}
