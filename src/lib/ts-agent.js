@@ -908,6 +908,28 @@ export async function fileSize(path) {
 export async function writeFiles(files) {
     const agent = _getAgent();
     const fs = await agent.fs(SESSION);
+    // Ensure each unique parent directory exists before writing.
+    // kvgit-fs `write` requires `dirname(path)` to be present (no
+    // implicit auto-mkdir) — uploads at the root never hit this,
+    // but writes into nested paths (e.g. `app/characters/img.png`
+    // during a squash fork from a session that organized files
+    // by subdir) need explicit mkdir-p. Sorting by depth and
+    // deduping keeps it O(unique-dirs) instead of O(files).
+    const parents = new Set();
+    for (const path of Object.keys(files)) {
+        const slashIdx = path.lastIndexOf("/");
+        if (slashIdx > 0) parents.add(path.slice(0, slashIdx));
+    }
+    // Shallow → deep so each mkdir sees its own parent already
+    // present. `{parents: true}` also covers this, but explicit
+    // ordering keeps the call count tight (one mkdir per unique
+    // dir, not per nested ancestor).
+    const sortedParents = [...parents].sort(
+        (a, b) => a.split("/").length - b.split("/").length,
+    );
+    for (const dir of sortedParents) {
+        await fs.mkdir(dir, { parents: true, existOk: true });
+    }
     const added = [];
     for (const [path, bytes] of Object.entries(files)) {
         await fs.write(path, bytes);
