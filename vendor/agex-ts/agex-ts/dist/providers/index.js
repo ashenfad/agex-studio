@@ -1,4 +1,4 @@
-import { TOOL_EDIT_FILE, TOOL_WRITE_FILE, TOOL_TERMINAL, TOOL_TS } from '../chunk-4JDS7Y7N.js';
+import { TOOL_TS, TOOL_TERMINAL, TOOL_WRITE_FILE, TOOL_EDIT_FILE } from '../chunk-4JDS7Y7N.js';
 import '../chunk-ZDNM4VPR.js';
 import '../chunk-MUU37UMN.js';
 import '../chunk-V7QM2ZJ3.js';
@@ -194,6 +194,7 @@ var EDIT_FILE_KEY_MAP = {
   search: "fileSearch",
   content: "fileContent"
 };
+var EMPTY_KEY_MAP = Object.freeze({});
 function keyMapFor(toolName) {
   switch (toolName) {
     case TOOL_TS:
@@ -204,9 +205,16 @@ function keyMapFor(toolName) {
       return WRITE_FILE_KEY_MAP;
     case TOOL_EDIT_FILE:
       return EDIT_FILE_KEY_MAP;
+    default:
+      return EMPTY_KEY_MAP;
   }
 }
 var CallState = class {
+  // `string`, not `ToolName`, because models occasionally hallucinate
+  // a tool name that isn't in our schema set. We accept whatever the
+  // provider streams and let `keyMapFor` + `buildEmission` route the
+  // unknown case through the synthetic-TextEmission fallback rather
+  // than crash.
   toolName;
   emissionIndex;
   /** Per-call opaque signature the provider wants round-tripped on
@@ -272,7 +280,10 @@ var CallState = class {
     const args = parsed;
     const emission = this.buildEmission(args);
     if (emission === null) {
-      return fallback("required fields missing (e.g. path / search)");
+      const known = this.toolName === TOOL_TS || this.toolName === TOOL_TERMINAL || this.toolName === TOOL_WRITE_FILE || this.toolName === TOOL_EDIT_FILE;
+      return fallback(
+        known ? "required fields missing (e.g. path / search)" : `unknown tool name "${this.toolName}" \u2014 not in the registered schema set`
+      );
     }
     return {
       type: "emission",
@@ -292,6 +303,8 @@ var CallState = class {
         return buildWriteFileEmission(args, this.signature);
       case TOOL_EDIT_FILE:
         return buildEditFileEmission(args, this.signature);
+      default:
+        return null;
     }
   }
 };
