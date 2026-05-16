@@ -59,20 +59,24 @@ function makeConsole(executeId) {
     // biome-ignore lint/suspicious/noExplicitAny: Console has many optional members across realms
   };
 }
+var MAX_CAPTURE_BYTES = 5e4;
+function _cap(s) {
+  return s.length > MAX_CAPTURE_BYTES ? `${s.slice(0, MAX_CAPTURE_BYTES)}\u2026(truncated, original ${s.length} bytes)` : s;
+}
 function safeStringify(v) {
   if (v === null) return "null";
   if (v === void 0) return "undefined";
   const t = typeof v;
-  if (t === "string") return v;
+  if (t === "string") return _cap(v);
   if (t === "number" || t === "boolean" || t === "bigint") return String(v);
   if (t === "function") return "[function]";
   try {
     const json = JSON.stringify(v);
-    if (json === void 0) return String(v);
-    return json.length > 1e4 ? `${json.slice(0, 1e4)}\u2026(truncated)` : json;
+    if (json === void 0) return _cap(String(v));
+    return _cap(json);
   } catch {
     try {
-      return String(v);
+      return _cap(String(v));
     } catch {
       return "[unserializable]";
     }
