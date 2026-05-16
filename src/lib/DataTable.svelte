@@ -1,6 +1,21 @@
 <script>
+    import { renderMarkdownInline } from './markdown.js'
+
     /** @type {{ columns: string[], rows: any[][] }} */
     let { columns, rows } = $props()
+
+    /** Cells that are strings get inline-markdown treatment so
+     *  `**bold**`, `` `code` ``, `*italic*`, and `[links](url)`
+     *  render naturally. Non-strings pass through as-is (numbers
+     *  shouldn't get markdown-parsed; null/undefined render as
+     *  empty). Block-level markdown isn't possible — parseInline
+     *  refuses to produce paragraphs / lists / headings, which
+     *  protects the fixed-row-height virtualization. */
+    function renderCell(cell) {
+        if (cell == null) return ''
+        if (typeof cell === 'string') return renderMarkdownInline(cell)
+        return String(cell)
+    }
 
     let sortCol = $state(null)
     let sortAsc = $state(true)
@@ -91,7 +106,7 @@
                     {#each visibleRows as row}
                         <tr>
                             {#each row as cell, i}
-                                <td class:numeric={isNumeric(i)}>{cell ?? ''}</td>
+                                <td class:numeric={isNumeric(i)}>{@html renderCell(cell)}</td>
                             {/each}
                         </tr>
                     {/each}
@@ -100,7 +115,7 @@
                     {#each sortedRows as row}
                         <tr>
                             {#each row as cell, i}
-                                <td class:numeric={isNumeric(i)}>{cell ?? ''}</td>
+                                <td class:numeric={isNumeric(i)}>{@html renderCell(cell)}</td>
                             {/each}
                         </tr>
                     {/each}
