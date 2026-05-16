@@ -5,6 +5,7 @@
         switchSession,
         deleteSession,
         forkSession,
+        forkSessionFreshChat,
         getSessionDebugInfo,
         setSessionMeta,
         exportBundle,
@@ -24,6 +25,7 @@
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
+    import ForkModal from './ForkModal.svelte'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -189,15 +191,45 @@
         }
     }
 
+    // ForkModal state. We collect the source-branch context at
+    // click time so the modal stays purely presentational — given
+    // a title + a confirm callback, it doesn't reach into the
+    // session store itself.
+    let forkModalOpen = $state(false)
+    let forkSourceBranch = $state(null)
+
+    /** @type {{ title: string, kernel: 'py' | 'ts' } | null} */
+    let forkSourceInfo = $derived.by(() => {
+        if (!forkSourceBranch) return null
+        const s = $sessionStore.sessions.find((x) => x.branch === forkSourceBranch)
+        if (!s) return null
+        return { title: s.title || 'New Chat', kernel: s.kernel }
+    })
+
     async function handleFork(e, branch) {
         e.stopPropagation()
+        forkSourceBranch = branch
+        forkModalOpen = true
+    }
+
+    async function handleForkConfirm(mode) {
+        const branch = forkSourceBranch
+        if (!branch) return
         try {
             if (branch !== currentBranch) {
                 await switchSession(branch)
             }
-            await forkSession()
-        } catch (e) {
-            console.error('Failed to fork session:', e)
+            if (mode === 'fresh') {
+                await forkSessionFreshChat()
+            } else {
+                await forkSession()
+            }
+            forkModalOpen = false
+            forkSourceBranch = null
+        } catch (err) {
+            console.error('Failed to fork session:', err)
+            // Leave the modal open so the user can retry / cancel
+            // rather than silently losing their click.
         }
     }
 
@@ -1042,6 +1074,15 @@
         </form>
     </div>
 {/if}
+
+<ForkModal
+    open={forkModalOpen}
+    sourceTitle={forkSourceInfo?.title ?? ''}
+    freshDisabled={forkSourceInfo?.kernel === 'py'}
+    freshDisabledReason={forkSourceInfo?.kernel === 'py' ? 'Fresh-chat fork is currently TS-only.' : ''}
+    onClose={() => { forkModalOpen = false; forkSourceBranch = null }}
+    onConfirm={handleForkConfirm}
+/>
 
 <style>
     .overlay {

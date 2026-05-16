@@ -412,13 +412,41 @@ export async function deleteSession(branch) {
  *  The fork inherits the parent's kernel — sessions are
  *  kernel-bound. */
 export async function forkSession() {
+    return _forkSession({ filesOnly: false });
+}
+
+/** Fork the current session, keeping the VFS workspace but
+ *  dropping the agent's conversation context (event log, cache,
+ *  sub-task registry). The new branch starts blank — same files,
+ *  no prior chat history.
+ *
+ *  Implementation note: this isn't a kvgit-level "selective copy."
+ *  We branch off source HEAD (inherits everything via shared blobs
+ *  — zero bytes copied) and then call `adapter.wipeAgentMemory`
+ *  on the new branch, which tombstones the conversation-context
+ *  keys. The VFS file blobs stay referenced via the source's
+ *  commit chain. Storage cost: a few tombstones, no blob copies,
+ *  works the same on a 100 MB session as an empty one. */
+export async function forkSessionFreshChat() {
+    return _forkSession({ filesOnly: true });
+}
+
+async function _forkSession({ filesOnly }) {
     const sourceBranch = state.currentBranch;
     const sourceKernel = _kernelFor(sourceBranch);
     const adapter = await resolveAdapter(sourceKernel);
     const sourceMeta = state.sessions.find((s) => s.branch === sourceBranch);
     const newBranch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
     await adapter.createBranch(newBranch, { from: sourceBranch });
-    const newTitle = `${sourceMeta?.title || "New Chat"} (fork)`;
+    // Fresh-chat: wipe the agent-memory keys before any meta
+    // write. Order matters — wipe touches the same kvgit branch
+    // we're about to set the title on, so doing it first means
+    // the title write is the last commit, easy to spot in history.
+    if (filesOnly) {
+        await adapter.wipeAgentMemory(newBranch);
+    }
+    const suffix = filesOnly ? "(fresh)" : "(fork)";
+    const newTitle = `${sourceMeta?.title || "New Chat"} ${suffix}`;
     await adapter.writeBranchMeta(newBranch, { title: newTitle });
     appStorageCopy(sourceKernel, sourceBranch, newBranch);
 

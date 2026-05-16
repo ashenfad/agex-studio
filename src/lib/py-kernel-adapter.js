@@ -447,6 +447,19 @@ _state.reset_to("${_esc(hash)}")
             return {};
         },
 
+        async wipeAgentMemory(_branch) {
+            // Py-kernel doesn't currently expose a wipe path through
+            // the pyodide bridge. Fresh-chat forks against py
+            // sessions will inherit the full memory state — the
+            // ForkModal hides the option for py sessions to avoid
+            // a silent no-op. Throw here so a stray caller fails
+            // loudly rather than silently degrading.
+            throw new Error(
+                "wipeAgentMemory not implemented for the py kernel — " +
+                    "fresh-chat fork is TS-only for now.",
+            );
+        },
+
         // --- Bundle payloads --------------------------------------------
 
         async exportBundlePayload(branch, /** @type {ExportBundleOptions} */ opts = {}) {

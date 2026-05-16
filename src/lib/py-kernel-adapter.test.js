@@ -39,6 +39,7 @@ const EXPECTED_METHODS = [
     "deleteFiles",
     "readAppFiles",
     "readAppBinaries",
+    "wipeAgentMemory",
     // Bundle payloads
     "exportBundlePayload",
     "importBundlePayload",

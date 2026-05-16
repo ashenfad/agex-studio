@@ -692,6 +692,71 @@ export async function createBranch(name, opts = {}) {
     await agent.commit(SESSION);
 }
 
+/** Prefixes the studio considers "agent memory" — wiped by the
+ *  fresh-chat fork mode. The VFS file blobs (`f:` / `d:` prefixes
+ *  via termish-ts kvgit-fs) and the session meta keys
+ *  (`__session_*__`) are deliberately not in this list — the fresh
+ *  fork keeps the workspace and the session identity, just clears
+ *  the conversation context. */
+const AGENT_MEMORY_PREFIXES = ["evt/", "cache/"];
+const AGENT_MEMORY_EXACT_KEYS = ["__event_log__", "__subtasks__"];
+
+/** Predicate used by `wipeAgentMemory` to decide which kvgit keys
+ *  to tombstone. Exported with the underscore-prefix convention
+ *  because it's an internal contract — but pinned with tests
+ *  since the categorization is easy to get wrong (e.g.
+ *  accidentally treating `f:` as memory would wipe the VFS too). */
+export function _isAgentMemoryKey(key) {
+    if (AGENT_MEMORY_EXACT_KEYS.includes(key)) return true;
+    return AGENT_MEMORY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/**
+ * Drop every "agent memory" key on `branch` — event log, cache,
+ * and the sub-task registry — while leaving the VFS file blobs
+ * and session meta intact.
+ *
+ * Used by the fresh-chat fork mode in `sessions.forkSessionFilesOnly`:
+ * branch off the source HEAD (full inherit via kvgit's shared
+ * blobs — no bytes copied), then tombstone the conversation-context
+ * keys on the new branch. Storage cost stays at zero blob copies;
+ * what survives is referenced by the source's commit chain.
+ *
+ * Idempotent. No-op when the branch's memory keys are already
+ * absent (e.g. fresh branch from initial commit). Switches branches
+ * temporarily if `branch` isn't current, restoring on the way out.
+ *
+ * @param {string} branch
+ */
+export async function wipeAgentMemory(branch) {
+    const staged = await _getStaged();
+    const cur = staged.currentBranch;
+    const switched = branch !== cur;
+    if (switched) {
+        await staged.switchBranch(branch);
+        _activeBranch = branch;
+    }
+    try {
+        // Walk all keys once. Per-key delete is cheap (in-memory
+        // staged-buffer set add); the cost is the keys iteration.
+        // For sessions with thousands of events this is still
+        // milliseconds — the iteration's the same shape backups,
+        // chaptering, and the existing keys-walks already use.
+        const victims = [];
+        for await (const k of staged.keys()) {
+            if (_isAgentMemoryKey(k)) victims.push(k);
+        }
+        if (victims.length === 0) return; // already clean
+        for (const k of victims) staged.delete(k);
+        await _getAgent().commit(SESSION);
+    } finally {
+        if (switched) {
+            await staged.switchBranch(cur);
+            _activeBranch = cur;
+        }
+    }
+}
+
 export async function deleteBranch(name) {
     const staged = await _getStaged();
     if (staged.currentBranch === name) {

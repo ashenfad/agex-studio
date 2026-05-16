@@ -37,6 +37,7 @@ import {
     deleteFilesHelper as agentDeleteFiles,
     readAppFiles as agentReadAppFiles,
     readAppBinaries as agentReadAppBinaries,
+    wipeAgentMemory as agentWipeAgentMemory,
     getCacheValue as agentGetCacheValue,
     loadHistory as agentLoadHistory,
     estimateLogTokens as agentEstimateLogTokens,
@@ -300,6 +301,10 @@ export function createTsAdapter() {
         async readAppBinaries(branch) {
             await _ensureBranch(branch);
             return agentReadAppBinaries();
+        },
+
+        async wipeAgentMemory(branch) {
+            await agentWipeAgentMemory(branch);
         },
 
         // --- Bundle payloads --------------------------------------------
