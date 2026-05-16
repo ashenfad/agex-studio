@@ -96,6 +96,25 @@ describe("dispatchAction — read", () => {
         const result = await dispatchAction(document, { read: "#d", prop: "customProp" });
         expect(result.value).toBe("42");
     });
+
+    it("caps oversized read values with a truncation notice", async () => {
+        // Simulate an agent reading `outerHTML` of a giant subtree
+        // (or `<style>` body, or a serialized JSON dump pasted into
+        // a textarea). Without the cap the raw value would flow
+        // back into testApp's return and from there into the
+        // agent's next-turn context.
+        const big = "x".repeat(80_000);
+        document.body.innerHTML = `<div id="big">${big}</div>`;
+        const result = await dispatchAction(document, {
+            read: "#big",
+            prop: "textContent",
+        });
+        expect(result.value.length).toBeLessThan(60_000);
+        expect(result.value).toMatch(/^\[truncated: read value was 80000 bytes/);
+        // Truncated payload should still carry the head of the
+        // original so the agent can recognize it.
+        expect(result.value).toContain("xxxxx");
+    });
 });
 
 describe("dispatchAction — eval", () => {
@@ -206,6 +225,35 @@ describe("dispatchAction — eval", () => {
         expect(result.value).toBeNull();
         expect(result.error).toContain("Error: nope");
         expect(result.error).toContain(`(in: ${evalExpr})`);
+    });
+
+    it("caps oversized eval results with a JSON-encoded truncation notice", async () => {
+        // Reproduces the real-world case: eval returns an array of
+        // objects whose stringified form exceeds the cap (e.g. the
+        // user's script-tag enumeration where each `.src` was a
+        // multi-KB inlined data URI). The returned `value` must
+        // still be valid JSON so the agent's JSON.parse works —
+        // they get the notice as a string instead of the structure.
+        const scope = {
+            eval: () =>
+                Array.from({ length: 100 }, (_, i) => ({
+                    type: "text/javascript",
+                    src: "data:application/javascript," + "A".repeat(2000),
+                    idx: i,
+                })),
+        };
+        const result = await dispatchAction(
+            document,
+            { eval: "huge" },
+            scope,
+        );
+        expect(typeof result.value).toBe("string");
+        // value is a JSON-encoded string when capped (parse-safe).
+        const parsed = JSON.parse(result.value);
+        expect(typeof parsed).toBe("string");
+        expect(parsed).toMatch(/^\[truncated: eval\/read value was \d+ bytes/);
+        // Original size mentioned, head of original preserved.
+        expect(parsed).toContain('"data:application/javascript,AAA');
     });
 });
 

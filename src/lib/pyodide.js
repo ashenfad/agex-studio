@@ -516,11 +516,23 @@ const CONSOLE_INTERCEPTOR = `
 (function() {
     window.__agex_logs = [];
     var _origLog = console.log, _origWarn = console.warn, _origErr = console.error;
+    // Per-message cap. Mirrors MAX_VALUE_BYTES in iframe-bridge.js:
+    // an in-iframe console.log(bigObject) would otherwise flow into
+    // testApp's collected logs and from there into the agent's
+    // next-turn context. 50 KB per log entry stays generous for
+    // useful debugging output while preventing single-log context
+    // blowups.
+    var MAX_LOG_BYTES = 50000;
     function capture(level, args) {
         var msg = Array.prototype.map.call(args, function(a) {
             try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
             catch(e) { return String(a); }
         }).join(' ');
+        if (msg.length > MAX_LOG_BYTES) {
+            msg = '[truncated: log was ' + msg.length + ' bytes (cap ' +
+                MAX_LOG_BYTES + '). First ' + MAX_LOG_BYTES + ' bytes: ' +
+                msg.slice(0, MAX_LOG_BYTES) + ']';
+        }
         window.__agex_logs.push({ level: level, message: msg });
     }
     console.log = function() { capture('log', arguments); _origLog.apply(console, arguments); };

@@ -171,7 +171,50 @@ export async function collectResults(iframe, actionResults) {
     } catch {
         /* ignore — collecting logs is best-effort */
     }
-    return [...logs, ...actionResults].slice(0, 200);
+    const capped = [...logs, ...actionResults].slice(0, 200);
+    // Final overall-size backstop. Per-entry caps in iframe-bridge
+    // (eval/read) and the console interceptor (logs) already keep
+    // individual items at <=50 KB, but a session that emits 100
+    // capped logs would still total ~5 MB. Trim from the front
+    // (logs come first; action results are the things the agent
+    // most cared about) until the total fits within the budget.
+    // The agent then sees a single synthetic log noting what got
+    // dropped so they don't silently lose context.
+    return _enforceTotalCap(capped, MAX_TOTAL_RESULT_BYTES);
+}
+
+/** ~256 KB combined cap on a single testApp / liveApp return.
+ *  Generous for realistic dashboards (dozens of action results
+ *  with capped values); a hard ceiling above that signals abuse
+ *  or pathological logging that would blow up the next turn's
+ *  prompt either way. */
+const MAX_TOTAL_RESULT_BYTES = 256_000;
+
+export function _enforceTotalCap(entries, max) {
+    // Cheap UTF-16 byte estimate via length — strings are at most
+    // 2 bytes per char in V8 but most content is ASCII, so this
+    // upper-bounds the real wire size.
+    const sizeOf = (e) =>
+        (e.message?.length ?? 0) + (e.value?.length ?? 0) + 64;
+    let total = entries.reduce((n, e) => n + sizeOf(e), 0);
+    if (total <= max) return entries;
+    let dropped = 0;
+    const out = [...entries];
+    while (out.length > 0 && total > max) {
+        const e = out.shift();
+        total -= sizeOf(e);
+        dropped++;
+    }
+    return [
+        {
+            type: "log",
+            level: "warn",
+            message:
+                `[truncated: dropped ${dropped} earliest result entries ` +
+                `(per-entry caps already applied; combined size exceeded ${max} bytes)]`,
+        },
+        ...out,
+    ];
 }
 
 /** Wire iframe→parent message bridges to the caller-provided

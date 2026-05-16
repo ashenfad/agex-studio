@@ -12,6 +12,38 @@
  * use in the iframe.
  */
 
+/** Per-value cap for action results that flow back into the agent's
+ *  context. The iframe can produce arbitrarily large strings via
+ *  eval (`Array.from(document.scripts).map(s => s.src)` returns
+ *  data-URI-laden values when JS is inlined via the import map)
+ *  and read (`outerHTML` of a big subtree, `<style>` body, etc.).
+ *  Without a cap, one action's payload can blow past the LLM's
+ *  context window in a single turn. 50 KB is generous for honest
+ *  debug data, tight enough that pathological dumps trip the
+ *  truncation notice. */
+const MAX_VALUE_BYTES = 50_000;
+
+/** Cap an already-serialized JSON string by replacing it with a
+ *  fresh JSON-encoded notice when over the limit. Returning a
+ *  string-typed JSON keeps callers' `JSON.parse` working — they
+ *  see the notice as a string value instead of the original
+ *  structure. The notice carries the original size so the agent
+ *  can adapt their next eval (filter columns, slice arrays, etc.). */
+function _truncationNotice(originalJson, max) {
+    return (
+        `[truncated: eval/read value was ${originalJson.length} bytes ` +
+        `(cap ${max}). First ${max} bytes: ${originalJson.slice(0, max)}]`
+    );
+}
+
+/** Same idea, but for raw strings — used by read-action's
+ *  property readbacks which aren't JSON-serialized. */
+function _capString(s, max) {
+    if (s.length <= max) return s;
+    return `[truncated: read value was ${s.length} bytes (cap ${max}). ` +
+        `First ${max} bytes: ${s.slice(0, max)}]`;
+}
+
 let _htmlToImagePromise = null;
 async function loadHtmlToImage() {
     // Use html-to-image (SVG foreignObject-based) rather than html2canvas.
@@ -104,10 +136,11 @@ export async function dispatchAction(doc, action, global) {
     if (action.read) {
         const el = doc.querySelector(action.read);
         const prop = action.prop || 'textContent';
+        const raw = el ? String(el[prop] ?? '') : null;
         return {
             type: 'read',
             selector: action.read,
-            value: el ? String(el[prop] ?? '') : null,
+            value: raw === null ? null : _capString(raw, MAX_VALUE_BYTES),
         };
     }
     if (action.eval) {
@@ -222,8 +255,9 @@ export async function dispatchAction(doc, action, global) {
 function _jsonifyEvalResult(val) {
     if (val === null || val === undefined) return null;
     const seen = new WeakSet();
+    let json;
     try {
-        return JSON.stringify(val, (key, v) => {
+        json = JSON.stringify(val, (key, v) => {
             if (typeof v === "function") {
                 return `[function ${v.name || "anonymous"}]`;
             }
@@ -247,6 +281,13 @@ function _jsonifyEvalResult(val) {
     } catch (e) {
         return JSON.stringify(`[unserializable: ${e.message || e}]`);
     }
+    if (json.length <= MAX_VALUE_BYTES) return json;
+    // Too big for the agent's context window. Wrap the truncated
+    // string in a fresh JSON-encoded notice so callers' JSON.parse
+    // still works (they get the notice as a string instead of a
+    // structured value). The notice names the original size so the
+    // agent can size their next eval more carefully.
+    return JSON.stringify(_truncationNotice(json, MAX_VALUE_BYTES));
 }
 
 /**
