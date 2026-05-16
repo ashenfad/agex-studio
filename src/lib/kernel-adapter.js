@@ -361,12 +361,12 @@
  * @property {(branch: string) => Promise<void>} wipeAgentMemory
  *   Drop the "agent memory" keys on `branch` — event log, cache,
  *   sub-task registry — while leaving the VFS file blobs and
- *   session metadata intact.  Used by the fresh-chat fork mode:
- *   branch off the source HEAD (sharing all kvgit blobs), then
- *   wipe the conversation-context keys on the new branch.  Storage
- *   cost stays at zero blob copies.  Kernels without a wipe path
- *   (currently py) throw — the embedder is expected to gate the
- *   fresh-chat UI on kernel support so the call never fires.
+ *   session metadata intact.  Not currently consumed by fork (the
+ *   fresh-chat fork mode now squashes by re-setting files onto a
+ *   genesis-branch instead), but kept as a documented primitive
+ *   for future "soft wipe in place" capabilities (reset chat on
+ *   an existing branch without forking).  Kernels without a wipe
+ *   path (currently py) throw.
  *
  * --- Bundle payloads (kvgit subgraph only — shell handles app-storage) ---
  *

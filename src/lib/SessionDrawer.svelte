@@ -191,19 +191,19 @@
         }
     }
 
-    // ForkModal state. We collect the source-branch context at
+    // ForkModal state. We collect the source-branch title at
     // click time so the modal stays purely presentational — given
     // a title + a confirm callback, it doesn't reach into the
     // session store itself.
     let forkModalOpen = $state(false)
     let forkSourceBranch = $state(null)
 
-    /** @type {{ title: string, kernel: 'py' | 'ts' } | null} */
+    /** @type {{ title: string } | null} */
     let forkSourceInfo = $derived.by(() => {
         if (!forkSourceBranch) return null
         const s = $sessionStore.sessions.find((x) => x.branch === forkSourceBranch)
         if (!s) return null
-        return { title: s.title || 'New Chat', kernel: s.kernel }
+        return { title: s.title || 'New Chat' }
     })
 
     async function handleFork(e, branch) {
@@ -1089,8 +1089,6 @@
 <ForkModal
     open={forkModalOpen}
     sourceTitle={forkSourceInfo?.title ?? ''}
-    freshDisabled={forkSourceInfo?.kernel === 'py'}
-    freshDisabledReason={forkSourceInfo?.kernel === 'py' ? 'Fresh-chat fork is currently TS-only.' : ''}
     onClose={() => { forkModalOpen = false; forkSourceBranch = null }}
     onConfirm={handleForkConfirm}
 />
