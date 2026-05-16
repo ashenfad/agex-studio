@@ -217,21 +217,7 @@ import {
     renderPdfPagesToBytes as _renderPdfPagesToBytes,
     getPdfPageCount as _getPdfPageCount,
 } from "./pdf-render.js";
-
-/** Convert a Uint8Array to base64 without blowing the call stack on
- *  large inputs (`String.fromCharCode(...arr)` over big arrays
- *  hits arg-list limits in some browsers). Chunked apply pattern. */
-function _bytesToBase64(bytes) {
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-        bin += String.fromCharCode.apply(
-            null,
-            /** @type {any} */ (bytes.subarray(i, i + CHUNK)),
-        );
-    }
-    return btoa(bin);
-}
+import { bytesToBase64 } from "./bytes.js";
 
 /**
  * Render PDF pages and post results back to the py worker as a
@@ -252,7 +238,7 @@ async function renderPdfPages(pdfBase64, pagesJson, scale, requestId) {
         // Empty Uint8Array (out-of-range marker from the shared
         // module) → null in the py-shaped result list.
         const results = pageBytes.map((b) =>
-            b.length === 0 ? null : _bytesToBase64(b),
+            b.length === 0 ? null : bytesToBase64(b),
         );
         worker.postMessage({
             type: "pdf-rendered",

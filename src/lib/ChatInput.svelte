@@ -31,6 +31,7 @@
     } from './pending-attachments.js'
     import { settingsStore, updateSettings } from './settings.js'
     import { presetsFor, labelFor } from './models.js'
+    import { formatBytes } from './bytes.js'
 
     /** Models available in the toolbar picker depend on the user's
      *  current accessMode + provider — same gating the settings
@@ -136,13 +137,6 @@
         if (e.dataTransfer?.files) await queueFiles(e.dataTransfer.files)
     }
 
-    /** Format byte counts for chip labels — matches the style used
-     *  by the file drawer's size pill. */
-    function formatBytes(n) {
-        if (n < 1024) return `${n}B`
-        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
-        return `${(n / 1024 / 1024).toFixed(1)}MB`
-    }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

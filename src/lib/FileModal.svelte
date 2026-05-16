@@ -4,6 +4,7 @@
     import { getActiveAdapter } from './active-adapter.js'
     import { tick } from 'svelte'
     import Papa from 'papaparse'
+    import { formatBytes } from './bytes.js'
 
     /** @type {{ path: string | null, onClose: () => void }} */
     let { path, onClose } = $props()
@@ -43,12 +44,6 @@
 
     function getFileName(p) {
         return p.split('/').pop() || p
-    }
-
-    function formatSize(bytes) {
-        if (bytes < 1024) return `${bytes} B`
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
     }
 
     /** @type {'text' | 'markdown' | 'csv' | 'image' | 'pdf' | 'binary'} */
@@ -298,16 +293,16 @@
                         <div class="meta-name">{getFileName(path)}</div>
                         <div class="meta-ext">Too large to preview</div>
                         {#if size != null}
-                            <div class="meta-size">{formatSize(size)}</div>
+                            <div class="meta-size">{formatBytes(size)}</div>
                         {/if}
-                        <div class="meta-hint">Files over {formatSize(HARD_READ_CAP)} are download-only.</div>
+                        <div class="meta-hint">Files over {formatBytes(HARD_READ_CAP)} are download-only.</div>
                         <button class="download-action" onclick={handleDownload}>Download</button>
                     </div>
                 {:else if fileType === 'csv' && parsedCsv}
                     {#if truncated}
                         <div class="truncation-banner">
                             Showing first {parsedCsv.rows.length.toLocaleString()} rows
-                            ({formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}).
+                            ({formatBytes(truncated.shownBytes)} of {formatBytes(truncated.fullBytes)}).
                             <button class="banner-action" onclick={handleDownload}>Download full file</button>
                         </div>
                     {/if}
@@ -334,7 +329,7 @@
                 {:else if fileType === 'markdown' && content != null}
                     {#if truncated}
                         <div class="truncation-banner">
-                            Showing first {formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}.
+                            Showing first {formatBytes(truncated.shownBytes)} of {formatBytes(truncated.fullBytes)}.
                             <button class="banner-action" onclick={handleDownload}>Download full file</button>
                         </div>
                     {/if}
@@ -342,7 +337,7 @@
                 {:else if fileType === 'text' && content != null}
                     {#if truncated}
                         <div class="truncation-banner">
-                            Showing first {formatSize(truncated.shownBytes)} of {formatSize(truncated.fullBytes)}.
+                            Showing first {formatBytes(truncated.shownBytes)} of {formatBytes(truncated.fullBytes)}.
                             <button class="banner-action" onclick={handleDownload}>Download full file</button>
                         </div>
                     {/if}
@@ -358,7 +353,7 @@
                         <div class="meta-name">{getFileName(path)}</div>
                         <div class="meta-ext">{getExt(path) || 'No extension'}</div>
                         {#if size != null}
-                            <div class="meta-size">{formatSize(size)}</div>
+                            <div class="meta-size">{formatBytes(size)}</div>
                         {/if}
                         <button class="download-action" onclick={handleDownload}>Download</button>
                     </div>

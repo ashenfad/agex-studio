@@ -16,6 +16,8 @@
  * everything else.
  */
 
+import { formatBytes } from "./bytes.js";
+
 /**
  * @typedef {Object} GistPublishResult
  * @property {string} gistId         - the gist's id (hex string)
@@ -279,7 +281,7 @@ function _composeGistComment({
     if (stats.blobs != null) rows.push(["Blobs", String(stats.blobs)]);
     if (stats.nodes != null) rows.push(["Nodes", String(stats.nodes)]);
     if (bundleBytesLen != null) {
-        rows.push(["Bundle", _formatBytes(bundleBytesLen)]);
+        rows.push(["Bundle", formatBytes(bundleBytesLen)]);
     }
     if (rows.length) {
         lines.push("", "|  |  |", "|--|--|");
@@ -290,16 +292,6 @@ function _composeGistComment({
     return lines.join("\n");
 }
 
-/**
- * Human-friendly byte count: ``"1.2 MB"`` / ``"345 KB"`` / ``"42 B"``.
- * @param {number} n
- * @returns {string}
- */
-function _formatBytes(n) {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /**
  * Translate a GitHub API error into something a publisher can act on.

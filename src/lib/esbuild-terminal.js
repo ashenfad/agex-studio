@@ -20,6 +20,8 @@
  * single atomic call, no incremental stdout).
  */
 
+import { bytesToBase64 } from "./bytes.js";
+
 /** Source extensions esbuild understands as text. Kept in sync with
  *  the py-side `SOURCE_EXTS` in `_collect_app_sources`. */
 const SOURCE_EXTS = [".jsx", ".tsx", ".ts", ".js", ".css", ".json", ".svg"];
@@ -144,7 +146,7 @@ export async function collectAppSources(fs) {
                 try {
                     const bytes = await fs.read(full);
                     if (bytes.length > BINARY_MAX_BYTES) continue;
-                    files[full] = { _binary_b64: _bytesToBase64(bytes) };
+                    files[full] = { _binary_b64: bytesToBase64(bytes) };
                 } catch {
                     // Skip files that vanish or fail mid-walk.
                 }
@@ -154,16 +156,6 @@ export async function collectAppSources(fs) {
     return files;
 }
 
-/** Encode raw bytes to canonical base64. Browser `btoa` only handles
- *  Latin1, so we widen byte-by-byte. Adequate for ≤1MB images
- *  (BINARY_MAX_BYTES); not used on hot paths. */
-function _bytesToBase64(bytes) {
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-}
 
 /**
  * Format a single esbuild diagnostic for terminal output. Pure.

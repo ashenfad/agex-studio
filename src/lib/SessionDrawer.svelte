@@ -23,6 +23,7 @@
     import { clearCache as clearSessionCache } from './session-index.js'
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
+    import { formatBytes } from './bytes.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -118,11 +119,6 @@
         }
     }
 
-    function formatBytes(bytes) {
-        if (bytes < 1024) return `${bytes} B`
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    }
 
     async function handlePurge() {
         if (!purgeConfirm) {
