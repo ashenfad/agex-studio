@@ -29,6 +29,16 @@ import { createAgent } from "agex-ts";
 import { Anthropic } from "agex-anthropic";
 import { OpenAI } from "agex-openai";
 import { workerRuntime } from "agex-runtime-worker";
+// Bundled worker URL. The `?worker&url` query asks vite to treat
+// `dist/worker.js` as a worker entry point — it bundles all the
+// worker's imports (`agex-ts/wrap-fs`, sibling chunks) into a
+// single self-contained file and gives us back the hashed URL.
+// Without this, vite just copies the raw worker source into dist,
+// leaving its bare imports unresolvable in the browser — which
+// surfaces in prod as "worker failed during boot" the first time
+// the runtime tries to execute an emission. Dev never trips this
+// because vite's dev server resolves bare specifiers on the fly.
+import _agexWorkerUrl from "agex-runtime-worker/worker?worker&url";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
@@ -136,10 +146,15 @@ export async function initAgent(settings) {
     }
     const llm = _buildLlmClient(settings);
     const runtime = workerRuntime({
-        // Vite resolves `new URL('./worker.js', import.meta.url)`
-        // inside the agex-runtime-worker package via its own
-        // import.meta context, so we just pass the default by
-        // omitting `workerUrl` — agex-runtime-worker handles it.
+        // Hand vite-bundled worker URL through explicitly. The
+        // runtime would otherwise fall back to its own
+        // `new URL('./worker.js', import.meta.url)` which only
+        // resolves against the *vendored* worker file — vite
+        // copies that file as-is into dist with its bare
+        // `agex-ts/wrap-fs` imports unresolved, so the worker
+        // 404s during boot in production. The `?worker&url`
+        // import above gives us a self-contained bundled worker.
+        workerUrl: _agexWorkerUrl,
         //
         // Per-emission wall-clock budget. The default 5s is too
         // tight for studio agents: a single `await testApp(...)`
