@@ -731,6 +731,14 @@
         if (busy || !agentReady) return
         const trimmed = (prompt || '').trim()
         if (!trimmed && attachments.length === 0) return
+
+        // Claim `busy` BEFORE any await so a double-click on Send
+        // re-enters the busy-guard above instead of slipping through
+        // while we're partway through an upload. Every early-return
+        // path below must reset `busy` (the eventual try/finally for
+        // the agent send handles the long-running path); the
+        // upload-only path is the one the previous version missed.
+        busy = true
         inputPrefill = ''
 
         const { adapter, branch } = await getActiveAdapter()
@@ -755,6 +763,7 @@
                     content: `Error uploading files: ${e.message || String(e)}`,
                     timestamp: new Date(),
                 }]
+                busy = false
                 return
             }
         }
@@ -762,7 +771,10 @@
         // 2. If there's no text, we're done — files-only "send"
         //    just creates the upload bubble. The agent will see the
         //    file event next time they get a turn.
-        if (!trimmed) return
+        if (!trimmed) {
+            busy = false
+            return
+        }
 
         const commitHash = await adapter.getCurrentCommit(branch)
         messages = [...messages, {
@@ -772,7 +784,6 @@
             commit_hash: commitHash,
         }]
 
-        busy = true
         streamingEvents = []
         currentTurn = null
         activeReportText = null
