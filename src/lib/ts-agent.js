@@ -301,6 +301,7 @@ export async function initAgent(settings) {
             return _postProcessResults(ctx, results);
         },
         {
+            name: "testApp",
             wantsContext: true,
             description: [
                 "(Pre-registered global — call directly with `await testApp(...)`, no import needed.)",
@@ -342,6 +343,7 @@ export async function initAgent(settings) {
             return _postProcessResults(ctx, results);
         },
         {
+            name: "liveApp",
             wantsContext: true,
             description: [
                 "(Pre-registered global — call directly with `await liveApp(...)`, no import needed.)",
@@ -367,6 +369,7 @@ export async function initAgent(settings) {
     // concurrent fetches — same parallelism the py-side
     // `asyncio.gather(search(a), search(b), ...)` pattern unlocks.
     _agent.fn(runSearchHelper, {
+        name: "search",
         description: [
             "(Pre-registered global — call directly with `await search(query)`, no import needed.)",
             "Web search via perplexity. Returns a text summary with cited source URLs inline.",
@@ -399,6 +402,7 @@ export async function initAgent(settings) {
             return await renderPdfPagesToBytes(bytes, pages, scale);
         },
         {
+            name: "renderPdf",
             description: [
                 "(Pre-registered global — call directly with `await renderPdf(bytes)`, no import needed.)",
                 "Render PDF pages to PNG images.",
@@ -422,6 +426,7 @@ export async function initAgent(settings) {
             return await getPdfPageCount(bytes);
         },
         {
+            name: "pdfPageCount",
             description: [
                 "(Pre-registered global — call directly with `await pdfPageCount(bytes)`, no import needed.)",
                 "Return the number of pages in a PDF.",
