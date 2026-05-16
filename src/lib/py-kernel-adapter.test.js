@@ -38,6 +38,7 @@ const EXPECTED_METHODS = [
     "writeFiles",
     "deleteFiles",
     "readAppFiles",
+    "readAppBinaries",
     // Bundle payloads
     "exportBundlePayload",
     "importBundlePayload",

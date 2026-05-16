@@ -343,9 +343,20 @@
  * @property {(branch: string) => Promise<Record<string, string>>} readAppFiles
  *   Read every text file under `app/` in one call, returning a
  *   path-to-string dict.  Used by AppPreview to build the iframe
- *   HTML.  UTF-8 decoded with `errors="replace"`; treats app/ as
- *   source-text-only by convention.  Saves N JS↔kernel round-trips
- *   over per-file `readFile` for typical multi-file apps.
+ *   HTML.  UTF-8 decoded with `errors="replace"`; binary extensions
+ *   (.png/.jpg/etc — see `app-assets.js` BINARY_EXTS) are skipped
+ *   here and picked up by `readAppBinaries` instead.  Saves N
+ *   JS↔kernel round-trips over per-file `readFile` for typical
+ *   multi-file apps.
+ *
+ * @property {(branch: string) => Promise<Record<string, Uint8Array>>} readAppBinaries
+ *   Read every binary asset file under `app/` (images, fonts,
+ *   audio, etc.) as raw bytes.  `buildAppHtml` consumes these
+ *   alongside the text-file map and inlines each as a data URL so
+ *   `<img>`, CSS `url(...)`, and `fetch(...)` references resolve
+ *   inside the sandboxed iframe.  Kernels without binary-asset
+ *   support yet (currently py) return an empty map; the live
+ *   preview just won't have image rewrites in that case.
  *
  * --- Bundle payloads (kvgit subgraph only — shell handles app-storage) ---
  *

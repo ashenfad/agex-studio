@@ -438,6 +438,15 @@ _state.reset_to("${_esc(hash)}")
             return agentReadAppFiles();
         },
 
+        async readAppBinaries(_branch) {
+            // Py-kernel binary-asset support isn't wired through the
+            // pyodide bridge yet; live preview still works for
+            // text-only apps. Returning an empty map keeps the
+            // KernelAdapter contract honored without changing
+            // existing py-kernel behavior.
+            return {};
+        },
+
         // --- Bundle payloads --------------------------------------------
 
         async exportBundlePayload(branch, /** @type {ExportBundleOptions} */ opts = {}) {

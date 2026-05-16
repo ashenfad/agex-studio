@@ -218,6 +218,12 @@ import {
     getPdfPageCount as _getPdfPageCount,
 } from "./pdf-render.js";
 import { bytesToBase64 } from "./bytes.js";
+import {
+    buildAssetsScript,
+    buildAssetUrlMap,
+    rewriteCssAssetRefs,
+    rewriteHtmlAssetRefs,
+} from "./app-assets.js";
 
 /**
  * Render PDF pages and post results back to the py worker as a
@@ -904,13 +910,16 @@ export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
 
 /**
  * Collect JS and CSS files from appFiles, build an import map with data URIs,
- * and inline CSS/script-src references in the HTML.
+ * and inline CSS/script-src references in the HTML. Also rewrites binary
+ * asset references (img / link / CSS url()) to data URLs when `assetUrls`
+ * is non-empty.
  *
  * @param {Record<string, string>} appFiles
  * @param {string} html - the index.html content
+ * @param {Record<string, string>} assetUrls - relative-path → data URL for binaries
  * @returns {{ html: string, importMap: Record<string, string> }}
  */
-function _resolveAppModules(appFiles, html) {
+function _resolveAppModules(appFiles, html, assetUrls = {}) {
     // Collect non-HTML files
     const jsFiles = new Map();   // relative path → content
     const cssFiles = new Map();  // relative path → content
@@ -935,12 +944,21 @@ function _resolveAppModules(appFiles, html) {
     // fonts.googleapis.com/...">` (full external URL) doesn't match
     // any of our `cssFiles` entries and stays as a `<link>` for the
     // browser to fetch.
+    //
+    // Before inlining, rewrite any `url(...)` references in the CSS
+    // body to point at the binary-asset data URLs. Has to happen
+    // pre-inline because once it's in a `<style>` block, the
+    // HTML-level rewriter only touches src/href/poster attrs (CSS
+    // url() refs live inside the element body, not in attrs).
     for (const [name, content] of cssFiles) {
+        const rewritten = Object.keys(assetUrls).length > 0
+            ? rewriteCssAssetRefs(content, assetUrls)
+            : content;
         const pattern = new RegExp(
             `<link[^>]*href=["'](?:\\./)?${_escapeRegex(name)}["'][^>]*/?>`,
             'g',
         );
-        html = html.replace(pattern, `<style>${content}</style>`);
+        html = html.replace(pattern, `<style>${rewritten}</style>`);
     }
 
     // Build import map entries for JS files
@@ -984,6 +1002,22 @@ function _resolveAppModules(appFiles, html) {
         }
     }
 
+    // Binary-asset rewrites — applied last so they see the final
+    // HTML (post CSS / script inlining). Two passes:
+    //   1. HTML-level: src / href / poster attrs throughout the doc
+    //      get their references swapped for data URLs.
+    //   2. CSS-level: any inline `<style>` blocks (including the
+    //      ones we just produced from inlining .css files) have
+    //      their `url(...)` references rewritten.
+    if (Object.keys(assetUrls).length > 0) {
+        html = rewriteHtmlAssetRefs(html, assetUrls);
+        html = html.replace(
+            /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+            (_m, open, body, close) =>
+                open + rewriteCssAssetRefs(body, assetUrls) + close,
+        );
+    }
+
     return { html, importMap: appImports };
 }
 
@@ -1003,15 +1037,25 @@ function _buildImportMapTag(appImports) {
  * multi-file app projects (JS via import map with data URIs, CSS inlined).
  *
  * @param {Record<string, string>} appFiles - map of filename → content
- * @param {{ appStorage?: { seed?: Record<string,string>, writeable?: boolean } }} [opts]
+ * @param {{
+ *   appBinaries?: Record<string, Uint8Array>,
+ *   appStorage?: { seed?: Record<string,string>, writeable?: boolean }
+ * }} [opts]
  * @returns {string} complete HTML document
  */
 export function buildAppHtml(appFiles, opts = {}) {
     const storageShim = buildAppStorageShim(opts.appStorage || {});
+    // Build the binary-asset URL map up-front so it can flow into
+    // both the module resolver (which rewrites HTML / inlined CSS
+    // refs) and the injected script that exposes
+    // `window.appAssets` + the fetch monkey-patch.
+    const assetUrls = buildAssetUrlMap(opts.appBinaries || {});
+    const assetsScript = buildAssetsScript(assetUrls);
     let html = appFiles['app/index.html'] || appFiles['index.html'];
     if (html) {
-        // Resolve multi-file references (JS import map, CSS inlining)
-        const resolved = _resolveAppModules(appFiles, html);
+        // Resolve multi-file references (JS import map, CSS inlining,
+        // binary asset rewrites).
+        const resolved = _resolveAppModules(appFiles, html, assetUrls);
         html = resolved.html;
         const importMapTag = _buildImportMapTag(resolved.importMap);
         const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
@@ -1021,7 +1065,9 @@ export function buildAppHtml(appFiles, opts = {}) {
             // scripts below — a CDN library might poke localStorage on
             // import) and before the query bridge (which the shim could
             // one day use). Keep it right after the console interceptor.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+            // `assetsScript` goes early too so the fetch monkey-patch
+            // is in place before any agent JS runs.
+            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
@@ -1030,7 +1076,7 @@ export function buildAppHtml(appFiles, opts = {}) {
             // HTML already includes the query bridge (pre-built bundle);
             // still inject the console interceptor, storage shim, and
             // control bridge so test_app / live_app work.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + AGENT_CONTROL_BRIDGE_SCRIPT;
+            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + AGENT_CONTROL_BRIDGE_SCRIPT;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
@@ -1043,6 +1089,7 @@ export function buildAppHtml(appFiles, opts = {}) {
 <html><head><meta charset="utf-8">
 ${CONSOLE_INTERCEPTOR}
 ${storageShim}
+${assetsScript}
 ${QUERY_BRIDGE_SCRIPT}
 ${AGENT_CONTROL_BRIDGE_SCRIPT}
 ${importMapTag}

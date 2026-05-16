@@ -455,6 +455,41 @@ Beyond the single-file case, organize as:
 - **Same-origin `fetch('/api/...')`** — there's no server. Use
   `getCacheValue` for agent-side data, hardcode external URLs (CORS
   permitting) for third-party APIs.
+
+## Static image / font assets
+
+Drop binary files (images, fonts) into `app/` alongside your
+source. Reference them by relative filename in HTML, CSS, or
+runtime `fetch` — the iframe inlines them as data URLs at build
+time, so all three forms work:
+
+```html
+<!-- app/index.html -->
+<img src="logo.png" alt="logo">
+<link rel="icon" href="favicon.png">
+```
+
+```css
+/* app/style.css */
+.hero { background: url('hero.jpg'); }
+@font-face { font-family: x; src: url('x.woff2'); }
+```
+
+```js
+// app/index.js — fetch() of relative paths works too
+const r = await fetch('chart-data.csv')
+const text = await r.text()
+```
+
+Supported extensions: png, jpg, jpeg, gif, webp, bmp, ico, svg,
+avif, woff, woff2, ttf, otf, eot, mp3, mp4, webm, ogg, wav, pdf.
+Nested paths work too — `app/icons/star.svg` is referenced as
+`icons/star.svg`. `window.appAssets` exposes the full
+`{ 'relative/path': 'data:...' }` map if you need to enumerate.
+
+Don't use this for *agent-generated* data — use `getCacheValue`
+for that. The asset pipeline is for files the agent (or user)
+wrote to the VFS that the iframe needs to display.
 - **`document.write`** — sandboxed iframe rejects it. Use DOM mutation.
 - **`window.parent.location`** — sandboxed; cross-origin guarded.
 

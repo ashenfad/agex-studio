@@ -179,7 +179,16 @@
             appAdapter = adapter
             appBranch = branch
             appKernel = kernel
-            const appFiles = await adapter.readAppFiles(branch)
+            // Read text files + binary assets in parallel — the
+            // two are independent fs walks within the adapter and
+            // don't need to serialize. Binaries get inlined as data
+            // URLs by `buildAppHtml` so `<img>` / CSS / `fetch`
+            // refs in agent app code resolve inside the sandboxed
+            // iframe (which has no meaningful base path under blob:).
+            const [appFiles, appBinaries] = await Promise.all([
+                adapter.readAppFiles(branch),
+                adapter.readAppBinaries(branch),
+            ])
             if (!appFiles || Object.keys(appFiles).length === 0) {
                 error = 'No app files found'
                 return
@@ -187,6 +196,7 @@
 
             const seed = branch ? readAppStorage(kernel, branch) : {}
             const html = buildAppHtml(appFiles, {
+                appBinaries,
                 appStorage: { seed, writeable: true },
             })
 

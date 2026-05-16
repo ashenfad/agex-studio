@@ -281,6 +281,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
  *
  * @param {{
  *   appFiles: Record<string, string>,
+ *   appBinaries?: Record<string, Uint8Array>,
  *   actions?: Array<object>,
  *   appStorageSeed?: Record<string, string>,
  *   buildAppHtml: (files: Record<string, string>, opts?: object) => string,
@@ -292,6 +293,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
 export async function runTestApp(opts) {
     const {
         appFiles,
+        appBinaries = {},
         actions = [],
         appStorageSeed = {},
         buildAppHtml,
@@ -319,6 +321,7 @@ export async function runTestApp(opts) {
         // to the user's session — keeps tests isolated and
         // deterministic.
         const html = buildAppHtml(appFiles, {
+            appBinaries,
             appStorage: { seed: appStorageSeed, writeable: false },
         });
         blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));

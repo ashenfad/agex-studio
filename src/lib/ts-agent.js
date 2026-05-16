@@ -57,6 +57,7 @@ import {
     renderPdfPagesToBytes,
     getPdfPageCount,
 } from "./pdf-render.js";
+import { isBinaryAppFile } from "./app-assets.js";
 import {
     emitObservations,
     normalizeEvalValues,
@@ -277,8 +278,16 @@ export async function initAgent(settings) {
             const ctx = args[args.length - 1];
             const [actions, fresh] = args.slice(0, -1);
             const fs = await _agent.fs(SESSION);
+            // Split the app/ dir into text files (HTML / JS / CSS / JSON
+            // — passed as decoded strings) and binary assets (images /
+            // fonts — passed as raw bytes). Decoding binaries as UTF-8
+            // gives garbage strings that the iframe can't use; the
+            // asset-rewriter in buildAppHtml needs raw bytes to produce
+            // data URLs.
             /** @type {Record<string, string>} */
             const appFiles = {};
+            /** @type {Record<string, Uint8Array>} */
+            const appBinaries = {};
             const decoder = new TextDecoder("utf-8", { fatal: false });
             try {
                 const entries = await fs.list("app/", { recursive: true });
@@ -287,9 +296,12 @@ export async function initAgent(settings) {
                         const full = "app/" + rel;
                         try {
                             if (await fs.isFile(full)) {
-                                appFiles[full] = decoder.decode(
-                                    await fs.read(full),
-                                );
+                                const bytes = await fs.read(full);
+                                if (isBinaryAppFile(full)) {
+                                    appBinaries[full] = bytes;
+                                } else {
+                                    appFiles[full] = decoder.decode(bytes);
+                                }
                             }
                         } catch {
                             // Skip files that vanish or fail mid-walk.
@@ -307,6 +319,7 @@ export async function initAgent(settings) {
             }
             const results = await appControlRunTestApp({
                 appFiles,
+                appBinaries,
                 actions: actions ?? [],
                 appStorageSeed,
                 buildAppHtml,
@@ -928,14 +941,56 @@ export async function readAppFiles() {
     }
     // Fan out the per-file `isFile` + `read` round-trips. App
     // directories are usually small (a handful of HTML/JS files),
-    // so unbounded concurrency is fine here.
+    // so unbounded concurrency is fine here. Binary assets are
+    // skipped here — `readAppBinaries` is the parallel call that
+    // collects those as raw bytes.
     await Promise.all(
         entries.map(async (rel) => {
             const full = "app/" + rel;
+            if (isBinaryAppFile(full)) return;
             try {
                 if (await fs.isFile(full)) {
                     const bytes = await fs.read(full);
                     out[full] = decoder.decode(bytes);
+                }
+            } catch {
+                // Skip files that vanish or fail to read mid-walk.
+            }
+        }),
+    );
+    return out;
+}
+
+/**
+ * Read the active session's `app/` binary assets — images / fonts /
+ * other non-text files. Returned as a `path → Uint8Array` map (full
+ * paths including the `app/` prefix). `buildAppHtml` consumes this
+ * alongside the text-file map from `readAppFiles` and inlines the
+ * binaries as data URLs so the iframe can use them via `<img>`,
+ * CSS `url(...)`, or `fetch`.
+ *
+ * Returns an empty map if `app/` doesn't exist yet.
+ *
+ * @returns {Promise<Record<string, Uint8Array>>}
+ */
+export async function readAppBinaries() {
+    const agent = _getAgent();
+    const fs = await agent.fs(SESSION);
+    /** @type {Record<string, Uint8Array>} */
+    const out = {};
+    let entries;
+    try {
+        entries = await fs.list("app/", { recursive: true });
+    } catch {
+        return out;
+    }
+    await Promise.all(
+        entries.map(async (rel) => {
+            const full = "app/" + rel;
+            if (!isBinaryAppFile(full)) return;
+            try {
+                if (await fs.isFile(full)) {
+                    out[full] = await fs.read(full);
                 }
             } catch {
                 // Skip files that vanish or fail to read mid-walk.
