@@ -1,12 +1,12 @@
-import { connectState, isVersioned } from './chunk-WECOJZZ7.js';
-import { KvgitState } from './chunk-3ZSPEOPD.js';
 import './chunk-E46VTKTZ.js';
-import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, shouldTriggerChaptering, CHAPTER_TASK_NAME } from './chunk-DVVSWFU5.js';
-export { shouldTriggerChaptering } from './chunk-DVVSWFU5.js';
+import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, shouldTriggerChaptering, CHAPTER_TASK_NAME } from './chunk-4JDS7Y7N.js';
+export { shouldTriggerChaptering } from './chunk-4JDS7Y7N.js';
+import './chunk-ZDNM4VPR.js';
 import { PolicyBuilder, memberAllowed } from './chunk-MUU37UMN.js';
 import { CancelledError, TaskFailError, isCancelledError, RegistrationError, SchemaError } from './chunk-V7QM2ZJ3.js';
 export { AgentError, CancelledError, FatalError, RegistrationError, SchemaError, TASK_CONTROL_BRAND, TaskFailError, TransientError, isTaskControlError } from './chunk-V7QM2ZJ3.js';
-import './chunk-ZDNM4VPR.js';
+import { connectState, isVersioned } from './chunk-WECOJZZ7.js';
+import { KvgitState } from './chunk-3ZSPEOPD.js';
 import { TerminalError, execute } from 'termish-ts';
 
 // src/cache.ts
@@ -192,12 +192,17 @@ async function dispatchFileEdit(emission, fs) {
   }
   await fs.write(emission.path, encoder.encode(next));
 }
+var DEFAULT_TERMINAL_OUTPUT_CAP = 2e5;
 async function dispatchTerminal(commands, fs, policy, signal) {
   const hostCommands = /* @__PURE__ */ new Map();
   for (const [name, reg] of policy.terminals) {
     hostCommands.set(name, reg.handler);
   }
-  return execute(commands, fs, { commands: hostCommands, signal });
+  return execute(commands, fs, {
+    commands: hostCommands,
+    signal,
+    maxOutputChars: DEFAULT_TERMINAL_OUTPUT_CAP
+  });
 }
 
 // src/task.ts

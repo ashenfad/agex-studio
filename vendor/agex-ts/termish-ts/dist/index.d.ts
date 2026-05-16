@@ -85,6 +85,16 @@ interface CommandContext {
      *  `find -exec`) thread this through so host-injected commands
      *  remain reachable in nested invocations. */
     readonly commands: ReadonlyMap<string, CommandHandler>;
+    /** True when this command's stdout will flow to the script's
+     *  returned output (last command in its pipeline, no output
+     *  redirect). False when the stdout will be consumed by a
+     *  downstream pipe stage or shunted to a file via `>` / `>>`.
+     *
+     *  Builtins use this to gate diagnostics that only make sense when
+     *  the output reaches a human/agent caller — e.g. `cat` refuses to
+     *  dump binary content when `agentSink=true`, but stays out of the
+     *  way for `cat /binary > /copy` or `cat /nul-sep | xargs -0`. */
+    readonly agentSink: boolean;
 }
 interface CommandResult {
     /** Non-zero signals failure. Default 0 (success). */
@@ -149,6 +159,18 @@ interface ExecuteOptions {
     commands?: ReadonlyMap<string, CommandHandler> | Readonly<Record<string, CommandHandler>>;
     /** Cooperative cancellation. Default: never aborts. */
     signal?: AbortSignal;
+    /** Maximum characters of accumulated stdout returned to the caller.
+     *  When exceeded, output is sliced to the limit and a single-line
+     *  marker is appended:
+     *
+     *    `\n<truncated: N more characters — use head/tail/grep/sed to read a specific range>\n`
+     *
+     *  Applied once, at the executeScript boundary — intra-pipeline
+     *  buffers (e.g. `cat huge.json | jq .key`) are not affected.
+     *  Also applied to the `partialOutput` carried on a thrown
+     *  `TerminalError`. Default: no cap. Embedders that hand the output
+     *  to an LLM should set this to bound input-token cost. */
+    maxOutputChars?: number;
 }
 /**
  * Convenience: parse + execute. Matches termish-py's top-level

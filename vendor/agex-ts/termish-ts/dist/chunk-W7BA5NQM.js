@@ -1486,14 +1486,33 @@ var cat = async (ctx) => {
       continue;
     }
     if (ctx.signal.aborted) throw new TerminalError("cat: aborted");
+    let bytes;
     try {
-      const bytes = await ctx.fs.read(path);
-      ctx.stdout.write(format(decoder4.decode(bytes)));
+      bytes = await ctx.fs.read(path);
     } catch (e) {
       throw new TerminalError(`cat: ${path}: ${describeError4(e)}`);
     }
+    if (ctx.agentSink && looksLikeBinary(bytes)) {
+      throw new TerminalError(
+        `cat: ${path}: appears to be binary (${bytes.byteLength} bytes) \u2014 use 'xxd', 'hexdump', or 'head -c' for a controlled peek`
+      );
+    }
+    ctx.stdout.write(format(decoder4.decode(bytes)));
   }
 };
+function looksLikeBinary(bytes) {
+  if (bytes.byteLength === 0) return false;
+  const sample = bytes.subarray(0, Math.min(bytes.byteLength, 4096));
+  let suspect = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const b = sample[i];
+    if (b === 0) return true;
+    if (b < 32 && b !== 9 && b !== 10 && b !== 13 || b === 127) {
+      suspect++;
+    }
+  }
+  return suspect / sample.length > 0.01;
+}
 function formatCatContent(content, opts) {
   const lines = splitLinesKeepEnds2(content);
   const result = [];
@@ -2324,7 +2343,7 @@ var find = async (ctx) => {
     }
   }
   const executor = async (cmdStr, fs) => {
-    const { execute: execute2 } = await import('./interpreter-Z2EJRM36.js');
+    const { execute: execute2 } = await import('./interpreter-I3RIZ375.js');
     return execute2(cmdStr, fs, { signal: ctx.signal, commands: ctx.commands });
   };
   const predicate = parseFindPredicates(predicateTokens, {
@@ -3345,7 +3364,7 @@ var xargs = async (ctx) => {
   if (inputText.trim().length === 0) return;
   const items = nullDelim ? inputText.split("\0").filter((s) => s.length > 0) : inputText.split(/\s+/).filter((s) => s.length > 0);
   if (items.length === 0) return;
-  const { execute: execute2 } = await import('./interpreter-Z2EJRM36.js');
+  const { execute: execute2 } = await import('./interpreter-I3RIZ375.js');
   const runOne = async (cmdArgs) => {
     const cmdStr = [cmdName, ...cmdArgs].map(shellQuote).join(" ");
     if (verbose) ctx.stdout.write(`${cmdName} ${cmdArgs.join(" ")}
@@ -3654,11 +3673,13 @@ async function execute(scriptText, fs, opts = {}) {
 async function executeScript(script, fs, opts = {}) {
   const commands = mergeCommands(opts.commands);
   const signal = opts.signal ?? NEVER_ABORT;
+  const maxOutputChars = opts.maxOutputChars;
   const out = { value: "" };
   let lastSucceeded = true;
   let lastError = null;
   for (let i = 0; i < script.pipelines.length; i++) {
-    if (signal.aborted) throw new TerminalError("aborted", out.value);
+    if (signal.aborted)
+      throw new TerminalError("aborted", applyOutputCap(out.value, maxOutputChars));
     if (i > 0) {
       const op = script.operators[i - 1];
       if (op === "&&" && !lastSucceeded) continue;
@@ -3674,14 +3695,25 @@ async function executeScript(script, fs, opts = {}) {
     }
   }
   if (lastError !== null) {
-    throw new TerminalError(lastError.message, out.value);
+    throw new TerminalError(lastError.message, applyOutputCap(out.value, maxOutputChars));
   }
-  return out.value;
+  return applyOutputCap(out.value, maxOutputChars);
+}
+function applyOutputCap(value, limit) {
+  if (limit === void 0 || limit <= 0 || value.length <= limit) return value;
+  let cut2 = limit;
+  const code = value.charCodeAt(cut2 - 1);
+  if (code >= 55296 && code <= 56319) cut2 -= 1;
+  const remaining = value.length - cut2;
+  return `${value.slice(0, cut2)}
+<truncated: ${remaining} more characters \u2014 use head/tail/grep/sed to read a specific range>
+`;
 }
 async function executePipeline(pipeline, fs, commands, signal, out) {
   if (pipeline.commands.length === 0) return;
   let pipedInput = "";
-  for (const cmd of pipeline.commands) {
+  for (let cmdIdx = 0; cmdIdx < pipeline.commands.length; cmdIdx++) {
+    const cmd = pipeline.commands[cmdIdx];
     if (signal.aborted) throw new TerminalError("aborted");
     let stdin = pipedInput;
     const inputRedirect = cmd.redirects.find((r) => r.type === "<");
@@ -3699,6 +3731,9 @@ async function executePipeline(pipeline, fs, commands, signal, out) {
     if (handler === void 0) {
       throw new TerminalError(`${cmd.name}: command not found`);
     }
+    const isLastInPipeline = cmdIdx === pipeline.commands.length - 1;
+    const hasOutputRedirect = cmd.redirects.some((r) => r.type === ">" || r.type === ">>");
+    const agentSink = isLastInPipeline && !hasOutputRedirect;
     const captured = new StringStdout();
     const ctx = {
       args: expandedArgs,
@@ -3707,7 +3742,8 @@ async function executePipeline(pipeline, fs, commands, signal, out) {
       fs,
       env: {},
       signal,
-      commands
+      commands,
+      agentSink
     };
     let result;
     try {
@@ -3784,5 +3820,5 @@ function describeError9(e) {
 }
 
 export { ParseError, TerminalError, execute, executeScript, maskQuotes, toScript, unmaskAndUnquote, unmaskQuotes };
-//# sourceMappingURL=chunk-IIWKCQU2.js.map
-//# sourceMappingURL=chunk-IIWKCQU2.js.map
+//# sourceMappingURL=chunk-W7BA5NQM.js.map
+//# sourceMappingURL=chunk-W7BA5NQM.js.map

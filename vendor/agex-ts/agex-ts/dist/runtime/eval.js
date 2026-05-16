@@ -1,9 +1,9 @@
 import { installConsoleProxy, runWithCapture } from '../chunk-AD24MQXN.js';
+import { makeHostFnContext } from '../chunk-RDWADUN6.js';
 import { prepareScript } from '../chunk-37F76RJV.js';
 import { wrapAgentFs } from '../chunk-ZUEX3GXN.js';
-import { CancelledError, isTaskControlError, TaskFailError } from '../chunk-V7QM2ZJ3.js';
-import { makeHostFnContext } from '../chunk-RDWADUN6.js';
 import '../chunk-ZDNM4VPR.js';
+import { CancelledError, isTaskControlError, TaskFailError } from '../chunk-V7QM2ZJ3.js';
 import tsBlankSpace from 'ts-blank-space';
 
 var AsyncFunction = Object.getPrototypeOf(async () => void 0).constructor;

@@ -1,5 +1,5 @@
-import { memberAllowed } from './chunk-MUU37UMN.js';
 import { safeStringify } from './chunk-ZDNM4VPR.js';
+import { memberAllowed } from './chunk-MUU37UMN.js';
 
 // src/slugify.ts
 function slugify(input) {
@@ -1141,5 +1141,5 @@ function closingAssistantTurn(text) {
 }
 
 export { BUILTIN_PRIMER, CHAPTER_TASK_NAME, DEFAULT_CHAPTER_PRIMER, SkillsOverlay, TOOL_EDIT_FILE, TOOL_TERMINAL, TOOL_TS, TOOL_WRITE_FILE, buildSystemMessage, buildTaskMessage, extractJsonSchema, hasObjectProperties, makeToolUseId, objectPropertyNames, renderChapterText, renderEvents, renderRegistrations, renderUserFileEventText, runChaptering, shouldTriggerChaptering, toolSchemas };
-//# sourceMappingURL=chunk-DVVSWFU5.js.map
-//# sourceMappingURL=chunk-DVVSWFU5.js.map
+//# sourceMappingURL=chunk-4JDS7Y7N.js.map
+//# sourceMappingURL=chunk-4JDS7Y7N.js.map
