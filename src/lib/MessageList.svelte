@@ -183,6 +183,12 @@
                         {@const tr = truncateText(msg.content)}
                         <div class="content">{tr.display}</div>
                     {/if}
+                    {#if msg.errorStack}
+                        <details class="error-details">
+                            <summary>Stack trace</summary>
+                            <pre>{msg.errorStack}</pre>
+                        </details>
+                    {/if}
                     {#if msg.role === 'user'}
                         {@const isTruncated = typeof msg.content === 'string' && truncateText(msg.content).truncated}
                         <div class="timestamp">
@@ -404,6 +410,41 @@
 
     .see-all-btn:hover {
         color: var(--accent);
+    }
+
+    /* Collapsible stack-trace footer on error bubbles. Tight font,
+       monospace pre, subtle "Stack trace" affordance — readable
+       without dominating the bubble. */
+    .error-details {
+        margin-top: 0.4rem;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+
+    .error-details summary {
+        cursor: pointer;
+        user-select: none;
+        padding: 0.1rem 0;
+    }
+
+    .error-details summary:hover {
+        color: var(--text);
+    }
+
+    .error-details pre {
+        margin: 0.35rem 0 0;
+        padding: 0.5rem 0.7rem;
+        background: var(--surface-hover);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.7rem;
+        line-height: 1.45;
+        color: var(--text);
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 320px;
+        overflow: auto;
     }
 
 </style>

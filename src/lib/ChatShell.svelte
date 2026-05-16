@@ -441,6 +441,23 @@
      *  cleared `activeReportText` and the bubble vanished after the
      *  turn finished. Idempotent — if there's no in-flight text or
      *  it was already committed, this is a no-op. */
+    /** Capture an error's stack-like context for inline rendering
+     *  in the error bubble's <details>. Prefers `e.stack` (already
+     *  has `Name: msg\n   at ...` format in V8 / SpiderMonkey /
+     *  WebKit); falls back to `name + message` for thrown values
+     *  that aren't proper Error instances. Returns null when there's
+     *  nothing useful to show. */
+    function _captureStack(e) {
+        if (!e) return null
+        if (typeof e === 'object' && typeof e.stack === 'string' && e.stack.length > 0) {
+            return e.stack
+        }
+        if (typeof e === 'object' && (e.name || e.message)) {
+            return `${e.name || 'Error'}: ${e.message || String(e)}`
+        }
+        return String(e)
+    }
+
     function commitActiveReport() {
         const finalText = activeReportText
         if (!finalText) return
@@ -761,6 +778,7 @@
                 messages = [...messages, {
                     role: 'agent',
                     content: `Error uploading files: ${e.message || String(e)}`,
+                    errorStack: _captureStack(e),
                     timestamp: new Date(),
                 }]
                 busy = false
@@ -856,9 +874,11 @@
                     cancelled: true,
                 }]
             } else {
+                console.error('Agent turn failed:', e)
                 messages = [...finalMessages, {
                     role: 'agent',
                     content: `Error: ${e.message}`,
+                    errorStack: _captureStack(e),
                     events: eventsBeforeError,
                     timestamp: new Date(),
                 }]
