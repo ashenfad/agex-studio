@@ -1,12 +1,12 @@
+import { connectState, isVersioned } from './chunk-WECOJZZ7.js';
+import { KvgitState } from './chunk-3ZSPEOPD.js';
 import './chunk-E46VTKTZ.js';
-import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, shouldTriggerChaptering, CHAPTER_TASK_NAME } from './chunk-4JDS7Y7N.js';
-export { shouldTriggerChaptering } from './chunk-4JDS7Y7N.js';
-import './chunk-ZDNM4VPR.js';
+import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, getLastFiredActionTimestamp, shouldTriggerChaptering, markChapteringFired, CHAPTER_TASK_NAME } from './chunk-XTIOXGRO.js';
+export { shouldTriggerChaptering } from './chunk-XTIOXGRO.js';
 import { PolicyBuilder, memberAllowed } from './chunk-MUU37UMN.js';
 import { CancelledError, TaskFailError, isCancelledError, RegistrationError, SchemaError } from './chunk-V7QM2ZJ3.js';
 export { AgentError, CancelledError, FatalError, RegistrationError, SchemaError, TASK_CONTROL_BRAND, TaskFailError, TransientError, isTaskControlError } from './chunk-V7QM2ZJ3.js';
-import { connectState, isVersioned } from './chunk-WECOJZZ7.js';
-import { KvgitState } from './chunk-3ZSPEOPD.js';
+import './chunk-ZDNM4VPR.js';
 import { TerminalError, execute } from 'termish-ts';
 
 // src/cache.ts
@@ -473,10 +473,19 @@ async function maybeFireBoundaryChaptering(agent, session, eventLog, signal, onE
   if (agent.getChapterTask() === void 0) return;
   if (signal.aborted) return;
   const allEvents = await collectEvents(eventLog);
-  if (!shouldTriggerChaptering(allEvents, agent.chapteringTrigger)) return;
+  const lastFiredTs = getLastFiredActionTimestamp(eventLog);
+  if (!shouldTriggerChaptering(allEvents, agent.chapteringTrigger, lastFiredTs)) return;
   await runChaptering(allEvents, eventLog, agent, session, signal, async (e) => {
     if (onEvent !== void 0) await onEvent(e);
   });
+  const postEvents = await collectEvents(eventLog);
+  for (let i = postEvents.length - 1; i >= 0; i--) {
+    const e = postEvents[i];
+    if (e.type === "action") {
+      markChapteringFired(eventLog, e.timestamp);
+      break;
+    }
+  }
 }
 function deriveTaskName(def) {
   const firstLine = def.description.split("\n")[0] ?? def.description;
