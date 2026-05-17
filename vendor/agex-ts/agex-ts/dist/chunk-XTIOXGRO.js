@@ -1,5 +1,5 @@
-import { safeStringify } from './chunk-ZDNM4VPR.js';
 import { memberAllowed } from './chunk-MUU37UMN.js';
+import { safeStringify } from './chunk-ZDNM4VPR.js';
 
 // src/slugify.ts
 function slugify(input) {
@@ -36,15 +36,26 @@ Rules:
 - \`message\` must be VERBOSE \u2014 capture specific findings, data values, variable names, file paths, decisions, and outcomes. The chapter message is what you'll see in place of the originals, so include everything you might need later.
 - \`name\` should serve as a table-of-contents entry.
 `;
-function shouldTriggerChaptering(events, threshold) {
+function shouldTriggerChaptering(events, threshold, lastFiredActionTimestamp) {
   if (threshold === void 0) return false;
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (e.type === "action") {
-      return (e.inputTokens ?? 0) >= threshold;
+      if ((e.inputTokens ?? 0) < threshold) return false;
+      if (lastFiredActionTimestamp !== void 0 && e.timestamp === lastFiredActionTimestamp) {
+        return false;
+      }
+      return true;
     }
   }
   return false;
+}
+var lastFiredActionByLog = /* @__PURE__ */ new WeakMap();
+function getLastFiredActionTimestamp(log) {
+  return lastFiredActionByLog.get(log);
+}
+function markChapteringFired(log, actionTimestamp) {
+  lastFiredActionByLog.set(log, actionTimestamp);
 }
 var chapteringInFlight = /* @__PURE__ */ new WeakSet();
 async function runChaptering(parentEvents, parentEventLog, agent, parentSession, signal, notify) {
@@ -1140,6 +1151,6 @@ function closingAssistantTurn(text) {
   return { role: "assistant", content: [{ type: "text", text }] };
 }
 
-export { BUILTIN_PRIMER, CHAPTER_TASK_NAME, DEFAULT_CHAPTER_PRIMER, SkillsOverlay, TOOL_EDIT_FILE, TOOL_TERMINAL, TOOL_TS, TOOL_WRITE_FILE, buildSystemMessage, buildTaskMessage, extractJsonSchema, hasObjectProperties, makeToolUseId, objectPropertyNames, renderChapterText, renderEvents, renderRegistrations, renderUserFileEventText, runChaptering, shouldTriggerChaptering, toolSchemas };
-//# sourceMappingURL=chunk-4JDS7Y7N.js.map
-//# sourceMappingURL=chunk-4JDS7Y7N.js.map
+export { BUILTIN_PRIMER, CHAPTER_TASK_NAME, DEFAULT_CHAPTER_PRIMER, SkillsOverlay, TOOL_EDIT_FILE, TOOL_TERMINAL, TOOL_TS, TOOL_WRITE_FILE, buildSystemMessage, buildTaskMessage, extractJsonSchema, getLastFiredActionTimestamp, hasObjectProperties, makeToolUseId, markChapteringFired, objectPropertyNames, renderChapterText, renderEvents, renderRegistrations, renderUserFileEventText, runChaptering, shouldTriggerChaptering, toolSchemas };
+//# sourceMappingURL=chunk-XTIOXGRO.js.map
+//# sourceMappingURL=chunk-XTIOXGRO.js.map
