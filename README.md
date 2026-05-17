@@ -1,39 +1,58 @@
 # Agex Studio
 
-**[agex.studio](https://agex.studio)** — AI agents in the browser. No server required.
+**[agex.studio](https://agex.studio)** — AI agents in the browser. No
+server, no backend, no data leaves your laptop.
 
-A browser-based AI assistant with two runtime kernels: **TypeScript** (the
-primary kernel — [agex-ts](https://github.com/ashenfad/agex-ts) running in a
-Web Worker, with a structurally tight sandbox) and **Python** (experimental
-— [agex-py](https://github.com/ashenfad/agex) on Pyodide for data-science
-workloads). Everything runs client-side — your data, files, and sessions
-stay in your browser's local storage. Just bring your own
-[OpenRouter](https://openrouter.ai/) API key.
+A browser-based AI assistant that combines a chat interface with a live
+app preview, persistent versioned workspaces, and a tight code sandbox.
+Bring your own [OpenRouter](https://openrouter.ai/) API key; everything
+else runs client-side.
+
+## What's different
+
+- **Versioned workspaces.** Each session is a kvgit branch — files,
+  chat history, and agent state move together. Fork at any point,
+  undo across turns, export a session as a self-contained bundle.
+  Other browser-based AI sandboxes don't have this.
+- **No server.** All computation runs in the browser. The LLM is the
+  only network dependency. Your files, code, and conversations
+  stay in your browser's IndexedDB.
+- **Live app preview.** Agents build interactive dashboards, tools,
+  and games in a sandboxed iframe alongside the chat. JSX bundling
+  via in-browser `esbuild`, or no-build HTM + Preact for a lighter
+  path. The agent can `testApp` and `liveApp` to verify and
+  interact with what they've built.
+- **Tight code sandbox.** The primary [TypeScript
+  kernel](https://github.com/ashenfad/agex-ts) runs agent code in
+  a Web Worker through a custom AST interpreter (no `eval`) that
+  restricts agent code to explicitly-registered names. Bare npm
+  imports route through esm.sh on demand.
 
 ## What it can do
 
-- **Interactive apps** — agents build custom dashboards, games, and tools
-  in a live preview pane. JSX bundling via `esbuild`, or no-build HTM +
-  Preact for a lighter path.
-- **Web search** — Perplexity Sonar, with parallel `Promise.all([search(a),
-  search(b), ...])` for multi-topic research.
-- **Tabular data** — Arrow + Arquero for tabular work and Plotly for charts
-  on the TS kernel; pandas / NumPy / SciPy / Plotly for the full numeric
-  stack on the Python kernel.
-- **Calendar + Drive** — Google integration via [calgebra](https://github.com/ashenfad/calgebra)
-  (Python kernel only for now).
-- **Persistent sessions** — each session has its own files, history, and
-  state, with kvgit-backed versioning + undo.
-- **Session bundles** — export and import full sessions, including history
-  and files.
+- **Interactive apps** — dashboards, games, tools, data explorers
+  rendered in a live preview pane.
+- **Tabular data** — Arrow + Arquero on the TS kernel; pandas /
+  NumPy / SciPy on the Python kernel. Plotly charts on both.
+- **PDFs** — page rendering + page count as image observations the
+  agent can reason over.
+- **Web search** — Perplexity Sonar; parallel `Promise.all` across
+  several searches for multi-topic research.
+- **Calendar + Drive** — Google integration via
+  [calgebra](https://github.com/ashenfad/calgebra) (Python kernel
+  for now).
+- **Session bundles** — export and import full sessions, including
+  history, files, and app state.
 
 ### Note on the Python kernel
 
-Python sessions are marked **experimental**. The agex-py sandbox (sandtrap)
-filters API access on real Python — a softer boundary than the TypeScript
-interpreter sandbox, which restricts what agent code can even *see*.
-Use Python kernels for code you trust; new work is recommended on
-TypeScript sessions.
+Python sessions are marked **experimental**. The
+[agex-py](https://github.com/ashenfad/agex) sandbox
+([sandtrap](https://github.com/ashenfad/sandtrap)) filters API
+access on real Python — a softer boundary than the TypeScript
+interpreter sandbox, which restricts what agent code can even
+*see*. Use Python kernels for code you trust; new work is
+recommended on TypeScript sessions.
 
 ## Getting started
 
@@ -42,58 +61,41 @@ TypeScript sessions.
 3. Optionally connect Google for calendar and Drive access
 4. Start chatting
 
-## Development
+## Local development
 
-### Prerequisites
-
-- Node.js 20+
-
-### Setup
+Requires Node.js 20+.
 
 ```bash
 npm install
-npm run dev
+npm run dev          # local dev server on http://localhost:5173
+npm run build        # production build → dist/
+npx vitest run       # full test suite (one-shot)
+npm test             # watch mode
 ```
 
-Opens a local dev server at `http://localhost:5173`. The TypeScript kernel
-boots cold in well under a second. The Python kernel (Pyodide + PyPI
-wheels) takes ~30s on first load; subsequent reloads are cached by a
-Service Worker.
+The TypeScript kernel boots cold in well under a second. The Python
+kernel (Pyodide + PyPI wheels) takes ~30s on first load; subsequent
+reloads are cached by a Service Worker.
 
-### Build
+## Architecture quick-take
 
-```bash
-npm run build
-```
+Static SPA hosted on GitHub Pages. No backend. Two runtime kernels
+share a `KernelAdapter` contract so the chat shell stays
+kernel-agnostic: agex-ts (TypeScript, primary, Worker-sandboxed AST
+interpreter) and Pyodide-hosted agex-py (Python, experimental,
+WebAssembly + sandtrap). Persistent state lives in IndexedDB
+through [kvgit](https://github.com/ashenfad/kvgit), with one branch
+per session.
 
-Output goes to `dist/`, deployed to GitHub Pages on push to main.
-
-### Tests
-
-```bash
-npm test          # watch mode
-npx vitest run    # single run
-```
-
-## Architecture
-
-Static SPA hosted on GitHub Pages. No backend — all computation runs in the browser:
-
-- **agex-ts** runs the TypeScript kernel in a Web Worker — a custom AST
-  interpreter (no `eval`) that restricts agent code to explicitly
-  registered names. This is the primary kernel.
-- **Pyodide** runs the Python kernel in a Web Worker (WebAssembly). The
-  agex-py sandbox (sandtrap) filters API access at runtime. Experimental.
-- **IndexedDB** (via [kvgit](https://github.com/ashenfad/kvgit)) stores
-  sessions, files, and event history.
-- **Service Worker** caches Pyodide and PyPI wheels for fast reloads.
-- **Google OAuth** (implicit flow) for Calendar and Drive access — tokens
-  stay in localStorage.
+For implementation detail — kernel comparison, storage internals,
+the app-preview pipeline, error / cancellation flows — see
+[**docs/**](docs/). Forward-looking design proposals live in
+[**roadmap/**](roadmap/).
 
 ## Part of the agex stack
 
 - [agex-ts](https://github.com/ashenfad/agex-ts) — TypeScript agent
-  orchestration (primary kernel)
+  orchestration (primary kernel for the studio)
 - [agex](https://github.com/ashenfad/agex) — Python agent orchestration
 - [calgebra](https://github.com/ashenfad/calgebra) — calendar algebra
 - [kvgit](https://github.com/ashenfad/kvgit) — versioned key-value store
