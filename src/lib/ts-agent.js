@@ -518,8 +518,26 @@ function _buildLlmClient(settings) {
     const provider = resolveProvider(settings);
     const apiKey = settings.apiKey;
     const model = settings.model;
+    // Viewer mode: no API key configured. Return a stub LLMClient so
+    // the rest of `initAgent` (state, fs, host fns, namespaces, skills,
+    // task registration) completes normally — a visitor opening a
+    // published-artifact URL can read history, browse files, and
+    // interact with the live app preview without configuring their
+    // own provider. `complete()` throws if anything actually tries to
+    // hit the LLM; the chat shell gates Send on `configured` so the
+    // throw only fires for code paths that shouldn't run at all in
+    // viewer mode (defense in depth).
     if (!apiKey) {
-        throw new Error("LLM API key required");
+        return {
+            complete: async function* () {
+                throw new Error("LLM API key required");
+            },
+            dumpConfig: () => ({
+                provider: provider || "openai",
+                model: model || "",
+                timeoutSeconds: 0,
+            }),
+        };
     }
     if (!model) {
         throw new Error("LLM model required");

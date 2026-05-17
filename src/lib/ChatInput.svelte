@@ -9,6 +9,7 @@
      *   cancelling?: boolean,
      *   sendDisabled: boolean,
      *   prefill?: string,
+     *   placeholder?: string,
      * }}
      */
     let {
@@ -20,6 +21,7 @@
         cancelling = false,
         sendDisabled,
         prefill = '',
+        placeholder = 'Ask the agent...',
     } = $props()
 
     import { tick } from 'svelte'
@@ -169,7 +171,7 @@
             bind:this={textarea}
             bind:value={text}
             onkeydown={handleKeydown}
-            placeholder="Ask the agent..."
+            {placeholder}
             rows="1"
             disabled={busy}
         ></textarea>

@@ -1020,6 +1020,7 @@
                 {cancelling}
                 sendDisabled={busy || !agentReady || !configured}
                 prefill={inputPrefill}
+                placeholder={configured ? 'Ask the agent...' : 'Add an API key in Settings to chat.'}
             />
         {:else if pyodideError}
             <div class="warming-area error">
