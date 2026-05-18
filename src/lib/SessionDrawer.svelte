@@ -1874,6 +1874,11 @@
         display: flex;
         flex-direction: column;
         gap: 0.2rem;
+        /* `relative` so the mobile overflow button can absolute-
+           anchor to the row's top-right corner without stretching
+           the meta line (the button's 44px touch target was
+           pushing inactive vs active rows to different heights). */
+        position: relative;
     }
 
     .session-item:hover {
@@ -2112,8 +2117,18 @@
         .desktop-actions {
             display: none;
         }
+        /* Anchor the overflow trigger to the session-item's top-
+           right corner rather than the inline meta row. The 44px
+           touch target on the button would otherwise stretch the
+           meta line, making the active row visibly taller than
+           inactive ones. Absolute positioning keeps the row at its
+           natural height while preserving a comfortable tap area.
+           Right inset chosen to clear the row's padding. */
         .mobile-actions {
             display: inline-flex;
+            position: absolute;
+            top: 0.25rem;
+            right: 0.4rem;
         }
         /* Inactive rows stay chrome-free at the touch breakpoint —
            the overflow trigger only appears on the current session.
@@ -2121,6 +2136,12 @@
            overflow surfaces. */
         .mobile-actions.hidden {
             display: none;
+        }
+        /* Reserve room on the meta line so the absolutely-
+           positioned button doesn't overlap the kernel badge / date
+           when both render at full width. */
+        .session-item.active .session-meta {
+            padding-right: 3rem;
         }
     }
 
