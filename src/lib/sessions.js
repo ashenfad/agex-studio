@@ -614,11 +614,48 @@ export async function exportBundle(branch, onProgress) {
 }
 
 /** Import a bundle (ZIP bytes) as a new session. The manifest's
- *  `kernel` field selects which adapter receives the import. */
+ *  `kernel` field selects which adapter receives the import.
+ *
+ *  Idempotency: if any existing same-kernel chat session already
+ *  has the bundle's HEAD commit as its own HEAD, the import is
+ *  skipped and we switch to that session instead. kvgit commit
+ *  hashes are content-addressed — an exact match means the local
+ *  branch is bit-for-bit equivalent to the bundle, so re-importing
+ *  would just create a duplicate ref into the same DAG. Ancestor /
+ *  descendant relationships (one is an older snapshot of the other,
+ *  or vice versa) are NOT treated as a match — the user explicitly
+ *  hit import and probably wants the alternate snapshot side-by-
+ *  side with what they already have. Resolution returns
+ *  `{ deduped: true, branch }` so callers can surface the switch
+ *  to the user; non-deduped imports return the underlying adapter
+ *  result with `deduped: false`.
+ */
 export async function importBundle(bytes, { external = false } = {}) {
     const manifest = await inspectBundleAsync(bytes);
     const kernel = manifest?.kernel === "ts" ? "ts" : "py";
     const adapter = await resolveAdapter(kernel);
+
+    const bundleHead = manifest?.head;
+    if (bundleHead) {
+        // Same-kernel chat branches only. Per-branch `getCurrentCommit`
+        // is one IDB read; sessions count is typically small enough
+        // that walking them all is cheaper than a fresh import.
+        for (const s of state.sessions) {
+            if (s.kernel !== kernel) continue;
+            if (!s.branch.startsWith(CHAT_BRANCH_PREFIX)) continue;
+            try {
+                const existingHead = await adapter.getCurrentCommit(s.branch);
+                if (existingHead === bundleHead) {
+                    await switchSession(s.branch);
+                    return { branch: s.branch, head: bundleHead, deduped: true };
+                }
+            } catch {
+                // Skip branches we can't read; not load-bearing for
+                // dedup, fall through and let the normal import run.
+            }
+        }
+    }
+
     const result = await adapter.importBundlePayload(bytes);
     const branch = result.branch;
 
@@ -644,7 +681,7 @@ export async function importBundle(bytes, { external = false } = {}) {
     const sessions = _decorateAppStorage([newSession, ...state.sessions]);
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     update({ currentBranch: branch, sessions });
-    return result;
+    return { ...result, deduped: false };
 }
 
 /** Inspect a bundle's manifest. Pure JS read — works for either
