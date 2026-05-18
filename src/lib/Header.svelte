@@ -24,7 +24,9 @@
             <line x1="3" y1="18" x2="3.01" y2="18"></line>
         </svg>
     </button>
-    <h1>agex</h1>
+    <h1 class="brand">
+        <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
+    </h1>
     {#if activeKernel === 'py'}
         <span
             class="kernel-warn"
@@ -95,6 +97,20 @@
     h1 {
         font-size: 1.1rem;
         font-weight: 600;
+        margin: 0;
+    }
+
+    /* Two-tone brand mark: `agex` bold (the product), `.studio`
+       lighter (the domain). Same shape used in the gallery header,
+       so the visual identity stays consistent across the two
+       entry points. */
+    .brand-name {
+        font-weight: 600;
+    }
+
+    .brand-suffix {
+        font-weight: 400;
+        color: var(--text-muted);
     }
 
     /* Active-kernel "experimental" badge. Visible only on py
