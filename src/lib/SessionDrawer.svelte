@@ -793,9 +793,17 @@
                             <!-- Mobile layout: single overflow trigger;
                                  popover surfaces the three actions as
                                  touch-friendly menu items. Visible only
-                                 at \u2264768px via CSS; the relative-position
-                                 wrapper anchors the popover. -->
-                            <span class="mobile-actions">
+                                 at \u2264768px via CSS, AND only on the
+                                 active row \u2014 inactive rows stay
+                                 chrome-free (tap to switch, then act).
+                                 Mirrors the desktop hover-to-reveal
+                                 pattern at the touch breakpoint:
+                                 actions surface only when the row is
+                                 "current context." -->
+                            <span
+                                class="mobile-actions"
+                                class:hidden={s.branch !== currentBranch}
+                            >
                                 <button
                                     class="action-btn icon-btn overflow-btn"
                                     onclick={(e) => toggleActionsMenu(e, s.branch)}
@@ -2106,6 +2114,13 @@
         }
         .mobile-actions {
             display: inline-flex;
+        }
+        /* Inactive rows stay chrome-free at the touch breakpoint —
+           the overflow trigger only appears on the current session.
+           Tapping an inactive row switches to it; from there the
+           overflow surfaces. */
+        .mobile-actions.hidden {
+            display: none;
         }
     }
 
