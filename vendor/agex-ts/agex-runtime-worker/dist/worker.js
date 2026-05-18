@@ -727,7 +727,7 @@ async function handleExecute(msg) {
       error = serializeError(e);
     }
   }
-  if (outcome.kind === "continue" && error === null && bridge.pendingCount > 0) {
+  if (outcome.kind === "continue" && error === null) {
     const onUnhandled = (ev) => {
       const reason = ev.reason;
       if (reason instanceof TaskSuccessSignal || reason instanceof TaskFailSignal) {
@@ -736,7 +736,13 @@ async function handleExecute(msg) {
     };
     self.addEventListener("unhandledrejection", onUnhandled);
     try {
-      await bridge.drain(2e3);
+      if (bridge.pendingCount > 0) {
+        await bridge.drain(2e3);
+      } else {
+        for (let i = 0; i < 16 && lateTerminator === null; i++) {
+          await Promise.resolve();
+        }
+      }
     } finally {
       self.removeEventListener("unhandledrejection", onUnhandled);
     }
