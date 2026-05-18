@@ -26,10 +26,23 @@
 
     let userScrolledUp = $state(false)
 
-    // Reset scroll position when session changes
+    // Reset scroll position when the caller signals a context flip
+    // (session switch, or the chat pane becoming visible after a
+    // hide → show transition via view-mode / mobile-view toggles).
+    // In the hide → show case, the messages-length effect below
+    // can't do the work — it only fires on length changes, and the
+    // length is unchanged across the toggle. So we scroll to bottom
+    // directly here. tick() defers the scroll until after the DOM
+    // settles (giving the now-visible pane a real scrollHeight to
+    // scroll into); the `if (container)` guard handles the initial-
+    // load case where the effect runs before the element mounts.
     $effect(() => {
         scrollKey  // dependency
         userScrolledUp = false
+        tick().then(() => {
+            if (!container) return
+            container.scrollTop = container.scrollHeight
+        })
     })
 
     // Capture scroll height before DOM updates (for prepend preservation)
