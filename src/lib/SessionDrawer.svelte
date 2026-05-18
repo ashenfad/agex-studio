@@ -312,13 +312,20 @@
             })
             // Look up any existing gist mapping for this branch. When
             // present, this publish will PATCH that gist (preserving
-            // the share URL) instead of creating a new one. External
-            // sessions force a create regardless — the imported
-            // artifact's gist (if any) belongs to the original
-            // publisher, not us.
-            const priorGist = session.external
-                ? null
-                : getSessionGistInfo(session.branch)
+            // the share URL) instead of creating a new one.
+            //
+            // Note we do NOT special-case `session.external` here.
+            // The localStorage entry is written by *this* user's prior
+            // publishes (`setSessionGistInfo` only ever runs from
+            // confirmPublish's success branch); it can't refer to the
+            // original publisher's gist. So if the entry exists for
+            // an imported-then-published session, it's a gist we
+            // created and own — PATCH is correct. The "this is an
+            // imported session" UI hint below still surfaces when
+            // there's no prior publish, so first-time publishers
+            // of imports still understand they're creating a fresh
+            // gist under their account.
+            const priorGist = getSessionGistInfo(session.branch)
             publishState = {
                 stage: 'preview',
                 session,
