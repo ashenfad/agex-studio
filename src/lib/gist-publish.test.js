@@ -249,6 +249,117 @@ describe("publishGistBundle", () => {
         expect(result.runtimeUrl.endsWith(`/${slug}`)).toBe(true);
     });
 
+    it("PATCHes an existing gist when existingGistId is supplied", async () => {
+        // PATCH response (gist body) + comment response. The comment
+        // POST is non-fatal but the publish flow always tries it.
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () =>
+                fakeGistResponse({
+                    id: "patched-gist-id",
+                    commit: "fedcba9876543210fedcba9876543210fedcba98",
+                }),
+        });
+        fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({}) });
+
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("updated bytes"),
+            manifest: { stats: { commits: 7 } },
+            name: "Renamed Session",
+            origin: "https://agex.studio",
+            existingGistId: "patched-gist-id",
+            existingSlug: "original-slug",
+        });
+
+        // First call should be PATCH at the existing gist URL.
+        const [patchUrl, patchInit] = fetchMock.mock.calls[0];
+        expect(patchUrl).toBe("https://api.github.com/gists/patched-gist-id");
+        expect(patchInit.method).toBe("PATCH");
+        // Filename in the request body should be the PRESERVED slug,
+        // not a fresh slugification of the new name. This is what
+        // keeps existing share URLs resolving across renames.
+        const patchBody = JSON.parse(patchInit.body);
+        expect(Object.keys(patchBody.files)).toEqual(["original-slug.agex.b64"]);
+        // Description still tracks the new name though — github.com's
+        // gist page shows the current value to the publisher.
+        expect(patchBody.description).toBe("Renamed Session");
+
+        expect(result.updated).toBe(true);
+        expect(result.gistId).toBe("patched-gist-id");
+        expect(result.slug).toBe("original-slug");
+        expect(result.runtimeUrl).toBe(
+            "https://agex.studio/run/?gist=test-user/patched-gist-id/original-slug",
+        );
+    });
+
+    it("falls back to POST when PATCH returns 404 (gist deleted on github.com)", async () => {
+        // PATCH 404 → POST → comment.
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            text: async () => "Not Found",
+        });
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 201,
+            json: async () => fakeGistResponse({ id: "fresh-gist-id" }),
+        });
+        fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({}) });
+
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            name: "My Session",
+            origin: "https://agex.studio",
+            existingGistId: "gone-gist-id",
+            existingSlug: "old-slug",
+        });
+
+        // PATCH was tried first
+        expect(fetchMock.mock.calls[0][1].method).toBe("PATCH");
+        expect(fetchMock.mock.calls[0][0]).toBe(
+            "https://api.github.com/gists/gone-gist-id",
+        );
+        // Then POST as fallback
+        expect(fetchMock.mock.calls[1][1].method).toBe("POST");
+        expect(fetchMock.mock.calls[1][0]).toBe("https://api.github.com/gists");
+        // POST body should use a FRESH slug from the current name —
+        // we're creating a new gist; the old slug was tied to the
+        // gone gist.
+        const postBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+        expect(Object.keys(postBody.files)).toEqual(["my-session.agex.b64"]);
+
+        // Result reflects the new gist + new slug, not the old ones.
+        expect(result.updated).toBe(false);
+        expect(result.gistId).toBe("fresh-gist-id");
+        expect(result.slug).toBe("my-session");
+    });
+
+    it("surfaces non-404 PATCH errors instead of silently re-POSTing", async () => {
+        // 403 (e.g., PAT scope was revoked) is a real failure — don't
+        // mask it as "let me just create a new gist instead."
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 403,
+            text: async () => '{"message": "Forbidden"}',
+        });
+        await expect(
+            publishGistBundle({
+                pat: "ghp_test",
+                bytes: bytesOf("x"),
+                manifest: {},
+                name: "My Session",
+                existingGistId: "any-id",
+                existingSlug: "any-slug",
+            }),
+        ).rejects.toMatchObject({ status: 403 });
+        // No POST attempted after a non-404 PATCH error.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("falls back to unpinned runtimeUrl when the API response omits history", async () => {
         // Defensive: GitHub's gist API always returns `history`, but a
         // future shape change or a downstream mock might omit it. The

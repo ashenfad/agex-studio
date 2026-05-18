@@ -15,6 +15,8 @@
         CURRENT_BRANCH_KEY,
         hasSeenPyExperimentalWarning,
         markPyExperimentalWarningSeen,
+        getSessionGistInfo,
+        setSessionGistInfo,
     } from './sessions.js'
     import {
         remove as removeAppStorage,
@@ -308,7 +310,23 @@
                     publishState = { ...publishState, phase: p.phase, done: p.done, total: p.total }
                 }
             })
-            publishState = { stage: 'preview', session, manifest, bytes, ack: false }
+            // Look up any existing gist mapping for this branch. When
+            // present, this publish will PATCH that gist (preserving
+            // the share URL) instead of creating a new one. External
+            // sessions force a create regardless — the imported
+            // artifact's gist (if any) belongs to the original
+            // publisher, not us.
+            const priorGist = session.external
+                ? null
+                : getSessionGistInfo(session.branch)
+            publishState = {
+                stage: 'preview',
+                session,
+                manifest,
+                bytes,
+                ack: false,
+                priorGist,
+            }
         } catch (err) {
             console.error('Failed to bundle for publish:', err)
             publishState = { stage: 'error', session, message: err.message || String(err) }
@@ -321,9 +339,34 @@
         copyFlash = null
     }
 
+    /** Coarse "X ago" formatter for the publish destination's
+     *  last-published timestamp. Days / months / years; we don't
+     *  need finer than that for "this gist was published recently
+     *  vs. a while back" — just enough to remind the user that
+     *  the prior publish is real and connected to this session. */
+    function _relativeTime(iso) {
+        try {
+            const then = new Date(iso).getTime()
+            if (Number.isNaN(then)) return ''
+            const sec = Math.max(0, Math.floor((Date.now() - then) / 1000))
+            if (sec < 60) return 'just now'
+            const min = Math.floor(sec / 60)
+            if (min < 60) return `${min}m ago`
+            const hr = Math.floor(min / 60)
+            if (hr < 24) return `${hr}h ago`
+            const days = Math.floor(hr / 24)
+            if (days < 30) return `${days}d ago`
+            const months = Math.floor(days / 30)
+            if (months < 12) return `${months}mo ago`
+            return `${Math.floor(months / 12)}y ago`
+        } catch {
+            return ''
+        }
+    }
+
     async function confirmPublish() {
         if (!publishState || publishState.stage !== 'preview' || !publishState.ack) return
-        const { session, manifest, bytes } = publishState
+        const { session, manifest, bytes, priorGist } = publishState
         const pat = $settingsStore.githubPat || ''
         if (!pat) {
             publishState = {
@@ -348,6 +391,20 @@
                 // modal; if set, surface it on the published gist
                 // alongside the name.
                 description: (session.description || '').slice(0, 300),
+                // When set, PATCH the prior gist (preserving the
+                // share URL). publishGistBundle falls back to POST
+                // if the gist was deleted out from under us.
+                existingGistId: priorGist?.gistId || '',
+                existingSlug: priorGist?.slug || '',
+            })
+            // Persist the (possibly new) mapping for future updates.
+            // After a 404-fallback the gistId/slug differ from
+            // priorGist; setSessionGistInfo records whatever the
+            // publish actually landed.
+            setSessionGistInfo(session.branch, {
+                gistId: result.gistId,
+                slug: result.slug,
+                lastPublishedAt: new Date().toISOString(),
             })
             publishState = { stage: 'done', session, result }
         } catch (err) {
@@ -898,6 +955,37 @@
                         ({formatBytes(Math.ceil(publishState.bytes.length * 4 / 3))} after base64)
                     </div>
                 </div>
+                <div class="preview-field">
+                    <span class="field-label">Destination</span>
+                    <div class="preview-value">
+                        {#if publishState.priorGist}
+                            Update existing gist
+                            <div class="destination-detail">
+                                <a
+                                    href={`https://gist.github.com/${publishState.priorGist.gistId}`}
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="destination-link"
+                                >
+                                    gist.github.com/…/{publishState.priorGist.gistId.slice(0, 8)}
+                                </a>
+                                {#if publishState.priorGist.lastPublishedAt}
+                                    · last published {_relativeTime(publishState.priorGist.lastPublishedAt)}
+                                {/if}
+                            </div>
+                        {:else if publishState.session.external}
+                            New gist
+                            <div class="destination-detail">
+                                this is an imported session — publishing creates a fresh gist under your account
+                            </div>
+                        {:else}
+                            New gist
+                            <div class="destination-detail">
+                                this session has not been published from this browser before
+                            </div>
+                        {/if}
+                    </div>
+                </div>
                 <div class="publish-disclosure">
                     <strong>Anyone with the URL can see everything in this bundle</strong> — your conversation history, agent-authored helper modules, the app, and any data persisted into the session.  Treat this like an "anyone with the link" share, not a private copy.
                 </div>
@@ -1392,6 +1480,26 @@
     .preview-stats {
         font-size: 0.75rem;
         color: var(--text-muted);
+    }
+
+    /* Publish destination sub-line — sits under the main value
+       ("Update existing gist" / "New gist") with the linkable gist
+       URL fragment + relative timestamp. Muted so the parent value
+       reads as the primary message. */
+    .destination-detail {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.15rem;
+        line-height: 1.35;
+    }
+
+    .destination-link {
+        color: var(--text-muted);
+        text-decoration: underline;
+    }
+
+    .destination-link:hover {
+        color: var(--text);
     }
 
     .preview-hint {
