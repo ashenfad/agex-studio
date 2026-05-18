@@ -969,8 +969,7 @@
                     <span class="field-label">Bundle</span>
                     <div class="preview-value preview-stats">
                         {publishState.manifest.stats?.commits ?? 0} commits ·
-                        {formatBytes(publishState.bytes.length)} raw
-                        ({formatBytes(Math.ceil(publishState.bytes.length * 4 / 3))} after base64)
+                        {formatBytes(Math.ceil(publishState.bytes.length * 4 / 3))}
                     </div>
                 </div>
                 <div class="preview-field">
