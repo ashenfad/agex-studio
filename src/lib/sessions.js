@@ -527,16 +527,30 @@ export async function loadHistoryChunked() {
     }
 
     return {
+        /** Visible-slice snapshot at the current `loadedIndex`. Use at
+         *  initial load to seed the displayed messages array; do NOT
+         *  re-read after live events have been appended downstream
+         *  (chat turns, uploads) — this getter doesn't know about
+         *  those and re-reading would clobber them. After init,
+         *  grow the displayed messages by *prepending* `loadOlder()`
+         *  output instead. */
         get messages() {
             return getVisible();
         },
         get hasMore() {
             return loadedIndex > 0;
         },
-        loadMore() {
+        /** Decrement the snapshot window by one chunk and return just
+         *  the newly-revealed older units (flattened). Empty array
+         *  when there's nothing more to load. Caller should prepend
+         *  the result to its displayed messages — replacing the
+         *  whole `messages` array with this getter's output would
+         *  drop any live-appended turns that landed since the chunk
+         *  manager was constructed. */
+        loadOlder() {
             const prev = loadedIndex;
             loadedIndex = Math.max(0, loadedIndex - CHUNK_SIZE);
-            return loadedIndex < prev;
+            return units.slice(loadedIndex, prev).flat();
         },
     };
 }
