@@ -413,7 +413,18 @@
                 slug: result.slug,
                 lastPublishedAt: new Date().toISOString(),
             })
-            publishState = { stage: 'done', session, result }
+            // Detect a 404-fallback: preview promised an update to a
+            // specific prior gist, but publishGistBundle landed on a
+            // *different* gist (the prior was deleted on github.com
+            // out from under us, PATCH 404'd, POST fired). Surface
+            // this on the done modal so the user understands why
+            // the share URL is new — otherwise the URL silently
+            // changes after a "Update existing gist" preview.
+            const fallbackFromGistId =
+                priorGist && priorGist.gistId !== result.gistId
+                    ? priorGist.gistId
+                    : ''
+            publishState = { stage: 'done', session, result, fallbackFromGistId }
         } catch (err) {
             console.error('Publish failed:', err)
             const message = err instanceof GistPublishError
@@ -1023,6 +1034,23 @@
                     <div class="done-check">✓</div>
                     <div class="done-message">Published as a secret gist</div>
                 </div>
+                {#if publishState.fallbackFromGistId}
+                    <!-- 404-fallback notice: preview promised "Update
+                         existing gist", but the prior gist was no longer
+                         reachable on github.com (deleted, renamed by
+                         owner, scope changed, etc.), so we created a
+                         fresh one instead. Explains why the URL below
+                         differs from what the preview showed. -->
+                    <div class="publish-notice">
+                        Your previous gist at
+                        <a
+                            href={`https://gist.github.com/${publishState.fallbackFromGistId}`}
+                            target="_blank"
+                            rel="noopener"
+                        >gist.github.com/…/{publishState.fallbackFromGistId.slice(0, 8)}</a>
+                        was no longer reachable — created a fresh one instead.
+                    </div>
+                {/if}
                 <div class="preview-field">
                     <span class="field-label">
                         Share with users
@@ -1487,6 +1515,30 @@
     .preview-stats {
         font-size: 0.75rem;
         color: var(--text-muted);
+    }
+
+    /* Inline info notice for the publish-done modal — fires when a
+       404-fallback created a new gist instead of updating the prior
+       one the preview promised. Soft warning tone (not an error;
+       publish succeeded), with the prior gist linkable so the user
+       can confirm it's gone. */
+    .publish-notice {
+        background: color-mix(in srgb, var(--warning, #d29922) 12%, transparent);
+        border-left: 2px solid color-mix(in srgb, var(--warning, #d29922) 60%, transparent);
+        padding: 0.45rem 0.65rem;
+        border-radius: 0 4px 4px 0;
+        font-size: 0.78rem;
+        color: var(--text);
+        line-height: 1.4;
+    }
+
+    .publish-notice a {
+        color: inherit;
+        text-decoration: underline;
+    }
+
+    .publish-notice a:hover {
+        color: var(--accent);
     }
 
     /* Publish destination sub-line — sits under the main value
