@@ -1,4 +1,4 @@
-import { R as RuntimeAdapter } from '../types-BdbZoJfu.js';
+import { R as RuntimeAdapter } from '../types-MortsIN-.js';
 import '@standard-schema/spec';
 import 'termish-ts';
 import '../errors.js';
