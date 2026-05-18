@@ -661,8 +661,16 @@
     }
 
     function handleLoadMore() {
-        if (historyChunks?.loadMore()) {
-            messages = historyChunks.messages
+        // Prepend the just-revealed older range to `messages`. Don't
+        // replace `messages` wholesale from the chunk manager — the
+        // manager holds a snapshot of history captured at init time
+        // and is unaware of live appends (chat turns, uploads). A
+        // full replace would drop anything appended after the
+        // manager was constructed (symptom: scroll up, scroll back
+        // down, your latest reply is gone until reload).
+        const older = historyChunks?.loadOlder?.() ?? []
+        if (older.length > 0) {
+            messages = [...older, ...messages]
             // Reassign to trigger Svelte reactivity for hasMore getter
             historyChunks = historyChunks
         }
