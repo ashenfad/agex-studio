@@ -39,6 +39,11 @@
     let purgeConfirm = $state(false)
     let purging = $state(false)
     let deleteConfirmBranch = $state(null)
+    /** Which session's "⋯" overflow menu is currently open. Only
+     *  surfaces at the mobile breakpoint (≤768px); on desktop the
+     *  three individual icon buttons stay visible and this stays
+     *  null. */
+    let actionsMenuBranch = $state(null)
     let settingsResetConfirm = $state(false)
     let debugInfo = $state(null)
     let debugOpen = $state(false)
@@ -259,6 +264,21 @@
         } catch (e) {
             console.error('Failed to delete session:', e)
         }
+    }
+
+    /** Toggle the mobile "⋯" overflow menu for a given session row.
+     *  Tapping the same row's button again closes it; opening one
+     *  row's menu while another is open closes the other. */
+    function toggleActionsMenu(e, branch) {
+        e.stopPropagation()
+        actionsMenuBranch = actionsMenuBranch === branch ? null : branch
+        // Reset any in-flight delete confirm when opening a fresh
+        // menu so the destructive item shows its initial label.
+        if (actionsMenuBranch !== branch) deleteConfirmBranch = null
+    }
+
+    function closeActionsMenu() {
+        actionsMenuBranch = null
     }
 
     function handleSettingsReset() {
@@ -728,6 +748,10 @@
                             {/if}
                         </span>
                         <span class="session-actions">
+                            <!-- Desktop layout: three icon buttons inline.
+                                 Hidden at ≤768px via media query; mobile
+                                 sees the overflow menu below instead. -->
+                            <span class="desktop-actions">
                             <button
                                 class="action-btn icon-btn"
                                 onclick={(e) => handleFork(e, s.branch)}
@@ -764,6 +788,83 @@
                                     {deleteConfirmBranch === s.branch ? 'delete?' : '\u00d7'}
                                 </button>
                             {/if}
+                            </span>
+
+                            <!-- Mobile layout: single overflow trigger;
+                                 popover surfaces the three actions as
+                                 touch-friendly menu items. Visible only
+                                 at \u2264768px via CSS; the relative-position
+                                 wrapper anchors the popover. -->
+                            <span class="mobile-actions">
+                                <button
+                                    class="action-btn icon-btn overflow-btn"
+                                    onclick={(e) => toggleActionsMenu(e, s.branch)}
+                                    title="Session actions"
+                                    aria-label="Session actions"
+                                    aria-expanded={actionsMenuBranch === s.branch}
+                                >
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                        <circle cx="5" cy="12" r="2"></circle>
+                                        <circle cx="12" cy="12" r="2"></circle>
+                                        <circle cx="19" cy="12" r="2"></circle>
+                                    </svg>
+                                </button>
+                                {#if actionsMenuBranch === s.branch}
+                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                    <div
+                                        class="menu-backdrop"
+                                        onclick={(e) => { e.stopPropagation(); closeActionsMenu() }}
+                                        onkeydown={(e) => e.key === 'Escape' && closeActionsMenu()}
+                                    ></div>
+                                    <div class="actions-menu" role="menu">
+                                        <button
+                                            class="actions-menu-item"
+                                            role="menuitem"
+                                            onclick={(e) => { handleFork(e, s.branch); closeActionsMenu() }}
+                                        >
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <line x1="6" y1="3" x2="6" y2="15"></line>
+                                                <circle cx="18" cy="6" r="3"></circle>
+                                                <circle cx="6" cy="18" r="3"></circle>
+                                                <path d="M18 9a9 9 0 0 1-9 9"></path>
+                                            </svg>
+                                            <span>Fork</span>
+                                        </button>
+                                        <button
+                                            class="actions-menu-item"
+                                            role="menuitem"
+                                            onclick={(e) => { handleEdit(e, s); closeActionsMenu() }}
+                                        >
+                                            <span class="menu-gear" aria-hidden="true">&#9881;</span>
+                                            <span>Settings</span>
+                                        </button>
+                                        {#if sessions.length > 1}
+                                            <button
+                                                class="actions-menu-item destructive"
+                                                class:confirm={deleteConfirmBranch === s.branch}
+                                                role="menuitem"
+                                                onclick={(e) => {
+                                                    const wasArmed = deleteConfirmBranch === s.branch
+                                                    handleDelete(e, s.branch)
+                                                    // If the first tap (arming the confirm), keep
+                                                    // the menu open so the second tap lands on
+                                                    // the same visible button. If already armed,
+                                                    // the row is gone \u2014 nothing to close.
+                                                    if (wasArmed) closeActionsMenu()
+                                                }}
+                                            >
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                                    <path d="M10 11v6"></path>
+                                                    <path d="M14 11v6"></path>
+                                                </svg>
+                                                <span>{deleteConfirmBranch === s.branch ? 'Tap again to delete' : 'Delete'}</span>
+                                            </button>
+                                        {/if}
+                                    </div>
+                                {/if}
+                            </span>
                         </span>
                     </div>
                 </div>
@@ -1853,11 +1954,27 @@
     .session-actions {
         display: flex;
         gap: 0.3rem;
+        position: relative;
+    }
+
+    /* Hover-to-reveal applies only to the desktop icon strip. The
+       mobile overflow button needs to stay visible at rest (no
+       hover on touch), so opacity is scoped to .desktop-actions. */
+    .desktop-actions {
+        display: flex;
+        gap: 0.3rem;
         opacity: 0;
     }
 
-    .session-item:hover .session-actions {
+    .session-item:hover .desktop-actions {
         opacity: 1;
+    }
+
+    /* The mobile overflow span is hidden on desktop entirely; the
+       media query below flips visibility at the breakpoint. */
+    .mobile-actions {
+        display: none;
+        position: relative;
     }
 
     .action-btn {
@@ -1899,6 +2016,97 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+    }
+
+    /* Mobile overflow trigger — 44×44 minimum touch target.
+       Sits where the three desktop icons would be; opens the
+       actions menu below it. */
+    .overflow-btn {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0.5rem;
+    }
+
+    /* Popover containing Fork / Settings / Delete on mobile.
+       Anchored to the overflow button via the `.mobile-actions`
+       wrapper's position:relative. Right-aligned so it doesn't
+       extend off-screen at the right edge of the drawer. */
+    .actions-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 0.3rem);
+        z-index: 201;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        min-width: 180px;
+        padding: 0.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+    }
+
+    /* Backdrop pattern matches ChatInput's attach menu — covers
+       the viewport to catch click-out without stealing pointer
+       events from the menu itself. */
+    .menu-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+    }
+
+    .actions-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        width: 100%;
+        min-height: 44px;
+        padding: 0.5rem 0.75rem;
+        background: none;
+        color: var(--text);
+        border: none;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .actions-menu-item:hover {
+        background: var(--surface-hover);
+    }
+
+    .actions-menu-item.destructive {
+        color: var(--error);
+    }
+
+    .actions-menu-item.destructive:hover {
+        background: color-mix(in srgb, var(--error) 12%, transparent);
+    }
+
+    .actions-menu-item.destructive.confirm {
+        background: color-mix(in srgb, var(--error) 18%, transparent);
+        font-weight: 600;
+    }
+
+    .menu-gear {
+        font-size: 1.05rem;
+        line-height: 1;
+        width: 16px;
+        display: inline-flex;
+        justify-content: center;
+    }
+
+    /* Breakpoint flip: at ≤768px, hide the desktop icon strip
+       and show the mobile overflow trigger. Matches SplitPane's
+       breakpoint so the whole UI shifts to "touch mode" together. */
+    @media (max-width: 768px) {
+        .desktop-actions {
+            display: none;
+        }
+        .mobile-actions {
+            display: inline-flex;
+        }
     }
 
     .section-label {
