@@ -64,6 +64,14 @@
     let previewRefreshKey = $state(0)
     /** @type {'chat' | 'app'} */
     let mobileView = $state('chat')
+    /** Single source of truth for which panes are visible. `'split'`
+     *  is the normal studio experience; `'app-only'` hides the chat
+     *  entirely and surfaces a branded pill as the way back. Set to
+     *  `'app-only'` for first-load of play-mode artifact URLs (see
+     *  `isPlayMode` below); the user can flip out via the pill, and
+     *  we don't snap them back on subsequent reloads. */
+    /** @type {'split' | 'app-only'} */
+    let viewMode = $state('split')
     let scrollKey = $state(0)
     let chaptering = $state(false)
     let tokenModalOpen = $state(false)
@@ -97,6 +105,19 @@
         const params = new URLSearchParams(window.location.search)
         return !!(params.get('gist') || params.get('src'))
     })()
+    // `?play=1` on a `/run/?gist=...` URL signals the publisher
+    // wants this share to read as an end-user app, not as a studio
+    // showcase. We capture once at mount (mirrors `isExternalEntry`)
+    // because `initSessionsFromUrl` strips the query later. The
+    // value is transient — clicking the pill out of app-only mode
+    // sets `viewMode` to `'split'` and that sticks for the session;
+    // we don't restore play mode on subsequent reloads.
+    const isPlayMode = (() => {
+        if (!isExternalEntry) return false
+        const params = new URLSearchParams(window.location.search)
+        return params.get('play') === '1'
+    })()
+    if (isPlayMode) viewMode = 'app-only'
     let hasAppFiles = $derived(files.some(f => f === 'app' || f.startsWith('app/')))
 
     let tokenOverride = $state(null)
@@ -1108,7 +1129,14 @@
   means every `import X` call from the app fails with
   "Import of 'X' is not allowed".
 -->
-<SplitPane collapsed={!hasAppFiles || !agentReady} {mobileView} onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}>
+<SplitPane
+    collapsed={!hasAppFiles || !agentReady}
+    {mobileView}
+    {viewMode}
+    initialRatio={isExternalEntry ? 0.3 : 0.5}
+    onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}
+    onExitAppOnly={() => { viewMode = 'split'; mobileView = 'chat' }}
+>
     {#snippet children()}
         {@render chatContent()}
     {/snippet}
