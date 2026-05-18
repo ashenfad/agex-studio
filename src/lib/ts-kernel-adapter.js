@@ -251,7 +251,20 @@ export function createTsAdapter() {
         async runChaptering(branch) {
             await _ensureBranch(branch);
             const agent = _getAgent();
-            await agent.runChaptering("default");
+            try {
+                await agent.runChaptering("default");
+            } finally {
+                // agex-ts doesn't auto-commit anywhere; its
+                // `runChaptering` writes the ChapterEvent + new index
+                // into the kvgit Staged buffer but leaves the flush to
+                // the embedder. Without this commit, post-reload reads
+                // see the pre-chaptering state — the band renders fine
+                // *in-memory* (Staged still holds the writes) but the
+                // next session load loses it. Matches the
+                // `sendMessage` pattern that defends against the same
+                // bug on the chat path.
+                await agentCommitSession();
+            }
         },
 
         // --- State / commits --------------------------------------------
