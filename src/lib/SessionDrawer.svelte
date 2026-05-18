@@ -1967,7 +1967,12 @@
     .session-actions {
         display: flex;
         gap: 0.3rem;
-        position: relative;
+        /* No `position: relative` here — the mobile-actions span
+           inside is its own positioned ancestor for the popover,
+           and on mobile the overflow button anchors absolutely to
+           the parent `.session-item` (top-right of the row). A
+           positioned `.session-actions` would intercept that
+           anchor and drop the button below the meta line. */
     }
 
     /* Hover-to-reveal applies only to the desktop icon strip. The
