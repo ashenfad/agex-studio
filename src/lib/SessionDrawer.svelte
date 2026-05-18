@@ -505,7 +505,9 @@
             '',
             `**Audience:** _(kids / devs / general / other — please specify)_`,
             '',
-            `**Screenshot or short description of what it does:**`,
+            `**Screenshot:** _(drag an image into this box)_`,
+            '',
+            `**Short description of what it does:**`,
             '',
         ].join('\n')
         const url = `https://github.com/ashenfad/agex-studio/issues/new`
@@ -878,6 +880,23 @@
                 </div>
             {/each}
         </div>
+
+        <!-- Gallery entry — sits between the session list and debug.
+             Opens the static `/gallery/` page in the same tab; users
+             return to the editor via the gallery's own "Open editor"
+             button. Hidden when the gallery JSON is empty would be
+             nice but requires a fetch; for the very small steady-
+             state size (a handful of items), always-show is fine. -->
+        <a class="gallery-link" href="/gallery/">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            </svg>
+            <span>Browse gallery</span>
+            <span class="gallery-link-chevron">→</span>
+        </a>
 
         <div class="debug-section">
             <button class="debug-toggle" onclick={toggleDebug}>
@@ -2219,6 +2238,40 @@
         padding: 0.02rem 0.25rem;
         border-radius: 3px;
         font-size: 0.68rem;
+    }
+
+    /* Gallery entry — sits below the session list, above the debug
+       section. Reads as "another place to go" in the same drawer
+       context; subdued (no accent color) so it doesn't compete with
+       active-session styling above it. */
+    .gallery-link {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.75rem;
+        margin-top: 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: transparent;
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 0.85rem;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .gallery-link:hover {
+        color: var(--text);
+        background: var(--surface-hover);
+        border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+    }
+
+    .gallery-link-chevron {
+        margin-left: auto;
+        opacity: 0.6;
+    }
+
+    .gallery-link:hover .gallery-link-chevron {
+        opacity: 1;
     }
 
     .debug-section {

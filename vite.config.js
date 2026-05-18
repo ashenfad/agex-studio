@@ -28,8 +28,25 @@ function copyRunEntryPoint() {
   }
 }
 
+/**
+ * Mirror of ``copyRunEntryPoint`` for the gallery page. ``/gallery/``
+ * is an additional SPA entry point — App.svelte detects the path and
+ * renders the gallery component instead of the chat shell. Same
+ * bundle, three real paths (``/``, ``/run/``, ``/gallery/``).
+ */
+function copyGalleryEntryPoint() {
+  return {
+    name: 'copy-gallery-entry-point',
+    closeBundle() {
+      const out = resolve('dist', 'gallery')
+      mkdirSync(out, { recursive: true })
+      copyFileSync(resolve('dist', 'index.html'), resolve(out, 'index.html'))
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [svelte(), copyRunEntryPoint()],
+  plugins: [svelte(), copyRunEntryPoint(), copyGalleryEntryPoint()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
