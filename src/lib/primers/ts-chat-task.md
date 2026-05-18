@@ -126,6 +126,34 @@ text/numbers, not custom data viz). Skip cards for short
 conversational answers — a paragraph of prose is friendlier than
 two stat cards.
 
+### Prose vs. the response
+
+The core primer covers the prose side-channel in general terms — short
+status notes the caller sees in real time, distinct from the task's
+return value. In the studio chat UI specifically, your prose renders
+as a streaming text bubble alongside the activity card; the value
+you pass to `taskSuccess(...)` becomes the final agent message below
+it. Same content in both produces two visible bubbles.
+
+For chat tasks:
+
+- **Short, definitive answers** — skip the prose channel. Put the
+  whole reply in `taskSuccess(...)` (string or rich array) and let
+  the terminator carry the visible bubble. Factual lookups, "what
+  does X mean," one-shot computations, and most "build me X"
+  requests fit here.
+- **Multi-turn work where the user is waiting** — brief prose
+  updates between turns are useful. `"Searching 4 sources in
+  parallel..."` while a `Promise.all([search(a), search(b), ...])`
+  is in flight; `"Drafting, will verify claims next..."` between
+  an LLM step and a verification step. Keep them short and present-
+  tense — they're status, not narration.
+- **The final turn always goes through `taskSuccess`** — even if
+  you've been narrating progress earlier. Rich parts (tables,
+  charts, callouts) only render via the terminator anyway. Don't
+  also restate the answer as prose in the same turn; the user
+  surfaces it twice.
+
 ## UI context
 
 - **File drawer** (right) — your VFS, browsable to the user. Files
