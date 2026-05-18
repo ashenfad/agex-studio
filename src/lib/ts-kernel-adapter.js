@@ -84,6 +84,24 @@ const RUN_QUERY_NOT_YET =
 // values directly. Plumb that in instead of porting `runQuery` once
 // an app actually needs it; until then this stub stays.
 
+/** Debug-print gate. Flip on at runtime with
+ *  `localStorage.debugAgent = '1'` then reload. Prints flow through
+ *  the host main-thread console (not the worker). Cheap when off —
+ *  just a single localStorage read per emission. */
+function _dbg(...args) {
+    try {
+        if (
+            typeof localStorage !== "undefined" &&
+            localStorage.getItem("debugAgent") === "1"
+        ) {
+            // eslint-disable-next-line no-console
+            console.log("[ts-adapter]", ...args);
+        }
+    } catch {
+        // localStorage can throw in sandboxed contexts — ignore.
+    }
+}
+
 /** Switch kvgit's current branch to `branch`. Goes through Staged
  *  (not the underlying Versioned) so Staged's per-key read cache is
  *  invalidated on switch — direct `versioned.switchBranch` would
@@ -181,6 +199,10 @@ export function createTsAdapter() {
 
         async sendMessage(branch, message, opts = {}) {
             await _ensureBranch(branch);
+            _dbg("sendMessage start", {
+                branch,
+                messageLen: typeof message === "string" ? message.length : -1,
+            });
             // Translate streamed agex-ts TokenChunks into the shell's
             // expected token shape on the way out, and accumulate
             // shell-shape events for the returned `{ result, events }`.
@@ -191,6 +213,9 @@ export function createTsAdapter() {
             const userOnToken = opts.onToken;
             const translator = makeLiveTokenTranslator();
             const events = [];
+            /** @type {string | null} */
+            let currentTaskName = null;
+            let chapterCount = 0;
 
             const sendTokens = async (tokens) => {
                 if (!userOnToken) return;
@@ -216,19 +241,68 @@ export function createTsAdapter() {
                         // shape *before* user-facing forwarding so callers
                         // that inspect events (e.g. for cancelled-detection)
                         // see the same shape py emits.
-                        if (e?.type === "action") {
+                        const et = /** @type {any} */ (e)?.type;
+                        if (et === "taskStart") {
+                            currentTaskName =
+                                /** @type {any} */ (e).taskName ?? null;
+                            if (currentTaskName === "__chapter__") {
+                                chapterCount += 1;
+                                _dbg("chapter task START", {
+                                    nth: chapterCount,
+                                });
+                            } else {
+                                _dbg("task START", { taskName: currentTaskName });
+                            }
+                        } else if (et === "action") {
+                            const a = /** @type {any} */ (e);
+                            _dbg("action", {
+                                taskName: currentTaskName,
+                                emissionCount: a.emissions?.length ?? null,
+                                inputTokens: a.inputTokens ?? a.input_tokens ?? null,
+                                outputTokens: a.outputTokens ?? a.output_tokens ?? null,
+                            });
                             events.push(synthesizeAction(e));
                             // ActionEvent finished — flush the streaming
                             // turn so any subsequent ActionEvent starts
                             // fresh in the shell's snapshot accumulator.
                             await sendTokens(translator.turnComplete());
-                        } else if (e?.type === "output") {
+                        } else if (et === "output") {
                             const parts = serializeOutputParts(e);
+                            _dbg("output", {
+                                taskName: currentTaskName,
+                                partCount: parts.length,
+                            });
                             for (const out of splitOutputEvents(parts)) {
                                 events.push(out);
                             }
-                        } else if (e?.type === "cancelled") {
+                        } else if (et === "success") {
+                            _dbg("task SUCCESS", {
+                                taskName: currentTaskName,
+                            });
+                            currentTaskName = null;
+                        } else if (et === "fail") {
+                            _dbg("task FAIL", {
+                                taskName: currentTaskName,
+                                message: /** @type {any} */ (e).message,
+                            });
+                            currentTaskName = null;
+                        } else if (et === "cancelled") {
+                            _dbg("cancelled", { taskName: currentTaskName });
                             events.push({ type: "cancelled" });
+                            currentTaskName = null;
+                        } else if (et === "chapter") {
+                            chapterCount += 1;
+                            const ce = /** @type {any} */ (e);
+                            _dbg("standalone CHAPTER event", {
+                                nth: chapterCount,
+                                name: ce.name,
+                                messagePreview:
+                                    typeof ce.message === "string"
+                                        ? ce.message.slice(0, 80)
+                                        : null,
+                            });
+                        } else if (et) {
+                            _dbg("event", { type: et });
                         }
                         // Forward the *raw* agex-ts event to the user
                         // callback — the typed shape is the documented
@@ -238,6 +312,11 @@ export function createTsAdapter() {
                 });
             } finally {
                 await agentCommitSession();
+                _dbg("sendMessage done", {
+                    branch,
+                    eventCount: events.length,
+                    chapterCount,
+                });
             }
             // Normalize the agent's freeform return value into the
             // renderer's expected shape (text bubble or multi-part
@@ -250,6 +329,7 @@ export function createTsAdapter() {
 
         async runChaptering(branch) {
             await _ensureBranch(branch);
+            _dbg("runChaptering start (manual)", { branch });
             const agent = _getAgent();
             try {
                 await agent.runChaptering("default");
@@ -264,6 +344,7 @@ export function createTsAdapter() {
                 // `sendMessage` pattern that defends against the same
                 // bug on the chat path.
                 await agentCommitSession();
+                _dbg("runChaptering done (manual)", { branch });
             }
         },
 
