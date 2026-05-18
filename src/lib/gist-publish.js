@@ -24,10 +24,19 @@ import { formatBytes } from "./bytes.js";
  * @property {string} gistHtmlUrl    - the human-facing GitHub URL
  *     (e.g., https://gist.github.com/<user>/<id>) for the publisher
  *     to inspect / rename / delete
- * @property {string} bundleRawUrl   - the raw URL of the bundle file,
- *     pinned to the gist's current commit (versioned and stable)
+ * @property {string} bundleRawUrl   - the raw URL of the bundle file
+ *     (unversioned — serves whatever the gist's HEAD is)
  * @property {string} runtimeUrl     - the agex.studio URL recipients
- *     open to load this artifact
+ *     open to load this artifact (HEAD-tracking; updates if the
+ *     publisher later edits the gist)
+ * @property {string} gistCommit     - the gist's commit SHA at publish
+ *     time, or "" if the GitHub API response didn't include history.
+ *     Use with `runtimeUrlPinned` when immutability matters.
+ * @property {string} runtimeUrlPinned - the immutable variant of
+ *     `runtimeUrl` — embeds `gistCommit` so the resolved bundle
+ *     bytes can never change after this publish. Falls back to
+ *     `runtimeUrl` when `gistCommit` is unavailable. Used by the
+ *     gallery-submission flow.
  */
 
 class GistPublishError extends Error {
@@ -186,7 +195,9 @@ export async function publishGistBundle({
     // share URL automatically pick up updates when the publisher
     // re-publishes — matches V1_PLAN's "republishing the same slug
     // overwrites" semantics.  Tradeoff: not byte-immutable, but the
-    // user can always fork to snapshot.
+    // user can always fork to snapshot. The pinned variant is also
+    // surfaced (``runtimeUrlPinned``) for callers that need
+    // immutability — currently the gallery-submission flow.
     const bundleRawUrl =
         `https://gist.githubusercontent.com/${ownerLogin}/${data.id}/raw/${bundleFilename}`;
 
@@ -196,6 +207,22 @@ export async function publishGistBundle({
     // share URL and ~80 chars saved over the encoded full form.
     const base = origin || "";
     const runtimeUrl = `${base}/run/?gist=${ownerLogin}/${data.id}/${slug}`;
+
+    // GitHub's gist API returns the full revision history under
+    // ``history``; the latest entry's ``version`` is the SHA of the
+    // commit that just landed. Defensive — if the response shape
+    // ever drops it (or a mock omits it), pinning falls back to the
+    // unpinned URL so callers degrade gracefully instead of building
+    // a malformed link.
+    const gistCommit =
+        (Array.isArray(data.history) &&
+            data.history[0] &&
+            typeof data.history[0].version === "string" &&
+            data.history[0].version) ||
+        "";
+    const runtimeUrlPinned = gistCommit
+        ? `${base}/run/?gist=${ownerLogin}/${data.id}/${gistCommit}/${slug}`
+        : runtimeUrl;
 
     // Post a markdown comment carrying the description prose, the
     // runtime link, and a manifest table.  The gist itself is
@@ -231,6 +258,8 @@ export async function publishGistBundle({
         gistHtmlUrl: data.html_url,
         bundleRawUrl,
         runtimeUrl,
+        gistCommit,
+        runtimeUrlPinned,
     };
 }
 

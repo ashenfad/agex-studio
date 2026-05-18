@@ -386,7 +386,15 @@
     function submitToGallery() {
         if (publishState?.stage !== 'done') return
         const session = publishState.session
-        const showcaseUrl = publishState.result.runtimeUrl
+        // Gallery submissions use the *pinned* URL form (embeds the
+        // gist's commit SHA at publish time) so a curated entry can't
+        // silently change content after admission. Friend-share URLs
+        // in the publish modal stay HEAD-tracking — publishers can
+        // still iterate post-share — but the gallery wants byte-
+        // immutability for vetting. Falls back to the unpinned URL
+        // if `runtimeUrlPinned` is unavailable (defensive against an
+        // older publishGistBundle return shape).
+        const showcaseUrl = publishState.result.runtimeUrlPinned || publishState.result.runtimeUrl
         const playUrl = `${showcaseUrl}&play=1`
         const name = (session.name || session.title || 'Untitled').trim()
         const description = (session.description || '').trim()

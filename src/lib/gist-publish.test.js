@@ -14,7 +14,12 @@ function bytesOf(text) {
 }
 
 /** A successful gist response shape, narrow enough for our consumer. */
-function fakeGistResponse({ id = "abc123def456", owner = "test-user", htmlUrl } = {}) {
+function fakeGistResponse({
+    id = "abc123def456",
+    owner = "test-user",
+    htmlUrl,
+    commit = "0123456789abcdef0123456789abcdef01234567",
+} = {}) {
     return {
         id,
         owner: { login: owner },
@@ -24,6 +29,7 @@ function fakeGistResponse({ id = "abc123def456", owner = "test-user", htmlUrl } 
                 raw_url: `https://gist.githubusercontent.com/${owner}/${id}/raw/bundle.agex.b64`,
             },
         },
+        history: [{ version: commit }],
     };
 }
 
@@ -122,6 +128,16 @@ describe("publishGistBundle", () => {
         expect(result.bundleRawUrl).not.toMatch(/\/raw\/[a-f0-9]{40}\//);
         expect(result.runtimeUrl).toBe(
             "https://agex.studio/run/?gist=test-user/abc123def456/my-session",
+        );
+        // Pinned variant embeds the commit SHA so the resolved bytes
+        // can't change after publish. Used by the gallery-submission
+        // flow where immutability matters; the unpinned `runtimeUrl`
+        // stays the default for friend-share where iteration is fine.
+        expect(result.gistCommit).toBe(
+            "0123456789abcdef0123456789abcdef01234567",
+        );
+        expect(result.runtimeUrlPinned).toBe(
+            "https://agex.studio/run/?gist=test-user/abc123def456/0123456789abcdef0123456789abcdef01234567/my-session",
         );
 
         // Comment carries the title heading, both runtime links
@@ -231,6 +247,37 @@ describe("publishGistBundle", () => {
         expect(slug.length).toBeLessThanOrEqual(50);
         expect(slug.endsWith("-")).toBe(false);
         expect(result.runtimeUrl.endsWith(`/${slug}`)).toBe(true);
+    });
+
+    it("falls back to unpinned runtimeUrl when the API response omits history", async () => {
+        // Defensive: GitHub's gist API always returns `history`, but a
+        // future shape change or a downstream mock might omit it. The
+        // publish flow shouldn't crash or build a malformed pinned
+        // URL; instead `runtimeUrlPinned` should equal `runtimeUrl`
+        // and callers degrade to mutable-link behavior.
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 201,
+            json: async () => ({
+                id: "no-history-id",
+                owner: { login: "ghost" },
+                html_url: "https://gist.github.com/ghost/no-history-id",
+                files: { "session.agex.b64": { raw_url: "..." } },
+                // No `history` field.
+            }),
+        });
+        // Comment POST is also expected to be mocked (publish path
+        // always tries to post one, swallows errors). Stub a success.
+        fetchMock.mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({}) });
+        const result = await publishGistBundle({
+            pat: "ghp_test",
+            bytes: bytesOf("x"),
+            manifest: {},
+            name: "Session",
+            origin: "https://agex.studio",
+        });
+        expect(result.gistCommit).toBe("");
+        expect(result.runtimeUrlPinned).toBe(result.runtimeUrl);
     });
 
     it("rejects responses missing owner.login or id", async () => {
