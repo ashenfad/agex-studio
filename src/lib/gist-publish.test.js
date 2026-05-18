@@ -124,8 +124,9 @@ describe("publishGistBundle", () => {
             "https://agex.studio/run/?gist=test-user/abc123def456/my-session",
         );
 
-        // Comment carries the title heading, runtime link, and
-        // manifest table for human inspection on github.com.
+        // Comment carries the title heading, both runtime links
+        // (app-only and showcase), and a manifest table for human
+        // inspection on github.com.
         const [commentUrl, commentInit] = fetchMock.mock.calls[1];
         expect(commentUrl).toBe(
             "https://api.github.com/gists/abc123def456/comments",
@@ -133,7 +134,8 @@ describe("publishGistBundle", () => {
         expect(commentInit.method).toBe("POST");
         const commentBody = JSON.parse(commentInit.body).body;
         expect(commentBody).toContain("## My Session");
-        expect(commentBody).toContain(`[Open in agex.studio](${result.runtimeUrl})`);
+        expect(commentBody).toContain(`**Open as app:** [${result.runtimeUrl}&play=1]`);
+        expect(commentBody).toContain(`**Open as showcase:** [${result.runtimeUrl}]`);
         expect(commentBody).toContain("| Commits | 5 |");
         expect(commentBody).toContain("| Blobs | 12 |");
         expect(commentBody).toContain("| Nodes | 7 |");

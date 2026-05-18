@@ -79,8 +79,11 @@
      *   { stage: 'error',     session, message }
      */
     let publishState = $state(null)
-    /** Copy-flash state for the post-publish URL field. */
-    let copyFlash = $state(false)
+    /** Copy-flash state for the post-publish URL fields.  Tagged so
+     *  the two URL rows (play, showcase) can independently flash
+     *  "Copied!"; `null` means neither is flashing. */
+    /** @type {null | 'play' | 'showcase'} */
+    let copyFlash = $state(null)
 
     /** @type {HTMLInputElement | undefined} */
     let fileInput = $state()
@@ -315,7 +318,7 @@
     function closePublish() {
         if (publishState?.stage === 'bundling' || publishState?.stage === 'uploading') return
         publishState = null
-        copyFlash = false
+        copyFlash = null
     }
 
     async function confirmPublish() {
@@ -356,15 +359,57 @@
         }
     }
 
-    async function copyRuntimeUrl() {
+    async function copyPublishUrl(url, which) {
         if (publishState?.stage !== 'done') return
         try {
-            await navigator.clipboard.writeText(publishState.result.runtimeUrl)
-            copyFlash = true
-            setTimeout(() => { copyFlash = false }, 2000)
+            await navigator.clipboard.writeText(url)
+            copyFlash = which
+            setTimeout(() => {
+                // Only clear if we still own the flash; a follow-up
+                // copy on the other field would have overwritten it
+                // already, and clearing here would race that.
+                if (copyFlash === which) copyFlash = null
+            }, 2000)
         } catch (err) {
             console.error('Copy failed:', err)
         }
+    }
+
+    /** Open a prefilled GitHub issue against agex-studio with the
+     *  just-published gist's URLs and session metadata, so the user
+     *  can submit their app for inclusion in the curated gallery.
+     *  We use `body=` to prefill rather than `template=` because
+     *  GitHub's behavior when both are present is inconsistent;
+     *  the markdown template at `.github/ISSUE_TEMPLATE/` covers
+     *  the path where someone hits "New issue" on github.com
+     *  directly. `labels=` lands the issue in the triage queue. */
+    function submitToGallery() {
+        if (publishState?.stage !== 'done') return
+        const session = publishState.session
+        const showcaseUrl = publishState.result.runtimeUrl
+        const playUrl = `${showcaseUrl}&play=1`
+        const name = (session.name || session.title || 'Untitled').trim()
+        const description = (session.description || '').trim()
+        const issueTitle = `Gallery: ${name}`
+        const body = [
+            `**App URL (play mode):** ${playUrl}`,
+            `**Studio URL (showcase):** ${showcaseUrl}`,
+            '',
+            `**Title:** ${name}`,
+            '',
+            `**Description:**`,
+            description || '_(none provided — feel free to add one here)_',
+            '',
+            `**Audience:** _(kids / devs / general / other — please specify)_`,
+            '',
+            `**Screenshot or short description of what it does:**`,
+            '',
+        ].join('\n')
+        const url = `https://github.com/ashenfad/agex-studio/issues/new`
+            + `?labels=gallery-candidate`
+            + `&title=${encodeURIComponent(issueTitle)}`
+            + `&body=${encodeURIComponent(body)}`
+        window.open(url, '_blank', 'noopener')
     }
 
     function handleEdit(e, session) {
@@ -876,7 +921,28 @@
                     <div class="done-message">Published as a secret gist</div>
                 </div>
                 <div class="preview-field">
-                    <span class="field-label">Share this URL</span>
+                    <span class="field-label">
+                        Share with users
+                        <span class="field-hint">— app-only view, no chat chrome</span>
+                    </span>
+                    <div class="publish-url-row">
+                        <input
+                            type="text"
+                            class="publish-url-input"
+                            readonly
+                            value={`${publishState.result.runtimeUrl}&play=1`}
+                            onfocus={(e) => e.target.select()}
+                        />
+                        <button type="button" class="btn-copy" onclick={() => copyPublishUrl(`${publishState.result.runtimeUrl}&play=1`, 'play')}>
+                            {copyFlash === 'play' ? 'Copied!' : 'Copy'}
+                        </button>
+                    </div>
+                </div>
+                <div class="preview-field">
+                    <span class="field-label">
+                        Share with builders
+                        <span class="field-hint">— split view, see how it was made</span>
+                    </span>
                     <div class="publish-url-row">
                         <input
                             type="text"
@@ -885,12 +951,15 @@
                             value={publishState.result.runtimeUrl}
                             onfocus={(e) => e.target.select()}
                         />
-                        <button type="button" class="btn-copy" onclick={copyRuntimeUrl}>
-                            {copyFlash ? 'Copied!' : 'Copy'}
+                        <button type="button" class="btn-copy" onclick={() => copyPublishUrl(publishState.result.runtimeUrl, 'showcase')}>
+                            {copyFlash === 'showcase' ? 'Copied!' : 'Copy'}
                         </button>
                     </div>
                 </div>
                 <div class="publish-secondary">
+                    <button type="button" class="btn-gallery" onclick={submitToGallery} title="Submit to the agex.studio gallery">
+                        ✨ Submit to gallery
+                    </button>
                     <a href={publishState.result.gistHtmlUrl} target="_blank" rel="noopener">View on GitHub ↗</a>
                 </div>
             </div>
@@ -1395,6 +1464,11 @@
     .publish-secondary {
         font-size: 0.75rem;
         color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
     .publish-secondary a {
@@ -1404,6 +1478,33 @@
 
     .publish-secondary a:hover {
         color: var(--text);
+    }
+
+    /* "Submit to gallery" button — secondary action sitting next to
+       the View-on-GitHub link.  Subtle so it doesn't compete with
+       Copy/Close, but tinted so it reads as a real CTA. */
+    .btn-gallery {
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        color: var(--accent);
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        padding: 0.35rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        cursor: pointer;
+    }
+
+    .btn-gallery:hover {
+        background: color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+
+    /* Inline hint after the all-caps field label.  Lowercase + muted
+       so the structure (LABEL — context) reads naturally. */
+    .field-hint {
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: 400;
+        opacity: 0.7;
     }
 
     .preview-hint code {
