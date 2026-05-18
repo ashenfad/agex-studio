@@ -1,4 +1,4 @@
-import { V as VirtualFileSystem } from '../types-BdbZoJfu.js';
+import { V as VirtualFileSystem } from '../types-MortsIN-.js';
 import '@standard-schema/spec';
 import 'termish-ts';
 import '../errors.js';

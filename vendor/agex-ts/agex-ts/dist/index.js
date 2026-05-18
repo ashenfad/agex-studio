@@ -1,8 +1,8 @@
 import { connectState, isVersioned } from './chunk-WECOJZZ7.js';
 import { KvgitState } from './chunk-3ZSPEOPD.js';
 import './chunk-E46VTKTZ.js';
-import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, getLastFiredActionTimestamp, shouldTriggerChaptering, markChapteringFired, CHAPTER_TASK_NAME } from './chunk-XTIOXGRO.js';
-export { shouldTriggerChaptering } from './chunk-XTIOXGRO.js';
+import { DEFAULT_CHAPTER_PRIMER, runChaptering, SkillsOverlay, buildTaskMessage, buildSystemMessage, renderEvents, makeToolUseId, getLastFiredActionTimestamp, shouldTriggerChaptering, markChapteringFired, CHAPTER_TASK_NAME } from './chunk-F6HTUUPK.js';
+export { shouldTriggerChaptering } from './chunk-F6HTUUPK.js';
 import { PolicyBuilder, memberAllowed } from './chunk-MUU37UMN.js';
 import { CancelledError, TaskFailError, isCancelledError, RegistrationError, SchemaError } from './chunk-V7QM2ZJ3.js';
 export { AgentError, CancelledError, FatalError, RegistrationError, SchemaError, TASK_CONTROL_BRAND, TaskFailError, TransientError, isTaskControlError } from './chunk-V7QM2ZJ3.js';
