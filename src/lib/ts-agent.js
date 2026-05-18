@@ -66,6 +66,7 @@ import {
     synthesizeAction,
     serializeOutputParts,
     splitOutputEvents,
+    serializeChapterEvents,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse } from "./ts-chat-response.js";
 
@@ -1117,41 +1118,71 @@ export async function readAppBinaries() {
  * produces the same `{ type, kind, ... }` dicts the shell's
  * EventDetail / MessageList components consume on the py path.
  *
- * Still-deferred relative to the py renderer:
- *
- *   - **No chapter flattening.** ChapterEvents render as a single
- *     `'chaptering'` row carrying the chapter's name+message.  The
- *     Py side flattens chapters to show the original events inside
- *     them; TS side will do that follow-up once chaptering parity
- *     matters. For now, the user sees that chaptering happened but
- *     can't expand to inspect.
+ * Chapter handling: standalone `chapter` events (yielded by `iter()`
+ * in place of the folded originals) get aggregated into a single
+ * `'chaptering'` row per consecutive run, and the modal-contents
+ * `events` array for each chapter is built by resolving its
+ * `eventRefs` via `EventLog.byKey` and recursively serializing the
+ * originals — same shape as py's `_serialize_chapter_events`. Note
+ * that, unlike py's `_do_flatten`, we do *not* unroll the folded
+ * turns back into the *main* scroll; py renders pre-chapter turns
+ * inline as if no chaptering happened, while TS shows only the
+ * chaptering band (drill into the modal for the originals). Mirror
+ * the inline flattening here when that parity becomes worth the
+ * complexity.
  *
  * @returns {Promise<Array<Object>>}
  */
 export async function loadHistory() {
     const agent = _getAgent();
     const log = await agent.events(SESSION);
+    /** Resolve a ChapterEvent's `eventRefs` state keys to the original
+     *  events. The originals are left at their state keys when
+     *  `replaceRange` rewrites the active index (see
+     *  agex-ts:event-log.ts), so `byKey` is the right primitive to
+     *  follow the refs without re-walking the active index. */
+    const resolveByKey = async (key) => {
+        if (typeof (/** @type {any} */ (log).byKey) === "function") {
+            return await /** @type {any} */ (log).byKey(key);
+        }
+        return null;
+    };
     /** @type {Array<Object>} */
     const messages = [];
     /** @type {string | null} */
     let currentTaskName = null;
     /** @type {Array<Object>} */
     let currentEvents = [];
+    /** Reference to the most recently-pushed `chaptering` row so
+     *  consecutive standalone `chapter` events (one per folded prior
+     *  turn) fold into a single band instead of rendering as N
+     *  separate "1 chapter created" rows. Cleared whenever a non-
+     *  chapter event arrives, so distinct chaptering runs (separated
+     *  by user turns) still get their own row. */
+    /** @type {Object | null} */
+    let currentChapteringRow = null;
 
     for await (const e of log.iter()) {
         const t = /** @type {any} */ (e).type;
         const ts = _toDate(/** @type {any} */ (e).timestamp);
         const commitHash = /** @type {any} */ (e).commitHash || "";
+        // Any non-chapter event ends a run of standalone ChapterEvents;
+        // drop the aggregation pointer so a *future* chaptering run
+        // starts a fresh band. The `chapter` branch below re-sets it.
+        if (t !== "chapter") {
+            currentChapteringRow = null;
+        }
         if (t === "taskStart") {
             currentEvents = [];
             currentTaskName = /** @type {any} */ (e).taskName ?? null;
             if (currentTaskName === "__chapter__") {
-                messages.push({
-                    role: "chaptering",
-                    timestamp: ts,
-                    commit_hash: commitHash,
-                    chapters: [],
-                });
+                // The `__chapter__` task's lifecycle (taskStart →
+                // success) is metadata about *which* run folded the
+                // events; it carries no user-facing content of its
+                // own. The actual chapters arrive as standalone
+                // `chapter` events (handled below) and are aggregated
+                // into a single band there. Suppressing this branch
+                // avoids a trailing empty "0 chapters created" row.
             } else {
                 const inputs = /** @type {any} */ (e).inputs;
                 const content =
@@ -1243,22 +1274,35 @@ export async function loadHistory() {
             currentTaskName = null;
         } else if (t === "chapter") {
             // Standalone ChapterEvent (yielded by `iter()` in place
-            // of folded events). Render as a chaptering row with a
-            // single chapter entry.
-            //
-            // TODO: chapter flattening. The py heredoc's `_do_flatten`
-            // recursively expands ChapterEvents back into their
-            // original events so the user can drill in and see what
-            // was folded; we currently surface only that chaptering
-            // happened. Mirror the py walk here once chaptering UX
-            // parity matters for TS sessions.
+            // of folded events). A single chaptering run produces one
+            // such event per folded prior turn — they always arrive in
+            // a consecutive run, so we aggregate them into a single
+            // band. Each chapter's `events` array is the recursively-
+            // serialized originals (resolved via the log's `byKey`
+            // accessor), so the chapter modal can render drill-down
+            // content matching the py side.
             const ce = /** @type {any} */ (e);
-            messages.push({
-                role: "chaptering",
-                timestamp: ts,
-                commit_hash: commitHash,
-                chapters: [{ name: ce.name, message: ce.message, events: [] }],
-            });
+            const innerEvents = await serializeChapterEvents(
+                ce.eventRefs || [],
+                resolveByKey,
+                normalizeChatResponse,
+            );
+            const chapter = {
+                name: ce.name,
+                message: ce.message,
+                events: innerEvents,
+            };
+            if (currentChapteringRow) {
+                currentChapteringRow.chapters.push(chapter);
+            } else {
+                currentChapteringRow = {
+                    role: "chaptering",
+                    timestamp: ts,
+                    commit_hash: commitHash,
+                    chapters: [chapter],
+                };
+                messages.push(currentChapteringRow);
+            }
         }
     }
 

@@ -214,6 +214,142 @@ export function splitOutputEvents(parts) {
 }
 
 // ---------------------------------------------------------------------------
+// Chapter-event serialization
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively serialize the raw events nested inside a `ChapterEvent`
+ * into the synthetic-event-dict shape `ChapterModal` consumes via
+ * `groupEventsForChat`. Mirrors py-side `_serialize_chapter_events`
+ * (`public/python/event_serialization.py:233`) field-for-field.
+ *
+ * The TS `EventLog` doesn't hand raw resolved events for free — the
+ * `iter()` walk substitutes ChapterEvents in place. So we resolve
+ * `chapterEvent.eventRefs` via the caller-provided `resolveByKey`
+ * callback (agex-ts >= 611bb4b exposes `EventLog.byKey(stateKey)`),
+ * then recursively serialize the resolved list.
+ *
+ * Why a callback rather than a direct `EventLog` arg: keeps this
+ * helper boundary-free (no agex-ts import in the translator) and
+ * makes the recursion unit-testable with a Map-backed stub.
+ *
+ * @param {ReadonlyArray<string>} eventRefs - state keys to resolve
+ *   (typically a `ChapterEvent`'s `eventRefs` array)
+ * @param {(stateKey: string) => Promise<object | null>} resolveByKey
+ * @param {(value: any) => {type: 'text'|'response', content?: string, parts?: any[]}} normalizeResult
+ *   - normalizer for non-chapter task success results, matching the
+ *     shape `MessageList` agent bubbles use. Pass `normalizeChatResponse`
+ *     from `ts-chat-response.js`.
+ * @returns {Promise<Array<object>>}
+ */
+export async function serializeChapterEvents(
+    eventRefs,
+    resolveByKey,
+    normalizeResult,
+) {
+    const events = [];
+    for (const key of eventRefs) {
+        const e = await resolveByKey(key);
+        if (e) events.push(e);
+    }
+    return _walkChapterEvents(events, resolveByKey, normalizeResult);
+}
+
+async function _walkChapterEvents(eventsList, resolveByKey, normalizeResult) {
+    /** @type {Array<object>} */
+    const result = [];
+    /** `unassigned` mirrors py's same-named queue: ChapterEvents we've
+     *  pushed as standalone `{type:'chapter'}` entries that the next
+     *  `__chapter__` SuccessEvent will pull into the most-recent open
+     *  `{type:'chaptering'}` band. Order-preserving FIFO. */
+    /** @type {Array<object>} */
+    const unassigned = [];
+    let curTask = null;
+    for (const evt of eventsList) {
+        const t = evt && typeof evt === "object" ? evt.type : null;
+        if (t === "action") {
+            result.push(synthesizeAction(evt));
+        } else if (t === "output") {
+            const parts = serializeOutputParts(evt);
+            for (const out of splitOutputEvents(parts)) result.push(out);
+        } else if (t === "chapter") {
+            const ce = /** @type {any} */ (evt);
+            // Recurse into this nested chapter's own eventRefs to
+            // serialize its inner events. Without this the drill-down
+            // bottoms out at the first nested fold (modal would render
+            // an empty `events: []` for any inner chapter).
+            const innerEvents = await serializeChapterEvents(
+                ce.eventRefs || [],
+                resolveByKey,
+                normalizeResult,
+            );
+            const item = {
+                type: "chapter",
+                name: ce.name,
+                message: ce.message,
+                events: innerEvents,
+            };
+            result.push(item);
+            unassigned.push(item);
+        } else if (t === "taskStart") {
+            const ts = /** @type {any} */ (evt);
+            curTask = ts.taskName ?? null;
+            if (curTask === "__chapter__") {
+                result.push({ type: "chaptering", chapters: [] });
+            } else {
+                const inputs = ts.inputs;
+                const msg =
+                    typeof inputs === "string"
+                        ? inputs
+                        : inputs && typeof inputs === "object" && "message" in inputs
+                          ? String(inputs.message ?? "")
+                          : String(inputs ?? "");
+                result.push({ type: "task_start", message: msg });
+            }
+        } else if (t === "success") {
+            const se = /** @type {any} */ (evt);
+            if (curTask === "__chapter__") {
+                const r = se.result;
+                let n = 0;
+                if (Array.isArray(r)) {
+                    for (const ch of r) {
+                        if (ch && typeof ch === "object" && "name" in ch) n++;
+                    }
+                }
+                const take = Math.min(n, unassigned.length);
+                if (take > 0) {
+                    // Walk backward to find the most-recent open
+                    // `chaptering` entry — same shape as py's
+                    // `for _bm in reversed(_messages)` loop.
+                    for (let i = result.length - 1; i >= 0; i--) {
+                        const bm = result[i];
+                        if (bm && bm.type === "chaptering") {
+                            bm.chapters = unassigned.slice(0, take).map((uc) => ({
+                                name: uc.name,
+                                message: uc.message,
+                                events: uc.events || [],
+                            }));
+                            break;
+                        }
+                    }
+                    unassigned.splice(0, take);
+                }
+                curTask = null;
+            } else {
+                result.push({
+                    type: "success",
+                    result: normalizeResult(se.result),
+                });
+                curTask = null;
+            }
+        }
+        // Other event types (fail, cancelled, file) intentionally
+        // omitted to match py's `_serialize_chapter_events` shape.
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Live token translation
 // ---------------------------------------------------------------------------
 
