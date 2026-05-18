@@ -1134,8 +1134,22 @@
     {mobileView}
     {viewMode}
     initialRatio={isExternalEntry ? 0.3 : 0.5}
-    onToggleMobileView={() => mobileView = mobileView === 'chat' ? 'app' : 'chat'}
-    onExitAppOnly={() => { viewMode = 'split'; mobileView = 'chat' }}
+    onToggleMobileView={() => {
+        // Mobile toggle: when bringing chat back into view, bump
+        // scrollKey so MessageList re-applies scroll-to-bottom. The
+        // chat container had scrollHeight = 0 while hidden, so any
+        // prior auto-scroll was a no-op — without this, the user
+        // would land mid-history on flip.
+        mobileView = mobileView === 'chat' ? 'app' : 'chat'
+        if (mobileView === 'chat') scrollKey++
+    }}
+    onExitAppOnly={() => {
+        // Same rationale as above. exitAppOnly always reveals the
+        // chat (on desktop via split, on mobile via mobileView='chat').
+        viewMode = 'split'
+        mobileView = 'chat'
+        scrollKey++
+    }}
 >
     {#snippet children()}
         {@render chatContent()}
