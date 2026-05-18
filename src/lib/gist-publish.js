@@ -273,7 +273,18 @@ function _composeGistComment({
     if (description && description.trim()) {
         lines.push("", description.trim());
     }
-    lines.push("", `[Open in agex.studio](${runtimeUrl})`);
+    // Two share URLs — play mode for end-users (app-only view) and
+    // showcase for builders/curious folk (split view with chat
+    // history visible). Same gist, different default layout; the
+    // viewer-side reads `?play=1` on mount and toggles `viewMode`
+    // accordingly. See ChatShell's `isPlayMode` + SplitPane's
+    // `view-app-only` for the mechanics.
+    lines.push(
+        "",
+        `**Open as app:** [${runtimeUrl}&play=1](${runtimeUrl}&play=1)`,
+        "",
+        `**Open as showcase:** [${runtimeUrl}](${runtimeUrl})`,
+    );
 
     const stats = (manifest && manifest.stats) || {};
     const rows = [];
