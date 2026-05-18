@@ -81,6 +81,14 @@ var EventLogImpl = class {
       if (v !== void 0) yield v;
     }
   }
+  /** Read an event by its state key. The chaptering primitive
+   *  (`replaceRange`) leaves the originals at their keys when it
+   *  rewrites the active index — callers holding a
+   *  `ChapterEvent.eventRefs` array can resolve them via this. */
+  async byKey(stateKey) {
+    const v = await this.#state.get(stateKey);
+    return v ?? null;
+  }
   async at(commitHash) {
     if (!isVersioned(this.#state)) return null;
     return null;

@@ -1,7 +1,7 @@
+import { installConsoleProxy, runWithCapture } from '../chunk-AD24MQXN.js';
 import { prepareScript } from '../chunk-37F76RJV.js';
 import { wrapAgentFs } from '../chunk-ZUEX3GXN.js';
 import { CancelledError, isTaskControlError, TaskFailError } from '../chunk-V7QM2ZJ3.js';
-import { installConsoleProxy, runWithCapture } from '../chunk-AD24MQXN.js';
 import { makeHostFnContext } from '../chunk-RDWADUN6.js';
 import '../chunk-ZDNM4VPR.js';
 import tsBlankSpace from 'ts-blank-space';

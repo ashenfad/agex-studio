@@ -1,4 +1,4 @@
-import { v as OutputPart, I as ImageFormat, H as HostFnContext } from './types-CO8Ko6DJ.js';
+import { v as OutputPart, I as ImageFormat, H as HostFnContext } from './types-BdbZoJfu.js';
 
 /**
  * Realm-agnostic surface for host-realm console capture.

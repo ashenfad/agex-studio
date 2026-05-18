@@ -1,7 +1,7 @@
-import { V as VersionedStateBackend, S as StateBackend } from '../connect-EfIDsO9w.js';
-export { a as StateResolver, c as connectState, i as isVersioned } from '../connect-EfIDsO9w.js';
+import { V as VersionedStateBackend, S as StateBackend } from '../connect-DDn4Adrl.js';
+export { a as StateResolver, c as connectState, i as isVersioned } from '../connect-DDn4Adrl.js';
 import { Staged, CommitInfo, Versioned } from 'kvgit-ts';
-import '../types-CO8Ko6DJ.js';
+import '../types-BdbZoJfu.js';
 import '@standard-schema/spec';
 import 'termish-ts';
 import '../errors.js';
