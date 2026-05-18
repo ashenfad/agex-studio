@@ -59,6 +59,73 @@ export const CURRENT_BRANCH_KEY = "agex-current-branch";
  *  framing). Anyone who dismissed the v1 modal sees v2 once. */
 const PY_EXPERIMENTAL_SEEN_KEY = "agex-py-experimental-seen-v2";
 
+/** localStorage key prefix mapping a local branch to the gist it
+ *  most recently published to.  Used by the publish flow to decide
+ *  between PATCH (update existing gist) and POST (create new). The
+ *  value is JSON of shape `{ gistId, slug, lastPublishedAt }` —
+ *  `slug` is preserved across re-publishes so existing share URLs
+ *  keep resolving even after the publisher renames the session.
+ *
+ *  Why localStorage instead of branch meta:
+ *    * Forks of any kind that DON'T inherit publish identity (fresh-
+ *      forks, imports from a bundle) naturally land on a different
+ *      branch name, so they get no key and start clean.
+ *    * Full-forks DO inherit by virtue of `forkSession` copying this
+ *      key — the fork shares the parent's publish identity, so its
+ *      next publish updates the same gist (matches "one share URL
+ *      per app" intuition).
+ *    * Bundle exports don't carry it (recipient shouldn't think
+ *      they own the publisher's gist).
+ *    * Kernel-agnostic — no per-kernel difference in publish
+ *      identity, so storing here keeps that orthogonal.
+ */
+const SESSION_GIST_KEY_PREFIX = "agex-session-gist-";
+
+function _sessionGistKey(branch) {
+    return `${SESSION_GIST_KEY_PREFIX}${branch}`;
+}
+
+/** Read the published-gist info for `branch`, or `null` if this
+ *  branch has never been published from this browser. Returns a
+ *  plain object — don't mutate. */
+export function getSessionGistInfo(branch) {
+    if (typeof localStorage === "undefined" || !branch) return null;
+    try {
+        const raw = localStorage.getItem(_sessionGistKey(branch));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.gistId === "string") return parsed;
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/** Persist published-gist info for `branch`. Call after a successful
+ *  publish so subsequent publishes can PATCH the same gist. */
+export function setSessionGistInfo(branch, info) {
+    if (typeof localStorage === "undefined" || !branch || !info) return;
+    try {
+        localStorage.setItem(_sessionGistKey(branch), JSON.stringify(info));
+    } catch {
+        // Ignore quota / serialization errors — publish still
+        // succeeded; we just lose the update-link affordance on
+        // the next publish.
+    }
+}
+
+/** Remove the published-gist mapping for `branch`. Called on session
+ *  delete, and during forkSessionFreshChat (the fresh fork is a new
+ *  publish identity by intent). */
+export function clearSessionGistInfo(branch) {
+    if (typeof localStorage === "undefined" || !branch) return;
+    try {
+        localStorage.removeItem(_sessionGistKey(branch));
+    } catch {
+        // Same as above.
+    }
+}
+
 /** @returns {boolean} */
 export function hasSeenPyExperimentalWarning() {
     return localStorage.getItem(PY_EXPERIMENTAL_SEEN_KEY) === "1";
@@ -377,6 +444,7 @@ export async function deleteSession(branch) {
     const adapter = await resolveAdapter(targetKernel);
     await adapter.deleteBranch(branch);
     appStorageRemove(targetKernel, branch);
+    clearSessionGistInfo(branch);
 
     // Pick a fallback active branch — most-recently-updated chat-*
     // branch on either kernel. If none remain, create a fresh py
@@ -470,6 +538,16 @@ async function _forkSession({ filesOnly }) {
     const newTitle = `${sourceMeta?.title || "New Chat"} ${suffix}`;
     await adapter.writeBranchMeta(newBranch, { title: newTitle });
     appStorageCopy(sourceKernel, sourceBranch, newBranch);
+
+    // Inherit the source's publish identity on a full-fork — the
+    // fork's next publish should update the same gist (matches "one
+    // share URL per app" intuition). Fresh-fork explicitly drops it
+    // (the fresh starting point should publish as a new gist if at
+    // all). See `SESSION_GIST_KEY_PREFIX` for the rationale.
+    if (!filesOnly) {
+        const sourceGistInfo = getSessionGistInfo(sourceBranch);
+        if (sourceGistInfo) setSessionGistInfo(newBranch, sourceGistInfo);
+    }
 
     const newSession = {
         branch: newBranch,

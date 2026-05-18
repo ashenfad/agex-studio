@@ -37,6 +37,13 @@ import { formatBytes } from "./bytes.js";
  *     bytes can never change after this publish. Falls back to
  *     `runtimeUrl` when `gistCommit` is unavailable. Used by the
  *     gallery-submission flow.
+ * @property {string} slug             - the gist's filename slug (no
+ *     `.agex.b64` extension). Callers persist this alongside
+ *     `gistId` so subsequent updates can preserve the share URL.
+ * @property {boolean} updated         - `true` if this publish
+ *     PATCHed an existing gist; `false` if it created a new one
+ *     (either the first publish, or a 404 fallback after the
+ *     stored gist was deleted on github.com).
  */
 
 class GistPublishError extends Error {
@@ -96,6 +103,12 @@ function slugify(label, max = 50) {
 /**
  * Publish a bundle as a secret gist.
  *
+ * When `existingGistId` is supplied, PATCHes the existing gist
+ * instead of creating a new one — preserving the share URL so
+ * recipients with the old link auto-pick-up the update. If the
+ * gist no longer exists (404), the call transparently falls back
+ * to POST (creating a new gist with a freshly-slugified filename).
+ *
  * @param {{
  *   pat: string,
  *   bytes: Uint8Array,
@@ -104,6 +117,8 @@ function slugify(label, max = 50) {
  *   description?: string,
  *   public?: boolean,
  *   origin?: string,
+ *   existingGistId?: string,
+ *   existingSlug?: string,
  * }} options
  * @returns {Promise<GistPublishResult>}
  * @throws {GistPublishError}
@@ -116,6 +131,8 @@ export async function publishGistBundle({
     description = "",
     public: isPublic = false,
     origin = typeof window !== "undefined" ? window.location.origin : "",
+    existingGistId = "",
+    existingSlug = "",
 }) {
     if (!pat) {
         throw new GistPublishError(
@@ -134,10 +151,30 @@ export async function publishGistBundle({
     // rather than a generic ``bundle``.  A publisher with many gists
     // in their profile can scan them by filename instead of having
     // to read every description.
+    //
+    // When updating an existing gist we PRESERVE the original slug —
+    // the share URL embeds that slug, so renaming the gist's
+    // filename would 404 every link recipients already have. The
+    // gist's `description` still tracks the current name; only the
+    // bytes/URL stay stable.
     const effectiveName = name || "agex-studio artifact";
-    const slug = slugify(effectiveName);
-    const bundleFilename = `${slug}.agex.b64`;
+    // `slug` / `bundleFilename` reflect the FINAL filename we land
+    // on after PATCH-or-fallback. Initialized for the PATCH case;
+    // the POST-fallback path below overwrites them if it fires.
+    let slug = (existingGistId && existingSlug) || slugify(effectiveName);
+    let bundleFilename = `${slug}.agex.b64`;
 
+    const headers = {
+        Accept: "application/vnd.github+json",
+        Authorization: `token ${pat}`,
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    };
+
+    // POST and PATCH share the body shape; PATCH ignores `public`
+    // (gist privacy is fixed at creation), but including it is
+    // harmless and keeps the two paths symmetric.
+    //
     // Description is a single line — just the artifact name —
     // because GitHub flattens newlines in the description field.
     // The full description prose, runtime link, and manifest
@@ -150,25 +187,72 @@ export async function publishGistBundle({
         },
     };
 
+    // Try PATCH first when an existing gist ID is known. On 404
+    // (gist deleted on github.com out from under us), transparently
+    // fall back to POST so the publish flow always lands a gist.
     let resp;
-    try {
-        resp = await fetch("https://api.github.com/gists", {
-            method: "POST",
-            headers: {
-                Accept: "application/vnd.github+json",
-                Authorization: `token ${pat}`,
-                "Content-Type": "application/json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            body: JSON.stringify(body),
-        });
-    } catch (err) {
-        // Network failure (offline, CORS-impossible host, etc.).
-        const detail = err instanceof Error ? err.message : String(err);
-        throw new GistPublishError(
-            `Network error contacting api.github.com: ${detail}`,
-            0,
-        );
+    let updated = false;
+    if (existingGistId) {
+        try {
+            resp = await fetch(
+                `https://api.github.com/gists/${existingGistId}`,
+                {
+                    method: "PATCH",
+                    headers,
+                    body: JSON.stringify(body),
+                },
+            );
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            throw new GistPublishError(
+                `Network error contacting api.github.com: ${detail}`,
+                0,
+            );
+        }
+        if (resp.status === 404) {
+            // Gist gone — clear our state-local "exists" bit and
+            // proceed to the POST path below. Don't surface this as
+            // an error; it's the expected recovery path when a user
+            // has deleted the gist on github.com but localStorage
+            // still remembers it.
+            existingGistId = "";
+        } else if (!resp.ok) {
+            const raw = await resp.text();
+            throw new GistPublishError(
+                githubErrorMessage(resp.status, raw),
+                resp.status,
+                raw,
+            );
+        } else {
+            updated = true;
+        }
+    }
+
+    if (!existingGistId) {
+        // POST path — either no prior gist, or PATCH 404 fell
+        // through. Re-slug from the current name (the original
+        // slug only mattered when updating) and overwrite the
+        // slug/filename so downstream URL construction picks up
+        // the fresh values.
+        slug = slugify(effectiveName);
+        bundleFilename = `${slug}.agex.b64`;
+        const freshBody = {
+            ...body,
+            files: { [bundleFilename]: { content: b64 } },
+        };
+        try {
+            resp = await fetch("https://api.github.com/gists", {
+                method: "POST",
+                headers,
+                body: JSON.stringify(freshBody),
+            });
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
+            throw new GistPublishError(
+                `Network error contacting api.github.com: ${detail}`,
+                0,
+            );
+        }
     }
 
     if (!resp.ok) {
@@ -260,6 +344,8 @@ export async function publishGistBundle({
         runtimeUrl,
         gistCommit,
         runtimeUrlPinned,
+        slug,
+        updated,
     };
 }
 
