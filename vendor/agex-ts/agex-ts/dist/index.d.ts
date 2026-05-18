@@ -1,8 +1,8 @@
-import { E as EventLog, A as AgentEvent, C as ChapterEvent, L as LLMClient, R as RuntimeAdapter, S as StateConfig, F as FSConfig, N as NamespaceResolver, P as Policy, M as MemberFilter, a as MemberConfig, T as TerminalCommandHandler, b as TaskDefinition, c as TaskCallOptions, d as TaskFn, e as Chapter, V as VirtualFileSystem, f as Cache, g as TokenChunk } from './types-CO8Ko6DJ.js';
-export { h as ActionEvent, i as CancelledEvent, j as Emission, k as ErrorEvent, l as EventBase, m as ExecResult, n as ExecuteContext, o as FailEvent, p as FileEditEmission, q as FileEvent, r as FileWriteEmission, H as HostFnContext, I as ImageFormat, s as LLMConfig, t as LLMRequest, u as LLMResponse, O as OutputEvent, v as OutputPart, w as RegisteredCls, x as RegisteredFn, y as RegisteredNs, z as RegisteredSkill, B as RegisteredTerminal, D as RegistrationCommon, G as RuntimeInitOptions, J as SuccessEvent, K as SystemNoteEvent, Q as TaskOutcome, U as TaskStartEvent, W as TerminalEmission, X as TextEmission, Y as ThinkingEmission, Z as TokenChunkType, _ as TsEmission } from './types-CO8Ko6DJ.js';
+import { E as EventLog, A as AgentEvent, C as ChapterEvent, L as LLMClient, R as RuntimeAdapter, S as StateConfig, F as FSConfig, N as NamespaceResolver, P as Policy, M as MemberFilter, a as MemberConfig, T as TerminalCommandHandler, b as TaskDefinition, c as TaskCallOptions, d as TaskFn, e as Chapter, V as VirtualFileSystem, f as Cache, g as TokenChunk } from './types-BdbZoJfu.js';
+export { h as ActionEvent, i as CancelledEvent, j as Emission, k as ErrorEvent, l as EventBase, m as ExecResult, n as ExecuteContext, o as FailEvent, p as FileEditEmission, q as FileEvent, r as FileWriteEmission, H as HostFnContext, I as ImageFormat, s as LLMConfig, t as LLMRequest, u as LLMResponse, O as OutputEvent, v as OutputPart, w as RegisteredCls, x as RegisteredFn, y as RegisteredNs, z as RegisteredSkill, B as RegisteredTerminal, D as RegistrationCommon, G as RuntimeInitOptions, J as SuccessEvent, K as SystemNoteEvent, Q as TaskOutcome, U as TaskStartEvent, W as TerminalEmission, X as TextEmission, Y as ThinkingEmission, Z as TokenChunkType, _ as TsEmission } from './types-BdbZoJfu.js';
 import * as _standard_schema_spec from '@standard-schema/spec';
 import { CommitInfo } from 'kvgit-ts';
-import { S as StateBackend, a as StateResolver } from './connect-EfIDsO9w.js';
+import { S as StateBackend, a as StateResolver } from './connect-DDn4Adrl.js';
 import { memberAllowed } from './policy.js';
 export { AgentError, BrandedTaskError, CancelledError, FatalError, RegistrationError, SchemaError, TASK_CONTROL_BRAND, TaskFailError, TransientError, isTaskControlError } from './errors.js';
 import 'termish-ts';
@@ -43,6 +43,11 @@ declare class EventLogImpl implements EventLog {
     get session(): string;
     add(event: AgentEvent): Promise<string>;
     iter(): AsyncIterable<AgentEvent>;
+    /** Read an event by its state key. The chaptering primitive
+     *  (`replaceRange`) leaves the originals at their keys when it
+     *  rewrites the active index — callers holding a
+     *  `ChapterEvent.eventRefs` array can resolve them via this. */
+    byKey(stateKey: string): Promise<AgentEvent | null>;
     at(commitHash: string): Promise<EventLog | null>;
     /** Read the index of active event refs in chronological order.
      *  Used by chaptering to map numbered positions back to state
