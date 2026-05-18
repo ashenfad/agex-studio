@@ -16,7 +16,9 @@ import {
     serializeOutputParts,
     splitOutputEvents,
     makeLiveTokenTranslator,
+    serializeChapterEvents,
 } from "./ts-event-translator.js";
+import { normalizeChatResponse } from "./ts-chat-response.js";
 
 describe("serializeEmission", () => {
     it("translates TsEmission to kind='ts' with code/title/thinking", () => {
@@ -409,5 +411,215 @@ describe("makeLiveTokenTranslator", () => {
         expect(t.translate(null)).toEqual([]);
         expect(t.translate(undefined)).toEqual([]);
         expect(t.translate("string")).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// serializeChapterEvents — covers what was previously only validated against
+// py's `_serialize_chapter_events`. Each case below mirrors a scenario that
+// loadHistory's `_doFlatten` + main walk can hit when rendering a real
+// session's chaptering output.
+// ---------------------------------------------------------------------------
+
+/** Build a `(stateKey) => Promise<event | null>` from a plain object
+ *  map. Test fixture stand-in for agex-ts `EventLog.byKey`. */
+function makeResolver(map) {
+    return async (key) => (key in map ? map[key] : null);
+}
+
+describe("serializeChapterEvents", () => {
+    it("returns [] for empty refs", async () => {
+        const out = await serializeChapterEvents(
+            [],
+            makeResolver({}),
+            normalizeChatResponse,
+        );
+        expect(out).toEqual([]);
+    });
+
+    it("skips refs that resolve to null (missing key, defensive)", async () => {
+        const out = await serializeChapterEvents(
+            ["missing", "also-missing"],
+            makeResolver({}),
+            normalizeChatResponse,
+        );
+        expect(out).toEqual([]);
+    });
+
+    it("emits action/output/task_start/success in order", async () => {
+        const refs = ["k1", "k2", "k3", "k4"];
+        const map = {
+            k1: {
+                type: "taskStart",
+                taskName: "chat",
+                inputs: { message: "hi" },
+            },
+            k2: {
+                type: "action",
+                emissions: [{ type: "text", text: "hello" }],
+                inputTokens: 100,
+                outputTokens: 50,
+            },
+            k3: {
+                type: "output",
+                parts: [{ type: "text", content: "ok" }],
+            },
+            k4: { type: "success", result: "done" },
+        };
+        const out = await serializeChapterEvents(
+            refs,
+            makeResolver(map),
+            normalizeChatResponse,
+        );
+        expect(out.map((x) => x.type)).toEqual([
+            "task_start",
+            "action",
+            "output",
+            "success",
+        ]);
+        expect(out[0]).toEqual({ type: "task_start", message: "hi" });
+        // Success carries the normalized result shape consumers expect.
+        expect(out[3].result).toEqual({ type: "text", content: "done" });
+    });
+
+    it("recursively serializes a nested chapter via eventRefs", async () => {
+        const map = {
+            // Top-level chapter contains one nested chapter, which
+            // itself contains one action.
+            outer: {
+                type: "chapter",
+                name: "outer",
+                message: "outer chapter",
+                eventRefs: ["inner"],
+            },
+            inner: {
+                type: "chapter",
+                name: "inner",
+                message: "inner chapter",
+                eventRefs: ["leaf"],
+            },
+            leaf: {
+                type: "action",
+                emissions: [{ type: "text", text: "leaf-emission" }],
+                inputTokens: 1,
+                outputTokens: 1,
+            },
+        };
+        const out = await serializeChapterEvents(
+            ["outer"],
+            makeResolver(map),
+            normalizeChatResponse,
+        );
+        // Outer chapter entry should carry the nested chapter as
+        // its inner event; the nested chapter should carry the leaf
+        // action in turn.
+        expect(out).toHaveLength(1);
+        expect(out[0].type).toBe("chapter");
+        expect(out[0].name).toBe("outer");
+        expect(out[0].events).toHaveLength(1);
+        expect(out[0].events[0].type).toBe("chapter");
+        expect(out[0].events[0].name).toBe("inner");
+        expect(out[0].events[0].events).toHaveLength(1);
+        expect(out[0].events[0].events[0].type).toBe("action");
+    });
+
+    it("attaches __chapter__ chapters via the unassigned queue", async () => {
+        // Simulates a chaptering sub-task lifecycle inside a chapter:
+        // a `__chapter__` taskStart, two nested chapters, then a
+        // success returning two Chapter records. The success branch
+        // should attach the two unassigned chapters into the
+        // preceding `{type:'chaptering'}` band.
+        const map = {
+            ch1: {
+                type: "chapter",
+                name: "ch1",
+                message: "first",
+                eventRefs: [],
+            },
+            ch2: {
+                type: "chapter",
+                name: "ch2",
+                message: "second",
+                eventRefs: [],
+            },
+        };
+        const refs = ["ts", "ch1ref", "ch2ref", "succ"];
+        const resolver = async (key) => {
+            switch (key) {
+                case "ts":
+                    return { type: "taskStart", taskName: "__chapter__" };
+                case "ch1ref":
+                    return map.ch1;
+                case "ch2ref":
+                    return map.ch2;
+                case "succ":
+                    return {
+                        type: "success",
+                        result: [
+                            { name: "ch1", message: "first" },
+                            { name: "ch2", message: "second" },
+                        ],
+                    };
+                default:
+                    return null;
+            }
+        };
+        const out = await serializeChapterEvents(
+            refs,
+            resolver,
+            normalizeChatResponse,
+        );
+        // The walk should produce:
+        //   - {type: 'chaptering', chapters: [ch1, ch2]}
+        //   - {type: 'chapter', name: 'ch1', ...} (still in result)
+        //   - {type: 'chapter', name: 'ch2', ...} (still in result)
+        // (The chapter entries remain in `result` after assignment;
+        //  that mirrors py — `_serialize_chapter_events` mutates the
+        //  `chaptering` block's `chapters` but doesn't remove the
+        //  per-chapter `{type:'chapter'}` entries from the surrounding
+        //  list.)
+        const chapteringBand = out.find((x) => x.type === "chaptering");
+        expect(chapteringBand).toBeDefined();
+        expect(chapteringBand.chapters).toHaveLength(2);
+        expect(chapteringBand.chapters[0].name).toBe("ch1");
+        expect(chapteringBand.chapters[1].name).toBe("ch2");
+    });
+
+    it("survives a __chapter__ success without enough unassigned entries", async () => {
+        // Defensive: result claims 3 chapters but only 1 chapter
+        // event preceded. Should not throw; chaptering band's
+        // chapters array should hold what's available.
+        const resolver = async (key) => {
+            switch (key) {
+                case "ts":
+                    return { type: "taskStart", taskName: "__chapter__" };
+                case "ch":
+                    return {
+                        type: "chapter",
+                        name: "only",
+                        message: "only",
+                        eventRefs: [],
+                    };
+                case "succ":
+                    return {
+                        type: "success",
+                        result: [
+                            { name: "a" },
+                            { name: "b" },
+                            { name: "c" },
+                        ],
+                    };
+                default:
+                    return null;
+            }
+        };
+        const out = await serializeChapterEvents(
+            ["ts", "ch", "succ"],
+            resolver,
+            normalizeChatResponse,
+        );
+        const band = out.find((x) => x.type === "chaptering");
+        expect(band.chapters).toHaveLength(1);
+        expect(band.chapters[0].name).toBe("only");
     });
 });

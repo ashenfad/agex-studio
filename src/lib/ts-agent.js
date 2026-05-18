@@ -1111,6 +1111,59 @@ export async function readAppBinaries() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Walk `events`, substituting each `ChapterEvent` with its
+ * (recursively-resolved) underlying events written into `flatOut`,
+ * and collecting top-level chapter metadata into `metaOut`. Mirrors
+ * py's `_do_flatten` (`py-kernel-adapter.js:557`) field-for-field.
+ *
+ *   - `collect=true` at the top level: record `{name, message, events}`
+ *     for each ChapterEvent encountered. The `events` payload is the
+ *     output of `serializeChapterEvents`, which is itself recursive
+ *     and produces the modal-drill-down shape `ChapterModal` expects.
+ *   - `collect=false` when recursing into a ChapterEvent's resolved
+ *     events: still flatten any nested chapters into `flatOut` (so the
+ *     main scroll sees deeply-folded originals), but don't push their
+ *     metadata to the queue — nested chapters' metadata lives inside
+ *     the parent chapter's modal-contents payload already.
+ *
+ * @param {ReadonlyArray<Object>} events
+ * @param {Array<Object>} flatOut
+ * @param {Array<Object>} metaOut
+ * @param {(stateKey: string) => Promise<Object | null>} resolveByKey
+ * @param {boolean} collect
+ */
+async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
+    for (const e of events) {
+        const t = e && typeof e === "object" ? /** @type {any} */ (e).type : null;
+        if (t === "chapter") {
+            const ce = /** @type {any} */ (e);
+            if (collect) {
+                metaOut.push({
+                    name: ce.name,
+                    message: ce.message,
+                    events: await serializeChapterEvents(
+                        ce.eventRefs || [],
+                        resolveByKey,
+                        normalizeChatResponse,
+                    ),
+                });
+            }
+            // Recurse into the originals so nested chapters' inner
+            // events also reach the main scroll.
+            /** @type {Array<Object>} */
+            const resolved = [];
+            for (const key of ce.eventRefs || []) {
+                const inner = await resolveByKey(key);
+                if (inner) resolved.push(inner);
+            }
+            await _doFlatten(resolved, flatOut, metaOut, resolveByKey, false);
+        } else {
+            flatOut.push(e);
+        }
+    }
+}
+
+/**
  * Walk the active branch's event log and render UI-message rows in
  * the studio shell's canonical (agex-py-shaped) form.
  *
@@ -1118,18 +1171,29 @@ export async function readAppBinaries() {
  * produces the same `{ type, kind, ... }` dicts the shell's
  * EventDetail / MessageList components consume on the py path.
  *
- * Chapter handling: standalone `chapter` events (yielded by `iter()`
- * in place of the folded originals) get aggregated into a single
- * `'chaptering'` row per consecutive run, and the modal-contents
- * `events` array for each chapter is built by resolving its
- * `eventRefs` via `EventLog.byKey` and recursively serializing the
- * originals — same shape as py's `_serialize_chapter_events`. Note
- * that, unlike py's `_do_flatten`, we do *not* unroll the folded
- * turns back into the *main* scroll; py renders pre-chapter turns
- * inline as if no chaptering happened, while TS shows only the
- * chaptering band (drill into the modal for the originals). Mirror
- * the inline flattening here when that parity becomes worth the
- * complexity.
+ * Chapter handling mirrors py's `_do_flatten` + main-walk structure
+ * (see `py-kernel-adapter.js:540-700`):
+ *
+ *   1. **Pre-pass flatten.** Each `ChapterEvent` is substituted with
+ *      its underlying events (resolved via `EventLog.byKey`); nested
+ *      ChapterEvents are expanded recursively. The visible scroll
+ *      thus renders the original turns as if no fold had happened.
+ *      Top-level chapter metadata (name, message, recursive
+ *      modal-contents) is collected into a FIFO queue.
+ *
+ *   2. **Main walk.** The `__chapter__` task's `taskStart` pushes an
+ *      empty chaptering band into the message list; its `success`
+ *      drains `min(N, queue.length)` entries off the front of the
+ *      queue (where N is the chapter task's `result.length`) and
+ *      attaches them to the most-recent open band. This produces
+ *      one band per chaptering run at the position of the task
+ *      that did the fold — semantically "everything above this
+ *      band has been folded into a summary."
+ *
+ * The same recursive walk in `ts-event-translator.js`
+ * (`serializeChapterEvents`) is reused to build each chapter's
+ * modal-contents `events` array, so the drill-down view is
+ * structurally identical to py's.
  *
  * @returns {Promise<Array<Object>>}
  */
@@ -1147,42 +1211,48 @@ export async function loadHistory() {
         }
         return null;
     };
+
+    // Pre-collect so we can run an async flatten pass (and so the
+    // main walk can be plain `for...of`). For typical session sizes
+    // the buffer cost is small compared to per-event IDB latency,
+    // which we'd pay either way.
+    /** @type {Array<Object>} */
+    const rawEvents = [];
+    for await (const e of log.iter()) rawEvents.push(e);
+
+    /** Flat event list with ChapterEvents substituted by their
+     *  (recursively-resolved) originals. */
+    /** @type {Array<Object>} */
+    const flat = [];
+    /** Top-level chapter metadata, in flatten-encounter order. Drained
+     *  by the `__chapter__` `success` handler below. */
+    /** @type {Array<Object>} */
+    const chapterMeta = [];
+    await _doFlatten(rawEvents, flat, chapterMeta, resolveByKey, true);
+
     /** @type {Array<Object>} */
     const messages = [];
     /** @type {string | null} */
     let currentTaskName = null;
     /** @type {Array<Object>} */
     let currentEvents = [];
-    /** Reference to the most recently-pushed `chaptering` row so
-     *  consecutive standalone `chapter` events (one per folded prior
-     *  turn) fold into a single band instead of rendering as N
-     *  separate "1 chapter created" rows. Cleared whenever a non-
-     *  chapter event arrives, so distinct chaptering runs (separated
-     *  by user turns) still get their own row. */
-    /** @type {Object | null} */
-    let currentChapteringRow = null;
 
-    for await (const e of log.iter()) {
+    for (const e of flat) {
         const t = /** @type {any} */ (e).type;
         const ts = _toDate(/** @type {any} */ (e).timestamp);
         const commitHash = /** @type {any} */ (e).commitHash || "";
-        // Any non-chapter event ends a run of standalone ChapterEvents;
-        // drop the aggregation pointer so a *future* chaptering run
-        // starts a fresh band. The `chapter` branch below re-sets it.
-        if (t !== "chapter") {
-            currentChapteringRow = null;
-        }
         if (t === "taskStart") {
             currentEvents = [];
             currentTaskName = /** @type {any} */ (e).taskName ?? null;
             if (currentTaskName === "__chapter__") {
-                // The `__chapter__` task's lifecycle (taskStart →
-                // success) is metadata about *which* run folded the
-                // events; it carries no user-facing content of its
-                // own. The actual chapters arrive as standalone
-                // `chapter` events (handled below) and are aggregated
-                // into a single band there. Suppressing this branch
-                // avoids a trailing empty "0 chapters created" row.
+                // Push an open chaptering band; `success` below
+                // drains chapter metadata into its `chapters` array.
+                messages.push({
+                    role: "chaptering",
+                    timestamp: ts,
+                    commit_hash: commitHash,
+                    chapters: [],
+                });
             } else {
                 const inputs = /** @type {any} */ (e).inputs;
                 const content =
@@ -1235,7 +1305,29 @@ export async function loadHistory() {
         } else if (t === "success") {
             const result = /** @type {any} */ (e).result;
             if (currentTaskName === "__chapter__") {
-                // Chapter task succeeded — close the open chaptering row.
+                // Drain N top-level chapter metadata entries (where N
+                // is the chapter task's result length) into the most-
+                // recent open chaptering band. Mirrors py's
+                // `_chapter_meta[:take]` slice + reversed-search for
+                // the open band. Without this drain the band would
+                // render as "0 chapters created" — same symptom we
+                // saw pre-aggregation, now defended differently.
+                let n = 0;
+                if (Array.isArray(result)) {
+                    for (const ch of result) {
+                        if (ch && typeof ch === "object" && "name" in ch) n++;
+                    }
+                }
+                const take = Math.min(n, chapterMeta.length);
+                if (take > 0) {
+                    for (let i = messages.length - 1; i >= 0; i--) {
+                        if (messages[i].role === "chaptering") {
+                            messages[i].chapters = chapterMeta.slice(0, take);
+                            break;
+                        }
+                    }
+                    chapterMeta.splice(0, take);
+                }
                 currentEvents = [];
                 currentTaskName = null;
                 continue;
@@ -1272,38 +1364,11 @@ export async function loadHistory() {
             });
             currentEvents = [];
             currentTaskName = null;
-        } else if (t === "chapter") {
-            // Standalone ChapterEvent (yielded by `iter()` in place
-            // of folded events). A single chaptering run produces one
-            // such event per folded prior turn — they always arrive in
-            // a consecutive run, so we aggregate them into a single
-            // band. Each chapter's `events` array is the recursively-
-            // serialized originals (resolved via the log's `byKey`
-            // accessor), so the chapter modal can render drill-down
-            // content matching the py side.
-            const ce = /** @type {any} */ (e);
-            const innerEvents = await serializeChapterEvents(
-                ce.eventRefs || [],
-                resolveByKey,
-                normalizeChatResponse,
-            );
-            const chapter = {
-                name: ce.name,
-                message: ce.message,
-                events: innerEvents,
-            };
-            if (currentChapteringRow) {
-                currentChapteringRow.chapters.push(chapter);
-            } else {
-                currentChapteringRow = {
-                    role: "chaptering",
-                    timestamp: ts,
-                    commit_hash: commitHash,
-                    chapters: [chapter],
-                };
-                messages.push(currentChapteringRow);
-            }
         }
+        // No `chapter` branch — ChapterEvents have been substituted by
+        // their originals during `_doFlatten`; bands are created from
+        // the `__chapter__` task's `taskStart`/`success` handlers
+        // above using metadata collected during flatten.
     }
 
     // Flush any orphan events with no preceding TaskStart — match
