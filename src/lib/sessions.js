@@ -727,14 +727,26 @@ const SRC_PARAM = "src";
 const GIST_PARAM = "gist";
 
 function _isValidGistShorthand(value) {
+    if (typeof value !== "string") return false;
+    // Two accepted forms:
+    //   3-part  USER/ID/SLUG          — HEAD-tracking, picks up edits
+    //   4-part  USER/ID/SHA/SLUG      — pinned to a specific gist commit
+    // The pinned form is what the gallery-submission flow uses so a
+    // curated entry can't silently change after admission. Friend-
+    // share URLs stay 3-part (publisher can iterate post-share).
     return (
-        typeof value === "string" &&
-        /^[\w.-]+\/[a-f0-9]+\/[a-z0-9-]{1,50}$/i.test(value)
+        /^[\w.-]+\/[a-f0-9]+\/[a-z0-9-]{1,50}$/i.test(value) ||
+        /^[\w.-]+\/[a-f0-9]+\/[a-f0-9]{40}\/[a-z0-9-]{1,50}$/i.test(value)
     );
 }
 
 function _expandGistShorthand(shorthand) {
-    const [user, id, slug] = shorthand.split("/");
+    const parts = shorthand.split("/");
+    if (parts.length === 4) {
+        const [user, id, sha, slug] = parts;
+        return `https://gist.githubusercontent.com/${user}/${id}/raw/${sha}/${slug}.agex.b64`;
+    }
+    const [user, id, slug] = parts;
     return `https://gist.githubusercontent.com/${user}/${id}/raw/${slug}.agex.b64`;
 }
 
