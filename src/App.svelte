@@ -3,7 +3,21 @@
     import { handleVfsClick } from './lib/vfs-download.js'
     import { viewingFile } from './lib/viewing-file.js'
     import ChatShell from './lib/ChatShell.svelte'
+    import Gallery from './lib/Gallery.svelte'
     import FileModal from './lib/FileModal.svelte'
+
+    // Route detection at mount. The studio has three SPA entry
+    // points sharing one bundle (see vite.config.js):
+    //   /         → ChatShell (the editor)
+    //   /run/     → ChatShell (with ?gist= triggering an import)
+    //   /gallery/ → Gallery (static-ish, curated showcase)
+    // Path-based switch keeps the SPA approach simple; future
+    // routes follow the same pattern.
+    const isGalleryRoute = (() => {
+        if (typeof window === 'undefined') return false
+        const path = window.location.pathname
+        return path === '/gallery/' || path === '/gallery'
+    })()
 
     // Pyodide boot is now driven lazily by `kernelRegistry.ensure('py', ...)`
     // in ChatShell — fired only after settings are configured. The shell
@@ -17,7 +31,10 @@
     // (a 16+ second wait on slower connections). Once prefetched,
     // buildAppHtml inlines the bytes directly.  This is shell-side
     // prefetch unrelated to kernel boot — keep eager.
-    preloadPlotly()
+    // Skip the eager Plotly prefetch on the gallery route — it's a
+    // static list, doesn't render Plotly content, and the prefetch
+    // would just be wasted bandwidth on a marketing-adjacent surface.
+    if (!isGalleryRoute) preloadPlotly()
 </script>
 
 <!-- App-wide click delegation for [label](vfs:path) markdown links —
@@ -26,7 +43,11 @@
      so it works wherever rendered markdown surfaces in the UI. -->
 <svelte:window onclick={handleVfsClick} />
 
-<ChatShell />
+{#if isGalleryRoute}
+    <Gallery />
+{:else}
+    <ChatShell />
+{/if}
 
 <!-- Single app-level `FileModal` instance.  Both the file-drawer's
      list-click and the markdown-link click route through the shared
