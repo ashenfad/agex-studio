@@ -7,7 +7,7 @@ talk to.
 
 The trade-off: the LLM has to run *somewhere*, and that somewhere is a
 provider you choose, paid for with your own API key. Your messages, your
-files, your costs — all yours.
+files, your costs. All yours.
 
 Think of it less like ChatGPT and more like VS Code: a tool you keep open
 in a tab, with your own data and your own external services plugged in.
@@ -18,13 +18,13 @@ in a tab, with your own data and your own external services plugged in.
 
 Access to an LLM. The studio supports three paths:
 
-- **OpenRouter** *(recommended for most people)* — one account, one
+- **OpenRouter** *(recommended for most people)*: one account, one
   bill, hundreds of models from Anthropic, Google, OpenAI, and the
   open-source ecosystem. The fastest way to get started.
-- **Direct OpenAI or Anthropic** — your own account with one of those
+- **Direct OpenAI or Anthropic**: your own account with one of those
   providers, using their API key directly. Saves OpenRouter's small
   routing fee if you've already got an account; loses model variety.
-- **Custom endpoint** — any OpenAI-compatible HTTP API. Lets you point
+- **Custom endpoint**: any OpenAI-compatible HTTP API. Lets you point
   the studio at a local model server (LM Studio, llama.cpp's server,
   Ollama in OpenAI-compatibility mode, vLLM, etc.) or at a self-hosted
   router. Useful for offline work, private data, or experimenting with
@@ -36,7 +36,7 @@ Custom** and fill in the base URL + key + model name.
 
 ### OpenRouter setup
 
-**[Sign up at openrouter.ai →](https://openrouter.ai/)** — it takes about
+**[Sign up at openrouter.ai →](https://openrouter.ai/)**. It takes about
 a minute. New accounts get a small free credit balance you can use to try
 the studio before adding payment info.
 
@@ -49,18 +49,18 @@ create a new key, and copy it.
 
 1. Click the **gear icon** at the top-right of the editor.
 2. Paste your key into the **OpenRouter API key** field.
-3. Pick a model (the default is a good starting point — capable but
+3. Pick a model (the default is a good starting point: capable but
    inexpensive).
 4. Close the settings drawer and start typing.
 
 Your key is stored in your browser's `localStorage` and used only when
 making requests directly to OpenRouter. It never touches an agex.studio
-server — there isn't one.
+server. There isn't one.
 
 > [!NOTE]
 > Switching browsers or devices means re-entering your key. The studio
-> has no account system to remember you across browsers — the upside
-> is that nothing about you is on any server.
+> has no account system to remember you across browsers. The upside is
+> that nothing about you is on any server.
 
 ---
 
@@ -78,8 +78,8 @@ The token meter at the top of the chat shows you exactly how much context
 you've used. OpenRouter's dashboard shows you exactly what you've spent.
 Nobody else is in the loop.
 
-You can swap to a cheaper or stronger model anytime in Settings — the
-studio will use whichever model you've picked for the next turn.
+You can swap to a cheaper or stronger model anytime in Settings. The
+studio uses whichever model you've picked for the next turn.
 
 ---
 
