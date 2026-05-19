@@ -21,7 +21,5 @@ you.
 
 **Audience:** (kids / devs / general / other)
 
-**Screenshot:** (drag an image into this box — picks one frame that
+**Screenshot:** (drag an image into this box — pick one frame that
 sells the app; the curator will use this as the gallery thumbnail)
-
-**Short description of what it does:**
