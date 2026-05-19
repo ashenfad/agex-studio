@@ -1,5 +1,28 @@
 @import 'highlight.js/styles/github-dark-dimmed.css';
 
+/* ---------------------------------------------------------------------------
+ * Typography
+ *
+ * Fraunces (variable serif with optical-size + softness axes) carries
+ * the studio's display voice — brand mark, headings, hero text. Used
+ * at the soft end of its SOFT axis for a chunky-organic feel that
+ * signals "made by someone who cared," distinct from the generic
+ * grotesque-sans + dark-mode look that every dev tool ships with.
+ *
+ * Public Sans is the body voice — a refined American grotesque (the
+ * USWDS font) with quiet character. Avoids the Inter / Roboto /
+ * Söhne tropes; pairs cleanly with Fraunces without trying to compete.
+ *
+ * Mono falls back to the system-installed dev fonts (SF Mono, Fira
+ * Code, Cascadia Code, JetBrains Mono if installed) — kept local for
+ * code-block rendering to avoid an extra web-font payload.
+ *
+ * Variable axes pulled selectively to keep the total CSS payload small:
+ * Fraunces ships opsz (9-144), wght (300-900), SOFT (0-100); we ask
+ * only for wght + SOFT here. Public Sans is wght (300-700).
+ * --------------------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght,SOFT@300..900,0..100&family=Public+Sans:wght@300..700&display=swap');
+
 :root {
     --bg: #1a1a2e;
     --surface: #16213e;
@@ -16,6 +39,10 @@
     --warning: #ff9800;
     --error: #e94560;
     --purple: #a371f7;
+
+    --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+    --font-body: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace;
 }
 
 .hljs {
@@ -35,9 +62,40 @@ html, body, #app {
 }
 
 body {
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: var(--font-body);
     background: var(--bg);
     color: var(--text);
+    /* Tighter letter-spacing on the body face — Public Sans default
+       runs a touch loose at UI sizes. Subtle pull-in keeps it
+       readable while signaling care. */
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* All headings get the display face. Component-level styles
+   continue to control size/margin; this just settles the family
+   in one place so brand marks, markdown h1/h2/h3 in docs, and the
+   gallery / empty-state hero share one voice without each surface
+   redeclaring it. */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    /* Tighten the spacing on Fraunces at display sizes — the
+       default tracking is editorial-wide, which reads as airy at
+       headlines. Hairline pull-in gives the chunky-serif more
+       authority. */
+    letter-spacing: -0.015em;
+    /* Pull `opsz` upward at heading sizes for crisper terminals;
+       SOFT at 60 sits between the sharp end (0) and full soft
+       (100) — chunky-with-bite, the studio's signature. */
+    font-variation-settings: 'opsz' 36, 'SOFT' 60;
+}
+
+/* Default to system mono for any code outside the explicit
+   .markdown styling. The var enforces consistency everywhere a
+   code voice surfaces. */
+code, kbd, samp, pre {
+    font-family: var(--font-mono);
 }
 
 /* Shared modal backdrop */
