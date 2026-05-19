@@ -564,16 +564,44 @@
                 commitActiveReport()
             }
         } else if (token.type === 'python') {
+            // If thinking streamed first on this emission, the
+            // thinking handler optimistically labeled the block as
+            // a standalone 'thinking' emission and stashed the
+            // content in `b.text` (kind:'thinking' uses `text`).
+            // Now that real code is arriving we know this is in-
+            // schema thinking-on-a-python emission — migrate
+            // `text` → `thinking` so the python snapshot branch
+            // (which reads `b.thinking`) surfaces it. Without this
+            // the thinking content visibly streams in then vanishes
+            // the moment code starts.
             const b = ensureBlock(eidx, 'python')
-            updateBlock(eidx, { kind: 'python', code: (b.code || '') + (token.content || '') })
+            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
+            updateBlock(eidx, {
+                ...migration,
+                kind: 'python',
+                code: (b.code || '') + (token.content || ''),
+            })
         } else if (token.type === 'ts') {
             // agex-ts code emission — same layout as 'python', different
             // syntax highlighter downstream (EventDetail switches on kind).
+            // Same thinking → text → thinking migration as the python
+            // branch above; see that comment for the in-schema-thinking
+            // rationale.
             const b = ensureBlock(eidx, 'ts')
-            updateBlock(eidx, { kind: 'ts', code: (b.code || '') + (token.content || '') })
-        } else if (token.type === 'terminal') {
-            const b = ensureBlock(eidx, 'terminal')
+            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
             updateBlock(eidx, {
+                ...migration,
+                kind: 'ts',
+                code: (b.code || '') + (token.content || ''),
+            })
+        } else if (token.type === 'terminal') {
+            // Same thinking-migration as the python/ts handlers —
+            // terminal_action's schema also carries a `thinking`
+            // parameter, so the in-schema case applies here too.
+            const b = ensureBlock(eidx, 'terminal')
+            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
+            updateBlock(eidx, {
+                ...migration,
                 kind: 'terminal',
                 commands: (b.commands || '') + (token.content || ''),
             })
