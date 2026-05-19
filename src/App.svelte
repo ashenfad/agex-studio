@@ -4,19 +4,26 @@
     import { viewingFile } from './lib/viewing-file.js'
     import ChatShell from './lib/ChatShell.svelte'
     import Gallery from './lib/Gallery.svelte'
+    import Docs from './lib/Docs.svelte'
     import FileModal from './lib/FileModal.svelte'
 
-    // Route detection at mount. The studio has three SPA entry
+    // Route detection at mount. The studio has four SPA entry
     // points sharing one bundle (see vite.config.js):
     //   /         → ChatShell (the editor)
     //   /run/     → ChatShell (with ?gist= triggering an import)
-    //   /gallery/ → Gallery (static-ish, curated showcase)
+    //   /gallery/ → Gallery (curated showcase)
+    //   /docs/    → Docs (help / explanation)
     // Path-based switch keeps the SPA approach simple; future
     // routes follow the same pattern.
     const isGalleryRoute = (() => {
         if (typeof window === 'undefined') return false
         const path = window.location.pathname
         return path === '/gallery/' || path === '/gallery'
+    })()
+    const isDocsRoute = (() => {
+        if (typeof window === 'undefined') return false
+        const path = window.location.pathname
+        return path === '/docs/' || path === '/docs'
     })()
 
     // Pyodide boot is now driven lazily by `kernelRegistry.ensure('py', ...)`
@@ -31,10 +38,11 @@
     // (a 16+ second wait on slower connections). Once prefetched,
     // buildAppHtml inlines the bytes directly.  This is shell-side
     // prefetch unrelated to kernel boot — keep eager.
-    // Skip the eager Plotly prefetch on the gallery route — it's a
-    // static list, doesn't render Plotly content, and the prefetch
-    // would just be wasted bandwidth on a marketing-adjacent surface.
-    if (!isGalleryRoute) preloadPlotly()
+    // Skip the eager Plotly prefetch on the static side-routes —
+    // gallery is a card grid, docs is rendered markdown; neither
+    // renders Plotly content, and the prefetch would just be
+    // wasted bandwidth.
+    if (!isGalleryRoute && !isDocsRoute) preloadPlotly()
 </script>
 
 <!-- App-wide click delegation for [label](vfs:path) markdown links —
@@ -45,6 +53,8 @@
 
 {#if isGalleryRoute}
     <Gallery />
+{:else if isDocsRoute}
+    <Docs />
 {:else}
     <ChatShell />
 {/if}

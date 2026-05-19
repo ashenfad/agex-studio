@@ -1098,8 +1098,39 @@
                 <p>{warmingMessage || 'Loading...'}</p>
             </div>
         {:else}
-            <div class="warming-area">
-                <p>Set your OpenRouter API key in settings to get started.</p>
+            <!-- First-run empty state. The user hasn't configured a key
+                 and isn't an external-artifact visitor, so this is
+                 likely their first encounter with agex.studio. Lean
+                 into the "tool, not a service" framing: no signup
+                 here, no servers, no company. Two CTAs (get a key,
+                 open settings) plus a docs link for context. -->
+            <div class="empty-state">
+                <h2 class="empty-headline">
+                    A browser-based agent workspace.
+                </h2>
+                <p class="empty-prose">
+                    agex.studio runs entirely in this tab — no servers, no
+                    account, no subscription. You bring your own API key from
+                    OpenRouter; your messages, files, and key stay on your
+                    device.
+                </p>
+                <div class="empty-ctas">
+                    <a
+                        class="empty-cta primary"
+                        href="https://openrouter.ai/settings/keys"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        Get an OpenRouter key →
+                    </a>
+                    <button class="empty-cta secondary" onclick={() => settingsOpen = true}>
+                        Open Settings
+                    </button>
+                </div>
+                <p class="empty-help">
+                    First time here?
+                    <a href="/docs/#getting-started">How this works →</a>
+                </p>
             </div>
         {/if}
 
@@ -1284,6 +1315,95 @@
 
     .warming-area.error {
         color: #e74c3c;
+    }
+
+    /* First-run empty state — when no API key is set yet and this
+       isn't an external-artifact visit. Heroish vertical centering
+       since it occupies the whole chat-shell area; capped width
+       so the prose stays readable rather than running the full
+       drawer-closed viewport. */
+    .empty-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: 2rem 1.5rem;
+        text-align: center;
+        max-width: 38rem;
+        margin: 0 auto;
+    }
+
+    .empty-headline {
+        font-size: 1.4rem;
+        font-weight: 600;
+        margin: 0;
+        color: var(--text);
+        line-height: 1.3;
+    }
+
+    .empty-prose {
+        margin: 0;
+        color: var(--text-muted);
+        line-height: 1.55;
+        font-size: 0.95rem;
+    }
+
+    .empty-ctas {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        justify-content: center;
+        margin-top: 0.5rem;
+    }
+
+    .empty-cta {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.55rem 0.95rem;
+        border-radius: 7px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .empty-cta.primary {
+        background: var(--accent);
+        color: white;
+    }
+
+    .empty-cta.primary:hover {
+        background: var(--accent-hover);
+    }
+
+    .empty-cta.secondary {
+        background: transparent;
+        color: var(--text);
+        border-color: var(--border);
+    }
+
+    .empty-cta.secondary:hover {
+        background: var(--surface-hover);
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    }
+
+    .empty-help {
+        margin: 0.4rem 0 0;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+    }
+
+    .empty-help a {
+        color: var(--text-muted);
+        text-decoration: underline;
+    }
+
+    .empty-help a:hover {
+        color: var(--text);
     }
 
     .status-row {
