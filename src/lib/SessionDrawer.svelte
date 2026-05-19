@@ -475,7 +475,7 @@
             `**Description:**`,
             description || '_(none provided — feel free to add one here)_',
             '',
-            `**Audience:** _(kids / devs / general / other — please specify)_`,
+            `**Tags:** _(a few short labels — e.g. \`game\`, \`dashboard\`, \`education\`, \`kids\`, \`data\`, \`creative\`, \`utility\`)_`,
             '',
             `**Screenshot:** _(drag an image into this box)_`,
             '',
