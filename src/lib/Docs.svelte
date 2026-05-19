@@ -25,6 +25,7 @@
      *  bottom by convention. */
     const SECTIONS = [
         { slug: 'getting-started', title: 'Getting started' },
+        { slug: 'the-agent', title: 'The agent' },
         { slug: 'about', title: 'About' },
         { slug: 'privacy', title: 'Privacy' },
         { slug: 'terms', title: 'Terms' },
