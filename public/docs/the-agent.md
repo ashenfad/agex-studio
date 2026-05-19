@@ -147,7 +147,9 @@ picker. The studio never gets ongoing access to your Drive.
 
 ```
 Make me a chart from this spreadsheet
-```  *(after picking a sheet from Drive)*
+```
+
+*(after picking a sheet from Drive)*
 
 ## What it can't do (yet)
 
