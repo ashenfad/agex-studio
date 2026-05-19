@@ -117,11 +117,12 @@
         letter-spacing: -0.02em;
     }
 
-    /* Two-tone brand mark: `agex` heavy (the product, ~750 weight),
-       `.studio` regular and muted (the domain). The weight
-       differential is what carries the visual hierarchy now that
-       the typeface itself has personality — they no longer need
-       to compete via color alone. */
+    /* Two-tone brand mark: `agex` heavy (the product, ~750 weight)
+       and full-size, `.studio` regular, muted, and slightly smaller
+       (1.05rem against the h1's 1.25rem) — gives a typographic
+       contrast that reads as "product · domain" rather than two
+       equal halves. Matches the brand treatment in Gallery and
+       Docs headers so all three surfaces present one identity. */
     .brand-name {
         font-weight: 750;
     }
@@ -129,6 +130,7 @@
     .brand-suffix {
         font-weight: 400;
         color: var(--text-muted);
+        font-size: 1.05rem;
     }
 
     /* Active-kernel "experimental" badge. Visible only on py
