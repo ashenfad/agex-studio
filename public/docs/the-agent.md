@@ -116,23 +116,60 @@ and you see the change live.
 Apps can be published as standalone shareable links. See
 [Sharing & gallery](#sharing--gallery) when that page lands.
 
-## Calendar and Drive
+## Calendars (offline, via .ics)
 
-On Python sessions, connecting a Google account in Settings
-exposes calendar and Drive integration. The agent uses
-[calgebra](https://github.com/ashenfad/calgebra) under the hood
-for interval-algebra queries about your time.
+On Python sessions, the agent can reason about calendar data
+using [calgebra](https://github.com/ashenfad/calgebra) — an
+interval-algebra library for queries about your time. For now,
+calendar work goes through `.ics` files: drop an export (most
+calendars can produce one) into the chat and ask scheduling
+questions over it.
 
 ```
-What does my next free 2-hour weekday block look like, and what
-meetings are pushing it later than 10am?
+What 2-hour blocks of free time do I have this week, and what
+events are pinning the schedule on Tuesday morning?
 ```
 
-> [!CAUTION]
-> Google integration currently requires the Python kernel, which
-> is marked experimental (see *Kernels* when that page lands).
-> The sandbox boundary on Python is softer than on TypeScript;
-> use it for code you trust.
+> [!NOTE]
+> Direct Google Calendar OAuth is not currently wired up. The
+> studio is awaiting Google's app verification for the calendar
+> scope; once that lands, you'll be able to connect a Google
+> account in Settings for live calendar access without ICS
+> exports in between.
+
+## Google Drive (as a file source)
+
+You can pick files from your Google Drive to bring into the
+agent's workspace via the Drive button in the chat input's
+attach menu. This uses the `drive.file` scope, which limits
+access to only the specific files you select through the
+picker. The studio never gets ongoing access to your Drive.
+
+```
+Make me a chart from this spreadsheet
+```  *(after picking a sheet from Drive)*
+
+## What it can't do (yet)
+
+The biggest current limitation is that the agent can't
+authenticate to most external services on your behalf. It can:
+
+- Hit public web pages (via search).
+- Query public APIs at known URLs.
+- Work with whatever you bring it (file uploads, Drive picks,
+  ICS exports, etc.).
+
+It *cannot* currently:
+
+- Log into your Gmail / Slack / Notion / etc.
+- Query your private databases or APIs.
+- Talk to OAuth-protected services beyond the Drive picker.
+
+OAuth integrations for sensitive scopes (Google Calendar,
+others as they become useful) are gated on app verification
+with each provider. Until those land, the studio's model is:
+bring your data in (files, exports, public URLs), let the
+agent work on it locally.
 
 ## Things that aren't features per se
 

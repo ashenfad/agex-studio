@@ -36,11 +36,13 @@ agex.studio connects out only when you choose to:
   query is routed via Perplexity's Sonar through OpenRouter
   using your key. The query may include short excerpts from
   your conversation that the agent decides are relevant.
-- **Google Calendar and Drive.** When you connect a Google
-  account in Settings, the studio requests scoped permissions
-  (see below). API calls go directly from your browser to
-  Google. The studio does not relay, store, or retain your
-  Google data.
+- **Google Drive (file picker).** When you use the Drive
+  button in the chat input, the studio requests the
+  `drive.file` scope — access only to the specific files you
+  select through Google's own picker UI. API calls go directly
+  from your browser to Google. The studio does not relay,
+  store, or retain your Drive data; selected files become
+  uploads to your local workspace.
 - **GitHub gists.** When you publish a session, the bundle is
   written to a secret gist on github.com under your account,
   using a GitHub Personal Access Token you've supplied. The
@@ -49,11 +51,17 @@ agex.studio connects out only when you choose to:
 
 ## Google API scopes
 
-If you connect Google, agex.studio asks for:
+The only Google scope currently requested is:
 
-- `calendar` — read and write calendar events.
 - `drive.file` — access only the files you explicitly select
-  through the Google file picker.
+  through the Google file picker. Per Google's policy, this
+  scope can't list or read any file you haven't picked
+  yourself.
+
+Broader scopes (calendar, full Drive access) are not currently
+in use. Once the studio earns Google's app verification for
+sensitive scopes, additional integrations may be added; the
+options will appear in Settings if and when that happens.
 
 Your Google OAuth token is stored in your browser's localStorage
 and is sent only to Google's APIs.
