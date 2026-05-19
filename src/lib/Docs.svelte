@@ -20,9 +20,14 @@
 
     /** Section registry. Order = sidebar order = default-section
      *  fallback. `slug` matches the `.md` filename and the URL hash;
-     *  `title` is the sidebar label and the rendered page heading. */
+     *  `title` is the sidebar label and the rendered page heading.
+     *  The colophon/legal sections (about, privacy, terms) sit at the
+     *  bottom by convention. */
     const SECTIONS = [
         { slug: 'getting-started', title: 'Getting started' },
+        { slug: 'about', title: 'About' },
+        { slug: 'privacy', title: 'Privacy' },
+        { slug: 'terms', title: 'Terms' },
     ]
 
     /** @type {string} */
