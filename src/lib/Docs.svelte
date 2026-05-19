@@ -144,10 +144,12 @@
 <style>
     .docs-page {
         min-height: 100vh;
-        display: flex;
-        flex-direction: column;
         background: var(--bg);
         color: var(--text);
+        /* Document-level scroll. The page grows with content; the
+           browser handles vertical scroll. No overflow:auto on
+           intermediate containers — sticky positioning needs the
+           document as the scrolling ancestor. */
     }
 
     .docs-header {
@@ -156,7 +158,10 @@
         gap: 0.5rem;
         padding: 0.75rem 1.25rem;
         border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
+        background: var(--bg);
+        position: sticky;
+        top: 0;
+        z-index: 10;
     }
 
     .brand {
@@ -222,28 +227,34 @@
     }
 
     .docs-body {
-        flex: 1;
-        display: flex;
+        display: grid;
+        /* Sidebar gets a fixed track so it doesn't grow with content;
+           main gets `minmax(0, 1fr)` so wide children (long URLs,
+           tables) can't push the column wider than the viewport.
+           Without `minmax(0, ...)`, a single unbreakable token would
+           force horizontal page scroll. */
+        grid-template-columns: 180px minmax(0, 1fr);
+        gap: 2rem;
         max-width: 1100px;
         width: 100%;
         margin: 0 auto;
+        padding: 0 1.25rem;
         box-sizing: border-box;
-        min-height: 0;
+        align-items: start;
     }
 
     .docs-sidebar {
-        flex-shrink: 0;
-        width: 200px;
-        padding: 1.5rem 0.75rem 1.5rem 1.25rem;
-        border-right: 1px solid var(--border);
+        padding-top: 2rem;
+        position: sticky;
+        /* Stick just below the sticky header (header is ~50px tall
+           with its padding). 1rem of breathing room beneath. */
+        top: 3.5rem;
     }
 
     .docs-sidebar nav {
         display: flex;
         flex-direction: column;
-        gap: 0.15rem;
-        position: sticky;
-        top: 1rem;
+        gap: 0.1rem;
     }
 
     .sidebar-item {
@@ -253,7 +264,7 @@
         cursor: pointer;
         padding: 0.4rem 0.65rem;
         border-radius: 5px;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
         text-align: left;
         text-decoration: none;
         transition: color 0.15s, background 0.15s;
@@ -271,14 +282,79 @@
     }
 
     .docs-main {
-        flex: 1;
-        padding: 1.5rem 1.5rem 4rem;
+        padding: 2rem 0 4rem;
         min-width: 0;
     }
 
+    /* Docs-specific markdown overrides. The global `.markdown`
+       styles in app.css are tuned for chat (small headings, tight
+       spacing) — appropriate for inline activity-card content,
+       cramped for a dedicated docs page. Bump heading sizes and
+       open up vertical rhythm here without disturbing the chat
+       rendering. */
     .markdown-body {
         max-width: 70ch;
-        line-height: 1.6;
+        line-height: 1.65;
+        font-size: 0.95rem;
+    }
+
+    .markdown-body :global(h1) {
+        font-size: 1.75rem;
+        margin: 0 0 1rem;
+        line-height: 1.25;
+    }
+    .markdown-body :global(h2) {
+        font-size: 1.25rem;
+        margin: 1.75rem 0 0.5rem;
+        line-height: 1.3;
+    }
+    .markdown-body :global(h3) {
+        font-size: 1.05rem;
+        margin: 1.25rem 0 0.4rem;
+    }
+    .markdown-body :global(p) {
+        margin: 0.7em 0;
+    }
+    .markdown-body :global(ul),
+    .markdown-body :global(ol) {
+        margin: 0.7em 0;
+    }
+    .markdown-body :global(li) {
+        margin: 0.35em 0;
+    }
+    .markdown-body :global(hr) {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 2rem 0;
+    }
+
+    /* Wrap long URLs / unbreakable tokens so they can't push the
+       content column past its grid track. `overflow-wrap: anywhere`
+       only kicks in when needed; normal prose still wraps at word
+       boundaries. Scoped to links so we don't mangle prose. */
+    .markdown-body :global(a) {
+        overflow-wrap: anywhere;
+    }
+
+    /* Table styling: the global `.markdown table` has width: 100%
+       which works here, but we want cell content to wrap and a
+       softer border-styling for the docs context. */
+    .markdown-body :global(table) {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+    }
+    .markdown-body :global(th),
+    .markdown-body :global(td) {
+        text-align: left;
+        padding: 0.5rem 0.65rem;
+        border-bottom: 1px solid var(--border);
+        word-break: break-word;
+    }
+    .markdown-body :global(th) {
+        font-weight: 600;
+        color: var(--text);
     }
 
     .docs-status {
@@ -306,27 +382,38 @@
         to { transform: rotate(360deg); }
     }
 
-    /* Mobile: sidebar collapses behind the toggle. With only one
-       section initially this is irrelevant, but the pattern is in
-       place for when the docs grow. */
+    /* Mobile: sidebar collapses behind the toggle button.
+       Grid collapses to single column; sidebar shows above the
+       main content only when the toggle is open. */
     @media (max-width: 768px) {
         .sidebar-toggle {
             display: inline-flex;
             align-items: center;
             justify-content: center;
         }
+        .docs-body {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0;
+        }
         .docs-sidebar {
             display: none;
-            width: 100%;
-            padding: 0.5rem 1rem;
-            border-right: none;
+            position: static;
+            padding: 0.75rem 0 0.5rem;
             border-bottom: 1px solid var(--border);
         }
         .docs-sidebar.open {
             display: block;
         }
-        .docs-body {
-            flex-direction: column;
+        .docs-main {
+            padding: 1.25rem 0 4rem;
+        }
+        /* Slightly smaller headings on narrow viewports so they
+           don't dominate the column at phone widths. */
+        .markdown-body :global(h1) {
+            font-size: 1.5rem;
+        }
+        .markdown-body :global(h2) {
+            font-size: 1.15rem;
         }
     }
 </style>
