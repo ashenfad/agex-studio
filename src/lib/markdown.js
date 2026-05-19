@@ -9,7 +9,7 @@
  * client-side via renderMermaidBlocks().
  */
 
-import { marked } from "marked";
+import { marked, Marked } from "marked";
 
 marked.setOptions({ breaks: true });
 
@@ -110,10 +110,27 @@ function prepare(text) {
         .replace(/([^\n])\n(```)/g, "$1\n\n$2"); // fenced code blocks
 }
 
-/** Parse markdown to HTML with forgiving block handling. */
-export function renderMarkdown(text) {
-    return marked.parse(prepare(text));
+/** Parse markdown to HTML with forgiving block handling.
+ *
+ * `breaks` defaults to true (chat-style: single source newlines
+ * become visible <br> tags, matching what users intuit when they
+ * hit Enter in a chat input). Pass `{ breaks: false }` for
+ * documentation contexts where the markdown source is hand-
+ * wrapped for editor readability and shouldn't render those
+ * wraps as visual breaks. */
+export function renderMarkdown(text, { breaks = true } = {}) {
+    if (breaks) {
+        return marked.parse(prepare(text));
+    }
+    return docsMarked.parse(prepare(text));
 }
+
+/** Separate Marked instance for documentation parsing - same
+ *  custom renderer (code blocks, vfs: links, callouts), but
+ *  `breaks: false` so paragraph-internal source newlines collapse
+ *  into spaces rather than hard <br>s. Built lazily so the default
+ *  chat path doesn't pay the construction cost on first import. */
+const docsMarked = new Marked({ breaks: false, renderer });
 
 /** Parse markdown to inline HTML — no block elements (paragraphs,
  *  lists, headings, fenced code). Suitable for places that must

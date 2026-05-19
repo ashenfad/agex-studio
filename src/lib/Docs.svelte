@@ -141,7 +141,7 @@
                 </div>
             {:else}
                 <article class="markdown markdown-body">
-                    {@html renderMarkdown(content)}
+                    {@html renderMarkdown(content, { breaks: false })}
                 </article>
             {/if}
         </main>
@@ -344,9 +344,13 @@
         font-weight: 600;
     }
     .markdown-body :global(h3) {
-        font-size: 1.1rem;
-        margin: 1.4rem 0 0.4rem;
-        font-variation-settings: 'opsz' 18, 'SOFT' 60;
+        font-size: 1.25rem;
+        margin: 1.5rem 0 0.5rem;
+        /* Bump opsz up to 36 so the serif details Fraunces was
+           designed for show at this scale. The original opsz 18
+           was tuned for "small inline" and stripped the personality,
+           making the heading read as body-bold. */
+        font-variation-settings: 'opsz' 36, 'SOFT' 80;
         font-weight: 600;
     }
     .markdown-body :global(p) {
