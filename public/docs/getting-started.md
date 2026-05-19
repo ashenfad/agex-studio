@@ -45,6 +45,11 @@ Your key is stored in your browser's `localStorage` and used only when
 making requests directly to OpenRouter. It never touches an agex.studio
 server — there isn't one.
 
+> [!NOTE]
+> Switching browsers or devices means re-entering your key. The studio
+> has no account system to remember you across browsers — the upside
+> is that nothing about you is on any server.
+
 ---
 
 ## What it actually costs
