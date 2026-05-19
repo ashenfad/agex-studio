@@ -143,13 +143,16 @@
 
 <style>
     .docs-page {
-        min-height: 100vh;
+        height: 100%;
+        overflow-y: auto;
         background: var(--bg);
         color: var(--text);
-        /* Document-level scroll. The page grows with content; the
-           browser handles vertical scroll. No overflow:auto on
-           intermediate containers — sticky positioning needs the
-           document as the scrolling ancestor. */
+        /* The app's root chain (html/body/#app) has overflow: hidden
+           — that's the editor's contract (no page scroll, chat
+           scrolls internally). The docs page reclaims its own scroll
+           by becoming the scrolling container itself. Sticky
+           positioning inside this container resolves against THIS
+           element, so the sticky header/sidebar work naturally. */
     }
 
     .docs-header {

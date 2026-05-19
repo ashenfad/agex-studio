@@ -103,11 +103,16 @@
 
 <style>
     .gallery-page {
-        min-height: 100vh;
+        height: 100%;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         background: var(--bg);
         color: var(--text);
+        /* Same scroll-reclaim as the docs page — the app root has
+           overflow: hidden for the editor's no-page-scroll contract;
+           the gallery becomes its own scrolling container so cards
+           below the fold are reachable. */
     }
 
     .gallery-header {
