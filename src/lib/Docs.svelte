@@ -383,6 +383,35 @@
         overflow-wrap: anywhere;
     }
 
+    /* Code blocks in docs: most fenced blocks here are example
+       prompts (prose written by the user, not actual code), so
+       wrap them gracefully instead of horizontal-scrolling. The
+       chat-side `.markdown pre` rule uses overflow-x: auto with
+       a tight font-size, appropriate for code samples inside
+       narrow chat bubbles; in docs the column is wider, the
+       content is wordier, and wrapping reads better than scroll.
+       Bumped padding and font-size to match the doc's reading
+       rhythm. */
+    .markdown-body :global(pre) {
+        padding: 0.85rem 1rem;
+        margin: 0.9rem 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-x: hidden;
+        border-radius: 6px;
+    }
+    .markdown-body :global(pre code) {
+        font-size: 0.88rem;
+        line-height: 1.55;
+    }
+    /* Inline code in docs prose also wants slightly more breathing
+       room than the chat default. */
+    .markdown-body :global(p code),
+    .markdown-body :global(li code) {
+        font-size: 0.85em;
+        padding: 0.15em 0.35em;
+    }
+
     /* Table styling: the global `.markdown table` has width: 100%
        which works here, but we want cell content to wrap and a
        softer border-styling for the docs context. */

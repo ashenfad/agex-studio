@@ -251,7 +251,6 @@
                         const { adapter, branch } = await getActiveAdapter()
                         files = await adapter.listFiles(branch)
                         historyReady = true
-                        document.getElementById('static-footer')?.remove()
                         initStatus = 'Loading capabilities...'
                     }
                     // 'send-ready' fires implicitly when ensure resolves
