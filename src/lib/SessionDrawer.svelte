@@ -479,8 +479,6 @@
             '',
             `**Screenshot:** _(drag an image into this box)_`,
             '',
-            `**Short description of what it does:**`,
-            '',
         ].join('\n')
         const url = `https://github.com/ashenfad/agex-studio/issues/new`
             + `?labels=gallery-candidate`
