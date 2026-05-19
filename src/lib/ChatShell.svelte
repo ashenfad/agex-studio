@@ -155,6 +155,29 @@
         if (!configured && !isExternalEntry) settingsOpen = true
     })
 
+    // Warn before leaving / reloading while a turn is in flight.
+    // Catches accidental closes / back-button presses while the
+    // agent is mid-stream. The chat task COMMITS state on cancel
+    // (see ts-kernel-adapter.js's sendMessage finally), so the
+    // user wouldn't actually lose data — but they'd lose the
+    // *outcome* of whatever the agent was about to produce, which
+    // is more annoying than a dropped tab. Modern browsers ignore
+    // the custom message and show their own "Leave site?" dialog,
+    // so we just need to set returnValue + return a string.
+    $effect(() => {
+        if (!busy) return
+        const handler = (e) => {
+            e.preventDefault()
+            // Legacy form for older browsers — modern ones use
+            // preventDefault() alone but the string assignment
+            // is harmless and keeps the fallback working.
+            e.returnValue = ''
+            return ''
+        }
+        window.addEventListener('beforeunload', handler)
+        return () => window.removeEventListener('beforeunload', handler)
+    })
+
     // historyReady flips once Wave 2 init + history load have completed.
     // Lets us show real chat earlier than agentReady (which waits for
     // the full Wave 3 registration before Send becomes enabled).
@@ -1274,6 +1297,15 @@
         flex-direction: column;
         max-width: 900px;
         margin: 0 auto;
+        /* Block horizontal swipe-back gestures *inside the editor*
+           only — wide content in the chat (markdown tables, long
+           code blocks, the activity-card detail) scrolls
+           horizontally past the viewport edge, and the browser's
+           default "rubber band → navigate back" would yank the
+           user away from an in-flight turn. The docs and gallery
+           routes don't have this concern and get default
+           behavior (so two-finger swipe back works there). */
+        overscroll-behavior-x: none;
     }
 
     /* Drop overlay covers the whole chat-shell during a drag-over.
