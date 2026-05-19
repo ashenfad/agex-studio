@@ -167,13 +167,18 @@
         z-index: 10;
     }
 
+    /* Brand mark — matches the editor & gallery headers. Display
+       face with the signature SOFT 100 treatment. */
     .brand {
         background: none;
         border: none;
         color: var(--text);
         cursor: pointer;
-        font-size: 1.1rem;
-        font-weight: 600;
+        font-family: var(--font-display);
+        font-size: 1.25rem;
+        font-weight: 750;
+        font-variation-settings: 'opsz' 72, 'SOFT' 100;
+        letter-spacing: -0.02em;
         padding: 0;
         display: inline-flex;
         align-items: baseline;
@@ -182,7 +187,7 @@
     .brand-suffix {
         color: var(--text-muted);
         font-weight: 400;
-        font-size: 0.95rem;
+        font-size: 1.05rem;
     }
 
     .header-sep {
@@ -302,18 +307,28 @@
     }
 
     .markdown-body :global(h1) {
-        font-size: 1.75rem;
-        margin: 0 0 1rem;
-        line-height: 1.25;
+        font-size: 2.5rem;
+        margin: 0 0 1.25rem;
+        line-height: 1.05;
+        /* Page-title scale gets full optical-size + softness — this
+           is the first thing readers see when they land on a docs
+           section. */
+        font-variation-settings: 'opsz' 144, 'SOFT' 100;
+        letter-spacing: -0.025em;
+        font-weight: 500;
     }
     .markdown-body :global(h2) {
-        font-size: 1.25rem;
-        margin: 1.75rem 0 0.5rem;
-        line-height: 1.3;
+        font-size: 1.4rem;
+        margin: 2rem 0 0.6rem;
+        line-height: 1.25;
+        font-variation-settings: 'opsz' 36, 'SOFT' 80;
+        font-weight: 600;
     }
     .markdown-body :global(h3) {
-        font-size: 1.05rem;
-        margin: 1.25rem 0 0.4rem;
+        font-size: 1.1rem;
+        margin: 1.4rem 0 0.4rem;
+        font-variation-settings: 'opsz' 18, 'SOFT' 60;
+        font-weight: 600;
     }
     .markdown-body :global(p) {
         margin: 0.7em 0;

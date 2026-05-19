@@ -124,13 +124,19 @@
         flex-shrink: 0;
     }
 
+    /* Brand mark — matches the editor header's treatment so the
+       identity carries across surfaces. Display face, SOFT 100,
+       weight differential between name and suffix. */
     .brand {
         background: none;
         border: none;
         color: var(--text);
         cursor: pointer;
-        font-size: 1.1rem;
-        font-weight: 600;
+        font-family: var(--font-display);
+        font-size: 1.25rem;
+        font-weight: 750;
+        font-variation-settings: 'opsz' 72, 'SOFT' 100;
+        letter-spacing: -0.02em;
         padding: 0;
         display: inline-flex;
         align-items: baseline;
@@ -139,7 +145,7 @@
     .brand-suffix {
         color: var(--text-muted);
         font-weight: 400;
-        font-size: 0.95rem;
+        font-size: 1.05rem;
     }
 
     .header-spacer {
@@ -175,15 +181,19 @@
     }
 
     .page-intro h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0 0 0.5rem;
+        font-size: 3rem;
+        font-weight: 500;
+        margin: 0 0 0.75rem;
+        /* Big optical-size + soft for an editorial moment. */
+        font-variation-settings: 'opsz' 144, 'SOFT' 100;
+        letter-spacing: -0.03em;
+        line-height: 1.05;
     }
 
     .intro-prose {
         color: var(--text-muted);
-        font-size: 0.95rem;
-        line-height: 1.5;
+        font-size: 1rem;
+        line-height: 1.55;
         max-width: 60ch;
     }
 

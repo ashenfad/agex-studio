@@ -107,17 +107,23 @@
     }
 
     h1 {
-        font-size: 1.1rem;
-        font-weight: 600;
+        font-size: 1.25rem;
         margin: 0;
+        /* Brand mark renders in the display face (set globally on
+           all headings). Pull `opsz` up and SOFT to the soft end —
+           the brand wants the chunky-organic personality of
+           Fraunces at its most distinctive. */
+        font-variation-settings: 'opsz' 72, 'SOFT' 100;
+        letter-spacing: -0.02em;
     }
 
-    /* Two-tone brand mark: `agex` bold (the product), `.studio`
-       lighter (the domain). Same shape used in the gallery header,
-       so the visual identity stays consistent across the two
-       entry points. */
+    /* Two-tone brand mark: `agex` heavy (the product, ~750 weight),
+       `.studio` regular and muted (the domain). The weight
+       differential is what carries the visual hierarchy now that
+       the typeface itself has personality — they no longer need
+       to compete via color alone. */
     .brand-name {
-        font-weight: 600;
+        font-weight: 750;
     }
 
     .brand-suffix {

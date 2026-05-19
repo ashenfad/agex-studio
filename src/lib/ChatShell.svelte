@@ -1336,11 +1336,18 @@
     }
 
     .empty-headline {
-        font-size: 1.4rem;
-        font-weight: 600;
+        /* Hero text in the display face. Bumping opsz up gives the
+           large-size optical refinements Fraunces was designed for;
+           SOFT 100 keeps the studio's signature chunky-organic
+           character at scale. */
+        font-size: 2.25rem;
+        font-weight: 500;
         margin: 0;
         color: var(--text);
-        line-height: 1.3;
+        line-height: 1.15;
+        font-variation-settings: 'opsz' 144, 'SOFT' 100;
+        letter-spacing: -0.025em;
+        max-width: 22ch;
     }
 
     .empty-prose {

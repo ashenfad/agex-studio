@@ -147,10 +147,15 @@
     }
 
     .title {
-        font-size: 1rem;
+        /* Card title in the display face. Small-size opsz (12)
+           keeps the serifs from looking spindly at this scale;
+           moderate softness (40) reads as polished, not playful. */
+        font-size: 1.05rem;
         font-weight: 600;
         margin: 0;
-        line-height: 1.3;
+        line-height: 1.25;
+        font-variation-settings: 'opsz' 12, 'SOFT' 40;
+        letter-spacing: -0.005em;
     }
 
     .kernel-badge {
