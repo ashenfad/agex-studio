@@ -45,8 +45,24 @@ function copyGalleryEntryPoint() {
   }
 }
 
+/**
+ * Mirror of the other entry-point copiers, for the /docs/ help
+ * pages. App.svelte route-detects on mount and renders the Docs
+ * component instead of the editor. Same bundle, same trick.
+ */
+function copyDocsEntryPoint() {
+  return {
+    name: 'copy-docs-entry-point',
+    closeBundle() {
+      const out = resolve('dist', 'docs')
+      mkdirSync(out, { recursive: true })
+      copyFileSync(resolve('dist', 'index.html'), resolve(out, 'index.html'))
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [svelte(), copyRunEntryPoint(), copyGalleryEntryPoint()],
+  plugins: [svelte(), copyRunEntryPoint(), copyGalleryEntryPoint(), copyDocsEntryPoint()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
