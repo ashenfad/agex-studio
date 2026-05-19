@@ -1123,37 +1123,50 @@
         {:else}
             <!-- First-run empty state. The user hasn't configured a key
                  and isn't an external-artifact visitor, so this is
-                 likely their first encounter with agex.studio. Lean
-                 into the "tool, not a service" framing: no signup
-                 here, no servers, no company. Two CTAs (get a key,
-                 open settings) plus a docs link for context. -->
+                 likely their first encounter with agex.studio.
+                 Documentation-style layout (vs. SaaS landing page):
+                 the brand mark sits at the top of a body of prose
+                 that describes what this is, a hairline rule, and
+                 three actions presented as text-with-explanation
+                 rather than buttons. Reads as the first page of a
+                 README, not as marketing. -->
             <div class="empty-state">
-                <h2 class="empty-headline">
-                    A browser-based agent workspace.
-                </h2>
-                <p class="empty-prose">
-                    agex.studio runs entirely in this tab — no servers, no
-                    account, no subscription. You bring your own API key from
-                    OpenRouter; your messages, files, and key stay on your
-                    device.
-                </p>
-                <div class="empty-ctas">
-                    <a
-                        class="empty-cta primary"
-                        href="https://openrouter.ai/settings/keys"
-                        target="_blank"
-                        rel="noopener"
-                    >
-                        Get an OpenRouter key →
-                    </a>
-                    <button class="empty-cta secondary" onclick={() => settingsOpen = true}>
-                        Open Settings
-                    </button>
+                <h1 class="empty-brand">
+                    <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
+                </h1>
+                <div class="empty-body">
+                    <p>
+                        A browser-based agent workspace. Runs locally as a
+                        static page — no backend, no accounts, no subscription.
+                    </p>
+                    <p>
+                        To start, you'll need an API key. OpenRouter is the
+                        easiest path (one account, hundreds of models), but
+                        the studio also works with direct OpenAI / Anthropic
+                        keys or any OpenAI-compatible endpoint — local models
+                        included.
+                    </p>
                 </div>
-                <p class="empty-help">
-                    First time here?
-                    <a href="/docs/#getting-started">How this works →</a>
-                </p>
+                <hr class="empty-rule" />
+                <ul class="empty-actions">
+                    <li>
+                        <a
+                            class="action-link"
+                            href="https://openrouter.ai/settings/keys"
+                            target="_blank"
+                            rel="noopener"
+                        >Get an OpenRouter key →</a>
+                        <span class="action-detail">opens openrouter.ai in a new tab</span>
+                    </li>
+                    <li>
+                        <button class="action-link" onclick={() => settingsOpen = true}>Open Settings</button>
+                        <span class="action-detail">paste a key or point at a custom endpoint</span>
+                    </li>
+                    <li>
+                        <a class="action-link" href="/docs/#getting-started">Read the docs →</a>
+                        <span class="action-detail">how the studio works, what it can do</span>
+                    </li>
+                </ul>
             </div>
         {/if}
 
@@ -1350,99 +1363,122 @@
     }
 
     /* First-run empty state — when no API key is set yet and this
-       isn't an external-artifact visit. Heroish vertical centering
-       since it occupies the whole chat-shell area; capped width
-       so the prose stays readable rather than running the full
-       drawer-closed viewport. */
+       isn't an external-artifact visit. Documentation-style
+       layout: brand mark at top, prose body, hairline rule, then
+       a list of actions presented as text-with-context (not
+       buttons). Left-aligned, capped width, optical-vertical
+       centering with a slight upward bias so it doesn't feel
+       weighted to the floor. */
     .empty-state {
         flex: 1;
         display: flex;
         flex-direction: column;
-        align-items: center;
         justify-content: center;
-        gap: 1rem;
-        padding: 2rem 1.5rem;
-        text-align: center;
+        gap: 1.25rem;
+        padding: 3rem 2rem 4rem;
         max-width: 38rem;
+        width: 100%;
         margin: 0 auto;
+        /* Pull the block up slightly so the gravitational center
+           sits above midline — feels more like a deliberately
+           positioned piece of content, less like "fallback when
+           there's nothing to render." */
+        padding-bottom: 6rem;
     }
 
-    .empty-headline {
-        /* Hero text in the display face. Bumping opsz up gives the
-           large-size optical refinements Fraunces was designed for;
-           SOFT 100 keeps the studio's signature chunky-organic
-           character at scale. */
-        font-size: 2.25rem;
-        font-weight: 500;
+    /* Brand mark — same shape as the editor header's mark but at
+       hero scale. Soft-chunky Fraunces, weight differential
+       between `agex` and `.studio`. Reads as a colophon-style
+       title rather than an h1 headline. */
+    .empty-brand {
         margin: 0;
-        color: var(--text);
-        line-height: 1.15;
+        font-size: 3.25rem;
+        font-weight: 750;
+        line-height: 1;
         font-variation-settings: 'opsz' 144, 'SOFT' 100;
-        letter-spacing: -0.025em;
-        max-width: 22ch;
+        letter-spacing: -0.035em;
+        color: var(--text);
     }
 
-    .empty-prose {
+    .empty-brand .brand-suffix {
+        font-weight: 400;
+        color: var(--text-muted);
+        font-size: 2.5rem;
+    }
+
+    .empty-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .empty-body p {
         margin: 0;
         color: var(--text-muted);
-        line-height: 1.55;
-        font-size: 0.95rem;
+        line-height: 1.6;
+        font-size: 1rem;
+        max-width: 38ch;
     }
 
-    .empty-ctas {
+    .empty-rule {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 0.25rem 0;
+        max-width: 4rem;
+    }
+
+    .empty-actions {
+        list-style: none;
+        padding: 0;
+        margin: 0;
         display: flex;
-        gap: 0.6rem;
-        flex-wrap: wrap;
-        justify-content: center;
-        margin-top: 0.5rem;
+        flex-direction: column;
+        gap: 0.65rem;
     }
 
-    .empty-cta {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.55rem 0.95rem;
-        border-radius: 7px;
-        font-size: 0.9rem;
-        font-weight: 500;
+    .empty-actions li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    /* Actions are text links + buttons styled as text. Not flashy
+       CTAs; this is documentation-aesthetic. The visual weight
+       comes from typography (font-family inheritance), not from
+       color-filled buttons. */
+    .action-link {
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        color: var(--accent);
         cursor: pointer;
         text-decoration: none;
-        border: 1px solid transparent;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        font-weight: 500;
+        white-space: nowrap;
     }
 
-    .empty-cta.primary {
-        background: var(--accent);
-        color: white;
-    }
-
-    .empty-cta.primary:hover {
-        background: var(--accent-hover);
-    }
-
-    .empty-cta.secondary {
-        background: transparent;
-        color: var(--text);
-        border-color: var(--border);
-    }
-
-    .empty-cta.secondary:hover {
-        background: var(--surface-hover);
-        border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-    }
-
-    .empty-help {
-        margin: 0.4rem 0 0;
-        font-size: 0.82rem;
-        color: var(--text-muted);
-    }
-
-    .empty-help a {
-        color: var(--text-muted);
+    .action-link:hover {
         text-decoration: underline;
     }
 
-    .empty-help a:hover {
-        color: var(--text);
+    .action-detail {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    @media (max-width: 600px) {
+        .empty-state {
+            padding: 2rem 1.25rem 4rem;
+        }
+        .empty-brand {
+            font-size: 2.5rem;
+        }
+        .empty-brand .brand-suffix {
+            font-size: 1.9rem;
+        }
     }
 
     .status-row {

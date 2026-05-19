@@ -16,13 +16,25 @@ in a tab, with your own data and your own external services plugged in.
 
 ## What you need
 
-One thing: an **API key from OpenRouter**.
+Access to an LLM. The studio supports three paths:
 
-OpenRouter is a third-party gateway that lets you reach hundreds of LLMs
-(Anthropic, Google, OpenAI, open-source models) through a single account,
-with a single bill. It's the path of least resistance for getting started —
-the studio also supports raw OpenAI and Anthropic keys for users who
-prefer to deal direct, but those require separate accounts per provider.
+- **OpenRouter** *(recommended for most people)* — one account, one
+  bill, hundreds of models from Anthropic, Google, OpenAI, and the
+  open-source ecosystem. The fastest way to get started.
+- **Direct OpenAI or Anthropic** — your own account with one of those
+  providers, using their API key directly. Saves OpenRouter's small
+  routing fee if you've already got an account; loses model variety.
+- **Custom endpoint** — any OpenAI-compatible HTTP API. Lets you point
+  the studio at a local model server (LM Studio, llama.cpp's server,
+  Ollama in OpenAI-compatibility mode, vLLM, etc.) or at a self-hosted
+  router. Useful for offline work, private data, or experimenting with
+  models that aren't on commercial gateways.
+
+The rest of this page walks through the OpenRouter path because it's
+the smoothest. For the other two, head to **Settings → Access mode →
+Custom** and fill in the base URL + key + model name.
+
+### OpenRouter setup
 
 **[Sign up at openrouter.ai →](https://openrouter.ai/)** — it takes about
 a minute. New accounts get a small free credit balance you can use to try
