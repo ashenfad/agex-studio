@@ -7,5 +7,14 @@
     "hasApp": true,
     "tags": ["game", "education", "kids"],
     "thumbnail": "mathematical-circus.png"
+  },
+  {
+    "name": "2048",
+    "description": "Can you hit 2048? A version of the classic.",
+    "gistShorthand": "ashenfad/0ae14a52ac4d781adf0623257628f353/bf483cbd8572dbe96ad6e45688a4ce01e99de914/2048",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["game", "puzzle"],
+    "thumbnail": "2048.png"
   }
 ]
