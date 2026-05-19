@@ -144,16 +144,14 @@
         return null
     })
 
-    // Open settings on first load if no API key — except when the
-    // visitor came in via an external-artifact URL.  In that case
-    // they're trying to view someone else's published bundle, not
-    // configure their own session; popping a settings drawer over
-    // the loading artifact is the wrong first impression.  Once
-    // the artifact is loaded, a banner inside the chat tells them
+    // Settings drawer is no longer auto-opened on first load. The
+    // redesigned empty state (see further down) has its own
+    // documentation-style explanation of the BYOK model and an
+    // explicit "Open Settings" action — popping the drawer
+    // automatically would fade out that first impression with a
+    // modal overlay on top of it. External-artifact visitors still
+    // see their own banner inside the loaded artifact telling them
     // they need a key to continue the conversation.
-    $effect(() => {
-        if (!configured && !isExternalEntry) settingsOpen = true
-    })
 
     // Warn before leaving / reloading while a turn is in flight.
     // Catches accidental closes / back-button presses while the
@@ -1137,14 +1135,14 @@
                 <div class="empty-body">
                     <p>
                         A browser-based agent workspace. Runs locally as a
-                        static page — no backend, no accounts, no subscription.
+                        static page. No backend, no accounts, no subscription.
                     </p>
                     <p>
                         To start, you'll need an API key. OpenRouter is the
                         easiest path (one account, hundreds of models), but
                         the studio also works with direct OpenAI / Anthropic
-                        keys or any OpenAI-compatible endpoint — local models
-                        included.
+                        keys or any OpenAI-compatible endpoint, including
+                        local models.
                     </p>
                 </div>
                 <hr class="empty-rule" />
@@ -1417,7 +1415,12 @@
         color: var(--text-muted);
         line-height: 1.6;
         font-size: 1rem;
-        max-width: 38ch;
+        /* Fills the empty-state column. The container's own
+           max-width (38rem) keeps lines from running past comfortable
+           reading length; an extra ch-based constraint here was
+           making the prose hug the left at roughly half the
+           container width while the brand mark and action list
+           filled it — inconsistent visual rhythm. */
     }
 
     .empty-rule {
