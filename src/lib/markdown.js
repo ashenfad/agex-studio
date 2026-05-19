@@ -21,11 +21,59 @@ marked.setOptions({ breaks: true });
 const renderer = new marked.Renderer();
 const origCode = renderer.code.bind(renderer);
 const origLink = renderer.link.bind(renderer);
+const origBlockquote = renderer.blockquote.bind(renderer);
+
+// GitHub-flavored callouts: `> [!NOTE]` (or TIP / WARNING / etc.) at
+// the start of a blockquote rewrites to a tinted callout div with a
+// small typed label. Matches GitHub's own rendering so prose authored
+// with that syntax in mind ports cleanly. Body content inside the
+// callout is normal markdown — lists, links, code spans all work.
+const CALLOUT_LABELS = {
+    note: "Note",
+    tip: "Tip",
+    warning: "Warning",
+    caution: "Caution",
+    important: "Important",
+};
+
 renderer.code = function ({ text, lang }) {
     if (lang === "mermaid") {
         return `<pre class="mermaid">${text}</pre>`;
     }
     return origCode({ text, lang });
+};
+renderer.blockquote = function (token) {
+    const first = token.tokens?.[0];
+    const firstText = first?.tokens?.[0];
+    if (firstText?.type === "text" && typeof firstText.text === "string") {
+        const match = firstText.text.match(/^\[!(\w+)\]\s*\n?/);
+        if (match) {
+            const type = match[1].toLowerCase();
+            if (CALLOUT_LABELS[type]) {
+                // Strip the marker from the first text token so the
+                // body renders without it; then render via the original
+                // blockquote handler and unwrap the outer blockquote
+                // tags. The token mutation is local to this render
+                // pass (marked builds fresh tokens each parse).
+                firstText.text = firstText.text.replace(
+                    /^\[!\w+\]\s*\n?/,
+                    "",
+                );
+                firstText.raw = firstText.text;
+                const rendered = origBlockquote(token);
+                const body = rendered
+                    .replace(/^\s*<blockquote>\s*/, "")
+                    .replace(/\s*<\/blockquote>\s*$/, "");
+                return (
+                    `<div class="callout callout-${type}">` +
+                    `<div class="callout-label">${CALLOUT_LABELS[type]}</div>` +
+                    body +
+                    `</div>`
+                );
+            }
+        }
+    }
+    return origBlockquote(token);
 };
 renderer.link = function (token) {
     const { href, title, text } = token;
