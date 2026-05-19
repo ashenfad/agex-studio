@@ -99,15 +99,6 @@
         {/if}
     </main>
 
-    <footer class="gallery-footer">
-        <a
-            href="https://github.com/ashenfad/agex-studio/issues/new?labels=gallery-candidate&template=gallery-submission.md"
-            target="_blank"
-            rel="noopener"
-        >
-            Submit your own →
-        </a>
-    </footer>
 </div>
 
 <style>
@@ -236,19 +227,4 @@
         line-height: 1.5;
     }
 
-    .gallery-footer {
-        padding: 1.5rem 1.25rem;
-        text-align: center;
-        border-top: 1px solid var(--border);
-        font-size: 0.85rem;
-    }
-
-    .gallery-footer a {
-        color: var(--text-muted);
-        text-decoration: underline;
-    }
-
-    .gallery-footer a:hover {
-        color: var(--text);
-    }
 </style>
