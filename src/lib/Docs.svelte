@@ -84,11 +84,18 @@
 
 <div class="docs-page">
     <header class="docs-header">
-        <button class="brand" onclick={openEditor} title="Open the editor">
-            <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
-        </button>
-        <span class="header-sep">·</span>
-        <span class="header-section">docs</span>
+        <!-- Title group: brand + separator + section label share one
+             baseline-aligned flex line so the typography reads as one
+             phrase ("agex.studio · docs") rather than three sized
+             differently and center-aligned (which floats the smaller
+             chrome above the brand's x-height). -->
+        <div class="header-title">
+            <button class="brand" onclick={openEditor} title="Open the editor">
+                <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
+            </button>
+            <span class="header-sep">·</span>
+            <span class="header-section">docs</span>
+        </div>
         <div class="header-spacer"></div>
         <button
             class="sidebar-toggle"
@@ -165,6 +172,18 @@
         position: sticky;
         top: 0;
         z-index: 10;
+    }
+
+    /* Title group — brand mark + separator + section label sit on a
+       shared baseline. Differing font-sizes don't drift apart this
+       way; the three read as one typographic phrase. The outer
+       .docs-header stays align-items: center because its other
+       children (sidebar-toggle, enter-editor) are buttons that DO
+       want center alignment. */
+    .header-title {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
     }
 
     /* Brand mark — matches the editor & gallery headers. Display
