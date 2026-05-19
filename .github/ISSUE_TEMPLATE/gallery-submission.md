@@ -19,7 +19,7 @@ you.
 
 **Description:**
 
-**Audience:** (kids / devs / general / other)
+**Tags:** (a few short labels — e.g. `game`, `dashboard`, `education`, `kids`, `data`, `creative`, `utility`)
 
 **Screenshot:** (drag an image into this box — pick one frame that
 sells the app; the curator will use this as the gallery thumbnail)
