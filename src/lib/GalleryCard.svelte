@@ -8,7 +8,12 @@
      * pinned form (`USER/ID/SHA/SLUG`) — gallery entries are
      * byte-immutable by design (see commit e40ab42). We derive the
      * showcase and play URLs from that shorthand.
+     *
+     * The `description` field renders as markdown (curator-trusted
+     * content from `public/gallery.json`), so curators can drop in
+     * inline emphasis / links to highlight specific phrases.
      */
+    import { renderMarkdown } from './markdown.js'
 
     /** @type {{ entry: {
      *   name: string,
@@ -46,7 +51,7 @@
             <span class="kernel-badge kernel-{kernel}">{kernel.toUpperCase()}</span>
         </div>
         {#if entry.description}
-            <p class="description">{entry.description}</p>
+            <div class="description markdown">{@html renderMarkdown(entry.description)}</div>
         {/if}
         {#if entry.tags && entry.tags.length > 0}
             <div class="tags">
