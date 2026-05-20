@@ -59,8 +59,12 @@
             if (!resp.ok) {
                 throw new Error(`docs/${slug}.md HTTP ${resp.status}`)
             }
-            content = await resp.text()
+            const text = await resp.text()
+            // Guard against out-of-order resolves if the user
+            // rapid-switches sections before an earlier fetch lands.
+            if (activeSlug === slug) content = text
         } catch (err) {
+            if (activeSlug !== slug) return
             console.error(`Failed to load docs/${slug}.md:`, err)
             loadError = err.message || String(err)
             content = ''
