@@ -34,7 +34,7 @@ export const OPENROUTER_MODELS = [
     { id: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
     { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
     { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-    { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash" },
+    { id: "google/gemini-3.5-flash", label: "Gemini 3.5 Flash" },
     { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
     { id: "deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
     {
