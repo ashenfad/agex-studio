@@ -26,6 +26,8 @@
     const SECTIONS = [
         { slug: 'getting-started', title: 'Getting started' },
         { slug: 'the-agent', title: 'The agent' },
+        { slug: 'sessions', title: 'Sessions & workspace' },
+        { slug: 'sharing', title: 'Sharing & gallery' },
         { slug: 'about', title: 'About' },
         { slug: 'privacy', title: 'Privacy' },
         { slug: 'terms', title: 'Terms' },
@@ -419,18 +421,27 @@
         width: 100%;
         border-collapse: collapse;
         margin: 1rem 0;
-        font-size: 0.9rem;
+        font-size: 0.92rem;
+        line-height: 1.45;
     }
     .markdown-body :global(th),
     .markdown-body :global(td) {
         text-align: left;
-        padding: 0.5rem 0.65rem;
+        padding: 0.55rem 0.7rem;
         border-bottom: 1px solid var(--border);
-        word-break: break-word;
+        overflow-wrap: break-word;
+        vertical-align: top;
     }
     .markdown-body :global(th) {
         font-weight: 600;
         color: var(--text);
+        white-space: nowrap;
+    }
+    .markdown-body :global(td:first-child) {
+        white-space: nowrap;
+        font-weight: 500;
+        color: var(--text);
+        padding-right: 1rem;
     }
 
     .docs-status {
