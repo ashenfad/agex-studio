@@ -6,7 +6,7 @@ const STORAGE_KEY = "agex-settings";
 
 const DEFAULTS = {
     apiKey: "",
-    model: "google/gemini-3-flash-preview",
+    model: "google/gemini-3.5-flash",
     // ``accessMode`` is the user-facing primary control: which service
     // we're talking to.  Two modes:
     //   "openrouter" — managed: fixed base URL, key + model is enough.
