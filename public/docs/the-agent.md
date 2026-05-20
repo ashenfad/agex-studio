@@ -1,89 +1,56 @@
 # The agent
 
-The studio's agent is a code-writing LLM operating inside a sandbox
-in your browser. You ask for things in plain language; it figures
-out which combination of tools to reach for, writes code, runs it,
-and replies with whatever shape fits the answer best (prose, a
-table, a chart, a fully interactive app).
-
-This page is a survey of what's available. Examples are
-representative, not prescriptive. The agent picks tools by reading
-your message, so casual phrasing works fine.
+The studio's agent is a code-writing LLM running in a sandboxed
+worker in your browser. You ask in plain language; it picks tools,
+writes code, runs it, and replies in whatever shape fits (prose,
+table, chart, interactive app). Examples below are representative
+starting points — casual phrasing works fine.
 
 ## Code
 
-The most basic capability. The agent writes TypeScript (or Python,
-if you're on a Python session) and runs it inside a sandboxed Web
-Worker. Results come back as the response, with the actual code
-visible in the activity card below the message.
+Writes and runs TypeScript (or Python on Python sessions). Most
+npm packages work via on-demand `import` on the TS kernel; Python
+sessions ship with NumPy, pandas, SciPy, and scikit-learn
+pre-bundled. The actual code is visible in the activity card
+below each reply.
 
 ```
 Compute the Collatz sequence starting at 27, and tell me how many
 steps it takes to reach 1.
 ```
 
-Most npm packages work out of the box on the TS kernel. The agent
-can `import` from `'lodash'`, `'d3'`, `'dayjs'`, etc. — the
-sandbox routes bare imports through esm.sh on demand. On the
-Python kernel, the standard data-science stack is pre-bundled
-(NumPy, pandas, SciPy, scikit-learn).
-
 > [!NOTE]
-> The agent's code runs in a worker, not in your tab's main
-> thread. It can't reach the DOM, your browser tabs, or your
-> files outside the studio.
+> Code runs in a worker. No DOM, no other tabs, no files outside
+> the studio.
 
 ## Tables and charts
 
-When the answer is structured data, the agent returns it as a real
-inline table or Plotly chart instead of describing it in prose.
-Tables are sortable; charts are interactive (zoom, hover, etc.).
+Structured answers come back as inline sortable tables or
+interactive Plotly charts, not described in prose.
 
 ```
 Load this CSV and chart weekly signups, with a callout for the
 biggest jump.
 ```
 
-Drop the CSV into the chat input first (or write your own data
-into the message). The agent will pick a chart shape that fits the
-data; if you'd rather see something specific, just say so.
+## File uploads and PDFs
 
-## File uploads
-
-Drag any file into the chat input to upload it. The file lands in
-the agent's workspace and becomes addressable for the rest of the
-session. CSVs, JSON, images, PDFs, binary formats: all work.
+Drag any file into the chat input. Uploads land in the agent's
+workspace (visible in the Files drawer) and stay reachable for
+the rest of the session. PDFs get an extra capability: the agent
+can render pages as images and reason about them visually, not
+just extracted text.
 
 ```
-What's in this dataset?
+Render this paper and pull out the key claims with the figures
+that support each.
 ```
-
-Files are visible in the Files drawer (top-right folder icon) once
-uploaded. The agent can also write its own files back to the
-workspace as part of working on a task.
-
-## PDFs
-
-PDFs get a slightly richer treatment: the agent can render
-individual pages as images and reason about their visual content,
-not just the extracted text. Useful for papers with figures,
-diagrams, layout-dependent content.
-
-```
-Render this paper and pull out the key claims along with the
-figures that support each.
-```
-
-Default cap is 20 pages per render call; the agent can pass
-explicit page indices for longer documents.
 
 ## Web search
 
-When the agent needs current information, it can search the web
-via Perplexity's Sonar (routed through your OpenRouter key).
-Multiple independent searches can run in parallel — useful for
-multi-topic research where the agent fans out and combines
-results.
+The agent can search the web via Perplexity's Sonar (routed
+through your OpenRouter key). Multiple searches run in parallel
+for multi-topic research.
 
 ```
 Search for recent papers on diffusion model alignment and
@@ -92,15 +59,15 @@ summarize what each contributes.
 
 > [!NOTE]
 > Web search uses your OpenRouter credits like any other model
-> call. Deep multi-step searches cost more than a single query.
+> call.
 
 ## Interactive apps
 
-The most distinctive capability. The agent can write HTML/CSS/JS
-into a special `app/` folder; the preview pane on the right
-(visible automatically once `app/` files exist) renders them in a
-sandboxed iframe. The agent can also script the app to test that
-it works before responding.
+The most distinctive capability. The agent writes HTML/CSS/JS
+into an `app/` folder; the preview pane on the right renders it
+in a sandboxed iframe. Iterating is conversational — the agent
+edits the same files and you see the change live. Apps survive
+the session and can be published as standalone shareable links.
 
 ```
 Build me a circus-themed flashcard game for 4th-grade
@@ -108,93 +75,40 @@ multiplication. Tracks correct/incorrect, awards "tickets" for
 streaks.
 ```
 
-Apps survive the session: refreshing the page or coming back later
-keeps the latest version. Iterating is conversational ("make the
-tickets glow when you earn one") — the agent edits the same files
-and you see the change live.
-
-Apps can be published as standalone shareable links. See
-[Sharing & gallery](#sharing--gallery) when that page lands.
-
 ## Calendars (offline, via .ics)
 
-On Python sessions, the agent can reason about calendar data
-using [calgebra](https://github.com/ashenfad/calgebra) — an
-interval-algebra library for queries about your time. For now,
-calendar work goes through `.ics` files: drop an export (most
-calendars can produce one) into the chat and ask scheduling
-questions over it.
+On Python sessions the agent reasons about calendar data using
+[calgebra](https://github.com/ashenfad/calgebra). Upload an
+`.ics` export and ask scheduling questions over it.
 
 ```
-What 2-hour blocks of free time do I have this week, and what
-events are pinning the schedule on Tuesday morning?
+What 2-hour blocks of free time do I have this week?
 ```
 
 > [!NOTE]
-> Direct Google Calendar OAuth is not currently wired up. The
-> studio is awaiting Google's app verification for the calendar
-> scope; once that lands, you'll be able to connect a Google
-> account in Settings for live calendar access without ICS
-> exports in between.
+> Direct Google Calendar OAuth is not yet wired up — pending
+> Google's app verification for the calendar scope.
 
 ## Google Drive (as a file source)
 
-You can pick files from your Google Drive to bring into the
-agent's workspace via the Drive button in the chat input's
-attach menu. This uses the `drive.file` scope, which limits
-access to only the specific files you select through the
-picker. The studio never gets ongoing access to your Drive.
+The Drive button in the chat input opens Google's file picker.
+Selected files upload into the workspace using the `drive.file`
+scope, which only grants access to the files you explicitly pick.
+The studio never gets ongoing access to your Drive.
 
-```
-Make me a chart from this spreadsheet
-```
+## What it can't (yet)
 
-*(after picking a sheet from Drive)*
+The agent can't authenticate to most external services on your
+behalf. It can hit public URLs, search the web, and work with
+files you bring in — but it can't log into Gmail, query your
+private databases, or talk to OAuth-protected services beyond
+the Drive picker. OAuth integrations are gated on each
+provider's app verification.
 
-## What it can't do (yet)
+## Other niceties
 
-The biggest current limitation is that the agent can't
-authenticate to most external services on your behalf. It can:
-
-- Hit public web pages (via search).
-- Query public APIs at known URLs.
-- Work with whatever you bring it (file uploads, Drive picks,
-  ICS exports, etc.).
-
-It *cannot* currently:
-
-- Log into your Gmail / Slack / Notion / etc.
-- Query your private databases or APIs.
-- Talk to OAuth-protected services beyond the Drive picker.
-
-OAuth integrations for sensitive scopes (Google Calendar,
-others as they become useful) are gated on app verification
-with each provider. Until those land, the studio's model is:
-bring your data in (files, exports, public URLs), let the
-agent work on it locally.
-
-## Things that aren't features per se
-
-A handful of capabilities are baked deep enough they read as just
-"how the agent works":
-
-- **Markdown** in responses (with mermaid diagrams via
-  ` ```mermaid ` blocks).
-- **Mathematical typesetting** through LaTeX-style fences for
-  formulas.
-- **Reusable code in `helpers/`**. The agent can write modules
-  to a `helpers/` folder and import them in later turns of the
-  same session.
-- **Versioned history**. Every turn is a commit. You can undo
-  back to any prior message; you can fork the session to try a
-  parallel direction.
-
-For the workspace mechanics (sessions, forks, files, history),
-see *Sessions & workspace* when that page lands.
-
-## Trying it
-
-The honest way to learn what the agent can do is to ask it for
-something specific and see how it answers. The examples above
-work as starting points; the more concrete your ask, the more
-likely the response shape is interesting.
+- Markdown in responses, including mermaid diagrams.
+- LaTeX-style math typesetting.
+- Reusable code in `helpers/` that survives across turns.
+- Versioned history: every turn is a commit; undo to any prior
+  point or fork to try a parallel direction.
