@@ -181,7 +181,7 @@ A few patterns this example demonstrates that you'll reuse in most apps:
 - **`react` and `react-dom/client` are both available** — bare imports resolve to Preact/compat at runtime.
 - **Local imports between files** (e.g., `import { Chart } from './components/Chart.jsx'`) get inlined by the bundler; only `react` / `recharts` / etc. stay external.
 - **CSS via `<style>` in the HTML or external `<link>` tags** is the most reliable path — esbuild can also inline `import './styles.css'` from JSX.
-- **Image assets via `import logo from './logo.png'`** work — esbuild encodes them as data URLs and inlines into the bundle. CSP blocks external image hosts, so prefer VFS-resident assets.
+- **Image assets via `import logo from './logo.png'`** work — esbuild encodes them as data URLs and inlines into the bundle. External `https://` image hosts also load, but VFS-resident assets are more reliable (no broken-link risk if the host disappears).
 
 ## Alternative: HTM for trivial apps
 
@@ -574,8 +574,10 @@ Plotly.react(div, fig.figure.data, fig.figure.layout)
 
 **Maps:** the tile-fetching map traces (`scatter_mapbox`, `scattermap`,
 `densitymap`, `densitymapbox`, `choropleth_mapbox`) don't render in
-the app preview — use `scatter_geo` and `choropleth` instead, which
-ship with built-in country / state / region geometries.
+the app preview. The iframe is sandboxed with an opaque origin, and
+tile servers (OSM, Mapbox, etc.) reject requests with `Origin: null`.
+Use `scatter_geo` and `choropleth` instead — they ship with built-in
+country / state / region geometries and don't fetch tiles.
 
 ## Persisting UI State
 
@@ -860,6 +862,25 @@ await test_app(actions=[
     {"screenshot": ".score-panel"},
 ])
 ```
+
+**Screenshots need self-contained CSS.** The screenshot tool serializes
+the DOM into an SVG `<foreignObject>` and rasterizes it — the browser
+performs no network fetches during that step, so all CSS must be
+embedded inline at render time. The tool walks every `<link rel="stylesheet">`
+and reads its rules to inline them, but **cross-origin stylesheets are
+unreadable** unless loaded with `crossorigin="anonymous"` (the server
+must also send `Access-Control-Allow-Origin`, which most CDNs do).
+If a CDN sheet isn't CORS-loaded, screenshots fail with
+"Screenshot encoder returned an unexpected data URL shape" — the app
+still renders for the user, but you can't visually verify it.
+
+Two safe options:
+- Inline CSS via a `<style>` block in your HTML.
+- Load external CSS with the crossorigin attribute:
+  `<link rel="stylesheet" href="https://cdn..." crossorigin="anonymous">`
+
+Same constraint applies to remote images / fonts referenced from CSS —
+prefer bundled or data-URL assets when screenshots matter.
 
 A bare `await test_app()` only checks for console errors — it does NOT
 verify that data loaded, charts rendered, or controls work. **Always use
