@@ -50,15 +50,14 @@
     /** Switch access mode.  Snaps the model to the first preset of
      * the target mode+provider since model IDs aren't portable across
      * shapes — ``openai/gpt-5.4`` is OpenRouter-only, ``gpt-5.4`` is
-     * direct-OpenAI-only, etc.  OpenRouter resets ``provider`` and
-     * ``baseUrl`` to the recommended defaults; Custom keeps the
-     * provider (the user's format choice) and baseUrl intact across
-     * mode toggles. */
+     * direct-OpenAI-only, etc.  OpenRouter resets ``provider`` to the
+     * recommended default but keeps the typed ``baseUrl`` in local
+     * state so toggling back to Custom restores it — ``handleSave``
+     * is what zeroes the persisted baseUrl when on OpenRouter. */
     function setAccessMode(mode) {
         accessMode = mode
         if (mode === 'openrouter') {
             provider = 'openai'
-            baseUrl = ''
         }
         const presets = presetsFor(mode, provider)
         model = presets[0]?.id ?? ''
@@ -84,7 +83,7 @@
             model: model.trim(),
             accessMode,
             provider,
-            baseUrl: baseUrl.trim(),
+            baseUrl: accessMode === 'custom' ? baseUrl.trim() : '',
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
             toolUseWireFormat,
             reasoningEffort,
