@@ -1,5 +1,5 @@
 /**
- * `ts-bundle` round-trip tests against a live kvgit-ts in-memory
+ * `ts-bundle` round-trip tests against a live @agex-ts/kvgit in-memory
  * store. Builds a real branch (multi-commit, multi-key), exports it,
  * imports back into a fresh store, and verifies the imported state
  * is byte-identical to the source.
@@ -10,8 +10,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { Memory } from "kvgit-ts/backends/memory";
-import { Staged, VersionedKV } from "kvgit-ts";
+import { Memory } from "@agex-ts/kvgit/backends/memory";
+import { Staged, VersionedKV } from "@agex-ts/kvgit";
 import { exportBundle, importBundle, inspectBundle, bundleStats } from "./ts-bundle.js";
 
 async function _newSession() {

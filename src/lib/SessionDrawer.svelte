@@ -121,7 +121,7 @@
             try { localStorage.removeItem(CURRENT_BRANCH_KEY) } catch {}
 
             // Delete all IndexedDB databases (kvgit-py session data
-            // for now; kvgit-ts when Phase 5 lands).
+            // for now; @agex-ts/kvgit when Phase 5 lands).
             const dbs = await indexedDB.databases()
             await Promise.all(dbs.map(db =>
                 new Promise((resolve) => {

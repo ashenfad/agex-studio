@@ -37,9 +37,9 @@ function _llmConfig(settings) {
   // Py-side override: pyfetch_anthropic sends an `anthropic-version`
   // header that OpenRouter's CORS allow-list rejects, and the py
   // client doesn't expose header customization yet. Force OpenAI
-  // shape until agex-py adds the equivalent of agex-anthropic's
+  // shape until agex-py adds the equivalent of @agex-ts/anthropic's
   // `headers` option (filed upstream). The TS side picks up the
-  // auto-routing immediately because agex-anthropic already supports
+  // auto-routing immediately because @agex-ts/anthropic already supports
   // deleting the offending header.
   if (settings.accessMode === "openrouter" && provider === "anthropic") {
     provider = "openai";

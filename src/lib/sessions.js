@@ -29,7 +29,7 @@ import {
 } from "./session-index.js";
 import { kernelRegistry } from "./kernel-registry.js";
 import { resolveAdapter } from "./active-adapter.js";
-// ts-bundle is dynamic-imported below — pulls kvgit-ts which adds
+// ts-bundle is dynamic-imported below — pulls @agex-ts/kvgit which adds
 // ~34KB to the cold-start bundle if statically reachable. The
 // manifest-read function runs only on user-driven bundle import,
 // so lazy loading is correct per the project's lazy-boot story.
@@ -764,7 +764,7 @@ export async function importBundle(bytes, { external = false } = {}) {
 
 /** Inspect a bundle's manifest. Pure JS read — works for either
  *  kernel's bundles since the manifest is kernel-agnostic JSON in
- *  the ZIP. Lazy-imports ts-bundle (which pulls kvgit-ts) so the
+ *  the ZIP. Lazy-imports ts-bundle (which pulls @agex-ts/kvgit) so the
  *  cold-start bundle doesn't carry the 34KB of HAMT-walk code
  *  unless the user actually imports a bundle. */
 async function inspectBundleAsync(bytes) {

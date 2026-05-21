@@ -100,7 +100,7 @@ the app-preview pipeline, error / cancellation flows — see
 - [calgebra](https://github.com/ashenfad/calgebra) — calendar algebra
 - [kvgit](https://github.com/ashenfad/kvgit) — versioned key-value store
   (Python)
-- [kvgit-ts](https://github.com/ashenfad/agex-ts) — same, TypeScript
+- [@agex-ts/kvgit](https://github.com/ashenfad/agex-ts) — same, TypeScript
   (lives in the agex-ts monorepo)
 - [monkeyfs](https://github.com/ashenfad/monkeyfs) — virtual filesystem
 - [sandtrap](https://github.com/ashenfad/sandtrap) — Python code sandbox
