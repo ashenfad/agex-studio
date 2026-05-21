@@ -67,7 +67,7 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
  * @typedef {import('./kernel-adapter.js').ExportBundleOptions} ExportBundleOptions
  * @typedef {import('./kernel-adapter.js').BundlePayload} BundlePayload
  * @typedef {import('agex-ts').Agent} Agent
- * @typedef {import('kvgit-ts').VersionedKV} VersionedKV
+ * @typedef {import('@agex-ts/kvgit').VersionedKV} VersionedKV
  */
 
 const RUN_QUERY_NOT_YET =

@@ -26,9 +26,9 @@
  */
 
 import { createAgent } from "agex-ts";
-import { Anthropic } from "agex-anthropic";
-import { OpenAI } from "agex-openai";
-import { workerRuntime } from "agex-runtime-worker";
+import { Anthropic } from "@agex-ts/anthropic";
+import { OpenAI } from "@agex-ts/openai";
+import { workerRuntime } from "@agex-ts/runtime-worker";
 // Bundled worker URL. The `?worker&url` query asks vite to treat
 // `dist/worker.js` as a worker entry point — it bundles all the
 // worker's imports (`agex-ts/wrap-fs`, sibling chunks) into a
@@ -38,7 +38,7 @@ import { workerRuntime } from "agex-runtime-worker";
 // surfaces in prod as "worker failed during boot" the first time
 // the runtime tries to execute an emission. Dev never trips this
 // because vite's dev server resolves bare specifiers on the fly.
-import _agexWorkerUrl from "agex-runtime-worker/worker?worker&url";
+import _agexWorkerUrl from "@agex-ts/runtime-worker/worker?worker&url";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
@@ -73,7 +73,7 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
 /**
  * @typedef {import('agex-ts').Agent} Agent
  * @typedef {import('agex-ts').LLMClient} LLMClient
- * @typedef {import('kvgit-ts').VersionedKV} VersionedKV
+ * @typedef {import('@agex-ts/kvgit').VersionedKV} VersionedKV
  * @typedef {import('./kernel-adapter.js').KernelSettings} KernelSettings
  * @typedef {import('./kernel-adapter.js').BranchMeta} BranchMeta
  */
@@ -554,7 +554,7 @@ function _buildLlmClient(settings) {
                 ? {
                       // OpenRouter's `/v1/messages` CORS allow-list
                       // rejects the `anthropic-version` header that
-                      // agex-anthropic sends by default. `null` deletes
+                      // @agex-ts/anthropic sends by default. `null` deletes
                       // it (per the headers contract). Attribution
                       // headers (`http-referer` / `x-title`) match
                       // what the OpenAI branch sends so Anthropic
@@ -609,7 +609,7 @@ export function _getAgent() {
     return _agent;
 }
 
-/** Read the underlying kvgit-ts `Staged` for the studio's pinned
+/** Read the underlying @agex-ts/kvgit `Staged` for the studio's pinned
  *  default session. HEAD-movers (`switchBranch`, `resetTo`, `refresh`)
  *  must go through Staged so its read cache is invalidated — direct
  *  reach-through to `staged.versioned.switchBranch(...)` would leave
@@ -617,7 +617,7 @@ export function _getAgent() {
 async function _getStaged() {
     const agent = _getAgent();
     const state = await agent.state(SESSION);
-    return /** @type {import('kvgit-ts').Staged} */ (
+    return /** @type {import('@agex-ts/kvgit').Staged} */ (
         /** @type {import('agex-ts/state').KvgitState} */ (state).staged
     );
 }
@@ -697,7 +697,7 @@ export async function createBranch(name, opts = {}) {
     } else {
         // `initialCommit` is a sync accessor over an async parent-chain
         // walk; first-call must `await initial()` to populate the cache.
-        // TODO(kvgit-ts): if Staged grows an `initial()` analog, drop
+        // TODO(@agex-ts/kvgit): if Staged grows an `initial()` analog, drop
         // the versioned reach-through here.
         const initialCommit = await staged.versioned.initial();
         await staged.createBranch(name, { at: initialCommit });
@@ -713,7 +713,7 @@ export async function createBranch(name, opts = {}) {
 
 /** Prefixes the studio considers "agent memory" — wiped by the
  *  fresh-chat fork mode. The VFS file blobs (`f:` / `d:` prefixes
- *  via termish-ts kvgit-fs) and the session meta keys
+ *  via @agex-ts/termish kvgit-fs) and the session meta keys
  *  (`__session_*__`) are deliberately not in this list — the fresh
  *  fork keeps the workspace and the session identity, just clears
  *  the conversation context. */
@@ -894,7 +894,7 @@ export async function listFiles() {
     const all = await fs.list(undefined, { recursive: true });
     // Filter to actual files (list returns dirs too with isDir=true
     // entries in the listDetailed path). `list` returns paths only;
-    // termish-ts's MountFS list filters by what backing reports, so
+    // @agex-ts/termish's MountFS list filters by what backing reports, so
     // overlay-aware. Filter explicitly so the shell doesn't see
     // overlay infrastructure paths.
     // Skip /chapters and /skills overlay roots — those are
@@ -1461,7 +1461,7 @@ export async function getTokenHistory() {
 
 export async function getSessionDebugInfo(branch) {
     const staged = await _getStaged();
-    // TODO(kvgit-ts): bulk read still goes through `versioned.getMany`
+    // TODO(@agex-ts/kvgit): bulk read still goes through `versioned.getMany`
     // since Staged doesn't expose a cache-aware `getMany` yet (kvgit-py
     // does — `get_many(*keys)`). Singleton-loop fallback would be
     // cache-coherent but slower; this debug path tolerates the gap.

@@ -1,7 +1,7 @@
 /**
  * `esbuild` terminal command — TS-side counterpart of the py-side
  * `_register_esbuild` in `public/python/agent_modules.py`. Wraps
- * `esbuild-bridge.js` (shared with the py kernel) as a termish-ts
+ * `esbuild-bridge.js` (shared with the py kernel) as a @agex-ts/termish
  * command so agents can `esbuild app/index.jsx --outfile=app/index.js`
  * to bundle JSX/TSX sources into runnable JS for the app preview.
  *
@@ -13,8 +13,8 @@
  * The orchestrator throws plain `Error` for usage / config / build
  * failures. agex-ts's task.ts catches the throw, surfaces the
  * message as an error OutputPart, and the agent sees it on the next
- * turn — same UX shape as termish-ts builtins that throw
- * `TerminalError`. We don't import `TerminalError` because termish-ts
+ * turn — same UX shape as @agex-ts/termish builtins that throw
+ * `TerminalError`. We don't import `TerminalError` because @agex-ts/termish
  * isn't a direct dep; the only difference is the absence of
  * `partialOutput`, which we'd never populate anyway (esbuild is a
  * single atomic call, no incremental stdout).

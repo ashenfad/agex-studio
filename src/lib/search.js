@@ -7,7 +7,7 @@
  * agent passes `deep: true`. Both expect to be reached via
  * OpenRouter's `/api/v1` (or any OpenAI-compatible gateway that
  * fronts perplexity), and both expect the same `Authorization:
- * Bearer ...` header agex-openai sends. Direct-Anthropic / direct-
+ * Bearer ...` header @agex-ts/openai sends. Direct-Anthropic / direct-
  * OpenAI base URLs won't reach perplexity — the request will 404
  * upstream and the error surfaces as the throw message.
  *

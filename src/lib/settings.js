@@ -181,7 +181,7 @@ export function resolveBaseUrl(s) {
  *    Everything else (OpenAI, Gemini, Meta, Mistral, …) uses the
  *    OpenAI shape; Gemini's implicit caching still works there.
  *
- *  Caller must omit `agex-anthropic`'s default `anthropic-version`
+ *  Caller must omit `@agex-ts/anthropic`'s default `anthropic-version`
  *  header when targeting OpenRouter (their CORS allow-list rejects
  *  it). See `_buildLlmClient` in `ts-agent.js` / `_llmConfig` in
  *  `agent.js` for the per-target header overrides.

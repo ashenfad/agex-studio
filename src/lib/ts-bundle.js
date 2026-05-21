@@ -1,12 +1,12 @@
 /**
- * Bundle export/import for kvgit-ts-backed agex sessions.
+ * Bundle export/import for @agex-ts/kvgit-backed agex sessions.
  *
  * TypeScript port of `public/bundle.py`. Same wire format — both
  * kernels produce identical-shaped ZIPs, with one critical difference:
  * the byte content of commits / nodes / blobs is **encoder-specific**.
  * A bundle exported from the Py kernel is not importable on the Ts
  * kernel and vice versa, because kvgit-py's encoder (Python pickle-
- * extended) and kvgit-ts's polymorphic encoder produce incompatible
+ * extended) and @agex-ts/kvgit's polymorphic encoder produce incompatible
  * byte sequences for the same logical content.  The manifest's
  * `kernel` field is the discriminator the studio uses to route
  * imports to the correct kernel adapter.
@@ -29,12 +29,12 @@
  * filename.
  */
 
-import { Hamt, Keyset } from "kvgit-ts";
+import { Hamt, Keyset } from "@agex-ts/kvgit";
 import { unzipSync, zipSync, strToU8 } from "fflate";
 
 /**
- * @typedef {import('kvgit-ts').VersionedKV} VersionedKV
- * @typedef {import('kvgit-ts').KVStore} KVStore
+ * @typedef {import('@agex-ts/kvgit').VersionedKV} VersionedKV
+ * @typedef {import('@agex-ts/kvgit').KVStore} KVStore
  */
 
 const FORMAT_VERSION = 1;
@@ -52,8 +52,8 @@ const _textDecoder = new TextDecoder();
 
 function _noop() {}
 
-// kvgit-ts encodes branch HEADs / commit roots etc. via a JSON-over-
-// UTF-8 codec (`encoding.dumps` in kvgit-ts is `JSON.stringify` →
+// @agex-ts/kvgit encodes branch HEADs / commit roots etc. via a JSON-over-
+// UTF-8 codec (`encoding.dumps` in @agex-ts/kvgit is `JSON.stringify` →
 // UTF-8 encode). We replicate just the two shapes we need: read a
 // stored string blob (the HEAD's commit-hash value) and write one
 // (when minting a fresh BRANCH_HEAD on import).

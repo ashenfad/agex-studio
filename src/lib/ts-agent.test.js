@@ -35,7 +35,7 @@ describe("_isAgentMemoryKey", () => {
     });
 
     it("does NOT match VFS file blob keys", () => {
-        // termish-ts kvgit-fs prefixes — wiping these would lose
+        // @agex-ts/termish kvgit-fs prefixes — wiping these would lose
         // every file in the workspace, the exact opposite of what
         // the fresh-chat fork should do.
         expect(_isAgentMemoryKey("f:app/index.html")).toBe(false);
