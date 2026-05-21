@@ -1147,6 +1147,10 @@
                 <hr class="empty-rule" />
                 <ul class="empty-actions">
                     <li>
+                        <a class="action-link" href="/gallery/">See examples →</a>
+                        <span class="action-detail">browse published sessions — no key needed</span>
+                    </li>
+                    <li>
                         <a
                             class="action-link"
                             href="https://openrouter.ai/settings/keys"
