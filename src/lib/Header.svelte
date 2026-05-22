@@ -7,6 +7,11 @@
         if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
         return String(n)
     }
+
+    function percentTokens(used, total) {
+        if (!total || total <= 0) return 0
+        return Math.round((used / total) * 100)
+    }
 </script>
 
 <header>
@@ -40,7 +45,8 @@
             onclick={onChapterClick}
             title="Context usage"
         >
-            {formatTokens(inputTokens)} / {formatTokens(chapteringTrigger)}
+            <span class="tokens-verbose">{formatTokens(inputTokens)} / {formatTokens(chapteringTrigger)}</span>
+            <span class="tokens-compact">{percentTokens(inputTokens, chapteringTrigger)}%</span>
         </button>
     {/if}
     {#if showAppReload}
@@ -104,6 +110,12 @@
         align-items: center;
         gap: 1rem;
         flex-shrink: 0;
+        /* Container queries below adapt the header to its own width
+           rather than the viewport's — important because the chat
+           pane width varies independently of viewport when the
+           SplitPane ratio changes. */
+        container-type: inline-size;
+        container-name: header;
     }
 
     h1 {
@@ -274,5 +286,30 @@
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.5; }
+    }
+
+    /* Tokens display: verbose `101.2k / 800k` by default, percent
+       `23%` when the header gets tight. Both spans render; CSS
+       picks which is visible based on the header's own width. */
+    .tokens-compact {
+        display: none;
+    }
+
+    @container header (max-width: 480px) {
+        .tokens-verbose {
+            display: none;
+        }
+        .tokens-compact {
+            display: inline;
+        }
+    }
+
+    /* Even tighter: drop the brand mark entirely. Below ~360px the
+       brand is competing with the icon row and tokens for space and
+       loses readability anyway. */
+    @container header (max-width: 360px) {
+        h1.brand {
+            display: none;
+        }
     }
 </style>
