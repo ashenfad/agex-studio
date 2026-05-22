@@ -1,6 +1,6 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
-    import { presetsFor } from './models.js'
+    import { presetsFor, supportsServiceTier } from './models.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -14,7 +14,14 @@
     let chapteringTrigger = $state(80000)
     let toolUseWireFormat = $state(true)
     let reasoningEffort = $state('medium')
+    let serviceTier = $state('standard')
     let githubPat = $state('')
+
+    // The tier picker is only meaningful for OpenAI / Google models;
+    // hide it elsewhere so the form doesn't sprout an inert knob.
+    // Derived from the live local state so flipping `accessMode` or
+    // `model` in the drawer shows/hides the row immediately.
+    let tierSupported = $derived(supportsServiceTier(accessMode, provider, model))
 
     // Sync local state from store whenever drawer opens.  We deliberately
     // route the mode through a ``const mode`` instead of reading the
@@ -43,6 +50,7 @@
             chapteringTrigger = s.chapteringTrigger
             toolUseWireFormat = s.toolUseWireFormat ?? true
             reasoningEffort = s.reasoningEffort ?? 'medium'
+            serviceTier = s.serviceTier ?? 'standard'
             githubPat = s.githubPat ?? ''
         }
     })
@@ -87,6 +95,11 @@
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
             toolUseWireFormat,
             reasoningEffort,
+            // Persist tier always, even when the current model doesn't
+            // support it — preserves user intent across model switches
+            // (Anthropic → Claude → OpenAI restores the previous
+            // selection without making them re-pick).
+            serviceTier,
             githubPat: githubPat.trim(),
         })
         onClose()
@@ -196,6 +209,39 @@
                         </button>
                     {/if}
                 </label>
+
+                {#if tierSupported}
+                    <!-- Service tier — OpenRouter's request-body
+                         `service_tier` passthrough. `standard` omits
+                         the field (provider default); `flex` opts
+                         into cheaper + slower; `priority` opts into
+                         faster + costlier. Only OpenAI and Google
+                         models honor it per OpenRouter docs; the row
+                         hides for everything else. -->
+                    <div class="field">
+                        <span class="field-label">Service tier</span>
+                        <div class="segmented">
+                            <button
+                                type="button"
+                                class:active={serviceTier === 'standard'}
+                                onclick={() => serviceTier = 'standard'}
+                                title="Provider's default tier"
+                            >Standard</button>
+                            <button
+                                type="button"
+                                class:active={serviceTier === 'flex'}
+                                onclick={() => serviceTier = 'flex'}
+                                title="Lower cost, higher latency"
+                            >Flex</button>
+                            <button
+                                type="button"
+                                class:active={serviceTier === 'priority'}
+                                onclick={() => serviceTier = 'priority'}
+                                title="Higher cost, faster"
+                            >Priority</button>
+                        </div>
+                    </div>
+                {/if}
 
                 <label class="checkbox-row">
                     <input

@@ -105,3 +105,40 @@ export function extrasFor(id) {
     }
     return {};
 }
+
+/**
+ * Does the (mode, provider, model) combination accept OpenRouter's
+ * `service_tier` request-body parameter for `flex` / `priority`
+ * routing? Used by the SettingsDrawer to gate the tier picker and
+ * by the LLM client construction to decide whether to forward the
+ * user's tier choice into `extras`.
+ *
+ * Supported per OpenRouter's docs (https://openrouter.ai/docs/features/service-tiers):
+ *   - OpenAI models (direct and via OpenRouter)
+ *   - Google AI Studio / Vertex AI models (via OpenRouter)
+ *
+ * The Anthropic Messages API endpoint accepts the param too but the
+ * underlying Anthropic provider ignores it — Claude doesn't expose
+ * flex/priority. Returning `false` for Anthropic prevents the UI
+ * from offering a knob that's effectively a no-op.
+ *
+ * Custom-OpenAI-compat is treated as supported because the user
+ * might be hitting OpenAI directly via a proxy / different URL —
+ * worst case the provider ignores the field.
+ *
+ * @param {string} mode - 'openrouter' | 'custom'
+ * @param {string} provider - wire shape ('openai' | 'anthropic')
+ * @param {string} modelId
+ * @returns {boolean}
+ */
+export function supportsServiceTier(mode, provider, modelId) {
+    if (!modelId) return false;
+    if (mode === "openrouter") {
+        return modelId.startsWith("openai/") || modelId.startsWith("google/");
+    }
+    // Custom mode: rely on the wire format. Anthropic shape → no.
+    // OpenAI-compatible could be hitting OpenAI direct or a proxy
+    // that may or may not honor service_tier; honoring is a noop
+    // on endpoints that don't, so allow the user to set it.
+    return provider !== "anthropic";
+}

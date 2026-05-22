@@ -43,7 +43,7 @@ import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
-import { extrasFor } from "./models.js";
+import { extrasFor, supportsServiceTier } from "./models.js";
 import {
     runTestApp as appControlRunTestApp,
     runLiveApp as appControlRunLiveApp,
@@ -580,7 +580,18 @@ function _buildLlmClient(settings) {
     // Per-model `extras` (e.g. provider routing pins) only make
     // sense against OpenRouter — direct OpenAI ignores `provider`,
     // and local servers wouldn't recognize it either.
-    const modelExtras = isOpenRouter ? extrasFor(model) : {};
+    const modelExtras = { ...(isOpenRouter ? extrasFor(model) : {}) };
+    // Layer in the user's service-tier choice when the (mode,
+    // provider, model) combo supports it. `standard` means "omit
+    // the field entirely" — sending the literal string would pin
+    // us to a tier we'd otherwise auto-route past. Only `flex` and
+    // `priority` get forwarded.
+    if (
+        (settings.serviceTier === "flex" || settings.serviceTier === "priority") &&
+        supportsServiceTier(settings.accessMode, "openai", model)
+    ) {
+        modelExtras.service_tier = settings.serviceTier;
+    }
     return new OpenAI({
         apiKey,
         model,
