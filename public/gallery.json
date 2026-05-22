@@ -16,5 +16,14 @@
     "hasApp": true,
     "tags": ["game", "puzzle"],
     "thumbnail": "2048.png"
+  },
+  {
+    "name": "TMNT Calendar",
+    "description": "Exploring TMNT themed ICAL files.",
+    "gistShorthand": "ashenfad/2f3ceb5b2599381588b5503b2e3afc23/18a79a16e7fd8c506cedd39426d452fa4d27b228/tmnt-calendar",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["calendar", "utility"],
+    "thumbnail": "tmnt-calendar.png"
   }
 ]
