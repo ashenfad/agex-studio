@@ -25,6 +25,14 @@
     let container
     let prevCollapsed = $state(true)
 
+    // Chat pane "collapsed-by-user" state. Distinct from the
+    // top-level `collapsed` prop (which means "no app yet, so no
+    // split"). Tripped by dragging the divider hard past the floor;
+    // exited by clicking the expand strip on the left edge of the
+    // app pane. The `splitRatio` is preserved across collapse so
+    // expanding restores the user's last chat width.
+    let chatCollapsed = $state(localStorage.getItem('agex-chat-collapsed') === '1')
+
     // First-appearance reset. Snaps the divider to `initialRatio` when
     // the preview pane first transitions from collapsed → visible, so
     // showcase entries (external-entry + app) start at the
@@ -32,10 +40,17 @@
     // Returning users who dragged to a custom ratio aren't affected
     // outside this transition; the localStorage-held value still
     // wins during normal session use.
+    //
+    // Also clears `chatCollapsed` on first appearance — a session
+    // that just gained app files shouldn't open with chat hidden.
     $effect(() => {
         if (prevCollapsed && !collapsed) {
             splitRatio = initialRatio
             localStorage.setItem('agex-preview-split', String(initialRatio))
+            if (chatCollapsed) {
+                chatCollapsed = false
+                localStorage.setItem('agex-chat-collapsed', '0')
+            }
         }
         prevCollapsed = collapsed
     })
@@ -72,6 +87,12 @@
         }
     })
 
+    function setChatCollapsed(next) {
+        if (chatCollapsed === next) return
+        chatCollapsed = next
+        localStorage.setItem('agex-chat-collapsed', next ? '1' : '0')
+    }
+
     function onPointerDown(e) {
         if (collapsed) return
         e.preventDefault()
@@ -80,7 +101,25 @@
         if (overlay) overlay.style.display = 'block'
         const onMove = (/** @type {PointerEvent} */ me) => {
             const rect = container.getBoundingClientRect()
-            const ratio = clampRatio((me.clientX - rect.left) / rect.width, rect.width)
+            const rawX = me.clientX - rect.left
+            // Drag past the container's left edge → snap to chat-
+            // collapsed. The divider can't go below the MIN_LEFT_PX
+            // floor, so we use "mouse past the very left of the
+            // viewport" as the gesture for "I want this gone."
+            // splitRatio is preserved so expanding via the strip
+            // restores the user's prior chat width.
+            if (rawX <= 0) {
+                setChatCollapsed(true)
+                return
+            }
+            // Pulled back past the floor → un-collapse. Hysteresis:
+            // collapse triggers at rawX <= 0 but un-collapse needs
+            // rawX > MIN_LEFT_PX, so a single drag past the edge
+            // doesn't ping-pong.
+            if (rawX > MIN_LEFT_PX) {
+                setChatCollapsed(false)
+            }
+            const ratio = clampRatio(rawX / rect.width, rect.width)
             splitRatio = ratio
             localStorage.setItem('agex-preview-split', String(ratio))
         }
@@ -103,6 +142,7 @@
     class:mobile-app={!collapsed && mobileView === 'app'}
     class:mobile-chat={!collapsed && mobileView === 'chat'}
     class:view-app-only={!collapsed && viewMode === 'app-only'}
+    class:chat-collapsed={!collapsed && chatCollapsed && viewMode !== 'app-only'}
     bind:this={container}
 >
     <!-- Transparent overlay during drag — prevents iframe from eating pointer events
@@ -117,6 +157,23 @@
         <div class="pane right">
             {@render preview()}
         </div>
+        {#if chatCollapsed && viewMode !== 'app-only'}
+            <!-- Re-entry handle for the drag-collapsed chat pane. A
+                 6px clickable strip on the left edge of the app
+                 pane; click restores the previous splitRatio. Sits
+                 above the iframe (z-index: 10) so the iframe's
+                 pointer-capture doesn't shadow it. -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+                class="expand-strip"
+                onclick={() => setChatCollapsed(false)}
+                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && setChatCollapsed(false)}
+                role="button"
+                tabindex="0"
+                title="Show chat"
+                aria-label="Show chat"
+            ></div>
+        {/if}
         {#if viewMode === 'app-only'}
             <!-- Branded pill: the only chrome in play mode. Combines
                  attribution ("this was built with agex.studio") with
@@ -230,6 +287,39 @@
     }
     .split-pane.view-app-only .divider {
         display: none;
+    }
+
+    /* Chat-collapsed view (drag-past-edge): same visual outcome as
+       app-only — chat hidden, app full-width — but distinct origin
+       and exit. Reached by deliberately dragging the divider off
+       the left edge; exit via the .expand-strip on the left edge. */
+    .split-pane.chat-collapsed .pane.left {
+        display: none;
+    }
+    .split-pane.chat-collapsed .pane.right {
+        flex-basis: 100%;
+    }
+    .split-pane.chat-collapsed .divider {
+        display: none;
+    }
+
+    .expand-strip {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 6px;
+        background: transparent;
+        cursor: pointer;
+        z-index: 10;
+        border-right: 1px solid transparent;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .expand-strip:hover,
+    .expand-strip:focus-visible {
+        background: color-mix(in srgb, var(--accent) 35%, transparent);
+        border-right-color: var(--accent);
+        outline: none;
     }
 
     /* Branded pill — the sole chrome in app-only mode. Same
