@@ -139,6 +139,27 @@
         undoToast = null
     }
 
+    /** Quick fingerprint of all app/* files: sorted `path:size` lines.
+     *  Snapshot before/after a turn to decide whether to refresh the
+     *  preview iframe. Catches every common way an agent modifies app
+     *  files — direct file_write / file_edit emissions, terminal_action
+     *  writes (esbuild output), and ts_action writes (await fs.write) —
+     *  uniformly, because all of them flow through kvgit and end up in
+     *  the post-turn file list with new sizes. One extra fileSize call
+     *  per app file, parallelized, sub-ms in practice. */
+    async function appFilesFingerprint(adapter, branch) {
+        const all = await adapter.listFiles(branch)
+        const appPaths = all.filter(p => p === 'app' || p.startsWith('app/'))
+        if (appPaths.length === 0) return ''
+        const sizes = await Promise.all(
+            appPaths.map(p => adapter.fileSize(branch, p).catch(() => -1))
+        )
+        return appPaths
+            .map((p, i) => `${p}:${sizes[i]}`)
+            .sort()
+            .join('\n')
+    }
+
     let lastInputTokens = $derived.by(() => {
         if (tokenOverride != null) return tokenOverride
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -893,6 +914,11 @@
         activeReportText = null
         activeReportIdx = null
 
+        // Snapshot app file state for the post-turn refresh decision —
+        // see `appFilesFingerprint` for what this captures and why a
+        // diff over this catches every way agents modify app files.
+        const preAppFp = await appFilesFingerprint(adapter, branch)
+
         activeAbort = new AbortController()
         try {
             tokenOverride = null
@@ -924,8 +950,17 @@
             // Refresh file list, preview, and persist session meta
             files = await adapter.listFiles(branch)
             if (!cancelled) {
-                if (response.events.some(e => e.file_actions?.some(fa => fa.path?.startsWith('app/'))))
-                    previewRefreshKey++
+                // Re-fingerprint app files and refresh the preview if
+                // anything under app/ changed during the turn — by any
+                // mechanism. file_write / file_edit emissions are only
+                // produced when the LLM uses the write_file / edit_file
+                // *action tools* directly; common paths like esbuild
+                // (terminal_action) and `await fs.write` (ts_action)
+                // don't produce those emissions even though they
+                // modify app files, so the previous emission-walking
+                // check missed them.
+                const postAppFp = await appFilesFingerprint(adapter, branch)
+                if (postAppFp !== preAppFp) previewRefreshKey++
                 const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
                 await persistSessionMeta(lastAction?.title || '')
             }
