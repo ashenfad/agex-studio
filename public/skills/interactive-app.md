@@ -71,14 +71,16 @@ await test_app()
 **The build step.** `esbuild` is a registered terminal command. It:
 - Bundles your local `app/*.jsx` + `helpers/*.{js,jsx,ts,tsx}` files together
 - Transforms JSX → JS via the automatic runtime
-- Leaves bare imports (`react`, `@radix-ui/...`) as native ES module imports — the iframe's import map resolves them at runtime, so the bundle stays small even when you use component libraries
+- Leaves bare imports (`react`, `recharts`, `@radix-ui/...`) as native ES module imports — the iframe's import map resolves them at runtime, so the bundle stays small even when you use component libraries
 - Required after every edit to `.jsx`/`.tsx` source — the iframe loads the *built* `app/index.js`, not the source
 
-**`react` is aliased to Preact.** The iframe's import map resolves `react` and `react-dom` to `preact/compat`. You write idiomatic React; the runtime is ~12KB. Most React component libraries (Radix UI, Recharts, React Aria, etc.) work transparently.
+**`react` is aliased to Preact.** The iframe's import map maps `react` and `react-dom` (and `react-dom/client`, `react/jsx-runtime`) to `preact/compat`. You write idiomatic React; the runtime is ~12KB.
+
+**Any other npm package is auto-resolved through esm.sh.** When the iframe is built, the studio scans your bundle for bare imports it doesn't already have a pinned entry for and adds `https://esm.sh/<pkg>` to the import map. So `import { Bar } from 'recharts'` just works — no studio-side config, no manual `<script>` tag. Versioned specifiers work too (`import { z } from 'zod@3.22'`), and esm.sh handles sub-path imports automatically.
 
 ## Component libraries
 
-Bare imports stay external and resolve via the iframe's import map at runtime, so component libraries are cheap to use. Recommended:
+Use a bare import; the studio auto-resolves it to esm.sh at build time. Recommended:
 
 - **Charts**: `recharts`, `visx`
 - **Unstyled UI primitives**: `@radix-ui/react-*`, `react-aria-components`
@@ -93,6 +95,8 @@ For CSS that ships with a library, link it from your `app/index.html`:
 ```
 
 Heavy frameworks (MUI, Ant Design, Mantine) work but pull 300KB+ — only reach for them if their look-and-feel matters.
+
+**Version pinning.** Bare imports resolve to whatever esm.sh's `latest` returns. For published gists where you want to lock in a known-good version, write the version into the import: `import { Bar } from 'recharts@2.15.0'`.
 
 ## End-to-end example: a small recharts dashboard
 
