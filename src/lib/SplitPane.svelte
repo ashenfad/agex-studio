@@ -93,6 +93,22 @@
         localStorage.setItem('agex-chat-collapsed', next ? '1' : '0')
     }
 
+    // Where the expand-strip click restores the divider to. The
+    // user collapsed because they wanted more app, so don't go
+    // back to (possibly chat-heavy) splitRatio — bring chat back
+    // as a sane peek that respects their app-focus intent.
+    // Also: at the moment of collapse, splitRatio is sitting at
+    // the MIN_LEFT_PX floor (drag clamped it before overshoot
+    // triggered collapse), so restoring to it would land at a
+    // barely-visible sliver anyway.
+    const RESTORE_RATIO = 0.35
+
+    function expandChat() {
+        splitRatio = RESTORE_RATIO
+        localStorage.setItem('agex-preview-split', String(RESTORE_RATIO))
+        setChatCollapsed(false)
+    }
+
     function onPointerDown(e) {
         if (collapsed) return
         e.preventDefault()
@@ -166,8 +182,8 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
                 class="expand-strip"
-                onclick={() => setChatCollapsed(false)}
-                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && setChatCollapsed(false)}
+                onclick={expandChat}
+                onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && expandChat()}
                 role="button"
                 tabindex="0"
                 title="Show chat"
