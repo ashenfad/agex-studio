@@ -146,9 +146,14 @@
      *  writes (esbuild output), and ts_action writes (await fs.write) —
      *  uniformly, because all of them flow through kvgit and end up in
      *  the post-turn file list with new sizes. One extra fileSize call
-     *  per app file, parallelized, sub-ms in practice. */
-    async function appFilesFingerprint(adapter, branch) {
-        const all = await adapter.listFiles(branch)
+     *  per app file, parallelized, sub-ms in practice.
+     *
+     *  `allPaths` is an optional pre-fetched listFiles result — the
+     *  post-turn call site has just done that listFiles for its own
+     *  reasons, so we let it pass the result in to skip a redundant
+     *  IDB walk. */
+    async function appFilesFingerprint(adapter, branch, allPaths = null) {
+        const all = allPaths ?? await adapter.listFiles(branch)
         const appPaths = all.filter(p => p === 'app' || p.startsWith('app/'))
         if (appPaths.length === 0) return ''
         const sizes = await Promise.all(
@@ -959,7 +964,7 @@
                 // don't produce those emissions even though they
                 // modify app files, so the previous emission-walking
                 // check missed them.
-                const postAppFp = await appFilesFingerprint(adapter, branch)
+                const postAppFp = await appFilesFingerprint(adapter, branch, files)
                 if (postAppFp !== preAppFp) previewRefreshKey++
                 const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
                 await persistSessionMeta(lastAction?.title || '')

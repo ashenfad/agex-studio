@@ -1094,13 +1094,11 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     // CDN_IMPORTS first but we filter them out here before adding to
     // `appImports`, so there's no collision either way.
     const moduleScripts = [...jsFiles.values()];
-    html.replace(
+    for (const match of html.matchAll(
         /<script\b[^>]*type\s*=\s*["']module["'][^>]*>([\s\S]*?)<\/script>/gi,
-        (_match, body) => {
-            moduleScripts.push(body);
-            return _match;
-        },
-    );
+    )) {
+        moduleScripts.push(match[1]);
+    }
     const bareSpecs = _extractBareImports(moduleScripts.join('\n'));
     for (const pkg of bareSpecs) {
         if (pkg in CDN_IMPORTS) continue;
