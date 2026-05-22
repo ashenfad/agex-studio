@@ -31,6 +31,15 @@
     const playUrl = `${showcaseUrl}&play=1`
     const thumbSrc = entry.thumbnail ? `/gallery/thumbs/${entry.thumbnail}` : ''
     const kernel = entry.kernel || 'ts'
+
+    // Gist owner = gallery submitter. The gist shorthand is the
+    // 4-part pinned form `USER/ID/SHA/SLUG`, so the first segment
+    // is the GitHub username. Deriving it here means no separate
+    // schema field to maintain (and no chance of mis-credit by
+    // typing a wrong handle in JSON).
+    const submitter = entry.gistShorthand.split('/')[0]
+    const submitterAvatar = `https://github.com/${submitter}.png?size=64`
+    const submitterUrl = `https://github.com/${submitter}`
 </script>
 
 <article class="card">
@@ -44,6 +53,17 @@
                  "screenshot captured." -->
             <span class="placeholder-mark">{kernel.toUpperCase()}</span>
         {/if}
+        <a
+            class="submitter"
+            href={submitterUrl}
+            target="_blank"
+            rel="noopener"
+            title="Submitted by @{submitter}"
+            onclick={(e) => e.stopPropagation()}
+        >
+            <img class="avatar" src={submitterAvatar} alt="" loading="lazy" />
+            <span class="handle">@{submitter}</span>
+        </a>
     </div>
     <div class="body">
         <div class="title-row">
@@ -104,6 +124,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        /* Anchors the .submitter chip overlay. */
+        position: relative;
     }
 
     .thumb img {
@@ -238,5 +260,38 @@
     .btn.single {
         max-width: 50%;
         margin: 0 auto;
+    }
+
+    /* Submitter chip — bottom-left of thumb. Translucent + blurred
+       so it reads as attribution overlay rather than card chrome.
+       Idiomatic gallery pattern (Observable / Glitch / Codepen). */
+    .submitter {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 3px 8px 3px 3px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface) 75%, transparent);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        color: var(--text);
+        font-size: 0.7rem;
+        text-decoration: none;
+        transition: background 0.15s;
+    }
+    .submitter:hover {
+        background: var(--surface);
+    }
+    .submitter .avatar {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: block;
+    }
+    .submitter .handle {
+        font-weight: 500;
     }
 </style>
