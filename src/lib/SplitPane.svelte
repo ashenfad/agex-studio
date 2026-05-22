@@ -42,6 +42,36 @@
 
     let overlay
 
+    // Floor the chat pane at this many pixels of width. Below this,
+    // the divider's 44px hit zone is unreachable: the left half
+    // falls off-screen (pane is too narrow to hold it) and the right
+    // half lives inside the iframe, which intercepts pointer events
+    // outside an active drag. True zero-chat users have app-only
+    // mode (brand pill) — split-mode needs the divider operable.
+    const MIN_LEFT_PX = 30
+
+    /** Clamp a candidate ratio to keep the chat pane >= MIN_LEFT_PX
+     *  wide given the container's current width. */
+    function clampRatio(candidate, containerWidth) {
+        const minRatio = containerWidth > 0 ? MIN_LEFT_PX / containerWidth : 0.001
+        return Math.max(minRatio, Math.min(0.999, candidate))
+    }
+
+    // Heal stored ratios from before the floor existed: if the
+    // user had dragged the divider into the un-grabbable zone in
+    // a previous session, normalize it back up the first time we
+    // can measure the container.
+    $effect(() => {
+        if (!container || collapsed) return
+        const w = container.getBoundingClientRect().width
+        if (w <= 0) return
+        const clamped = clampRatio(splitRatio, w)
+        if (clamped !== splitRatio) {
+            splitRatio = clamped
+            localStorage.setItem('agex-preview-split', String(clamped))
+        }
+    })
+
     function onPointerDown(e) {
         if (collapsed) return
         e.preventDefault()
@@ -50,7 +80,7 @@
         if (overlay) overlay.style.display = 'block'
         const onMove = (/** @type {PointerEvent} */ me) => {
             const rect = container.getBoundingClientRect()
-            const ratio = Math.max(0.001, Math.min(0.999, (me.clientX - rect.left) / rect.width))
+            const ratio = clampRatio((me.clientX - rect.left) / rect.width, rect.width)
             splitRatio = ratio
             localStorage.setItem('agex-preview-split', String(ratio))
         }
