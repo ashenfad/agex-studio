@@ -30,9 +30,9 @@
             const s = $settingsStore
             const mode = s.accessMode ?? 'openrouter'
             const prov = s.provider ?? 'openai'
-            apiKey = s.apiKey
+            apiKey = s.apiKey ?? ''
             accessMode = mode
-            model = s.model
+            model = s.model ?? ''
             // Drop into the free-text input when the stored model
             // isn't in this mode+provider's preset list — e.g. a
             // self-hosted vLLM model name picked under Custom +
