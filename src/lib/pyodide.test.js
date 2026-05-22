@@ -571,6 +571,122 @@ describe("buildAppHtml multi-file", () => {
     });
 });
 
+describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
+    /** @param {string} html */
+    function importMap(html) {
+        const match = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
+        if (!match) throw new Error("no importmap in output");
+        return JSON.parse(match[1]).imports;
+    }
+
+    it("auto-resolves a bare unscoped specifier to esm.sh", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': 'import { Bar } from "recharts";\nconsole.log(Bar);',
+        });
+        const map = importMap(result);
+        expect(map['recharts']).toBe('https://esm.sh/recharts');
+        expect(map['recharts/']).toBe('https://esm.sh/recharts/');
+    });
+
+    it("auto-resolves a scoped specifier to esm.sh", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "import * as Dialog from '@radix-ui/react-dialog';",
+        });
+        const map = importMap(result);
+        expect(map['@radix-ui/react-dialog']).toBe('https://esm.sh/@radix-ui/react-dialog');
+        expect(map['@radix-ui/react-dialog/']).toBe('https://esm.sh/@radix-ui/react-dialog/');
+    });
+
+    it("collapses sub-path imports to the package root", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "import { Cell } from 'recharts/lib/component/Cell';",
+        });
+        const map = importMap(result);
+        // The bare 'recharts' entry covers the package root; the trailing-slash
+        // entry resolves any sub-path import via esm.sh.
+        expect(map['recharts']).toBe('https://esm.sh/recharts');
+        expect(map['recharts/']).toBe('https://esm.sh/recharts/');
+        // Sub-path itself is NOT added as a top-level entry.
+        expect(map['recharts/lib/component/Cell']).toBeUndefined();
+    });
+
+    it("does not duplicate CDN_IMPORTS entries (preact alias wins)", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "import { useState } from 'react';\nimport { h } from 'preact';",
+        });
+        const map = importMap(result);
+        // Both are in CDN_IMPORTS — should resolve to the preact-compat alias,
+        // not to a plain esm.sh entry.
+        expect(map['react']).toContain('preact');
+        expect(map['preact']).toContain('preact');
+        // No spurious raw esm.sh entries that would shadow the alias.
+        expect(map['react']).not.toBe('https://esm.sh/react');
+    });
+
+    it("ignores relative imports", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
+            'app/App.js': "import { utils } from './utils.js';",
+            'app/utils.js': 'export const utils = 42;',
+        });
+        const map = importMap(result);
+        // No spurious './utils.js' entry; local imports go through APP_MODULE_PREFIX.
+        expect(map['./utils.js']).toBeUndefined();
+        expect(map['__app/utils.js']).toContain('data:');
+    });
+
+    it("ignores absolute URL imports", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "import { z } from 'https://esm.sh/zod@3.22';",
+        });
+        const map = importMap(result);
+        // Direct URL imports don't need import-map entries.
+        expect(map['https://esm.sh/zod@3.22']).toBeUndefined();
+    });
+
+    it("picks up imports from inline module scripts", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module">import dayjs from "dayjs";\nimport { Bar } from "recharts";</script></body></html>',
+        });
+        const map = importMap(result);
+        // dayjs is in CDN_IMPORTS; recharts is auto-added.
+        expect(map['dayjs']).toContain('dayjs');
+        expect(map['recharts']).toBe('https://esm.sh/recharts');
+    });
+
+    it("supports versioned bare specifiers (esm.sh URL fragment)", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "import { z } from 'zod@3.22.4';",
+        });
+        const map = importMap(result);
+        expect(map['zod@3.22.4']).toBe('https://esm.sh/zod@3.22.4');
+    });
+
+    it("handles dynamic import()", async () => {
+        const { buildAppHtml } = await loadPyodide();
+        const result = buildAppHtml({
+            'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
+            'app/index.js': "const mod = await import('lodash-es');",
+        });
+        const map = importMap(result);
+        expect(map['lodash-es']).toBe('https://esm.sh/lodash-es');
+    });
+});
+
 describe("buildAppStorageShim", () => {
     it("injects the seed dict as literal JSON", async () => {
         const { buildAppStorageShim } = await loadPyodide();
