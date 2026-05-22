@@ -29,8 +29,11 @@
     // top-level `collapsed` prop (which means "no app yet, so no
     // split"). Tripped by dragging the divider hard past the floor;
     // exited by clicking the expand strip on the left edge of the
-    // app pane. The `splitRatio` is preserved across collapse so
-    // expanding restores the user's last chat width.
+    // app pane. `splitRatio` is preserved across collapse, but
+    // `expandChat` (the strip click) deliberately snaps it to
+    // RESTORE_RATIO rather than restoring — at the moment of
+    // collapse splitRatio is at the floor, so a literal restore
+    // would produce a barely-visible sliver.
     let chatCollapsed = $state(localStorage.getItem('agex-chat-collapsed') === '1')
 
     // First-appearance reset. Snaps the divider to `initialRatio` when
@@ -122,8 +125,6 @@
             // collapsed. The divider can't go below the MIN_LEFT_PX
             // floor, so we use "mouse past the very left of the
             // viewport" as the gesture for "I want this gone."
-            // splitRatio is preserved so expanding via the strip
-            // restores the user's prior chat width.
             if (rawX <= 0) {
                 setChatCollapsed(true)
                 return
@@ -135,15 +136,19 @@
             if (rawX > MIN_LEFT_PX) {
                 setChatCollapsed(false)
             }
-            const ratio = clampRatio(rawX / rect.width, rect.width)
-            splitRatio = ratio
-            localStorage.setItem('agex-preview-split', String(ratio))
+            splitRatio = clampRatio(rawX / rect.width, rect.width)
+            // splitRatio persists in `onUp` rather than here — no
+            // need to thrash localStorage 60×/sec during a drag.
         }
         const onUp = () => {
             dragging = false
             if (overlay) overlay.style.display = 'none'
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
+            // Persist the final ratio once at release. Skipped when
+            // the drag ended in the collapsed state (chatCollapsed
+            // is its own persisted flag via setChatCollapsed).
+            localStorage.setItem('agex-preview-split', String(splitRatio))
             // Trigger resize so Plotly charts in the chat pane relayout
             window.dispatchEvent(new Event('resize'))
         }
