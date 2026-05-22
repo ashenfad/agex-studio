@@ -834,6 +834,72 @@ function _plotlyScriptTag() {
 const APP_MODULE_PREFIX = '__app/';
 
 /**
+ * Is this an npm-style bare specifier (vs a relative path, absolute
+ * URL, data URL, or app-local prefix)?
+ *
+ * @param {string} spec
+ * @returns {boolean}
+ */
+function _isBareSpecifier(spec) {
+    if (!spec) return false;
+    if (spec.startsWith('.')) return false;
+    if (spec.startsWith('/')) return false;
+    if (spec.startsWith(APP_MODULE_PREFIX)) return false;
+    if (spec.includes('://')) return false;
+    if (spec.startsWith('data:')) return false;
+    return true;
+}
+
+/**
+ * Reduce a bare specifier to its package root.
+ *
+ *   'recharts'                      → 'recharts'
+ *   'recharts/lib/Cell'             → 'recharts'
+ *   '@radix-ui/react-dialog'        → '@radix-ui/react-dialog'
+ *   '@radix-ui/react-dialog/dist/x' → '@radix-ui/react-dialog'
+ *   'recharts@2.10.0'               → 'recharts@2.10.0' (esm.sh accepts versioned URL fragments)
+ *
+ * @param {string} spec
+ * @returns {string}
+ */
+function _packageRoot(spec) {
+    if (spec.startsWith('@')) {
+        const parts = spec.split('/');
+        return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : spec;
+    }
+    const slash = spec.indexOf('/');
+    return slash === -1 ? spec : spec.slice(0, slash);
+}
+
+/**
+ * Scan JS source for bare module specifiers. Catches static
+ * `import ... from 'pkg'` / `import 'pkg'` / `export ... from 'pkg'`
+ * and dynamic `import('pkg')`. Returns a Set of unique package roots
+ * (sub-paths collapsed). Best-effort regex — false positives (e.g.
+ * `from 'foo'` text inside a string literal or comment) just produce
+ * unused import-map entries, which are harmless.
+ *
+ * @param {string} source
+ * @returns {Set<string>}
+ */
+function _extractBareImports(source) {
+    const out = new Set();
+    // Static `import ... from 'spec'` / `import 'spec'` / `export ... from 'spec'`.
+    // The leading `[^\w$]` prevents matching mid-identifier (e.g. `_import`).
+    const staticRe =
+        /(?:^|[^\w$])(?:import|export)(?:\s*[\w*{},$\s]*?\s*from)?\s*['"]([^'"]+)['"]/g;
+    const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    for (const re of [staticRe, dynamicRe]) {
+        let m;
+        while ((m = re.exec(source)) !== null) {
+            const spec = m[1];
+            if (_isBareSpecifier(spec)) out.add(_packageRoot(spec));
+        }
+    }
+    return out;
+}
+
+/**
  * Escape a string for use in a RegExp.
  * @param {string} s
  */
@@ -1012,6 +1078,34 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
                 return `<script${attrs ? ' ' + attrs : ''}>${jsFiles.get(name)}<\/script>`;
             });
         }
+    }
+
+    // Auto-resolve bare npm specifiers to esm.sh. Scan every JS file
+    // plus every inline `<script type="module">` block for bare
+    // imports (e.g. `import { Bar } from 'recharts'`,
+    // `import * as Dialog from '@radix-ui/react-dialog'`). For each
+    // package root not already covered by CDN_IMPORTS, add both the
+    // bare and trailing-slash forms pointing at esm.sh.
+    //
+    // Means agents can use any npm package transparently — no studio-
+    // side import-map config per library, no direct-URL imports
+    // required. CDN_IMPORTS still wins on the libs we ship pinned
+    // (preact aliasing, etc.) because `_buildImportMapTag` spreads
+    // CDN_IMPORTS first but we filter them out here before adding to
+    // `appImports`, so there's no collision either way.
+    const moduleScripts = [...jsFiles.values()];
+    html.replace(
+        /<script\b[^>]*type\s*=\s*["']module["'][^>]*>([\s\S]*?)<\/script>/gi,
+        (_match, body) => {
+            moduleScripts.push(body);
+            return _match;
+        },
+    );
+    const bareSpecs = _extractBareImports(moduleScripts.join('\n'));
+    for (const pkg of bareSpecs) {
+        if (pkg in CDN_IMPORTS) continue;
+        appImports[pkg] = `https://esm.sh/${pkg}`;
+        appImports[pkg + '/'] = `https://esm.sh/${pkg}/`;
     }
 
     // Binary-asset rewrites — applied last so they see the final
