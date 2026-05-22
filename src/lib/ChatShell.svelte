@@ -117,7 +117,16 @@
         const params = new URLSearchParams(window.location.search)
         return params.get('play') === '1'
     })()
-    if (isPlayMode) viewMode = 'app-only'
+    if (isPlayMode) {
+        viewMode = 'app-only'
+        // Also flip `mobileView` to 'app'. Without this, mobile loads
+        // get `class="split-pane mobile-chat view-app-only"` — both
+        // `.view-app-only .pane.left { display: none }` and
+        // `.mobile-chat .pane.right { display: none }` fire, hiding
+        // both panes (black screen). Desktop avoids it because the
+        // `@media (max-width: 768px)` mobile-* rules don't apply.
+        mobileView = 'app'
+    }
     let hasAppFiles = $derived(files.some(f => f === 'app' || f.startsWith('app/')))
 
     let tokenOverride = $state(null)
