@@ -46,6 +46,33 @@ The iframe runs with `sandbox="allow-scripts"` — agent code can compute and re
 
 - **`window.open()` / `top.location = …` / full-page form submits** — also blocked. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
 
+### Powerful features that prompt the user
+
+The iframe **does** delegate these features (the studio's iframe `allow=` list grants them), but the first call triggers a browser permission prompt. Handle the rejection path — the user can block. Available:
+
+- **microphone** — `navigator.mediaDevices.getUserMedia({ audio: true })`. Use for audio analysis (tuners, voice apps, pitch detection).
+- **camera** — `navigator.mediaDevices.getUserMedia({ video: true })`. Use for visual demos, color pickers, QR readers.
+- **motion sensors** — `DeviceOrientationEvent` / `DeviceMotionEvent`. Mobile-only in practice; useful for tilt-controlled games and compass demos.
+- **midi** — `navigator.requestMIDIAccess()`. Music apps with hardware controllers.
+- **fullscreen** — `element.requestFullscreen()`. Immersive games, presentations.
+
+Permission state is per-origin and persists per the user's allow/block choice. Code defensively:
+
+```js
+try {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  // ... use stream
+} catch (e) {
+  if (e.name === 'NotAllowedError') {
+    // User declined — show a button to retry, or fall back to a different mode.
+  } else {
+    // No device, hardware error, etc.
+  }
+}
+```
+
+Things deliberately **not** delegated: `geolocation`, `payment`, `clipboard-read`. If a user case needs one of these, the studio's iframe `allow=` list can be expanded — but the default is conservative.
+
 ## Quick Start (recommended: JSX + esbuild)
 
 Write `app/index.jsx` with idiomatic React, then bundle to JS:

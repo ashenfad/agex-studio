@@ -392,6 +392,7 @@
                 bind:this={iframe}
                 src={blobUrl}
                 sandbox="allow-scripts"
+                allow="microphone; camera; gyroscope; accelerometer; magnetometer; midi; fullscreen"
                 title="App Preview"
                 onload={() => {
                     // Fallback signal in case the app never sends a
