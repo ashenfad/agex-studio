@@ -89,41 +89,23 @@ describe("runSearch", () => {
         expect(out).toBe("Paris (source: ...).");
     });
 
-    it("falls back to OpenRouter base URL when settings has no baseUrl/accessMode", async () => {
-        const { stub, captured } = stubFetch({ body: okBody() });
-        await runSearch({
-            query: "x",
-            settings: { apiKey: "sk-test" }, // no accessMode, no baseUrl
-            fetchImpl: stub,
-        });
-        expect(captured.url).toBe(
-            "https://openrouter.ai/api/v1/chat/completions",
-        );
-    });
-
-    it("honors a custom baseUrl from settings", async () => {
+    it("always hits OpenRouter, ignoring any baseUrl in settings", async () => {
         const { stub, captured } = stubFetch({ body: okBody() });
         await runSearch({
             query: "x",
             settings: {
                 apiKey: "sk-test",
+                // The Perplexity Sonar models only live on
+                // OpenRouter; honoring a custom baseUrl here would
+                // route search to a place that doesn't serve them.
                 baseUrl: "https://my-gateway.example.com/v1",
+                accessMode: "custom",
             },
             fetchImpl: stub,
         });
         expect(captured.url).toBe(
-            "https://my-gateway.example.com/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
         );
-    });
-
-    it("trims trailing slash on baseUrl before joining", async () => {
-        const { stub, captured } = stubFetch({ body: okBody() });
-        await runSearch({
-            query: "x",
-            settings: { apiKey: "sk-test", baseUrl: "https://example.com/v1/" },
-            fetchImpl: stub,
-        });
-        expect(captured.url).toBe("https://example.com/v1/chat/completions");
     });
 
     it("throws on missing API key", async () => {
@@ -171,19 +153,15 @@ describe("runSearch", () => {
         ).rejects.toThrow(/HTTP 500 Internal Server Error.*xxx.*…/s);
     });
 
-    it("surfaces non-2xx with no body when text() throws", async () => {
-        const stub = vi.fn(async () => ({
-            ok: false,
+    it("special-cases 401 with an OpenRouter-specific message", async () => {
+        const { stub } = stubFetch({
             status: 401,
             statusText: "Unauthorized",
-            text: async () => {
-                throw new Error("nope");
-            },
-            json: async () => ({}),
-        }));
+            body: { error: "invalid key" },
+        });
         await expect(
             runSearch({ query: "x", settings: baseSettings, fetchImpl: stub }),
-        ).rejects.toThrow(/HTTP 401 Unauthorized$/);
+        ).rejects.toThrow(/HTTP 401.*OpenRouter.*OpenRouter key/s);
     });
 
     it("throws on non-JSON response body", async () => {

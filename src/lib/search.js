@@ -1,15 +1,16 @@
 /**
  * Web-search helper backing the TS-side `search` agent.fn.
  *
- * Routes through the OpenAI-compatible `/chat/completions` endpoint
- * the rest of the chat stack already uses. Model picks: `perplexity/
- * sonar` for single-shot, `perplexity/sonar-pro-search` when the
- * agent passes `deep: true`. Both expect to be reached via
- * OpenRouter's `/api/v1` (or any OpenAI-compatible gateway that
- * fronts perplexity), and both expect the same `Authorization:
- * Bearer ...` header @agex-ts/openai sends. Direct-Anthropic / direct-
- * OpenAI base URLs won't reach perplexity — the request will 404
- * upstream and the error surfaces as the throw message.
+ * Always hits OpenRouter's `/api/v1/chat/completions` (regardless of
+ * the user's chosen LLM endpoint) because the Perplexity Sonar
+ * models live there. The user's `apiKey` is sent as the bearer —
+ * needs to be valid against OpenRouter for search to work. In
+ * Custom mode where the LLM key is for a different service (vLLM,
+ * Anthropic direct, etc.), search fails with a 401; the error
+ * message explains the OpenRouter requirement.
+ *
+ * Model picks: `perplexity/sonar` for single-shot,
+ * `perplexity/sonar-pro-search` when the agent passes `deep: true`.
  *
  * Counterpart of agex-py's `search` helper in `agent_helpers.py`. We
  * skip py-side's `llm._adapter.fetch_json` reuse because agex-ts's
@@ -17,7 +18,13 @@
  * directly is simpler and the credential plumbing is one header.
  */
 
-import { getSettings, resolveBaseUrl } from "./settings.js";
+import { getSettings } from "./settings.js";
+
+/** OpenRouter's OpenAI-compatible chat-completions endpoint.
+ *  Hardcoded because the Perplexity Sonar models the agent search
+ *  helper targets are OpenRouter-routed; no other endpoint in the
+ *  studio's supported list fronts them. */
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const SEARCH_MODELS = {
     shallow: "perplexity/sonar",
@@ -37,7 +44,7 @@ const SYSTEM_PROMPT =
  * @param {{
  *   query: string,
  *   deep?: boolean,
- *   settings: { apiKey: string, baseUrl?: string, accessMode?: string },
+ *   settings: { apiKey: string },
  *   fetchImpl?: typeof fetch,
  * }} opts
  * @returns {Promise<string>} The model's text response (sources cited inline by perplexity).
@@ -54,8 +61,7 @@ export async function runSearch(opts) {
         );
     }
 
-    const baseUrl = resolveBaseUrl(settings) || "https://openrouter.ai/api/v1";
-    const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+    const url = OPENROUTER_CHAT_URL;
     const model = deep ? SEARCH_MODELS.deep : SEARCH_MODELS.shallow;
 
     const body = {
@@ -81,6 +87,18 @@ export async function runSearch(opts) {
     }
 
     if (!response.ok) {
+        // Special-case 401 to call out OpenRouter explicitly — the
+        // raw upstream body for an unauthorized request is rarely
+        // illuminating, and Custom-mode users whose LLM key isn't
+        // an OpenRouter key would otherwise see a vague "HTTP 401
+        // Unauthorized" and have no obvious path forward.
+        if (response.status === 401) {
+            throw new Error(
+                "search: HTTP 401 — web search uses OpenRouter (Perplexity Sonar); " +
+                    "the configured API key isn't valid for OpenRouter. " +
+                    "Switch the provider to OpenRouter or use an OpenRouter key.",
+            );
+        }
         let detail = "";
         try {
             detail = await response.text();
