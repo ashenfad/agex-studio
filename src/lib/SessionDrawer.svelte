@@ -787,7 +787,7 @@
                                     {:else if deleteConfirmBranch === s.branch}
                                         delete?
                                     {:else}
-                                        \u00d7
+                                        {'\u00d7'}
                                     {/if}
                                 </button>
                             {/if}
