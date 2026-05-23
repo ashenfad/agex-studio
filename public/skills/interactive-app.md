@@ -52,9 +52,27 @@ The iframe **does** delegate these features (the studio's iframe `allow=` list g
 
 - **microphone** — `navigator.mediaDevices.getUserMedia({ audio: true })`. Use for audio analysis (tuners, voice apps, pitch detection).
 - **camera** — `navigator.mediaDevices.getUserMedia({ video: true })`. Use for visual demos, color pickers, QR readers.
-- **motion sensors** — `DeviceOrientationEvent` / `DeviceMotionEvent`. Mobile-only in practice; useful for tilt-controlled games and compass demos.
+- **motion sensors** — `DeviceOrientationEvent` / `DeviceMotionEvent`. Mobile-only in practice; useful for tilt-controlled games and compass demos. **iOS Safari quirk:** must call `DeviceOrientationEvent.requestPermission()` from inside a user-gesture handler before listeners receive events — silent failure otherwise. Other browsers expose the events directly.
+
+  ```js
+  async function enableMotion() {
+    // iOS gates motion behind an explicit prompt; other browsers
+    // skip this and the listener attaches immediately.
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const result = await DeviceOrientationEvent.requestPermission()
+      if (result !== 'granted') return
+    }
+    window.addEventListener('deviceorientation', handler)
+  }
+  // Wire to a button click; `requestPermission` rejects when called
+  // outside a user gesture, so an auto-on-mount approach won't work
+  // on iOS.
+  <button onClick={enableMotion}>Enable tilt</button>
+  ```
+
 - **midi** — `navigator.requestMIDIAccess()`. Music apps with hardware controllers.
 - **fullscreen** — `element.requestFullscreen()`. Immersive games, presentations.
+- **autoplay** — `<audio>` / `<video>` `.play()` calls. Delegated to the iframe so post-permission media (e.g. a camera stream attached to a `<video>`, or audio playback after a "Speak" button) starts without being blocked by the browser's cross-origin autoplay policy. No user prompt for this one — it just unblocks the API.
 
 Permission state is per-origin and persists per the user's allow/block choice. Code defensively:
 
