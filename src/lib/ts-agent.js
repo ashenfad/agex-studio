@@ -811,6 +811,21 @@ export async function deleteBranch(name) {
         }
     }
     await staged.deleteBranch(name);
+    // Reclaim storage from the now-orphan commits / blobs / HAMT
+    // nodes. `staged.deleteBranch` only removes the HEAD pointer;
+    // without this sweep, every session a user ever deletes leaves
+    // its full content footprint in IDB, growing unbounded until
+    // they hit Chrome's quota. `minAge: 0` is safe here because an
+    // explicit user-initiated delete is single-tab in practice;
+    // see commit message for the trade-off.
+    try {
+        await staged.versioned.cleanOrphans({ minAge: 0 });
+    } catch (e) {
+        // Non-fatal: the delete itself succeeded. A failed sweep
+        // just means orphans linger until the next successful sweep
+        // (next delete, or a future startup-time pass).
+        console.warn("[deleteBranch] cleanOrphans failed:", e);
+    }
     _invalidateActiveBranch();
 }
 
