@@ -22,6 +22,30 @@ Your app runs in a sandboxed iframe with:
 
 The preview panel appears automatically when `app/index.html` exists.
 
+## Sandbox constraints
+
+The iframe runs with `sandbox="allow-scripts"` — agent code can compute and render freely, but a few browser APIs are blocked by the missing sandbox keywords. The console warns *"Ignored call to '<api>()'. The document is sandboxed…"* when this fires.
+
+- **`confirm()` / `alert()` / `prompt()`** — blocked (no `allow-modals`). For destructive actions, use a **two-click confirm**: the button shows its normal label on first click, an "are you sure?" label on second click, with a brief reset timeout so a slow user doesn't accidentally commit.
+
+  ```jsx
+  function ConfirmButton({ children, onConfirm }) {
+    const [armed, setArmed] = useState(false)
+    useEffect(() => {
+      if (!armed) return
+      const t = setTimeout(() => setArmed(false), 3000)
+      return () => clearTimeout(t)
+    }, [armed])
+    return armed
+      ? <button onClick={() => { onConfirm(); setArmed(false) }}>Confirm?</button>
+      : <button onClick={() => setArmed(true)}>{children}</button>
+  }
+  ```
+
+  Or render an inline confirmation row next to the action (`Delete this? [Yes] [Cancel]`). For longer messages, render a real in-app dialog component — anything that's part of the app's own DOM works.
+
+- **`window.open()` / `top.location = …` / full-page form submits** — also blocked. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
+
 ## Quick Start (recommended: JSX + esbuild)
 
 Write `app/index.jsx` with idiomatic React, then bundle to JS:
