@@ -152,6 +152,12 @@
                         }
                         autocomplete="off"
                     />
+                    {#if accessMode === 'custom'}
+                        <span class="field-hint">
+                            Web search uses OpenRouter (Perplexity Sonar). Search works
+                            here only when this key is also valid against OpenRouter.
+                        </span>
+                    {/if}
                 </label>
 
                 {#if accessMode === 'custom'}
@@ -363,6 +369,14 @@
     }
 
     label span,
+    .field-hint {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.35rem;
+        line-height: 1.35;
+    }
+
     .field-label {
         font-size: 0.8rem;
         color: var(--text-muted);
