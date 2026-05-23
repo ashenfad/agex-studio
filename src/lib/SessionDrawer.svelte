@@ -38,6 +38,20 @@
     let purgeConfirm = $state(false)
     let purging = $state(false)
     let deleteConfirmBranch = $state(null)
+    /** Branch currently being deleted. Set immediately before
+     *  `await deleteSession(...)` so the row can show a spinner /
+     *  disable interaction; cleared in the surrounding finally. */
+    let deletingBranch = $state(null)
+
+    async function refreshStorageUsage() {
+        try {
+            const est = await navigator.storage?.estimate?.()
+            storageUsage = est?.usage ?? null
+        } catch {
+            // estimate() can fail under cross-origin / opaque contexts;
+            // leave the previous reading rather than blanking it.
+        }
+    }
     /** Which session's "⋯" overflow menu is currently open. Only
      *  surfaces at the mobile breakpoint (≤768px); on desktop the
      *  three individual icon buttons stay visible and this stays
@@ -97,9 +111,7 @@
             purgeConfirm = false
             deleteConfirmBranch = null
             settingsResetConfirm = false
-            navigator.storage?.estimate?.().then(est => {
-                storageUsage = est.usage ?? null
-            }).catch(() => {})
+            refreshStorageUsage()
         }
     })
 
@@ -231,10 +243,22 @@
             return
         }
         deleteConfirmBranch = null
+        // Surface a spinner on the row while the delete (which now
+        // includes the kvgit orphan sweep — see ts-agent.js's
+        // deleteBranch) is in flight. Without this the button just
+        // sits silent for the duration of a multi-MB sweep.
+        deletingBranch = branch
         try {
             await deleteSession(branch)
+            // Reclaimed storage shows up in `navigator.storage.estimate()`
+            // after the underlying IDB write commits. Re-fetch so the
+            // "used" line below the session list updates without
+            // requiring a page reload.
+            await refreshStorageUsage()
         } catch (e) {
             console.error('Failed to delete session:', e)
+        } finally {
+            deletingBranch = null
         }
     }
 
@@ -755,9 +779,16 @@
                                     class="action-btn delete"
                                     class:confirm={deleteConfirmBranch === s.branch}
                                     onclick={(e) => handleDelete(e, s.branch)}
+                                    disabled={deletingBranch === s.branch}
                                     title="Delete session"
                                 >
-                                    {deleteConfirmBranch === s.branch ? 'delete?' : '\u00d7'}
+                                    {#if deletingBranch === s.branch}
+                                        <span class="row-spinner" aria-label="Deleting"></span>
+                                    {:else if deleteConfirmBranch === s.branch}
+                                        delete?
+                                    {:else}
+                                        \u00d7
+                                    {/if}
                                 </button>
                             {/if}
                             </span>
@@ -833,13 +864,25 @@
                                                     if (wasArmed) closeActionsMenu()
                                                 }}
                                             >
-                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                                                    <path d="M10 11v6"></path>
-                                                    <path d="M14 11v6"></path>
-                                                </svg>
-                                                <span>{deleteConfirmBranch === s.branch ? 'Tap again to delete' : 'Delete'}</span>
+                                                {#if deletingBranch === s.branch}
+                                                    <span class="row-spinner" aria-hidden="true"></span>
+                                                {:else}
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                                                        <path d="M10 11v6"></path>
+                                                        <path d="M14 11v6"></path>
+                                                    </svg>
+                                                {/if}
+                                                <span>
+                                                    {#if deletingBranch === s.branch}
+                                                        Deleting…
+                                                    {:else if deleteConfirmBranch === s.branch}
+                                                        Tap again to delete
+                                                    {:else}
+                                                        Delete
+                                                    {/if}
+                                                </span>
                                             </button>
                                         {/if}
                                     </div>
@@ -2353,5 +2396,24 @@
     .btn-cancel:hover:not(:disabled),
     .btn-save:hover:not(:disabled) {
         filter: brightness(1.1);
+    }
+    /* Small in-row spinner used during a session delete — the
+       kvgit orphan sweep can take a non-trivial moment, and the
+       row should look "working" rather than frozen. */
+    .row-spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--border);
+        border-top-color: var(--text-muted);
+        border-radius: 50%;
+        animation: row-spin 0.8s linear infinite;
+        flex-shrink: 0;
+        /* Tiny vertical nudge so the spinner aligns with the
+           letterforms of any adjacent text in the mobile menu. */
+        vertical-align: -1px;
+    }
+    @keyframes row-spin {
+        to { transform: rotate(360deg); }
     }
 </style>
