@@ -779,7 +779,7 @@
                                     class="action-btn delete"
                                     class:confirm={deleteConfirmBranch === s.branch}
                                     onclick={(e) => handleDelete(e, s.branch)}
-                                    disabled={deletingBranch === s.branch}
+                                    disabled={!!deletingBranch}
                                     title="Delete session"
                                 >
                                     {#if deletingBranch === s.branch}
@@ -854,6 +854,7 @@
                                                 class="actions-menu-item destructive"
                                                 class:confirm={deleteConfirmBranch === s.branch}
                                                 role="menuitem"
+                                                disabled={!!deletingBranch}
                                                 onclick={(e) => {
                                                     const wasArmed = deleteConfirmBranch === s.branch
                                                     handleDelete(e, s.branch)
