@@ -48,9 +48,9 @@ The iframe runs with `sandbox="allow-scripts"` — agent code can compute and re
 
   Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the iframe has `allow-forms` so the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe content is loaded from a blob URL with no routes, so a real form submission would unload your app.
 
-### Powerful features that prompt the user
+### Powerful features available to your app
 
-The iframe **does** delegate these features (the studio's iframe `allow=` list grants them), but the first call triggers a browser permission prompt. Handle the rejection path — the user can block. Available:
+The iframe delegates these features via its `allow=` list. Some trigger a browser permission prompt on first use (mic, camera, geolocation, midi); others just unblock the API without prompting (autoplay, screen wake lock, web share, downloads). Each bullet notes its behavior:
 
 - **microphone** — `navigator.mediaDevices.getUserMedia({ audio: true })`. Use for audio analysis (tuners, voice apps, pitch detection).
 - **camera** — `navigator.mediaDevices.getUserMedia({ video: true })`. Use for visual demos, color pickers, QR readers.
@@ -76,6 +76,21 @@ The iframe **does** delegate these features (the studio's iframe `allow=` list g
 - **midi** — `navigator.requestMIDIAccess()`. Music apps with hardware controllers.
 - **fullscreen** — `element.requestFullscreen()`. Immersive games, presentations.
 - **autoplay** — `<audio>` / `<video>` `.play()` calls. Delegated to the iframe so post-permission media (e.g. a camera stream attached to a `<video>`, or audio playback after a "Speak" button) starts without being blocked by the browser's cross-origin autoplay policy. No user prompt for this one — it just unblocks the API.
+- **screen wake lock** — `navigator.wakeLock.request('screen')`. Keeps the screen from dimming/sleeping while your app is in the foreground. Use for tuners, timers, recipe apps, music players, anything that's read or watched passively. No prompt. Important gotcha: the lock auto-releases when the tab becomes hidden — re-acquire on `visibilitychange` so the lock holds across tab switches:
+
+  ```js
+  let wakeLock = null
+  async function lockScreen() {
+    try { wakeLock = await navigator.wakeLock.request('screen') } catch {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLock === null) lockScreen()
+  })
+  lockScreen()
+  ```
+
+- **web share** — `navigator.share({ title, text, url, files })`. Opens the native OS share sheet (iOS, Android, some desktop). Requires a user gesture — wire to a button click, not an effect. `navigator.canShare()` first if you want to render the button conditionally (desktop browsers without share support won't expose it). No permission prompt — the user picks where to share at the OS level.
+- **downloads** — `<a href={blobUrl} download="filename.csv">` or a programmatic click on the same. The iframe's `allow-downloads` keyword lets these trigger the browser's standard save dialog. Use for "export this data," "save chart as PNG," "download the generated PDF" buttons. The user sees the standard download UX, file lands wherever their browser's default puts it.
 
 Permission state is per-origin and persists per the user's allow/block choice. Code defensively:
 
