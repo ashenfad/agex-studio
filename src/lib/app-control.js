@@ -28,6 +28,7 @@
  */
 
 import { sendControl } from "./iframe-bridge.js";
+import { APPS_ORIGIN } from "./apps-origin.js";
 
 // ---------------------------------------------------------------------------
 // Live preview iframe — module-level ref shared by callers
@@ -219,12 +220,35 @@ export function _enforceTotalCap(entries, max) {
 
 /** Wire iframe→parent message bridges to the caller-provided
  *  handlers. Returns the listener function so `runTestApp` can
- *  remove it on teardown. */
-function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
+ *  remove it on teardown.
+ *
+ *  `initHtml`, when provided, makes the listener double as the
+ *  bootloader handshake responder: on receiving the bootloader's
+ *  `agex-host-ready` signal, the listener posts `agex-host-init`
+ *  with the HTML so the bootloader can document.write it. This
+ *  keeps the cross-origin handshake colocated with the rest of
+ *  the per-iframe message handling. */
+function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, initHtml = null) {
+    let initPosted = false;
     const handler = (event) => {
         if (!iframe || event.source !== iframe.contentWindow) return;
+        // Cross-origin tightening: only accept messages from the
+        // apps sandbox host. Defends against other tabs / extensions
+        // posting crafted payloads to us.
+        if (event.origin !== APPS_ORIGIN) return;
         const data = event.data;
         if (!data) return;
+
+        // Bootloader handshake — respond once per iframe with the
+        // app HTML so the bootloader can render it.
+        if (data.type === "agex-host-ready" && !initPosted && initHtml) {
+            initPosted = true;
+            iframe.contentWindow?.postMessage(
+                { type: "agex-host-init", html: initHtml },
+                APPS_ORIGIN,
+            );
+            return;
+        }
 
         if (data.type === "agex-query") {
             const { id, code, result } = data;
@@ -236,7 +260,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                     if (queryHandler) {
                         iframe.contentWindow?.postMessage(
                             { type: "agex-query-result", id, data: out, error: null },
-                            "*",
+                            APPS_ORIGIN,
                         );
                     } else {
                         iframe.contentWindow?.postMessage(
@@ -247,7 +271,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                                 error:
                                     "query() not available on this kernel — use getCacheValue() instead",
                             },
-                            "*",
+                            APPS_ORIGIN,
                         );
                     }
                 } catch (err) {
@@ -258,7 +282,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                             data: null,
                             error: err.message || String(err),
                         },
-                        "*",
+                        APPS_ORIGIN,
                     );
                 }
                 iframe.__onQueryDone?.();
@@ -280,7 +304,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                                 data: out === undefined ? null : out,
                                 error: null,
                             },
-                            "*",
+                            APPS_ORIGIN,
                         );
                     } else {
                         iframe.contentWindow?.postMessage(
@@ -291,7 +315,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                                 error:
                                     "getCacheValue() not available on this kernel — use query() instead",
                             },
-                            "*",
+                            APPS_ORIGIN,
                         );
                     }
                 } catch (err) {
@@ -302,7 +326,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers) {
                             data: null,
                             error: err.message || String(err),
                         },
-                        "*",
+                        APPS_ORIGIN,
                     );
                 }
                 iframe.__onQueryDone?.();
@@ -345,7 +369,6 @@ export async function runTestApp(opts) {
     } = opts;
 
     let iframe = null;
-    let blobUrl = null;
     let messageHandler = null;
     let pendingHandlers = [];
 
@@ -367,7 +390,6 @@ export async function runTestApp(opts) {
             appBinaries,
             appStorage: { seed: appStorageSeed, writeable: false },
         });
-        blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }));
 
         iframe = document.createElement("iframe");
         // In-viewport but visually hidden: in-viewport so the browser
@@ -381,19 +403,41 @@ export async function runTestApp(opts) {
         iframe.style.cssText =
             "position:fixed;top:0;left:0;width:800px;height:600px;" +
             "opacity:0;pointer-events:none;z-index:-1;";
-        iframe.sandbox = "allow-scripts";
+        // No sandbox attribute — the cross-origin separation between
+        // agex.studio and apps.agex.studio provides the isolation
+        // that `sandbox="allow-scripts"` used to. The `allow` list
+        // matches the live AppPreview iframe so test_app behavior
+        // mirrors what the user sees.
+        iframe.allow =
+            "autoplay; microphone; camera; geolocation; gyroscope; " +
+            "accelerometer; magnetometer; midi; fullscreen; " +
+            "screen-wake-lock; web-share";
 
+        // The bridge listener doubles as the bootloader handshake
+        // responder when an initHtml payload is passed in. It posts
+        // `agex-host-init` to the iframe in response to the
+        // bootloader's `agex-host-ready` signal.
         messageHandler = _attachBridges(
             iframe,
             queryHandler,
             cacheHandler,
             pendingHandlers,
+            html,
         );
         window.addEventListener("message", messageHandler);
 
+        // The iframe fires `load` twice in this lifecycle: once when
+        // the bootloader page loads, then again after the bootloader
+        // does `document.open() / document.write(html) / document.close()`.
+        // We want the second one — that's when the app's scripts have
+        // run.
         await new Promise((resolve) => {
-            iframe.onload = resolve;
-            iframe.src = blobUrl;
+            let loadCount = 0;
+            iframe.addEventListener("load", () => {
+                loadCount++;
+                if (loadCount >= 2) resolve();
+            });
+            iframe.src = `${APPS_ORIGIN}/?t=${Date.now()}`;
             document.body.appendChild(iframe);
         });
         // Initial settle. `onload` already fires after the document
@@ -441,7 +485,6 @@ export async function runTestApp(opts) {
     } finally {
         if (messageHandler) window.removeEventListener("message", messageHandler);
         if (iframe) iframe.remove();
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
     }
 }
 

@@ -4,13 +4,23 @@
     import { sessionStore } from './sessions.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { getActiveAdapter } from './active-adapter.js'
+    import { APPS_ORIGIN } from './apps-origin.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
     let { refreshKey } = $props()
 
     let iframe = $state(null)
-    let blobUrl = $state(null)
+    /** Cache-busted apps-origin URL the iframe loads to fetch the
+     *  bootloader. Bumped on every `loadPreview` so the bootloader
+     *  reloads cleanly (same-URL navigation would be a no-op). */
+    let appsUrl = $state(null)
+    /** App HTML waiting to be sent to the iframe via `agex-host-init`
+     *  once the bootloader posts its `agex-host-ready` signal.
+     *  Cleared after one successful init; a stale ready (from an
+     *  earlier load attempt that resolved after a newer one started)
+     *  finds `pendingHtml === null` and is ignored. */
+    let pendingHtml = null
     let loading = $state(false)
     let error = $state('')
 
@@ -115,10 +125,8 @@
         try {
             if (iframe) iframe.src = 'about:blank'
         } catch {}
-        if (blobUrl) {
-            URL.revokeObjectURL(blobUrl)
-            blobUrl = null
-        }
+        appsUrl = null
+        pendingHtml = null
 
         console.warn(
             `[agex] Preview auto-paused: ${rate} queries/sec ` +
@@ -200,9 +208,14 @@
                 appStorage: { seed, writeable: true },
             })
 
-            // Revoke previous blob
-            if (blobUrl) URL.revokeObjectURL(blobUrl)
-            blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+            // Stash the HTML for the upcoming `agex-host-ready`
+            // handshake, then cache-bust the apps-origin URL so the
+            // iframe reloads the bootloader. The bootloader will post
+            // ready, our handleMessage will respond with `agex-host-
+            // init { html: pendingHtml }`, and the bootloader writes
+            // it into the iframe document.
+            pendingHtml = html
+            appsUrl = `${APPS_ORIGIN}/?t=${Date.now()}`
             mountTime = performance.now()
         } catch (e) {
             error = e.message || String(e)
@@ -211,10 +224,29 @@
         }
     }
 
-    // Handle query + app-storage messages from the iframe
+    // Handle ready / query / app-storage messages from the iframe
     function handleMessage(event) {
         if (frozen) return
         if (!iframe || event.source !== iframe.contentWindow) return
+        // Cross-origin tightening: only accept messages whose origin
+        // matches the apps sandbox. Defends against other tabs /
+        // extensions posting into us with crafted payloads.
+        if (event.origin !== APPS_ORIGIN) return
+
+        // Bootloader handshake: respond with the pending app HTML.
+        // A stale ready (from an earlier load whose iframe finished
+        // booting after we started a newer load) sees pendingHtml ===
+        // null and is dropped; that's correct — the newer load will
+        // trigger its own reload + ready.
+        if (event.data?.type === 'agex-host-ready') {
+            if (pendingHtml === null) return
+            iframe.contentWindow?.postMessage(
+                { type: 'agex-host-init', html: pendingHtml },
+                APPS_ORIGIN,
+            )
+            pendingHtml = null
+            return
+        }
 
         if (event.data?.type === 'agex-app-storage') {
             if (appBranch) scheduleStorageFlush(appKernel, appBranch, event.data.data || {})
@@ -242,7 +274,7 @@
                     id,
                     data: null,
                     error: 'app preview adapter not ready',
-                }, '*')
+                }, APPS_ORIGIN)
                 return
             }
             appAdapter.getCacheValue(appBranch, key)
@@ -252,7 +284,7 @@
                         id,
                         data: data === undefined ? null : data,
                         error: null,
-                    }, '*')
+                    }, APPS_ORIGIN)
                 })
                 .catch(err => {
                     iframe?.contentWindow?.postMessage({
@@ -260,7 +292,7 @@
                         id,
                         data: null,
                         error: err.message || String(err),
-                    }, '*')
+                    }, APPS_ORIGIN)
                 })
             return
         }
@@ -287,7 +319,7 @@
                 id,
                 data: null,
                 error: 'app preview adapter not ready',
-            }, '*')
+            }, APPS_ORIGIN)
             return
         }
         appAdapter.runQuery(appBranch, code, result)
@@ -297,7 +329,7 @@
                     id,
                     data,
                     error: null,
-                }, '*')
+                }, APPS_ORIGIN)
             })
             .catch(err => {
                 const msg = err.message || String(err)
@@ -313,7 +345,7 @@
                     id,
                     data: null,
                     error: msg,
-                }, '*')
+                }, APPS_ORIGIN)
             })
     }
 
@@ -322,7 +354,6 @@
         return () => {
             window.removeEventListener('message', handleMessage)
             setLiveIframe(null)
-            if (blobUrl) URL.revokeObjectURL(blobUrl)
             // Flush any pending storage writes synchronously so the
             // user doesn't lose the last few writes on unmount/reload.
             if (storageFlushTimer) {
@@ -386,12 +417,21 @@
         </div>
     {:else if error}
         <div class="preview-notice error">{error}</div>
-    {:else if blobUrl}
+    {:else if appsUrl}
         <div class="iframe-wrap">
+            <!--
+                Cross-origin iframe pointing at the apps sandbox host
+                (apps.agex.studio in prod; see APPS_ORIGIN). The
+                sandbox attribute is intentionally absent — the
+                cross-origin separation provides the isolation that
+                `sandbox="allow-scripts"` used to. The `allow` list
+                still applies (Permissions Policy delegations) since
+                cross-origin iframes default to NOT delegating these
+                features.
+            -->
             <iframe
                 bind:this={iframe}
-                src={blobUrl}
-                sandbox="allow-scripts allow-forms allow-downloads"
+                src={appsUrl}
                 allow="autoplay; microphone; camera; geolocation; gyroscope; accelerometer; magnetometer; midi; fullscreen; screen-wake-lock; web-share"
                 title="App Preview"
                 onload={() => {
