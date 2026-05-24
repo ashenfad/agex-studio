@@ -70,6 +70,7 @@ The iframe **does** delegate these features (the studio's iframe `allow=` list g
   <button onClick={enableMotion}>Enable tilt</button>
   ```
 
+- **geolocation** — `navigator.geolocation.getCurrentPosition()` / `.watchPosition()`. Map apps that center on the user, "what's nearby" tools, location-based games. User gets a one-time prompt; permission persists per their allow/block choice.
 - **midi** — `navigator.requestMIDIAccess()`. Music apps with hardware controllers.
 - **fullscreen** — `element.requestFullscreen()`. Immersive games, presentations.
 - **autoplay** — `<audio>` / `<video>` `.play()` calls. Delegated to the iframe so post-permission media (e.g. a camera stream attached to a `<video>`, or audio playback after a "Speak" button) starts without being blocked by the browser's cross-origin autoplay policy. No user prompt for this one — it just unblocks the API.
@@ -89,7 +90,7 @@ try {
 }
 ```
 
-Things deliberately **not** delegated: `geolocation`, `payment`, `clipboard-read`. If a user case needs one of these, the studio's iframe `allow=` list can be expanded — but the default is conservative.
+Things deliberately **not** delegated: `payment` (no plausible legitimate use in agent apps), `clipboard-read` (privacy boundary — `clipboard-write` works without it). If a user case needs one of these, the studio's iframe `allow=` list can be expanded.
 
 ## Quick Start (recommended: JSX + esbuild)
 
