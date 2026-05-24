@@ -44,7 +44,9 @@ The iframe runs with `sandbox="allow-scripts"` — agent code can compute and re
 
   Or render an inline confirmation row next to the action (`Delete this? [Yes] [Cancel]`). For longer messages, render a real in-app dialog component — anything that's part of the app's own DOM works.
 
-- **`window.open()` / `top.location = …` / full-page form submits** — also blocked. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
+- **`window.open()` / `top.location = …`** — also blocked. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
+
+  Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the iframe has `allow-forms` so the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe content is loaded from a blob URL with no routes, so a real form submission would unload your app.
 
 ### Powerful features that prompt the user
 

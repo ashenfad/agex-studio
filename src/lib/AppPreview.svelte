@@ -391,7 +391,7 @@
             <iframe
                 bind:this={iframe}
                 src={blobUrl}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-forms"
                 allow="autoplay; microphone; camera; geolocation; gyroscope; accelerometer; magnetometer; midi; fullscreen"
                 title="App Preview"
                 onload={() => {
