@@ -81,7 +81,14 @@ The iframe delegates these features via its `allow=` list. Some trigger a browse
   ```js
   let wakeLock = null
   async function lockScreen() {
-    try { wakeLock = await navigator.wakeLock.request('screen') } catch {}
+    try {
+      wakeLock = await navigator.wakeLock.request('screen')
+      // Reset the variable when the sentinel auto-releases
+      // (page hide, battery saver, etc.). Without this, the
+      // visibilitychange check below sees a stale sentinel
+      // reference and won't re-acquire.
+      wakeLock.addEventListener('release', () => { wakeLock = null })
+    } catch {}
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && wakeLock === null) lockScreen()
