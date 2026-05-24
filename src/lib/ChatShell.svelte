@@ -228,6 +228,13 @@
     const _initKey = (s) => JSON.stringify([
         s.apiKey, s.model, s.provider, s.baseUrl,
         s.toolUseWireFormat, s.reasoningEffort,
+        // serviceTier flows into the LLM client's request-body
+        // `extras` (see _buildLlmClient in ts-agent.js); chapteringTrigger
+        // is passed through initAgent's reconfigure() path. Both are
+        // silently dropped on settings save if not tracked here —
+        // the effect's `if (initKey === lastInitKey) return` would
+        // short-circuit when only one of these changed.
+        s.serviceTier, s.chapteringTrigger,
     ])
     $effect(() => {
         const s = $settingsStore
