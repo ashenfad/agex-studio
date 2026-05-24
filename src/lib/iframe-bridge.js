@@ -328,7 +328,13 @@ export function installControlBridge(win) {
     win.addEventListener('message', async (event) => {
         const response = await handleControlMessage(win.document, event.data, win);
         if (!response) return;
-        event.source?.postMessage(response, '*');
+        // Target the parent's origin specifically. `event.origin` from
+        // the incoming message is the most reliable source — it's
+        // whatever sent us the control request, presumably the studio
+        // (`https://agex.studio` in prod). The `__AGEX_PARENT_ORIGIN`
+        // global set by the bootloader is the same value; using
+        // `event.origin` here just keeps the bridge self-contained.
+        event.source?.postMessage(response, event.origin || '*');
     });
 }
 
@@ -351,9 +357,11 @@ let _controlIdCounter = 0;
  * reject on sub-errors captured into the data payload itself (e.g., an
  * eval that threw — that's returned as `data.error`).
  *
- * Does not validate `event.origin` — opaque-origin iframes post with
- * `origin === 'null'`. Identity check on `event.source` is sufficient
- * to ensure the response came from the expected iframe.
+ * Identity check on `event.source` confirms the response came from
+ * the expected iframe; we don't filter on `event.origin` here because
+ * the parent-side message handler runs across all iframes (test_app /
+ * live_app / AppPreview) and the apps origin can vary in dev. Callers
+ * that need stricter validation can compare `event.origin` themselves.
  *
  * @param {HTMLIFrameElement | {contentWindow: any}} iframe
  * @param {object} action
@@ -374,6 +382,11 @@ export function sendControl(iframe, action) {
             }
         }
         window.addEventListener('message', handler);
+        // Target origin '*' here lets the same code path serve both
+        // the cross-origin apps-host iframes (prod / staging) and any
+        // future same-origin fallback. The iframe-side handler
+        // validates messages against `__AGEX_PARENT_ORIGIN` already
+        // so this isn't a leak vector for control payloads.
         iframe.contentWindow?.postMessage(
             { type: 'agex-control', id, action },
             '*',

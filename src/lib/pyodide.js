@@ -571,7 +571,7 @@ const CONSOLE_INTERCEPTOR = `
                 attr: attr,
                 url: String(url),
                 outerHTML: (el.outerHTML || '').slice(0, 200),
-            }, '*');
+            }, window.__AGEX_PARENT_ORIGIN || '*');
         } catch (_) { /* swallow */ }
     }, true);  // capture phase — resource errors don't bubble
 })();
@@ -596,7 +596,7 @@ window.query = function(opts) {
             id: id,
             code: opts.code,
             result: opts.result || null,
-        }, '*');
+        }, window.__AGEX_PARENT_ORIGIN || '*');
     });
 };
 
@@ -618,7 +618,7 @@ window.getCacheValue = function(key) {
             type: 'agex-cache-get',
             id: id,
             key: key,
-        }, '*');
+        }, window.__AGEX_PARENT_ORIGIN || '*');
     });
 };
 <\/script>`;
@@ -663,7 +663,7 @@ export function buildAppStorageShim(opts = {}) {
                 window.parent.postMessage({
                     type: 'agex-app-storage',
                     data: JSON.parse(JSON.stringify(data)),
-                }, '*');
+                }, window.__AGEX_PARENT_ORIGIN || '*');
             } catch (e) { /* parent gone — swallow */ }
         }
         return {

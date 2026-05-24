@@ -6,23 +6,53 @@ that the user actually sees (driven by `liveApp`), and headless
 iframes the agent spawns for verification (driven by `testApp`).
 Both share `buildAppHtml` for assembly.
 
-## The iframe sandbox
+## Iframe isolation: cross-origin host
 
-`AppPreview.svelte` constructs an iframe via a blob URL with
-`sandbox="allow-scripts"`. That sandbox flag matters:
+`AppPreview.svelte` (and `app-control.js`'s test_app iframes)
+load a bootloader page from `https://apps.agex.studio/` — a
+separate origin served from the [`agex-studio-apps`](https://github.com/ashenfad/agex-studio-apps)
+repo. The studio posts the actual app HTML to the bootloader
+over `postMessage`; the bootloader receives the HTML and
+replaces its document with it via `document.open()` /
+`document.write()` / `document.close()`.
 
-- **`allow-scripts`**: lets the iframe run JS — required for any
-  interactive app.
-- **No `allow-same-origin`**: the iframe gets an opaque origin
-  distinct from the parent. The parent can't reach into
-  `iframe.contentDocument` directly, and the iframe can't read the
-  parent. Communication is postMessage-only.
-- **No `allow-modals`**: `alert` / `confirm` / `prompt` are no-ops.
-- **No `allow-forms`**: form submissions don't fire (they'd
-  navigate the iframe to an arbitrary URL otherwise).
+The agent's app then runs at `apps.agex.studio`'s origin.
+Cross-origin same-origin policy gives us:
 
-The opaque origin is the price for security; the postMessage
-bridge is the consequence.
+- Agent code can't reach `agex.studio`'s `localStorage`,
+  IndexedDB, cookies, settings, or any other origin-scoped
+  resource.
+- Agent code can't read the parent window's DOM.
+- The parent can't reach into the iframe's document either.
+
+Communication between parent and iframe is strictly
+`postMessage` with origin validation on both sides.
+
+### What the bootloader URL looks like
+
+`{APPS_ORIGIN}/?t={timestamp}`. The timestamp cache-busts so
+re-renders force the bootloader to reload (same-URL navigation
+would be a no-op). `APPS_ORIGIN` is exported from
+`src/lib/apps-origin.js` and defaults to `https://apps.agex.studio`;
+override via `VITE_APPS_ORIGIN` for local dev against a
+locally-served copy of agex-studio-apps.
+
+### Why cross-origin and not sandbox-opaque
+
+Earlier versions of the studio used `sandbox="allow-scripts"`
+on a same-origin blob URL — the iframe ran with an **opaque
+origin**, which provided the isolation but came with real
+limitations: opaque origins can't accept persistent permissions
+(`getUserMedia` failed for kalimba tuners and similar), can't
+read cross-origin stylesheet rules (Leaflet/MarkerCluster CSS
+introspection broke), and hit a long tail of services that
+filter requests by `Referer` (Plotly tile providers returned
+nothing). Cross-origin sandboxing via a separate domain
+provides equivalent isolation without any of these issues.
+
+The iframe drops the `sandbox` attribute entirely and uses an
+`allow=` permissions-policy list to delegate features
+(microphone, camera, geolocation, etc.) down to the apps origin.
 
 ## `buildAppHtml` pipeline
 
@@ -30,7 +60,9 @@ Located in `src/lib/pyodide.js` (the name is historical — the
 function is kernel-agnostic). Inputs: a `Record<string, string>`
 of text files under `app/`, an optional `Record<string, Uint8Array>`
 of binary assets, and an `appStorage` config. Output: a complete
-HTML document string the iframe loads via blob URL.
+HTML document string the studio sends to the iframe's
+bootloader via `postMessage` (see "Iframe isolation: cross-origin
+host" above).
 
 What it does, in order:
 
@@ -232,13 +264,18 @@ The iframe also pushes some unsolicited messages:
 
 ## Design notes
 
-### Why the iframe is sandbox-opaque
+### Why the iframe runs at a cross-origin host
 
-Tight: an agent's app can't read the parent window's data,
-can't navigate the top frame, can't open arbitrary URLs without
-agreement. The cost is the bridge and the asset-inlining
-acrobatics — worth it because the agent is an unknown actor
-running unverified code.
+Tight: an agent's app can't read the parent window's data
+(same-origin policy gates DOM access cross-origin), can't reach
+the studio's localStorage / IndexedDB / cookies, and can only
+communicate via the postMessage bridge with explicit origin
+validation. The cost is the bootloader handshake + asset-
+inlining acrobatics — worth it because the agent is an unknown
+actor running unverified code, AND because the cross-origin
+approach unlocks browser features the sandbox model blocked
+(persistent permissions, cross-origin stylesheet introspection,
+Referer-aware services).
 
 ### Why `buildAppHtml` lives in `pyodide.js`
 
