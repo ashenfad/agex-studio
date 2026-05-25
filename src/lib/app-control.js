@@ -426,17 +426,39 @@ export async function runTestApp(opts) {
         );
         window.addEventListener("message", messageHandler);
 
-        // The iframe fires `load` twice in this lifecycle: once when
-        // the bootloader page loads, then again after the bootloader
-        // does `document.open() / document.write(html) / document.close()`.
-        // We want the second one — that's when the app's scripts have
-        // run.
-        await new Promise((resolve) => {
-            let loadCount = 0;
-            iframe.addEventListener("load", () => {
-                loadCount++;
-                if (loadCount >= 2) resolve();
-            });
+        // Wait for the iframe's control bridge to come up. We can't
+        // rely on a 2nd `load` event after the bootloader's
+        // document.write — `document.open()` from inside an iframe
+        // replaces the document but doesn't fire a fresh `load` on
+        // the iframe *element* (no navigation occurred). Instead the
+        // bridge script (injected by buildAppHtml at the end of the
+        // app HTML) posts `agex-bridge-ready` after `installControlBridge`
+        // returns, which is the real post-parse / scripts-ran signal.
+        //
+        // 10s ceiling distinguishes "iframe boot failed" (which would
+        // otherwise wait for the worker's full 60s emission timeout
+        // with an opaque message) from "app crashed during render" —
+        // the agent sees a focused error pointing at the right thing.
+        const BRIDGE_READY_TIMEOUT_MS = 10000;
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                window.removeEventListener("message", readyListener);
+                reject(new Error(
+                    `test_app: iframe failed to come up within ${BRIDGE_READY_TIMEOUT_MS}ms — ` +
+                    `the bootloader loaded but the app's bridge never posted ready. ` +
+                    `Most likely: a module-eval error in your app's index.js / index.jsx ` +
+                    `(syntax error, failed import). Check the browser console for the underlying error.`,
+                ));
+            }, BRIDGE_READY_TIMEOUT_MS);
+            const readyListener = (event) => {
+                if (event.source !== iframe.contentWindow) return;
+                if (event.origin !== APPS_ORIGIN) return;
+                if (event.data?.type !== "agex-bridge-ready") return;
+                clearTimeout(timeout);
+                window.removeEventListener("message", readyListener);
+                resolve();
+            };
+            window.addEventListener("message", readyListener);
             iframe.src = `${APPS_ORIGIN}/?t=${Date.now()}`;
             document.body.appendChild(iframe);
         });
