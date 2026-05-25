@@ -744,6 +744,17 @@ const AGENT_CONTROL_BRIDGE_SCRIPT = `
 <script type="module">
 ${_iframeBridgeSource}
 installControlBridge(window);
+// Signal the parent that the iframe is past document parse and the
+// control bridge is installed. Used by app-control.js's runTestApp
+// as the post-render readiness signal — the 'load' event on the
+// iframe element doesn't fire after the bootloader's document.write
+// replaces the document, so we need an in-doc signal instead. Module
+// scripts run after the document parses, so by the time this runs
+// the app's other scripts have also had a chance to start.
+window.parent.postMessage(
+    { type: 'agex-bridge-ready' },
+    window.__AGEX_PARENT_ORIGIN || '*'
+);
 <\/script>`;
 
 const CDN_IMPORTS = {
