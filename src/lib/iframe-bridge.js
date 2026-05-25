@@ -51,8 +51,24 @@ async function loadHtmlToImage() {
     // origin sandbox gets a *different* opaque origin than ours and can't
     // be read back cross-origin. html-to-image serializes to an inline
     // SVG foreignObject embedded as a data URI — no iframes involved.
+    //
+    // Loaded from a vendored copy in agex-studio-apps rather than
+    // esm.sh. Two reasons: (1) verification can't depend on a CDN
+    // that's transiently unavailable — agents reach for screenshot
+    // _to diagnose_ failures, so the dependency being available is
+    // load-bearing for the feature; (2) the relative path resolves
+    // against the iframe's apps-origin location (apps.agex.studio
+    // in prod, localhost:5174 in dev) — same-origin, no CORS.
     if (!_htmlToImagePromise) {
-        _htmlToImagePromise = import('https://esm.sh/html-to-image@1.11.11');
+        // Indirect through a local binding so Vite's static analysis
+        // can't resolve the import at build/test time — the path
+        // exists at the apps-origin runtime (apps.agex.studio/
+        // vendor/...), not in the agex-studio repo. Direct string-
+        // literal dynamic imports get walked by `vite:import-
+        // analysis` even with `/* @vite-ignore */`. A variable
+        // reference defeats the walker cleanly.
+        const url = '/vendor/html-to-image.js';
+        _htmlToImagePromise = import(url);
     }
     return _htmlToImagePromise;
 }
