@@ -15,5 +15,6 @@
  * mostly work (CORS-wise OK for postMessage) but is hostile to
  * iteration on the bootloader itself.
  */
-export const APPS_ORIGIN =
-    import.meta.env.VITE_APPS_ORIGIN ?? "https://apps.agex.studio";
+export const APPS_ORIGIN = (
+    import.meta.env.VITE_APPS_ORIGIN ?? "https://apps.agex.studio"
+).replace(/\/$/, "");
