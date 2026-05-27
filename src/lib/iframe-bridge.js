@@ -342,15 +342,17 @@ export function installControlBridge(win) {
     if (win.__agex_bridge_installed) return;
     win.__agex_bridge_installed = true;
     win.addEventListener('message', async (event) => {
+        // Validate sender. The bootloader sets `__AGEX_PARENT_ORIGIN`
+        // to the verified parent origin after the handshake; if it's
+        // set, reject messages from any other origin. Without this,
+        // any page that can post to this window could drive the
+        // bridge's `eval` action. Fallback to `'*'` is only for tests
+        // or local setups where the global isn't installed.
+        const parentOrigin = win.__AGEX_PARENT_ORIGIN;
+        if (parentOrigin && event.origin !== parentOrigin) return;
         const response = await handleControlMessage(win.document, event.data, win);
         if (!response) return;
-        // Target the parent's origin specifically. `event.origin` from
-        // the incoming message is the most reliable source — it's
-        // whatever sent us the control request, presumably the studio
-        // (`https://agex.studio` in prod). The `__AGEX_PARENT_ORIGIN`
-        // global set by the bootloader is the same value; using
-        // `event.origin` here just keeps the bridge self-contained.
-        event.source?.postMessage(response, event.origin || '*');
+        event.source?.postMessage(response, parentOrigin || '*');
     });
 }
 
