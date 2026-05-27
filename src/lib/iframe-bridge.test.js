@@ -489,6 +489,47 @@ describe("installControlBridge", () => {
         await handler({ data: { type: "something-else" }, source });
         expect(source.postMessage).not.toHaveBeenCalled();
     });
+
+    it("rejects messages from origins other than __AGEX_PARENT_ORIGIN", async () => {
+        document.body.innerHTML = '<span id="s">answer</span>';
+        let handler = null;
+        const win = {
+            document,
+            __AGEX_PARENT_ORIGIN: "https://agex.studio",
+            addEventListener: (_type, fn) => { handler = fn; },
+        };
+        installControlBridge(win);
+
+        const source = { postMessage: vi.fn() };
+        await handler({
+            data: { type: "agex-control", id: "r1", action: { read: "#s" } },
+            source,
+            origin: "https://evil.example",
+        });
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("targets __AGEX_PARENT_ORIGIN on outgoing messages when set", async () => {
+        document.body.innerHTML = '<span id="s">answer</span>';
+        let handler = null;
+        const win = {
+            document,
+            __AGEX_PARENT_ORIGIN: "https://agex.studio",
+            addEventListener: (_type, fn) => { handler = fn; },
+        };
+        installControlBridge(win);
+
+        const source = { postMessage: vi.fn() };
+        await handler({
+            data: { type: "agex-control", id: "r1", action: { read: "#s" } },
+            source,
+            origin: "https://agex.studio",
+        });
+        expect(source.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "agex-control-result", id: "r1" }),
+            "https://agex.studio",
+        );
+    });
 });
 
 // -----------------------------------------------------------------------
