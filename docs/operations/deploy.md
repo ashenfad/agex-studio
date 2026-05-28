@@ -19,7 +19,7 @@ git push origin main
     ▼
 GitHub Actions (Pages workflow)
     ▼
-npm install        ← resolves file: specs against vendor/agex-ts
+npm install        ← installs @agex-ts/* from the npm registry
 npm run build      ← vite build → dist/
     ▼
 Pages publishes dist/ to <gh-pages branch / Pages bucket>
@@ -76,8 +76,8 @@ present — the actual check is at runtime.)
 Symptom in deploy: `worker failed during boot` the first time
 the agent tries to emit. Dev works fine.
 
-Why: the vendored `agex-runtime-worker/dist/worker.js` has bare
-imports (`agex-ts/wrap-fs`, sibling chunks). Vite's default
+Why: the `@agex-ts/runtime-worker` package's `dist/worker.js`
+has bare imports (`agex-ts/wrap-fs`, sibling chunks). Vite's default
 behavior in prod is to copy the worker file verbatim into
 `dist/`, leaving the bare imports unresolved (works in dev
 because vite's dev server resolves them on the fly).

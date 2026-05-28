@@ -227,7 +227,8 @@ fast reload. Two pathological modes:
   (Cmd-Shift-R) or "Update on reload" in devtools clears it.
 - **Worker bundle 404 in prod.** The vite worker bundling
   story is fiddly — vite needs `?worker&url` to actually
-  bundle (see commit `536602b` and [vendoring-agex-ts.md](../operations/vendoring-agex-ts.md)).
+  bundle (see commit `536602b` and the "Worker bundling"
+  section in [kernels.md](kernels.md)).
   Symptom: `"worker failed during boot"` in production but
   not in dev. Pre-deploy smoke check is the right defense.
 

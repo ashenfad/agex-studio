@@ -27,7 +27,7 @@ infrastructure, no server.
 │  │  agex-ts interpreter    agex-py + sandtrap   │        │
 │  └──────────┬───────────────────────────────────┘        │
 │             │                                            │
-│             ▼ kvgit-ts (per-session branch)              │
+│             ▼ kvgit (per-session branch, both kernels)   │
 │  ┌──────────────────────────────────────────────┐        │
 │  │  IndexedDB              localStorage         │        │
 │  │  - event log            - API key            │        │
@@ -76,8 +76,6 @@ These shape almost every design decision:
 - `src/lib/ts-event-translator.js`, the agex-ts→shell token
   translation layer. See
   [agent-loop-and-tokens.md](agent-loop-and-tokens.md).
-- `vendor/agex-ts/` — committed-in copies of agex-ts's built
-  dist. See [operations/vendoring-agex-ts.md](../operations/vendoring-agex-ts.md).
 - `src/lib/primers/`, `src/lib/skills/` — markdown content fed
   to the agent at task time. Treated as source-of-truth for
   what the LLM is told about the environment.

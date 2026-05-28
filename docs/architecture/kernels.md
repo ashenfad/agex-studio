@@ -18,7 +18,7 @@ creation), but the UI treats them uniformly.
 | **File I/O** | termish-ts kvgit-fs (`f:` / `d:` keys) | agex-py fs API (same kvgit backend) |
 | **State persistence** | `evt/` + `cache/` + `__subtasks__` keys | `evt/` + `cache.PREFIX/` keys |
 | **Action emissions** | `ts_action`, `terminal_action`, `write_file`, `edit_file` | py action emission |
-| **Cancellation** | `AbortSignal` honored natively by agex-ts | Cooperative flag (`__agex_cancel_<task>`) |
+| **Cancellation** | `AbortSignal` honored natively by agex-ts | Cooperative-flag machinery (`__agex_cancel_chat`) exists in the worker, but the adapter doesn't yet plumb the signal through (`py-kernel-adapter.js:367`) — cancel is TS-only today |
 | **App preview support** | Full (`testApp`, `liveApp`, asset inlining) | Full (older path through worker postMessage) |
 
 ## The KernelAdapter contract

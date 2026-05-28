@@ -722,12 +722,12 @@ export async function createBranch(name, opts = {}) {
     await agent.commit(SESSION);
 }
 
-/** Prefixes the studio considers "agent memory" — wiped by the
- *  fresh-chat fork mode. The VFS file blobs (`f:` / `d:` prefixes
- *  via @agex-ts/termish kvgit-fs) and the session meta keys
- *  (`__session_*__`) are deliberately not in this list — the fresh
- *  fork keeps the workspace and the session identity, just clears
- *  the conversation context. */
+/** Prefixes the studio considers "agent memory" — the keys
+ *  `wipeAgentMemory` tombstones. The VFS file blobs (`f:` / `d:`
+ *  prefixes via @agex-ts/termish kvgit-fs) and the session meta
+ *  keys (`__session_*__`) are deliberately not in this list: a
+ *  memory wipe clears the conversation context while keeping the
+ *  workspace and session identity intact. */
 const AGENT_MEMORY_PREFIXES = ["evt/", "cache/"];
 const AGENT_MEMORY_EXACT_KEYS = ["__event_log__", "__subtasks__"];
 
@@ -746,11 +746,11 @@ export function _isAgentMemoryKey(key) {
  * and the sub-task registry — while leaving the VFS file blobs
  * and session meta intact.
  *
- * Used by the fresh-chat fork mode in `sessions.forkSessionFilesOnly`:
- * branch off the source HEAD (full inherit via kvgit's shared
- * blobs — no bytes copied), then tombstone the conversation-context
- * keys on the new branch. Storage cost stays at zero blob copies;
- * what survives is referenced by the source's commit chain.
+ * Exposed as an adapter primitive (toward a future "soft wipe in
+ * place" feature) — it currently has no caller in the fork path.
+ * The fresh-chat fork (`sessions.forkSessionFreshChat`) instead
+ * squashes: it reads the source's VFS files and rewrites them onto
+ * a fresh empty branch, so there are no agent-memory keys to wipe.
  *
  * Idempotent. No-op when the branch's memory keys are already
  * absent (e.g. fresh branch from initial commit). Switches branches
