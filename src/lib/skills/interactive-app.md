@@ -6,8 +6,8 @@ Write files to `app/` and they appear automatically when
 
 ## Architecture
 
-Your app runs in a sandboxed iframe with a fixed import map and a
-few injected globals. **Don't guess at module names** — only what's
+Your app runs in a cross-origin iframe (`apps.agex.studio` in prod)
+with a fixed import map and a few injected globals. **Don't guess at module names** — only what's
 listed below resolves.
 
 ### Import map (use these specifiers, no build step required)
@@ -34,6 +34,32 @@ Plus these globals (no import needed):
 will fail to resolve.** If you need something else, write it
 inline or check whether it's already covered by the above (e.g.,
 date math via `dayjs` instead of `date-fns`).
+
+## Powerful browser features available
+
+The iframe runs on a separate origin (`apps.agex.studio`) and the
+studio delegates a generous `allow=` list, so your app can reach
+APIs that are normally blocked in third-party iframes. Some prompt
+the user on first use; some just unblock the API silently.
+
+- **microphone** — `navigator.mediaDevices.getUserMedia({ audio: true })`. Tuners, voice apps, pitch detection.
+- **camera** — `navigator.mediaDevices.getUserMedia({ video: true })`. Photo booths, QR readers, color pickers.
+- **geolocation** — `navigator.geolocation.getCurrentPosition()` / `.watchPosition()`. Map-centering, "what's nearby."
+- **motion sensors** — `DeviceOrientationEvent` / `DeviceMotionEvent`. Mobile-only in practice. **iOS Safari quirk:** call `DeviceOrientationEvent.requestPermission()` from inside a user-gesture handler first, otherwise the listener is silently dead.
+- **midi** — `navigator.requestMIDIAccess()`.
+- **fullscreen** — `element.requestFullscreen()`.
+- **screen wake lock** — `navigator.wakeLock.request('screen')`. Keeps the screen on for tuners, timers, music players. **Gotcha:** auto-releases when the tab hides — re-acquire on `visibilitychange` or the lock won't survive a tab switch.
+- **autoplay** — `<audio>` / `<video>` `.play()` works without the usual cross-origin block; useful for playing a captured stream back through a `<video>`.
+- **web share** — `navigator.share({ title, text, url, files })`. Requires a user gesture (button click, not effect).
+- **downloads** — `<a href={blobUrl} download="x.csv">` triggers the browser's save dialog.
+
+Permission state is per-origin and persists per the user's allow/block
+choice. Wrap `getUserMedia` and friends in try/catch — `NotAllowedError`
+means the user said no, and you should surface a "tap to enable" path
+rather than silently failing.
+
+**Not delegated:** `payment`, `clipboard-read`. (`clipboard-write` works
+without explicit grant.)
 
 ## Quick start (no build step required)
 
@@ -490,8 +516,8 @@ Nested paths work too — `app/icons/star.svg` is referenced as
 Don't use this for *agent-generated* data — use `getCacheValue`
 for that. The asset pipeline is for files the agent (or user)
 wrote to the VFS that the iframe needs to display.
-- **`document.write`** — sandboxed iframe rejects it. Use DOM mutation.
-- **`window.parent.location`** — sandboxed; cross-origin guarded.
+- **`document.write`** — wipes the running app. Use DOM mutation.
+- **`window.parent.location`** — cross-origin; reads/writes blocked by the browser.
 
 ## Common patterns
 
