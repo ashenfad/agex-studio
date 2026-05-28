@@ -11,7 +11,7 @@ to the `app/` directory and they appear instantly.
 
 ## Architecture
 
-Your app runs in a sandboxed iframe with:
+Your app runs in a cross-origin iframe (served from `apps.agex.studio` in prod, isolated from the studio host) with:
 - **React** (lightweight Preact-compat under the hood — `import` works) for reactive UI
 - **`esbuild`** terminal command for bundling JSX/TSX/TS source into runnable JS
 - **Plotly.js** for charts (global `Plotly` — auto-injected, no `<script>` tag needed)
@@ -22,11 +22,11 @@ Your app runs in a sandboxed iframe with:
 
 The preview panel appears automatically when `app/index.html` exists.
 
-## Sandbox constraints
+## Embedded-iframe constraints
 
-The iframe runs with `sandbox="allow-scripts"` — agent code can compute and render freely, but a few browser APIs are blocked by the missing sandbox keywords. The console warns *"Ignored call to '<api>()'. The document is sandboxed…"* when this fires.
+Your app is loaded inside a parent page, not driving a top-level tab. A handful of browser behaviors are unavailable or actively unhelpful in that context — work around them.
 
-- **`confirm()` / `alert()` / `prompt()`** — blocked (no `allow-modals`). For destructive actions, use a **two-click confirm**: the button shows its normal label on first click, an "are you sure?" label on second click, with a brief reset timeout so a slow user doesn't accidentally commit.
+- **`confirm()` / `alert()` / `prompt()`** — Chromium blocks these in cross-origin iframes by default ("Ignored call to 'alert()'…"). For destructive actions, use a **two-click confirm**: the button shows its normal label on first click, an "are you sure?" label on second click, with a brief reset timeout so a slow user doesn't accidentally commit.
 
   ```jsx
   function ConfirmButton({ children, onConfirm }) {
@@ -44,9 +44,9 @@ The iframe runs with `sandbox="allow-scripts"` — agent code can compute and re
 
   Or render an inline confirmation row next to the action (`Delete this? [Yes] [Cancel]`). For longer messages, render a real in-app dialog component — anything that's part of the app's own DOM works.
 
-- **`window.open()` / `top.location = …`** — also blocked. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
+- **`window.open()` / `top.location = …`** — cross-origin frame can't navigate the top window. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
 
-  Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the iframe has `allow-forms` so the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe content is loaded from a blob URL with no routes, so a real form submission would unload your app.
+  Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe page has no app routes, so a real form submission would unload your app.
 
 ### Powerful features available to your app
 
@@ -671,11 +671,14 @@ Plotly.react(div, fig.figure.data, fig.figure.layout)
 ```
 
 **Maps:** the tile-fetching map traces (`scatter_mapbox`, `scattermap`,
-`densitymap`, `densitymapbox`, `choropleth_mapbox`) don't render in
-the app preview. The iframe is sandboxed with an opaque origin, and
-tile servers (OSM, Mapbox, etc.) reject requests with `Origin: null`.
-Use `scatter_geo` and `choropleth` instead — they ship with built-in
-country / state / region geometries and don't fetch tiles.
+`densitymap`, `densitymapbox`, `choropleth_mapbox`) used to fail
+because the iframe's opaque origin made tile servers reject the
+request. The iframe now has a real origin (`apps.agex.studio`), so
+OpenStreetMap-backed traces should work. Mapbox-backed traces still
+need a valid access token. If a tile server still rejects (rare CORS
+config, expired tokens), `scatter_geo` and `choropleth` are the
+reliable fallback — they ship with built-in country / state / region
+geometries and don't fetch tiles.
 
 ## Persisting UI State
 
@@ -718,7 +721,7 @@ inside the iframe. Don't reach for them:
   structured or larger data, use the `query()` bridge to Python
   (DataFrames, JSON files under `helpers/`, etc.). Pyodide has a
   real filesystem and can handle anything `localStorage` can't.
-- **Cookies** — blocked by the sandbox.
+- **Cookies** — third-party cookies are blocked by modern browsers in cross-origin iframes; `document.cookie` writes silently no-op. Use `localStorage` instead.
 - **`OPFS`, `Cache API`, `FileSystem Access API`** — none available.
 - **`sessionStorage`** — *does* work, but it's ephemeral: it resets
   every time the iframe reloads. Fine for in-tab state, bad for
@@ -1075,7 +1078,7 @@ Both functions also return the list of result dicts if you need them:
 - Plotly.js, Preact+HTM, marked, DOMPurify, and dayjs are auto-injected — no CDN script tags needed
 - Use `Plotly.react()` for efficient chart updates (not `Plotly.newPlot()`)
 - Files are accessible via the sandbox filesystem
-- The iframe is sandboxed — no access to parent page DOM
+- The iframe is cross-origin to the studio — no access to parent page DOM
 - Use `localStorage` with a compound-name prefix for persistent UI state — it's session-scoped and persists across turns. `indexedDB` is not supported — use `query()` for structured data. See Persisting UI State.
 - `test_app()` tests uncommitted app files in a hidden iframe — use after writing/editing
 - `live_app()` reads from or interacts with the live preview the user sees
