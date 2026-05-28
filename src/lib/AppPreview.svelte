@@ -432,7 +432,7 @@
             <iframe
                 bind:this={iframe}
                 src={appsUrl}
-                allow="autoplay; microphone; camera; geolocation; gyroscope; accelerometer; magnetometer; midi; fullscreen; screen-wake-lock; web-share"
+                allow="autoplay; microphone; camera; geolocation; gyroscope; accelerometer; magnetometer; midi; fullscreen; screen-wake-lock; web-share; clipboard-write"
                 title="App Preview"
                 onload={() => {
                     // Fallback signal in case the app never sends a

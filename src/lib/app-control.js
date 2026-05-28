@@ -411,7 +411,7 @@ export async function runTestApp(opts) {
         iframe.allow =
             "autoplay; microphone; camera; geolocation; gyroscope; " +
             "accelerometer; magnetometer; midi; fullscreen; " +
-            "screen-wake-lock; web-share";
+            "screen-wake-lock; web-share; clipboard-write";
 
         // The bridge listener doubles as the bootloader handshake
         // responder when an initHtml payload is passed in. It posts
