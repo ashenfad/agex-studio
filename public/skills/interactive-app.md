@@ -44,7 +44,8 @@ Your app is loaded inside a parent page, not driving a top-level tab. A handful 
 
   Or render an inline confirmation row next to the action (`Delete this? [Yes] [Cancel]`). For longer messages, render a real in-app dialog component — anything that's part of the app's own DOM works.
 
-- **`window.open()` / `top.location = …`** — cross-origin frame can't navigate the top window. Render "open" or "navigate" actions inside the app instead (modal, drawer, or component state).
+- **`window.open(url)`** — works when called from a user gesture (click handler, etc.); opens a new tab. Use this for "open in GitHub," "view documentation," etc.
+- **`top.location = …` / cross-frame navigation** — gated by browser user-activation policy and generally won't get your app where you want it to go. Render "navigate" actions inside the app instead (modal, drawer, route-style component state).
 
   Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe page has no app routes, so a real form submission would unload your app.
 
@@ -98,6 +99,7 @@ The iframe delegates these features via its `allow=` list. Some trigger a browse
 
 - **web share** — `navigator.share({ title, text, url, files })`. Opens the native OS share sheet (iOS, Android, some desktop). Requires a user gesture — wire to a button click, not an effect. `navigator.canShare()` first if you want to render the button conditionally (desktop browsers without share support won't expose it). No permission prompt — the user picks where to share at the OS level.
 - **downloads** — `<a href={blobUrl} download="filename.csv">` or a programmatic click on the same. The iframe's `allow-downloads` keyword lets these trigger the browser's standard save dialog. Use for "export this data," "save chart as PNG," "download the generated PDF" buttons. The user sees the standard download UX, file lands wherever their browser's default puts it.
+- **clipboard write** — `navigator.clipboard.writeText(text)` from a user gesture. Use for "copy hex code," "copy share link," "export as text" buttons. No prompt — just works (when called from a click handler, per the browser's user-activation requirement).
 
 Permission state is per-origin and persists per the user's allow/block choice. Code defensively:
 
@@ -114,7 +116,7 @@ try {
 }
 ```
 
-Things deliberately **not** delegated: `payment` (no plausible legitimate use in agent apps), `clipboard-read` (privacy boundary — `clipboard-write` works without it). If a user case needs one of these, the studio's iframe `allow=` list can be expanded.
+Things deliberately **not** delegated: `payment` (no plausible legitimate use in agent apps), `clipboard-read` (privacy boundary — could read whatever the user last copied, including secrets). If a user case needs one of these, the studio's iframe `allow=` list can be expanded.
 
 ## Quick Start (recommended: JSX + esbuild)
 

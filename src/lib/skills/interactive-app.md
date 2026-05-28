@@ -52,14 +52,14 @@ the user on first use; some just unblock the API silently.
 - **autoplay** — `<audio>` / `<video>` `.play()` works without the usual cross-origin block; useful for playing a captured stream back through a `<video>`.
 - **web share** — `navigator.share({ title, text, url, files })`. Requires a user gesture (button click, not effect).
 - **downloads** — `<a href={blobUrl} download="x.csv">` triggers the browser's save dialog.
+- **clipboard write** — `navigator.clipboard.writeText(text)`. Call from a click handler (browser user-activation requirement). Use for "copy hex," "copy share link" buttons.
 
 Permission state is per-origin and persists per the user's allow/block
 choice. Wrap `getUserMedia` and friends in try/catch — `NotAllowedError`
 means the user said no, and you should surface a "tap to enable" path
 rather than silently failing.
 
-**Not delegated:** `payment`, `clipboard-read`. (`clipboard-write` works
-without explicit grant.)
+**Not delegated:** `payment`, `clipboard-read` (privacy boundary — would expose whatever the user last copied).
 
 ## Quick start (no build step required)
 
@@ -517,7 +517,7 @@ Don't use this for *agent-generated* data — use `getCacheValue`
 for that. The asset pipeline is for files the agent (or user)
 wrote to the VFS that the iframe needs to display.
 - **`document.write`** — wipes the running app. Use DOM mutation.
-- **`window.parent.location`** — cross-origin; reads/writes blocked by the browser.
+- **`window.parent.location`** — cross-origin; reads blocked outright, writes gated by user activation and won't go where you want. Just don't.
 
 ## Common patterns
 
