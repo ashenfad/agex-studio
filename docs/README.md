@@ -33,9 +33,6 @@ How things work today.
 
 How to run, maintain, and deploy.
 
-- [vendoring-agex-ts.md](operations/vendoring-agex-ts.md) — why
-  `vendor/agex-ts/` exists, how to refresh it from the sibling
-  agex-ts repo, when to remove it.
 - [deploy.md](operations/deploy.md) — GitHub Pages + custom
   domain, the build pipeline, deploy-day smoke checklist.
 

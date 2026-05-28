@@ -4,14 +4,13 @@
      *  Two modes today:
      *    - Full fork (default): clone everything — chat history,
      *      files, state, cache. Today's behavior.
-     *    - Fresh chat, keep files: branch off source HEAD so the
-     *      VFS file blobs are shared via kvgit (zero bytes copied),
-     *      then wipe the agent-memory keys on the new branch.
+     *    - Fresh chat, keep files: squash the source's VFS files
+     *      onto a fresh empty branch — keeps the workspace, drops
+     *      the conversation context (see `forkSessionFreshChat`).
      *
-     *  Py kernel doesn't yet implement `wipeAgentMemory`, so the
-     *  fresh-chat option is disabled when the active session is py.
-     *  The host (SessionDrawer) passes `freshDisabled` to surface
-     *  this.
+     *  `freshDisabled` / `freshDisabledReason` let a host disable
+     *  the fresh option and explain why; not currently passed by
+     *  SessionDrawer (the squash path works on both kernels).
      *
      *  Closes via Escape, clicking the overlay, the X button, or
      *  the Cancel button. Fork button fires onConfirm with the

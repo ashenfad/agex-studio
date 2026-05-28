@@ -16,6 +16,12 @@ over `postMessage`; the bootloader receives the HTML and
 replaces its document with it via `document.open()` /
 `document.write()` / `document.close()`.
 
+The handshake is two messages: the bootloader posts
+`agex-host-ready` once it's loaded and listening, and the
+studio replies with `agex-host-init` carrying the assembled
+HTML. (Waiting for `agex-host-ready` rather than the iframe's
+`load` event is deliberate — see commit `16eae25`.)
+
 The agent's app then runs at `apps.agex.studio`'s origin.
 Cross-origin same-origin policy gives us:
 
@@ -50,9 +56,22 @@ filter requests by `Referer` (Plotly tile providers returned
 nothing). Cross-origin sandboxing via a separate domain
 provides equivalent isolation without any of these issues.
 
-The iframe drops the `sandbox` attribute entirely and uses an
-`allow=` permissions-policy list to delegate features
-(microphone, camera, geolocation, etc.) down to the apps origin.
+The iframe drops the `sandbox` attribute entirely (cross-origin
+separation provides the isolation instead) and uses an `allow=`
+permissions-policy list to delegate browser features down to the
+apps origin. The current list (`AppPreview.svelte:435`,
+`app-control.js`):
+
+```
+autoplay; microphone; camera; geolocation; gyroscope;
+accelerometer; magnetometer; midi; fullscreen;
+screen-wake-lock; web-share; clipboard-write
+```
+
+Each entry was added on demand as agent-built apps needed it
+(media capture, motion-sensor toys, MIDI, fullscreen games,
+wake-lock, share sheets, clipboard) — keep this list in sync
+with the iframe's `allow=` attribute when adding more.
 
 ## `buildAppHtml` pipeline
 
@@ -252,15 +271,22 @@ Parent matches inbound replies by `id`. Multiple in-flight
 actions (e.g., the agent's `liveApp` while their `testApp` is
 also running in a different iframe) are independently routed.
 
-The iframe also pushes some unsolicited messages:
+The iframe also pushes some unsolicited messages (note the
+`agex-`-with-dashes convention, not `__agex_` underscores):
 
-- `__agex_query` — the py kernel's app↔agent query bridge
+- `agex-query` — the py kernel's app↔agent query bridge
   (TS-side currently throws "not yet implemented"; queries route
-  through agex-py's `runQuery`).
-- `__agex_cache_get` — the asset-bridge / `getCacheValue`
-  helper agents reach for to read agent-stashed data.
-- `__agex_app_storage_*` — shim for the per-session iframe
+  through agex-py's `runQuery`). Parent replies with
+  `agex-query-result`.
+- `agex-cache-get` — the asset-bridge / `getCacheValue`
+  helper agents reach for to read agent-stashed data. Parent
+  replies with `agex-cache-get-result`.
+- `agex-app-storage` — shim for the per-session iframe
   localStorage.
+- `agex-bridge-ready` — the iframe's control bridge signals it's
+  installed and ready for `agex-control` messages.
+- `agex-iframe-resource-error` — the iframe reports a failed
+  resource load (e.g. a CDN script 404).
 
 ## Design notes
 
@@ -288,8 +314,9 @@ boundaries.
 
 ### Why `?worker&url` for the agex-runtime-worker import
 
-See [vendoring-agex-ts.md](../operations/vendoring-agex-ts.md)
+See the "Worker bundling" section in [kernels.md](kernels.md)
 and the prod-build comment in `ts-agent.js`. tl;dr: the
-vendored worker file has bare imports vite doesn't resolve
-by default in prod builds; `?worker&url` tells vite to compile
-it as a worker entry point and bundle its imports inline.
+`@agex-ts/runtime-worker` worker file has bare imports vite
+doesn't resolve by default in prod builds; `?worker&url` tells
+vite to compile it as a worker entry point and bundle its
+imports inline.

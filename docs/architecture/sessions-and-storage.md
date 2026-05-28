@@ -83,7 +83,7 @@ When does state become durable on disk?
 | `runQuery` (py app preview bridge) | **no** | writes go to a scratch `Live`, discarded |
 | `testApp` | **no** | writes during the headless test discarded |
 | `liveApp` | reads only | sees last-committed `app/` |
-| Manual chaptering | yes | after `replace_events_with_chapters` |
+| Manual chaptering | yes | after `agent.runChaptering(...)`, in the adapter's `runChaptering` |
 | Cancel mid-turn | yes | the adapter's finally block fires the same commit on both success and cancellation; see "session commit on cancel" below |
 
 The "no" rows are load-bearing. If `runQuery` ever started

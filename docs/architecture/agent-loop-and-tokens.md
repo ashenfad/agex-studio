@@ -149,9 +149,10 @@ checks before each LLM call + after each emission, throws
 
 - Emits a `CancelledEvent` to the EventLog (so the activity
   card shows "Stopped")
-- Re-throws so the adapter's `try` catches it
-- The adapter's `finally` calls `commitSession()`, persisting
-  the cancellation event
+- Re-throws; the adapter wraps the call in `try`/`finally`
+  (no `catch`), so the error propagates past it to the shell
+- On the way out, the adapter's `finally` calls
+  `commitSession()`, persisting the cancellation event
 
 The catch block in `ChatShell.handleSend` distinguishes
 user-cancel from genuine errors via `cancelling || e?.name ===
