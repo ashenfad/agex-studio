@@ -6,6 +6,7 @@ import {
     handleControlMessage,
     installControlBridge,
     sendControl,
+    waitForFrame,
 } from "./iframe-bridge.js";
 
 // html2canvas pulls from a CDN in the real bridge; the screenshot tests
@@ -353,6 +354,54 @@ describe("dispatchAction — screenshot error path", () => {
             level: "error",
         });
         expect(result.message).toMatch(/Screenshot (target not found|failed)/);
+    });
+});
+
+describe("waitForFrame", () => {
+    it("resolves after a double rAF and clears the fallback timer", async () => {
+        const order = [];
+        const win = {
+            // Each rAF call invokes its callback on a microtask — two
+            // nested calls = two "frames".
+            requestAnimationFrame: (cb) => {
+                Promise.resolve().then(cb);
+                return 1;
+            },
+            setTimeout: () => {
+                order.push("timeout-set");
+                return 99;
+            },
+            clearTimeout: (id) => order.push(`cleared-${id}`),
+        };
+        await waitForFrame(win, 100);
+        // Fallback timer was armed then cleared once the frame fired —
+        // i.e. we resolved via rAF, not the timeout.
+        expect(order).toEqual(["timeout-set", "cleared-99"]);
+    });
+
+    it("resolves via the timeout when rAF never fires (backgrounded tab)", async () => {
+        let rafCallbackRan = false;
+        const win = {
+            // Simulates a paused/throttled rAF: callback is stored but
+            // never invoked, so the only path to resolution is the timeout.
+            requestAnimationFrame: (cb) => {
+                void cb;
+                return 1;
+            },
+            setTimeout: (cb) => {
+                Promise.resolve().then(cb);
+                return 7;
+            },
+            clearTimeout: vi.fn(),
+        };
+        // Must not hang — resolves off the timeout path.
+        await waitForFrame(win, 100);
+        expect(rafCallbackRan).toBe(false);
+    });
+
+    it("resolves immediately when requestAnimationFrame is unavailable", async () => {
+        await expect(waitForFrame({}, 100)).resolves.toBeUndefined();
+        await expect(waitForFrame(null, 100)).resolves.toBeUndefined();
     });
 });
 

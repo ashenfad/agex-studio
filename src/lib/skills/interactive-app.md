@@ -352,6 +352,35 @@ Skip when:
   the failure messages are more precise than "looks wrong in this
   screenshot."
 
+#### Canvas / animated apps
+
+`testApp` paints a fresh animation frame right before each
+screenshot, so a `<canvas>` or `requestAnimationFrame`-driven app
+captures its *current* state — you don't need to call your draw()
+manually first.
+
+Two caveats for time-based apps (games, physics, anything whose
+state advances inside a rAF loop):
+
+- If the studio tab is backgrounded mid-test, the browser pauses
+  rAF; the loop stops advancing and the screenshot shows the last
+  painted frame. This is environmental, not a code bug.
+- The frame pump *paints* — it doesn't *advance time*. To drive a
+  time-based sequence deterministically (e.g. march a state machine
+  through its phases), expose a plain `tick(dtSeconds)` on your app
+  that runs one update step, then step it from the test:
+
+  ```ts
+  await testApp([
+    { eval: 'window.engine.tick(0.6)' },   // advance state, no real frames needed
+    { eval: 'window.engine.tick(0.6)' },
+    { screenshot: true },                  // pump + capture the result
+  ])
+  ```
+
+  This sidesteps rAF entirely and makes timing-dependent verification
+  reproducible regardless of tab focus.
+
 ### `assert` actions for one-shot self-verification
 
 When you just want to gate `taskSuccess` on "the app rendered correctly,"

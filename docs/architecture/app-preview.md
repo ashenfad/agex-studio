@@ -215,7 +215,7 @@ document.
 | `{read: '#sel'[, prop]}` | Read `el.textContent` (or `el[prop]`) | `{type: 'read', selector, value}` |
 | `{eval: 'expr'}` | Indirect-eval, auto-await Promises | `{type: 'eval', expr, value}` (value is JSON-encoded) |
 | `{assert: 'expr', message?}` | Eval as truthy/falsy; throws on falsy | `null` on pass; throws on fail |
-| `{screenshot: true \| '#sel'}` | Capture DOM as PNG | `{type: 'screenshot', data}` — bytes emitted as image observation between turns |
+| `{screenshot: true \| '#sel'}` | Capture DOM as PNG (pumps one frame first — see below) | `{type: 'screenshot', data}` — bytes emitted as image observation between turns |
 
 Critical UX detail on `screenshot`: the returned `data` field is
 a sentinel string — the actual base64 has already been emitted as
@@ -224,6 +224,24 @@ context (not this turn). The agent must not call `taskSuccess`
 immediately after a screenshot if they want to reason about its
 contents; they need to commit + wait for the next turn. The
 skill explains this with a worked example.
+
+### Frame pump before capture
+
+`captureScreenshot` (`iframe-bridge.js`) awaits `waitForFrame`
+before serializing — a double-`requestAnimationFrame` so the app's
+own rAF loop paints a fresh frame first. Without it, the capture
+serialized whatever was in the canvas backing store, which is stale
+for a rAF-driven app that hasn't repainted since its last state
+change (agents had to manually `{eval: 'draw()'}` before the
+shot). This handles "paint what's there" automatically.
+
+It does **not** rescue a backgrounded tab: when the studio tab is
+hidden the browser suspends rAF entirely, so `waitForFrame` falls
+through its 100ms timeout and captures the backing store anyway
+(identical to the pre-pump behavior — never worse). And it only
+paints; it can't *advance simulation time* while rAF is paused —
+an app that needs deterministic time-stepping for tests should
+expose its own `tick(dt)` hook and drive it via `{eval}`.
 
 ## Size caps
 

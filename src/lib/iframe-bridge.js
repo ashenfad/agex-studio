@@ -74,6 +74,44 @@ async function loadHtmlToImage() {
 }
 
 /**
+ * Resolve once the next animation frame has painted, or after
+ * `timeoutMs` if rAF never fires. Best-effort frame pump used before
+ * a screenshot so rAF-driven canvases reflect current state without
+ * the agent manually invoking the app's draw().
+ *
+ * Why double-rAF: a single `requestAnimationFrame` callback runs
+ * *before* that frame's paint and shares the frame with the app's own
+ * rAF loop (callbacks fire in registration order). Waiting two frames
+ * guarantees the app's update()/draw() for the first frame has painted
+ * before we serialize.
+ *
+ * Why the timeout fallback: a backgrounded tab pauses rAF entirely
+ * (the browser suspends it to save CPU — see the prior discussion of
+ * `document.hidden` on the cross-origin iframe). With no fallback the
+ * await would hang until iframe teardown. On timeout we resolve and
+ * capture whatever's in the backing store — identical to the pre-pump
+ * behavior, never worse. 100ms comfortably covers two frames even on a
+ * 30fps display (~66ms).
+ *
+ * @param {Window | null | undefined} win
+ * @param {number} [timeoutMs]
+ * @returns {Promise<void>}
+ */
+export function waitForFrame(win, timeoutMs = 100) {
+    const raf = win?.requestAnimationFrame;
+    if (typeof raf !== "function") return Promise.resolve();
+    return new Promise((resolve) => {
+        const t = win.setTimeout(resolve, timeoutMs);
+        raf.call(win, () =>
+            raf.call(win, () => {
+                win.clearTimeout(t);
+                resolve();
+            }),
+        );
+    });
+}
+
+/**
  * Render a DOM target to a base64 PNG.
  *
  * Returns RFC 4648 canonical base64 (no whitespace, correct
@@ -91,6 +129,11 @@ async function captureScreenshot(doc, selector) {
     const { toPng } = await loadHtmlToImage();
     const target = selector ? doc.querySelector(selector) : doc.body;
     if (!target) throw new Error(`Screenshot target not found: ${selector}`);
+
+    // Best-effort: let the app paint a fresh frame before serializing
+    // so rAF-driven canvases reflect current state. No-ops fast when the
+    // tab is backgrounded (rAF paused) — see waitForFrame.
+    await waitForFrame(doc.defaultView || globalThis);
 
     const dataUrl = await toPng(target, { cacheBust: true });
     // Strict prefix match: accept any `data:image/<type>[;params];base64,`
