@@ -49,6 +49,7 @@ const EXPECTED_METHODS = [
     // Query bridge
     "runQuery",
     "getCacheValue",
+    "invokeTask",
     // Token telemetry
     "estimateLogTokens",
     "getTokenHistory",

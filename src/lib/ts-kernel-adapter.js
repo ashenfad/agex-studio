@@ -39,6 +39,7 @@ import {
     readAppBinaries as agentReadAppBinaries,
     wipeAgentMemory as agentWipeAgentMemory,
     getCacheValue as agentGetCacheValue,
+    invokeSubtask as agentInvokeSubtask,
     loadHistory as agentLoadHistory,
     estimateLogTokens as agentEstimateLogTokens,
     getTokenHistory as agentGetTokenHistory,
@@ -309,6 +310,38 @@ export function createTsAdapter() {
                         // surface for callers who want low-level access.
                         if (userOnEvent) await userOnEvent(e);
                     },
+                    onSubtask: (phase, info) => {
+                        if (phase === "end") {
+                            // Tier 1 — land the chip in the turn's final
+                            // events between its action and that action's
+                            // output. onEvent pushes the ActionEvent
+                            // BEFORE dispatch and the OutputEvent AFTER;
+                            // this completion fires DURING dispatch, so
+                            // pushing here yields action → chip → output.
+                            events.push({ type: "subtask", ...info.record });
+                        }
+                        // Tier 2 — stream a live chip token to the shell
+                        // ("running" on start, resolved on end). Already
+                        // shell-shape, so bypass the agex-ts translator.
+                        if (userOnToken) {
+                            userOnToken(
+                                phase === "start"
+                                    ? {
+                                          type: "subtask",
+                                          phase: "start",
+                                          id: info.id,
+                                          name: info.name,
+                                          argsSummary: info.argsSummary,
+                                      }
+                                    : {
+                                          type: "subtask",
+                                          phase: "end",
+                                          id: info.id,
+                                          ...info.record,
+                                      },
+                            );
+                        }
+                    },
                 });
             } finally {
                 await agentCommitSession();
@@ -460,6 +493,11 @@ export function createTsAdapter() {
         async getCacheValue(branch, key) {
             await _ensureBranch(branch);
             return agentGetCacheValue(key);
+        },
+
+        async invokeTask(branch, name, args, signal) {
+            await _ensureBranch(branch);
+            return agentInvokeSubtask(name, args, { signal });
         },
 
         // --- Token telemetry --------------------------------------------
