@@ -719,6 +719,16 @@ _json.dumps(_messages)
             );
         },
 
+        async invokeTask(_branch, _name, _args, _signal) {
+            // Sub-tasks (defineTask / invokeTask) are a TS-kernel feature
+            // for now — they spawn additional agex-ts workerRuntime
+            // sub-agents. The Py kernel has no equivalent host fn yet.
+            throw new Error(
+                "invokeTask is not available on the Py kernel — " +
+                    "sub-tasks are a TypeScript-kernel feature.",
+            );
+        },
+
         // --- Token telemetry --------------------------------------------
 
         async estimateLogTokens(branch) {

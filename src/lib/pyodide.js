@@ -621,6 +621,54 @@ window.getCacheValue = function(key) {
         }, window.__AGEX_PARENT_ORIGIN || '*');
     });
 };
+
+// invokeTask(name, args, opts?) — run a sub-task the agent defined with
+// defineTask(), in its own isolated sub-agent on the host. Returns the
+// sub-task's result. The full LLM round-trip happens host-side; this
+// is just the transport. ALWAYS wrap in try/catch — a sub-task that
+// fails or exhausts its iteration budget rejects here, and an
+// unhandled rejection means the user clicks a button and nothing
+// visibly happens. Pass an opts.signal (AbortSignal) for user-driven
+// cancel (e.g. a "Stop thinking" button); aborting posts a cancel to
+// the host and rejects with an AbortError.
+// NOTE: this whole block is inside a template literal — no backticks.
+window.invokeTask = function(name, args, opts) {
+    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    var signal = opts && opts.signal;
+    return new Promise(function(resolve, reject) {
+        function cleanup() {
+            window.removeEventListener('message', handler);
+            if (signal) signal.removeEventListener('abort', onAbort);
+        }
+        function handler(event) {
+            if (!event.data || event.data.id !== id) return;
+            if (event.data.type === 'agex-invoke-task-result') {
+                cleanup();
+                resolve(event.data.data);
+            } else if (event.data.type === 'agex-invoke-task-error') {
+                cleanup();
+                reject(new Error(event.data.error || 'invokeTask failed'));
+            }
+        }
+        function onAbort() {
+            cleanup();
+            window.parent.postMessage(
+                { type: 'agex-cancel-invoke-task', id: id },
+                window.__AGEX_PARENT_ORIGIN || '*'
+            );
+            reject(new DOMException('Aborted', 'AbortError'));
+        }
+        if (signal && signal.aborted) { onAbort(); return; }
+        window.addEventListener('message', handler);
+        if (signal) signal.addEventListener('abort', onAbort);
+        window.parent.postMessage({
+            type: 'agex-invoke-task',
+            id: id,
+            name: name,
+            args: args === undefined ? null : args,
+        }, window.__AGEX_PARENT_ORIGIN || '*');
+    });
+};
 <\/script>`;
 
 /**

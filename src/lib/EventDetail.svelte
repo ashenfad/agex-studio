@@ -143,6 +143,36 @@
                 {/if}
             </div>
         </div>
+    {:else if evt.type === 'subtask'}
+        <!-- Sub-task invocation chip. One-line summary of a delegated
+             sub-agent call the parent made during this turn. -->
+        <div
+            class="subtask-chip"
+            class:subtask-running={evt.status === 'running'}
+            class:subtask-fail={evt.status === 'fail'}
+            class:subtask-cancelled={evt.status === 'cancelled'}
+        >
+            <span class="subtask-arrow">→</span>
+            <span class="subtask-name">{evt.name}</span><span class="subtask-args"
+                >({evt.argsSummary ?? ''})</span
+            >
+            {#if evt.status === 'running'}
+                <span class="subtask-outcome">running…</span>
+            {:else}
+                <span class="subtask-meta"
+                    >[{evt.iterations ?? 0} iter · {((evt.durationMs ?? 0) / 1000).toFixed(1)}s]</span
+                >
+                {#if evt.status === 'success'}
+                    <span class="subtask-result">→ {evt.resultSummary ?? ''}</span>
+                {:else if evt.status === 'cancelled'}
+                    <span class="subtask-outcome">cancelled</span>
+                {:else}
+                    <span class="subtask-outcome"
+                        >failed{evt.error ? ` — ${evt.error}` : ''}</span
+                    >
+                {/if}
+            {/if}
+        </div>
     {/if}
 {/each}
 
@@ -268,4 +298,39 @@
 
     .output-image { margin-top: 0.25rem; border-radius: 4px; overflow: hidden; }
     .output-image img { max-width: 100%; display: block; border-radius: 4px; }
+
+    /* Sub-task invocation chip — one compact line, distinct from the
+       event cards so a delegation reads as a side-call, not a turn. */
+    .subtask-chip {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.35em;
+        padding: 0.3rem 0.6rem;
+        border-left: 2px solid var(--purple);
+        background: var(--surface);
+        border-radius: 4px;
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.76rem;
+        line-height: 1.4;
+        word-break: break-word;
+    }
+    .subtask-chip.subtask-fail { border-left-color: var(--error); }
+    .subtask-chip.subtask-cancelled { border-left-color: var(--text-muted); opacity: 0.85; }
+    .subtask-chip.subtask-running {
+        border-left-color: var(--accent);
+        animation: subtask-pulse 1.2s ease-in-out infinite;
+    }
+    .subtask-running .subtask-outcome { color: var(--accent); }
+    @keyframes subtask-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+    }
+    .subtask-arrow { color: var(--purple); font-weight: 600; }
+    .subtask-name { font-weight: 600; color: var(--text); }
+    .subtask-args { color: var(--text-muted); }
+    .subtask-meta { color: var(--text-muted); font-size: 0.72rem; }
+    .subtask-result { color: var(--success); }
+    .subtask-fail .subtask-outcome { color: var(--error); }
+    .subtask-cancelled .subtask-outcome { color: var(--text-muted); }
 </style>
