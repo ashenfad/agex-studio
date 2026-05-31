@@ -57,11 +57,22 @@ function matchesType(t, v) {
 
 function deepEqual(a, b) {
     if (a === b) return true;
-    try {
-        return JSON.stringify(a) === JSON.stringify(b);
-    } catch {
-        return false;
+    if (a && b && typeof a === "object" && typeof b === "object") {
+        if (Array.isArray(a) !== Array.isArray(b)) return false;
+        if (Array.isArray(a)) {
+            return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+        }
+        // Order-independent object compare — `enum` values with the same
+        // keys in a different order must still match (JSON.stringify
+        // would treat them as unequal).
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) return false;
+        return keysA.every(
+            (k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]),
+        );
     }
+    return false;
 }
 
 /**

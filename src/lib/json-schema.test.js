@@ -99,6 +99,12 @@ describe("validateAgainstJsonSchema — arrays + enum", () => {
         expect(ok(s, "z")).toBe(false);
     });
 
+    it("compares object enum values order-independently", () => {
+        const s = { enum: [{ x: 1, y: 2 }] };
+        expect(ok(s, { y: 2, x: 1 })).toBe(true); // reordered keys still match
+        expect(ok(s, { x: 1 })).toBe(false);
+    });
+
     it("ignores unknown keywords (permissive)", () => {
         // No `type`, unsupported `minLength` — nothing to enforce → valid.
         expect(ok({ minLength: 3, description: "x" }, "ab")).toBe(true);

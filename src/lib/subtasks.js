@@ -324,62 +324,68 @@ export function createSubtaskManager(deps) {
             fs: { type: "memory" },
             maxIterations,
         });
-        if (registerSubAgentFns) registerSubAgentFns(subAgent);
-        // Output contract. A JSON-Schema `output` becomes a validating
-        // Standard Schema (sub-agent retries on a bad shape) and is also
-        // passed as `outputJsonSchema` so the sub-agent sees the shape
-        // in its prompt. A prose `output` is descriptive only.
-        /** @type {Object} */
-        const taskDef = { description: spec.description };
-        if (typeof spec.output === "string") {
-            taskDef.outputDescription = spec.output;
-        } else if (spec.output && typeof spec.output === "object") {
-            taskDef.output = standardSchemaFromJsonSchema(spec.output);
-            taskDef.outputJsonSchema = spec.output;
-        }
-        const subTask = subAgent.task(taskDef);
-
-        let iterations = 0;
-        const onEvent = (e) => {
-            if (e && e.type === "action") iterations += 1;
-        };
-
-        const startedAt = now();
-        let status = "success";
-        let error;
-        let result;
         try {
-            result = await subTask(argsJson, { signal, onEvent });
-            return result;
-        } catch (e) {
-            status = _classifyFailure(e, signal);
-            error = e && e.message ? e.message : String(e);
-            throw e;
+            if (registerSubAgentFns) registerSubAgentFns(subAgent);
+            // Output contract. A JSON-Schema `output` becomes a validating
+            // Standard Schema (sub-agent retries on a bad shape) and is also
+            // passed as `outputJsonSchema` so the sub-agent sees the shape
+            // in its prompt. A prose `output` is descriptive only.
+            /** @type {Object} */
+            const taskDef = { description: spec.description };
+            if (typeof spec.output === "string") {
+                taskDef.outputDescription = spec.output;
+            } else if (spec.output && typeof spec.output === "object") {
+                taskDef.output = standardSchemaFromJsonSchema(spec.output);
+                taskDef.outputJsonSchema = spec.output;
+            }
+            const subTask = subAgent.task(taskDef);
+
+            let iterations = 0;
+            const onEvent = (e) => {
+                if (e && e.type === "action") iterations += 1;
+            };
+
+            const startedAt = now();
+            let status = "success";
+            let error;
+            let result;
+            try {
+                result = await subTask(argsJson, { signal, onEvent });
+                return result;
+            } catch (e) {
+                status = _classifyFailure(e, signal);
+                error = e && e.message ? e.message : String(e);
+                throw e;
+            } finally {
+                if (record) {
+                    const rec = {
+                        name,
+                        args: _safeClone(args),
+                        argsSummary: summarizeValue(args),
+                        resultSummary:
+                            status === "success" ? summarizeValue(result) : undefined,
+                        status,
+                        error,
+                        iterations,
+                        durationMs: Math.max(0, Math.round(now() - startedAt)),
+                        timestamp: new Date(now()).toISOString(),
+                        agentName: "chat",
+                    };
+                    await _recordInvocation(rec);
+                    // Resolve the live chip with the same record we persisted,
+                    // so the live view and the post-reload view match exactly.
+                    if (onInvocationComplete) onInvocationComplete({ id: liveId, record: rec });
+                }
+            }
         } finally {
+            // Guarantee teardown even if setup (registerSubAgentFns /
+            // subAgent.task) throws before the run begins — otherwise the
+            // worker spawned by createAgent would leak.
             try {
                 await subAgent.dispose();
             } catch {
                 // Best-effort teardown — a failed dispose shouldn't mask
                 // the task result/error the caller actually cares about.
-            }
-            if (record) {
-                const rec = {
-                    name,
-                    args: _safeClone(args),
-                    argsSummary: summarizeValue(args),
-                    resultSummary:
-                        status === "success" ? summarizeValue(result) : undefined,
-                    status,
-                    error,
-                    iterations,
-                    durationMs: Math.max(0, Math.round(now() - startedAt)),
-                    timestamp: new Date(now()).toISOString(),
-                    agentName: "chat",
-                };
-                await _recordInvocation(rec);
-                // Resolve the live chip with the same record we persisted,
-                // so the live view and the post-reload view match exactly.
-                if (onInvocationComplete) onInvocationComplete({ id: liveId, record: rec });
             }
         }
     }
@@ -391,6 +397,13 @@ export function createSubtaskManager(deps) {
      * previous branch's specs.
      */
     async function rehydrate() {
+        // Read first, THEN swap in synchronously. Clearing before the
+        // awaited reads would leave `specs` empty across the await — an
+        // iframe-initiated invokeTask landing in that gap would miss a
+        // defined sub-task. Reading first also means a failed read keeps
+        // the prior registry intact rather than wiping it.
+        const blob = await readState(STATE_KEY_SPECS);
+        const inv = await readState(STATE_KEY_INVOCATIONS);
         specs.clear();
         invocations = [];
         // autoCounter resets per branch — the auto-name loop in
@@ -400,13 +413,11 @@ export function createSubtaskManager(deps) {
         // fires on every load / session-switch / undo / chaptering — so
         // resetting it would let ordinary chat navigation clear the cap.
         autoCounter = 0;
-        const blob = await readState(STATE_KEY_SPECS);
         if (blob && typeof blob === "object") {
             for (const [k, v] of Object.entries(blob)) {
                 if (v && typeof v === "object") specs.set(k, v);
             }
         }
-        const inv = await readState(STATE_KEY_INVOCATIONS);
         if (Array.isArray(inv)) invocations = inv;
     }
 
