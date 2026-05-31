@@ -43,7 +43,9 @@ defineTask({
   primer: string;           // sub-agent's combined system prompt + task framing
   description: string;      // for activity-panel / introspection
   inputs?: string;          // free-form description of input shape
-  output?: string;          // free-form description of return shape
+  output?: string | object; // prose description, OR a JSON Schema
+                            // (plain data — crosses the worker boundary;
+                            // enforced + retried when a schema)
   maxIterations?: number;   // sub-task budget (default 10)
 }): string;                 // returns the name (string handle)
 
@@ -719,6 +721,21 @@ agex-ts EventLog (see Event capture).
   timestamp in `loadHistory` — decoupled from agex-ts, invisible to
   the LLM, undo-for-free. `SystemNoteEvent` is the fallback (Option B)
   if interleave logic proves fiddly, at the cost of LLM-context tokens.
+- **2026-05-30** — tightened output contracts. The chat task now
+  carries a hand-rolled Standard Schema `output:` that accepts a
+  string / primitive / renderable part / array-of-those and rejects a
+  bare domain object with an actionable message (the agent retries
+  instead of the renderer showing `[object Object]`); the normalizer
+  also gained a fallback (flat object → key/value table, else fenced
+  JSON) as defense-in-depth. `defineTask({ output })` accepts a JSON
+  Schema (plain data — it crosses the worker→host boundary, which a
+  Standard Schema's `validate` function cannot); the host wraps it via
+  a minimal JSON-Schema→Standard-Schema adapter (`json-schema.js`,
+  type/properties/required/items/enum) so the sub-agent is validated +
+  retried, and also passes it as `outputJsonSchema` for the prompt.
+  agex-ts validates only Standard Schemas (a JSON schema there is
+  prompt-only), so the validator is hand-rolled either way — no schema
+  lib dependency.
 - **2026-05-30** — chips render **live** during the turn, not only on
   reload. The original v1 surfaced chips solely via `loadHistory` (the
   live UI is driven by the parent task's agex-ts event/token stream,

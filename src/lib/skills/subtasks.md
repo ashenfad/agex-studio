@@ -50,8 +50,25 @@ const pickMove = defineTask({
 - **Always tell it to call `taskSuccess(...)`** with the answer.
   Without that, a sub-agent often logs the result and never returns,
   hanging until it exhausts its iteration budget (default 10).
-- `inputs` / `output` are optional free-form shape notes for the
-  activity panel; the real contract lives in the `primer`.
+- `inputs` (optional): free-form note about the arg shape.
+- `output` (optional): a prose description, **or** a JSON Schema object
+  (`{ type, properties, required, items, enum }`). A JSON Schema is
+  **enforced** — if the sub-agent's `taskSuccess` value doesn't match,
+  it sees the error and retries. Reach for it when you need a reliable
+  structured return:
+
+  ```ts
+  const pickMove = defineTask({
+    name: 'pick-move',
+    primer: 'Play tic-tac-toe as O. Call taskSuccess({ x, y }), each 0|1|2.',
+    description: 'Pick a tic-tac-toe move.',
+    output: {
+      type: 'object',
+      properties: { x: { type: 'integer' }, y: { type: 'integer' } },
+      required: ['x', 'y'],
+    },
+  });
+  ```
 - `maxIterations` (default 10) caps the sub-task's turns. Pure-function
   sub-tasks can drop to 1–2 for fail-fast; research can opt up to a
   larger number, or pass `'inherit'` to reuse your own (chat agent's)

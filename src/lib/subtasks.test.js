@@ -38,6 +38,7 @@ function makeManager(behaviors = {}) {
                     return this;
                 },
                 task(_def) {
+                    this.lastTaskDef = _def;
                     return async (argsJson, callOpts) => {
                         const b = behaviors[cfg.name] || {};
                         const iters = b.iterations ?? 1;
@@ -129,6 +130,27 @@ describe("defineTask", () => {
         await mgr.defineTask({ name: "t", primer: "p", description: "d", maxIterations: 0 });
         expect(state.get(STATE_KEY_SPECS).t.maxIterations).toBeUndefined();
     });
+
+    it("stores a prose output and a JSON-schema output, rejects other types", async () => {
+        const { mgr, state } = makeManager();
+        await mgr.defineTask({
+            name: "prose",
+            primer: "p",
+            description: "d",
+            output: "a { x, y } pair",
+        });
+        const schema = {
+            type: "object",
+            properties: { x: { type: "integer" } },
+            required: ["x"],
+        };
+        await mgr.defineTask({ name: "typed", primer: "p", description: "d", output: schema });
+        expect(state.get(STATE_KEY_SPECS).prose.output).toBe("a { x, y } pair");
+        expect(state.get(STATE_KEY_SPECS).typed.output).toEqual(schema);
+        await expect(
+            mgr.defineTask({ name: "bad", primer: "p", description: "d", output: 42 }),
+        ).rejects.toThrow(/JSON Schema/);
+    });
 });
 
 // --------------------------------------------------------------------------
@@ -158,6 +180,35 @@ describe("invokeTask", () => {
         // Curated fns registered; sub-agent disposed.
         expect(deps.registerSubAgentFns).toHaveBeenCalledTimes(1);
         expect(disposed).toEqual(["pick-move"]);
+    });
+
+    it("wires a JSON-schema output into the sub-agent task (validated + described)", async () => {
+        const { mgr, created } = makeManager({ t: { result: { x: 1 } } });
+        const schema = {
+            type: "object",
+            properties: { x: { type: "integer" } },
+            required: ["x"],
+        };
+        await mgr.defineTask({ name: "t", primer: "p", description: "d", output: schema });
+        await mgr.invokeTask("t", null);
+        const def = created[0].lastTaskDef;
+        // Standard Schema for runtime validation...
+        expect(def.output && def.output["~standard"]).toBeTruthy();
+        // ...and the raw JSON schema for the sub-agent's prompt.
+        expect(def.outputJsonSchema).toEqual(schema);
+        // The wired validator actually rejects a bad shape.
+        expect(def.output["~standard"].validate({ y: 2 }).issues).toBeDefined();
+        expect(def.output["~standard"].validate({ x: 5 }).issues).toBeUndefined();
+    });
+
+    it("wires a prose output as outputDescription (no validation)", async () => {
+        const { mgr, created } = makeManager({ t: { result: 1 } });
+        await mgr.defineTask({ name: "t", primer: "p", description: "d", output: "an integer" });
+        await mgr.invokeTask("t", null);
+        const def = created[0].lastTaskDef;
+        expect(def.outputDescription).toBe("an integer");
+        expect(def.output).toBeUndefined();
+        expect(def.outputJsonSchema).toBeUndefined();
     });
 
     it("honors a per-task maxIterations override", async () => {

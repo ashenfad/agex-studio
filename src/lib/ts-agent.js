@@ -69,7 +69,7 @@ import {
     splitOutputEvents,
     serializeChapterEvents,
 } from "./ts-event-translator.js";
-import { normalizeChatResponse } from "./ts-chat-response.js";
+import { normalizeChatResponse, chatResponseSchema } from "./ts-chat-response.js";
 import {
     createSubtaskManager,
     STATE_KEY_SPECS,
@@ -270,6 +270,11 @@ export async function initAgent(settings) {
     _chatTask = _agent.task({
         description: "Answer the user's chat message.",
         primer: _chatPrimer,
+        // Validate the response shape so a bare domain object (which the
+        // renderer can't display) bounces back to the agent with
+        // guidance instead of rendering as "[object Object]". Accepts a
+        // string, a renderable part, or an array of parts.
+        output: chatResponseSchema,
     });
 
     // App-preview agent.fn registrations. Both call host-resident
@@ -603,7 +608,8 @@ export async function initAgent(settings) {
                 "Signature: `defineTask({ name?, primer, description, inputs?, output?, maxIterations? }): Promise<string>`",
                 "  - `primer` (required): the sub-agent's system prompt + task framing. **Tell it to call `taskSuccess(...)` with the answer**, or it may log and never return.",
                 "  - `description` (required): short summary (for the activity panel).",
-                "  - `inputs` / `output` (optional): free-form descriptions of the arg / return shapes.",
+                "  - `inputs` (optional): free-form description of the arg shape.",
+                "  - `output` (optional): either a prose description, OR a JSON Schema object (`{ type, properties, required, items, enum }`) — a JSON Schema is enforced, so the sub-agent retries if its `taskSuccess` value doesn't match the shape. Prefer the schema when you need a reliable structured return.",
                 "  - `maxIterations` (optional, default 10): sub-task turn budget. A positive number, or `'inherit'` to use the chat agent's own (larger) budget for deeper sub-tasks.",
                 "",
                 "Reach for this only for genuinely judgment-laden work (an `invokeTask` is a full LLM round-trip) — use plain TS for mechanical logic. See the `subtasks` skill for when to delegate and the footguns.",

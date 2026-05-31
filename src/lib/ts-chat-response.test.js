@@ -12,7 +12,11 @@ import { describe, it, expect } from "vitest";
 import {
     normalizePart,
     normalizeChatResponse,
+    chatResponseSchema,
 } from "./ts-chat-response.js";
+
+/** Run the chat-response Standard Schema and return its result. */
+const validate = (v) => chatResponseSchema["~standard"].validate(v);
 
 describe("normalizePart", () => {
     it("translates a bare string to a text part with the value as content", () => {
@@ -77,12 +81,23 @@ describe("normalizePart", () => {
         expect(normalizePart(ambiguous).type).toBe("plotly");
     });
 
-    it("falls back to text for unrecognized objects", () => {
+    it("renders a flat unrecognized object as a key/value table (not [object Object])", () => {
         const out = normalizePart({ foo: "bar", count: 3 });
+        expect(out).toEqual({
+            type: "dataframe",
+            columns: ["field", "value"],
+            rows: [
+                ["foo", "bar"],
+                ["count", "3"],
+            ],
+        });
+    });
+
+    it("renders a nested/deep unrecognized object as a fenced JSON block", () => {
+        const out = normalizePart({ a: { b: 1 }, list: [1, 2] });
         expect(out.type).toBe("text");
-        // Native String() of an object — the renderer at least gets a
-        // visible bubble rather than nothing.
-        expect(typeof out.content).toBe("string");
+        expect(out.content).toContain("```json");
+        expect(out.content).toContain('"b": 1');
     });
 
     it("falls back to text for null and undefined (empty bubble)", () => {
@@ -208,11 +223,11 @@ describe("normalizePart — dashboard primitives", () => {
         });
     });
 
-    it("rejects malformed stat (missing label or value) — falls back to text", () => {
+    it("renders a malformed stat (missing label or value) as a key/value table, not [object Object]", () => {
         const r1 = normalizePart({ type: "stat", value: "v" });
-        expect(r1.type).toBe("text");
+        expect(r1.type).toBe("dataframe");
         const r2 = normalizePart({ type: "stat", label: "L" });
-        expect(r2.type).toBe("text");
+        expect(r2.type).toBe("dataframe");
     });
 
     it("translates a callout with default info tone", () => {
@@ -310,5 +325,65 @@ describe("normalizePart — dashboard primitives", () => {
             "plotly",
             "callout",
         ]);
+    });
+});
+
+describe("chatResponseSchema (output validation)", () => {
+    it("accepts a bare string", () => {
+        expect(validate("hello")).toEqual({ value: "hello" });
+    });
+
+    it("accepts primitives and null/undefined", () => {
+        for (const v of [42, true, null, undefined]) {
+            expect(validate(v).issues).toBeUndefined();
+        }
+    });
+
+    it("accepts each renderable part shape", () => {
+        const parts = [
+            { data: [{}], layout: {} }, // plotly
+            { columns: ["a"], rows: [[1]] }, // dataframe
+            { type: "stat", label: "L", value: 1 },
+            { type: "callout", title: "T", body: "B" },
+            { type: "cards", items: [] },
+        ];
+        for (const p of parts) {
+            expect(validate(p).issues, JSON.stringify(p)).toBeUndefined();
+        }
+    });
+
+    it("accepts an array mixing strings and parts", () => {
+        const r = validate(["Header", { columns: ["x"], rows: [[1]] }, "footer"]);
+        expect(r.issues).toBeUndefined();
+        expect(r.value).toBeDefined();
+    });
+
+    it("rejects a bare domain object with an actionable message", () => {
+        // The reported bug: agent returned this and we showed [object Object].
+        const r = validate({
+            prime: "3478234824359",
+            isLarger: true,
+            isPrime: true,
+            verificationMethod: "Trial division up to sqrt(N)",
+        });
+        expect(r.issues).toBeDefined();
+        expect(r.issues).toHaveLength(1);
+        const msg = r.issues[0].message;
+        expect(msg).toContain("no renderable shape");
+        // Names the offending keys and points at the table escape hatch.
+        expect(msg).toContain("prime");
+        expect(msg).toContain("{ columns, rows }");
+    });
+
+    it("rejects a bad object inside an array, with the array index in the path", () => {
+        const r = validate(["ok text", { mystery: 1 }]);
+        expect(r.issues).toHaveLength(1);
+        expect(r.issues[0].path).toEqual([1]);
+    });
+
+    it("rejects nested arrays as parts", () => {
+        const r = validate([["a", "b"]]);
+        expect(r.issues).toHaveLength(1);
+        expect(r.issues[0].message).toContain("Nested arrays");
     });
 });
