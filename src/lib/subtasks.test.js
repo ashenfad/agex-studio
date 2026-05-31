@@ -20,7 +20,7 @@ import {
  * `behaviors[name]` shapes how a sub-task resolves:
  *   { result, throw, iterations }
  */
-function makeManager(behaviors = {}) {
+function makeManager(behaviors = {}, depsOverride = {}) {
     const state = new Map();
     const disposed = [];
     const created = [];
@@ -77,6 +77,7 @@ function makeManager(behaviors = {}) {
         },
     };
 
+    Object.assign(deps, depsOverride);
     const mgr = createSubtaskManager(deps);
     return { mgr, deps, state, disposed, created };
 }
@@ -322,6 +323,23 @@ describe("invokeTask", () => {
         ac.abort();
         await expect(mgr.invokeTask("t", {}, { signal: ac.signal })).rejects.toThrow();
         expect(state.get(STATE_KEY_INVOCATIONS)[0].status).toBe("cancelled");
+    });
+
+    it("disposes the sub-agent even if setup throws before the run", async () => {
+        // registerSubAgentFns / subAgent.task run after createAgent has
+        // spawned the worker; if they throw, the worker must still be
+        // torn down (no leak).
+        const { mgr, disposed } = makeManager(
+            { t: { result: 1 } },
+            {
+                registerSubAgentFns: () => {
+                    throw new Error("setup boom");
+                },
+            },
+        );
+        await mgr.defineTask({ name: "t", primer: "p", description: "d" });
+        await expect(mgr.invokeTask("t", null)).rejects.toThrow("setup boom");
+        expect(disposed).toEqual(["t"]);
     });
 
     it("rejects non-JSON-serializable args before spawning", async () => {
