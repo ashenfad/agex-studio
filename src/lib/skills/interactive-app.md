@@ -267,12 +267,28 @@ const r = await testApp([
 const [img1, img2, img3] = r[0].value
 ```
 
-Action shapes are documented in `testApp`'s description — flat array
-of plain objects, NOT a Playwright callback. Keep the result reads
-narrow (`querySelector` + textContent / getAttribute) so you don't
-return giant blobs. (DOM nodes / functions / circular refs are
-replaced with descriptive strings on the way back — don't try to
-return an `Element` and click it from the agent side.)
+The `actions` argument (shared by `testApp` and `liveApp`) is a **flat
+array of plain objects** — NOT a Playwright/Puppeteer callback API,
+there is no `page`. Each entry is one of:
+
+- `{ click: '#sel' }` — click an element
+- `{ type: '#sel', value: 'text' }` — set an input's value
+- `{ select: '#sel', value: 'opt' }` — pick a `<select>` option
+- `{ wait: 500 }` — wait N milliseconds
+- `{ read: '#sel' }` or `{ read: '#sel', prop: 'value' }` — read `textContent` (or a property)
+- `{ eval: '<expr>' }` — evaluate a JS expression in the iframe and capture the result (awaits Promises — see above)
+- `{ assert: '<expr>', message?: '...' }` — truthy/falsy gate; a failing assert throws from `testApp` (see the assert section below)
+- `{ screenshot: true }` or `{ screenshot: '#sel' }` — capture a PNG (see the screenshot section below)
+
+All values must be JSON-serializable (functions/closures fail with
+`DataCloneError` — use `eval` for in-iframe JS). Results return as a
+flat array mixing `{ type: 'log', level, message }` and per-action
+entries — `{ type: 'eval', expr, value }`, `{ type: 'read', selector,
+value }`, `{ type: 'screenshot', data }`; eval/read carry the result on
+`value`. Keep result reads narrow (`querySelector` + textContent /
+getAttribute) so you don't return giant blobs — DOM nodes / functions /
+circular refs come back as descriptive strings, so don't try to return
+an `Element` and click it from the agent side.
 
 `testApp` runs against a hidden iframe of your **uncommitted** app
 files, so you can verify changes within the same turn before

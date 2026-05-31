@@ -39,6 +39,7 @@ import { workerRuntime } from "@agex-ts/runtime-worker";
 // the runtime tries to execute an emission. Dev never trips this
 // because vite's dev server resolves bare specifiers on the fly.
 import _agexWorkerUrl from "@agex-ts/runtime-worker/worker?worker&url";
+import _chatAgentPrimer from "./primers/ts-chat-agent.md?raw";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
@@ -197,7 +198,12 @@ export async function initAgent(settings) {
     });
     _agent = await createAgent({
         name: "chat",
-        primer: "You are a helpful assistant.",
+        // Agent-level primer (system message, built once + cached): the
+        // evergreen studio environment and "active" capabilities (rich
+        // responses / dashboards). Per-task output contract lives on the
+        // task instead (see `_chatTask`), so it's scoped to this task
+        // and not the agent. See primers/ts-chat-agent.md.
+        primer: _chatAgentPrimer,
         llm,
         runtime,
         state: { type: "versioned", storage: "indexeddb" },
@@ -262,11 +268,14 @@ export async function initAgent(settings) {
     // studio skills (they bake what they need into their own primer).
     _agent.skill(_subtasksSkill, { name: "subtasks" });
 
-    // Chat task — `string | array | object`. Rich multi-part responses
-    // are normalized at the adapter boundary (see `ts-chat-response.js`)
-    // so the chat shell renders text / tables / Plotly charts inline.
-    // The primer markdown lives alongside this file under primers/ and
-    // is inlined at build time via vite's ?raw loader.
+    // Chat task. The per-task primer carries ONLY the output contract
+    // (the renderer's part-shape table) — it's task-scoped and repeats
+    // in each task-start, so it's kept tight; the evergreen environment
+    // and rich-response guidance live in the agent primer (system
+    // message, built once + cached). The freeform return is normalized
+    // at the adapter boundary (see `ts-chat-response.js`) so the chat
+    // shell renders text / tables / Plotly charts inline. Both primers
+    // are inlined at build time via vite's ?raw loader.
     _chatTask = _agent.task({
         description: "Answer the user's chat message.",
         primer: _chatPrimer,
@@ -368,28 +377,10 @@ export async function initAgent(settings) {
             name: "testApp",
             wantsContext: true,
             description: [
-                "(Pre-registered global — call directly with `await testApp(...)`, no import needed.)",
-                "Build a hidden iframe from the agent's app/ files, run optional UI actions, return console + action results.",
-                "Use to verify uncommitted app changes before taskSuccess.",
-                "",
-                "Signature: `testApp(actions?: Array<ActionDict>, fresh?: boolean): Promise<Array<ResultDict>>`",
-                "",
-                "NOT a Playwright/Puppeteer callback API — there is no `page` object. `actions` is a flat array of plain objects, each one of:",
-                "  - `{ click: '#sel' }` — click an element",
-                "  - `{ type: '#sel', value: 'text' }` — type into an input",
-                "  - `{ select: '#sel', value: 'opt' }` — select an option",
-                "  - `{ wait: 500 }` — wait N milliseconds",
-                "  - `{ read: '#sel' }` — read element textContent",
-                "  - `{ read: '#sel', prop: 'value' }` — read an element property",
-                "  - `{ eval: 'document.querySelectorAll(\"li\").length' }` — evaluate a JS expression in the iframe, capture the result",
-                "  - `{ assert: 'document.querySelector(\"#chart\")', message: 'chart rendered' }` — evaluate a JS expression as truthy/falsy. Passes are silent (no result entry); a failing assertion throws from `testApp`, which surfaces to your code as a thrown error and to the next agent turn as a recoverable error you can read and self-correct. Use this to gate `taskSuccess` on app correctness — just write the assertion and call `taskSuccess` next; if the assertion fails the throw bypasses success automatically.",
-                "  - `{ screenshot: true }` (full document) or `{ screenshot: '#sel' }` (specific element) — capture a base64 PNG. A fresh animation frame is painted before capture, so a `<canvas>`/rAF-driven app renders its current state without you manually calling its draw(). (Exception: if the studio tab is backgrounded the browser pauses rAF — the shot then reflects the last painted frame. To deterministically advance time-based state for a test, expose a `tick(dt)` hook in your app and drive it via `{ eval }` before the screenshot.) **The image is auto-shipped to your next-turn observation** — no manual handling needed; just include the action and the rendered image appears in your context. Returned result entry's `data` is a sentinel; the actual base64 has already been emitted as an image observation.",
-                "",
-                "All values must be JSON-serializable — functions / closures will fail with DataCloneError. Use `eval` / `assert` actions for in-iframe JS.",
-                "",
-                "`fresh=true` skips seeding the iframe's app-storage from the persisted session (useful when iterating on first-load behavior).",
-                "",
-                "Returns an array mixing console logs (`{type: 'log', level, message}`) and action results — `{type: 'eval', expr, value}`, `{type: 'read', selector, value}`, `{type: 'screenshot', data}`. Note: eval/read results carry the result on `value`, not `data`; screenshot's `data` is the post-emit sentinel.",
+                "(Pre-registered global — `await testApp(...)`, no import needed.)",
+                "Build a hidden iframe from your uncommitted app/ files, run optional UI actions, and return console + action results. Use to verify app changes before taskSuccess; screenshots auto-ship to your next-turn observation.",
+                "Signature: `testApp(actions?: ActionDict[], fresh?: boolean): Promise<ResultDict[]>` (`fresh=true` skips seeding persisted app-storage).",
+                "Action shapes (click / type / read / eval / assert / screenshot), screenshot timing, and the act→observe rule are in the interactive-app skill — `cat /skills/interactive-app/SKILL.md` before building.",
             ].join("\n"),
         },
     );
@@ -410,13 +401,9 @@ export async function initAgent(settings) {
             name: "liveApp",
             wantsContext: true,
             description: [
-                "(Pre-registered global — call directly with `await liveApp(...)`, no import needed.)",
-                "Interact with the live app preview the user sees (the LAST COMMITTED app/ files — uncommitted changes won't appear until taskSuccess).",
-                "Use to read user-entered state, click UI elements, inspect DOM, etc. Use `testApp` instead to verify changes you've made this turn.",
-                "",
-                "Signature: `liveApp(actions?: Array<ActionDict>): Promise<Array<ResultDict>>`",
-                "",
-                "Same `actions` shape as `testApp` — flat array of `{click}` / `{type}` / `{read}` / `{eval}` / `{screenshot}` / etc. plain objects, all values JSON-serializable. Screenshots auto-flow as image observations to your next turn (no manual handling). NOT a Playwright/Puppeteer callback API.",
+                "(Pre-registered global — `await liveApp(...)`, no import needed.)",
+                "Interact with the LIVE preview the user sees (the last COMMITTED app/ files — uncommitted changes won't appear until taskSuccess). Use to read user-entered state or drive the running app; use `testApp` to verify changes made this turn.",
+                "Signature: `liveApp(actions?: ActionDict[]): Promise<ResultDict[]>` — same `actions` shape as `testApp` (see the interactive-app skill).",
             ].join("\n"),
         },
     );
@@ -435,22 +422,10 @@ export async function initAgent(settings) {
     _agent.fn(runSearchHelper, {
         name: "search",
         description: [
-            "(Pre-registered global — call directly with `await search(query)`, no import needed.)",
-            "Web search via perplexity. Returns a text summary with cited source URLs inline.",
-            "",
-            "Signature: `search(query: string, deep?: boolean): Promise<string>`",
-            "  - `query`: the question or search terms.",
-            "  - `deep`: when `true`, uses the multi-step `sonar-pro-search` model for complex research; default is the single-shot `sonar`.",
-            "",
-            "**Run several in parallel with `Promise.all`** when you need to gather distinct topics — each search is an independent HTTP fetch and the runtime dispatches them concurrently:",
-            "  ```ts",
-            "  const [a, b, c] = await Promise.all([",
-            "    search('topic A'),",
-            "    search('topic B'),",
-            "    search('topic C'),",
-            "  ]);",
-            "  ```",
-            "Sequential `await search(...); await search(...); ...` works but is slower by exactly the search latency × N.",
+            "(Pre-registered global — `await search(query)`, no import needed.)",
+            "Web search via perplexity; returns a text summary with cited source URLs.",
+            "Signature: `search(query: string, deep?: boolean): Promise<string>` — `deep: true` uses the multi-step research model (slower, for complex questions); default is single-shot.",
+            "Gather distinct topics concurrently with `Promise.all([search(a), search(b), ...])` — each is an independent fetch.",
         ].join("\n"),
     });
 
@@ -468,19 +443,9 @@ export async function initAgent(settings) {
         {
             name: "renderPdf",
             description: [
-                "(Pre-registered global — call directly with `await renderPdf(bytes)`, no import needed.)",
-                "Render PDF pages to PNG images.",
-                "",
-                "Signature: `renderPdf(bytes: Uint8Array, pages?: number[] | null, scale?: number): Promise<Uint8Array[]>`",
-                "  - `bytes`: PDF file bytes — typically `await fs.read('doc.pdf')`.",
-                "  - `pages`: 0-based page indices to render. `null` (default) renders the first 20 pages.",
-                "  - `scale`: pdf.js viewport scale factor (default `2` ≈ 144 DPI). Higher = sharper but larger.",
-                "",
-                "Returns one PNG `Uint8Array` per requested page, in the order you asked for them. Out-of-range page indices yield empty `Uint8Array` slots — check `.length` before using.",
-                "",
-                "**To view a page as an image**: `console.log(pages[0])` — agex-ts detects PNG magic bytes on `Uint8Array`s and routes through the image-observation pipeline so you can reason over the page contents.",
-                "",
-                "**To embed in the chat response**: return via `taskSuccess([\"Here's page 3:\", pages[0]])` — PNG `Uint8Array`s render as inline images in rich responses.",
+                "(Pre-registered global — `await renderPdf(bytes)`, no import needed.)",
+                "Render PDF pages to PNG images. Signature: `renderPdf(bytes: Uint8Array, pages?: number[] | null, scale?: number): Promise<Uint8Array[]>` — `bytes` from `fs.read('doc.pdf')`; `pages` null = first 20 (0-based indices otherwise); `scale` default 2.",
+                "`console.log(page)` to view a page as an image observation; return via `taskSuccess(['caption', page])` to embed it in the chat response.",
             ].join("\n"),
         },
     );
@@ -492,13 +457,8 @@ export async function initAgent(settings) {
         {
             name: "pdfPageCount",
             description: [
-                "(Pre-registered global — call directly with `await pdfPageCount(bytes)`, no import needed.)",
-                "Return the number of pages in a PDF.",
-                "",
-                "Signature: `pdfPageCount(bytes: Uint8Array): Promise<number>`",
-                "  - `bytes`: PDF file bytes — typically `await fs.read('doc.pdf')`.",
-                "",
-                "Use before `renderPdf` when you need to know how many pages exist (e.g. to render the last page, or to pick a stride through a long doc).",
+                "(Pre-registered global — `await pdfPageCount(bytes)`, no import needed.)",
+                "Number of pages in a PDF. Signature: `pdfPageCount(bytes: Uint8Array): Promise<number>` — `bytes` from `fs.read('doc.pdf')`. Use before renderPdf to size or stride through long docs.",
             ].join("\n"),
         },
     );
@@ -602,17 +562,10 @@ export async function initAgent(settings) {
         {
             name: "defineTask",
             description: [
-                "(Pre-registered global — call directly with `await defineTask({...})`, no import needed.)",
-                "Register a named sub-task: a focused, LLM-powered function that runs in its own isolated sub-agent. Returns the name as a string handle for `invokeTask`.",
-                "",
-                "Signature: `defineTask({ name?, primer, description, inputs?, output?, maxIterations? }): Promise<string>`",
-                "  - `primer` (required): the sub-agent's system prompt + task framing. **Tell it to call `taskSuccess(...)` with the answer**, or it may log and never return.",
-                "  - `description` (required): short summary (for the activity panel).",
-                "  - `inputs` (optional): free-form description of the arg shape.",
-                "  - `output` (optional): either a prose description, OR a JSON Schema object (`{ type, properties, required, items, enum }`) — a JSON Schema is enforced, so the sub-agent retries if its `taskSuccess` value doesn't match the shape. Prefer the schema when you need a reliable structured return.",
-                "  - `maxIterations` (optional, default 10): sub-task turn budget. A positive number, or `'inherit'` to use the chat agent's own (larger) budget for deeper sub-tasks.",
-                "",
-                "Reach for this only for genuinely judgment-laden work (an `invokeTask` is a full LLM round-trip) — use plain TS for mechanical logic. See the `subtasks` skill for when to delegate and the footguns.",
+                "(Pre-registered global — `await defineTask({...})`, no import needed.)",
+                "Register a named sub-task — a focused, LLM-powered function that runs in its own isolated sub-agent. Returns the name (a string handle) for `invokeTask`.",
+                "Signature: `defineTask({ name?, primer, description, inputs?, output?, maxIterations? }): Promise<string>` — `primer` (required) is the sub-agent's system prompt + task framing (tell it to call taskSuccess); `output` can be a JSON Schema (enforced); `maxIterations` accepts a number or `'inherit'`. Reserve for judgment-laden work, not mechanical logic.",
+                "See the subtasks skill (`cat /skills/subtasks/SKILL.md`) for when to delegate, the options, and footguns.",
             ].join("\n"),
         },
     );
@@ -635,22 +588,10 @@ export async function initAgent(settings) {
             name: "invokeTask",
             wantsContext: true,
             description: [
-                "(Pre-registered global — call directly with `await invokeTask(...)`, no import needed.)",
-                "Run a sub-task defined with `defineTask`. Spawns a fresh isolated sub-agent, runs it once, returns its result.",
-                "",
-                "Signature: `invokeTask(name: string, args: unknown): Promise<unknown>`",
-                "  - `name`: the handle returned by `defineTask`.",
-                "  - `args`: JSON-serializable input — stringified into the sub-task's prompt, so trim large payloads.",
-                "",
-                "**Fan out with `Promise.all`** — each call runs on its own worker thread, so wall-clock is `max`, not `sum`:",
-                "  ```ts",
-                "  const [a, b, c] = await Promise.all([",
-                "    invokeTask(angleA, topic),",
-                "    invokeTask(angleB, topic),",
-                "    invokeTask(angleC, topic),",
-                "  ]);",
-                "  ```",
-                "Throws if the sub-task fails or exhausts its iteration budget — wrap in try/catch if you want to fall back.",
+                "(Pre-registered global — `await invokeTask(...)`, no import needed.)",
+                "Run a sub-task defined with `defineTask` — spawns a fresh isolated sub-agent, runs it once, returns its result (throws on failure / budget exhaustion, so try/catch if you want a fallback).",
+                "Signature: `invokeTask(name: string, args: unknown): Promise<unknown>` — `args` is JSON-serialized into the sub-task's prompt (trim large payloads).",
+                "Fan out with `Promise.all([invokeTask(a, x), invokeTask(b, x), ...])` — each runs on its own worker thread, so wall-clock is max, not sum. See the subtasks skill.",
             ].join("\n"),
         },
     );
