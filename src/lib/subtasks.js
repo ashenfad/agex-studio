@@ -55,6 +55,8 @@ const MAX_INVOCATION_RECORDS = 200;
  *  user drives those directly via chat. */
 const IFRAME_INVOCATION_CAP = 200;
 
+import { standardSchemaFromJsonSchema } from "./json-schema.js";
+
 /** Cap a value's chip summary so a big args/result payload can't blow
  *  out the activity panel. Returns a short single-line string. */
 export function summarizeValue(value, max = 80) {
@@ -206,13 +208,34 @@ export function createSubtaskManager(deps) {
         } else {
             maxIterations = undefined;
         }
+        // `output` is either a prose description (string) or a JSON
+        // Schema (plain object) — both are plain data, so they survive
+        // the worker→host structured-clone. A JSON Schema is validated
+        // at runtime (the sub-agent retries on mismatch); prose is
+        // shown to the sub-agent but not enforced.
+        let output;
+        if (spec.output !== undefined) {
+            if (typeof spec.output === "string") {
+                output = spec.output;
+            } else if (
+                spec.output &&
+                typeof spec.output === "object" &&
+                !Array.isArray(spec.output)
+            ) {
+                output = spec.output;
+            } else {
+                throw new Error(
+                    "defineTask: `output` must be a prose string or a JSON Schema object.",
+                );
+            }
+        }
         /** @type {Object} */
         const stored = {
             primer: spec.primer,
             description: spec.description,
         };
         if (typeof spec.inputs === "string") stored.inputs = spec.inputs;
-        if (typeof spec.output === "string") stored.output = spec.output;
+        if (output !== undefined) stored.output = output;
         if (maxIterations !== undefined) stored.maxIterations = maxIterations;
         specs.set(name, stored);
         await _persistSpecs();
@@ -302,7 +325,19 @@ export function createSubtaskManager(deps) {
             maxIterations,
         });
         if (registerSubAgentFns) registerSubAgentFns(subAgent);
-        const subTask = subAgent.task({ description: spec.description });
+        // Output contract. A JSON-Schema `output` becomes a validating
+        // Standard Schema (sub-agent retries on a bad shape) and is also
+        // passed as `outputJsonSchema` so the sub-agent sees the shape
+        // in its prompt. A prose `output` is descriptive only.
+        /** @type {Object} */
+        const taskDef = { description: spec.description };
+        if (typeof spec.output === "string") {
+            taskDef.outputDescription = spec.output;
+        } else if (spec.output && typeof spec.output === "object") {
+            taskDef.output = standardSchemaFromJsonSchema(spec.output);
+            taskDef.outputJsonSchema = spec.output;
+        }
+        const subTask = subAgent.task(taskDef);
 
         let iterations = 0;
         const onEvent = (e) => {

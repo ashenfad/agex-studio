@@ -49,20 +49,60 @@
  * @param {unknown} p - one element from the agent's response
  * @returns {object} a `{ type, ... }` part dict the renderer consumes
  */
+// Shape predicates — the single source of truth for "what is a
+// renderable part." Shared by `normalizePart` (which maps a match to
+// the renderer dict) and `chatResponseSchema` (which validates that a
+// part matches one of them). Keep these in lock-step: anything the
+// schema accepts, the normalizer must render, and vice versa.
+const isStat = (o) =>
+    o.type === "stat" && typeof o.label === "string" && o.value !== undefined;
+const isCallout = (o) =>
+    o.type === "callout" &&
+    (typeof o.title === "string" || typeof o.body === "string");
+const isCards = (o) => o.type === "cards" && Array.isArray(o.items);
+const isPlotly = (o) =>
+    Array.isArray(o.data) && o.layout != null && typeof o.layout === "object";
+const isDataframe = (o) => Array.isArray(o.columns) && Array.isArray(o.rows);
+
+/** Render an unrecognized object as readable data rather than the
+ *  `String(obj)` → "[object Object]" trap. A flat object of primitives
+ *  becomes a key/value table; anything deeper becomes a fenced JSON
+ *  block. This is defense-in-depth — the chat task's output schema
+ *  rejects such objects up front, but historical events, the Py path,
+ *  and viewer mode all flow through here too. */
+function objectFallbackPart(o) {
+    const entries = Object.entries(o);
+    const allFlat =
+        entries.length > 0 &&
+        entries.every(
+            ([, v]) =>
+                v === null || ["string", "number", "boolean"].includes(typeof v),
+        );
+    if (allFlat) {
+        return {
+            type: "dataframe",
+            columns: ["field", "value"],
+            rows: entries.map(([k, v]) => [k, v === null ? "null" : String(v)]),
+        };
+    }
+    try {
+        return {
+            type: "text",
+            content: "```json\n" + JSON.stringify(o, null, 2) + "\n```",
+        };
+    } catch {
+        return { type: "text", content: String(o) };
+    }
+}
+
 export function normalizePart(p) {
     if (typeof p === "string") {
         return { type: "text", content: p };
     }
-    if (p && typeof p === "object") {
+    if (p && typeof p === "object" && !Array.isArray(p)) {
         const o = /** @type {Record<string, unknown>} */ (p);
         // Tagged dashboard primitives — stat / callout / cards row.
-        // These use explicit `type` fields rather than shape-sniffing
-        // since the structures are too generic to detect reliably.
-        if (
-            o.type === "stat" &&
-            typeof o.label === "string" &&
-            o.value !== undefined
-        ) {
+        if (isStat(o)) {
             return {
                 type: "stat",
                 label: o.label,
@@ -72,10 +112,7 @@ export function normalizePart(p) {
                     : {}),
             };
         }
-        if (
-            o.type === "callout" &&
-            (typeof o.title === "string" || typeof o.body === "string")
-        ) {
+        if (isCallout(o)) {
             const tone =
                 o.tone === "success" || o.tone === "warning" ? o.tone : "info";
             return {
@@ -85,7 +122,7 @@ export function normalizePart(p) {
                 tone,
             };
         }
-        if (o.type === "cards" && Array.isArray(o.items)) {
+        if (isCards(o)) {
             // Recursively normalize items, but only keep stat/callout
             // entries — a row of cards holding text/charts/tables
             // would be visually weird and isn't the intended use.
@@ -95,18 +132,21 @@ export function normalizePart(p) {
             return { type: "cards", items };
         }
         // Plotly figure: { data: [...], layout: {...} }
-        if (Array.isArray(o.data) && o.layout && typeof o.layout === "object") {
+        if (isPlotly(o)) {
             return { type: "plotly", figure: o };
         }
         // Tabular: { columns: [...], rows: [...] }
-        if (Array.isArray(o.columns) && Array.isArray(o.rows)) {
+        if (isDataframe(o)) {
             return {
                 type: "dataframe",
                 columns: o.columns,
                 rows: o.rows,
             };
         }
+        // Unrecognized object — render its data, never "[object Object]".
+        return objectFallbackPart(o);
     }
+    // Primitives (number / boolean) and null/undefined → text.
     return { type: "text", content: String(p ?? "") };
 }
 
@@ -144,3 +184,71 @@ export function normalizeChatResponse(value) {
         parts: [normalizePart(value)],
     };
 }
+
+/**
+ * Validate one element of a chat response. Pushes an actionable issue
+ * (not a bare "invalid") when an object matches no renderable shape —
+ * agex-ts surfaces these to the agent, which then retries with a
+ * proper shape instead of us silently rendering garbage.
+ */
+function validateChatPart(p, path, issues) {
+    if (p === null || p === undefined) return; // empty → empty text
+    const t = typeof p;
+    if (t === "string" || t === "number" || t === "boolean") return; // → text
+    if (Array.isArray(p)) {
+        issues.push({
+            path,
+            message:
+                "Nested arrays aren't valid response parts — flatten parts into the top-level array.",
+        });
+        return;
+    }
+    if (t === "object") {
+        const o = /** @type {Record<string, unknown>} */ (p);
+        if (isStat(o) || isCallout(o) || isCards(o) || isPlotly(o) || isDataframe(o)) {
+            return;
+        }
+        const keys = Object.keys(o).slice(0, 8).join(", ");
+        issues.push({
+            path,
+            message:
+                `Response part is an object with no renderable shape (keys: ${keys}). ` +
+                "Return a string (markdown), a { columns, rows } table, a { data, layout } " +
+                "Plotly figure, or a tagged { type: 'stat' | 'callout' | 'cards' } card. " +
+                "To present structured data like this, format it as markdown prose or a " +
+                "{ columns, rows } table.",
+        });
+        return;
+    }
+    issues.push({ path, message: `Unsupported response part of type "${t}".` });
+}
+
+/**
+ * Standard Schema for the chat task's `output`. The agent's
+ * `taskSuccess(...)` value must be a string, a primitive, a renderable
+ * part, or an array of those — anything else (e.g. a bare domain
+ * object) fails validation and the agent retries with feedback rather
+ * than the studio rendering "[object Object]".
+ *
+ * Hand-rolled (no schema-lib dependency): the part union is shallow
+ * and shape-sniffed, and a custom validator lets us return guidance
+ * the agent can act on. Defined entirely host-side, so no worker
+ * boundary concerns.
+ */
+export const chatResponseSchema = {
+    "~standard": {
+        version: 1,
+        vendor: "agex-studio",
+        /** @param {unknown} value */
+        validate(value) {
+            /** @type {Array<{ message: string, path?: ReadonlyArray<PropertyKey> }>} */
+            const issues = [];
+            if (Array.isArray(value)) {
+                value.forEach((p, i) => validateChatPart(p, [i], issues));
+            } else {
+                validateChatPart(value, [], issues);
+            }
+            return issues.length > 0 ? { issues } : { value };
+        },
+    },
+};
