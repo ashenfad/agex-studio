@@ -52,34 +52,59 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY); // PKCE is the d
 const RELAY = "https://apps.agex.studio/auth-relay.html";
 
 async function signInWithGoogle() {
-  // Open the popup *synchronously* inside the click handler, then point
-  // it at the auth URL once we have it — otherwise the popup blocker
-  // eats it (the async gap loses the user-gesture).
+  // Open the popup *synchronously* inside the click handler (the async
+  // gap below would otherwise lose the user-gesture and the popup
+  // blocker would eat it). Bail clearly if it was blocked.
   const popup = window.open("about:blank", "agex-oauth", "width=480,height=640");
+  if (!popup) throw new Error("Sign-in popup blocked — allow popups for this site and retry.");
 
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { skipBrowserRedirect: true, redirectTo: RELAY },
-  });
-  if (error) { popup?.close(); throw error; }
-  popup.location.href = data.url; // → Supabase → Google → Supabase → RELAY
+  try {
+    // Per-attempt nonce so a sign-in running in another tab on this same
+    // origin can't satisfy *this* flow's BroadcastChannel listener. It
+    // rides on redirectTo so it survives the round-trip; the match below
+    // fails open, so the flow still works even if it doesn't come back.
+    const nonce = crypto.randomUUID();
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { skipBrowserRedirect: true, redirectTo: `${RELAY}?agex=${nonce}` },
+    });
+    if (error) throw error;
+    popup.location.href = data.url; // → Supabase → Google → Supabase → RELAY
 
-  const params = await new Promise((resolve, reject) => {
-    const channel = new BroadcastChannel("agex-oauth");
-    const timer = setTimeout(() => { channel.close(); reject(new Error("sign-in timed out")); }, 120_000);
-    channel.onmessage = (e) => {
-      if (e.data?.type !== "agex-oauth-return") return;
-      clearTimeout(timer);
-      channel.close();
-      resolve(e.data.params);
-    };
-  });
+    const params = await new Promise((resolve, reject) => {
+      const channel = new BroadcastChannel("agex-oauth");
+      let settled = false;
+      const cleanup = () => { settled = true; clearTimeout(timer); clearInterval(poll); channel.close(); };
+      const timer = setTimeout(() => { cleanup(); reject(new Error("sign-in timed out")); }, 120_000);
 
-  if (params.error) throw new Error(params.error_description || params.error);
-  // PKCE: the code verifier was stored in THIS client's storage (same
-  // origin) at signInWithOAuth time, so the exchange must run here.
-  if (params.code) await supabase.auth.exchangeCodeForSession(params.code);
-  // `supabase` now carries the session — RLS-gated reads/writes just work.
+      // Don't hang the full timeout if the user closes the popup. The
+      // relay closes it itself right after posting success, so give a
+      // short grace for an in-flight message before treating it as a
+      // manual close.
+      const poll = setInterval(() => {
+        if (!popup.closed || settled) return;
+        clearInterval(poll);
+        setTimeout(() => { if (!settled) { cleanup(); reject(new Error("sign-in popup closed")); } }, 600);
+      }, 500);
+
+      channel.onmessage = (e) => {
+        if (e.data?.type !== "agex-oauth-return") return;
+        const p = e.data.params || {};
+        if (p.agex && p.agex !== nonce) return; // another tab's flow — ignore (fails open if absent)
+        cleanup();
+        resolve(p);
+      };
+    });
+
+    if (params.error) throw new Error(params.error_description || params.error);
+    // PKCE: the code verifier was stored in THIS client's storage (same
+    // origin) at signInWithOAuth time, so the exchange must run here.
+    if (params.code) await supabase.auth.exchangeCodeForSession(params.code);
+    // `supabase` now carries the session — RLS-gated reads/writes just work.
+  } catch (err) {
+    popup?.close(); // ensure the popup is cleaned up on any failure
+    throw err;
+  }
 }
 ```
 
@@ -122,7 +147,9 @@ supabase.channel("notes")
    yours).
 2. **Supabase → Authentication → URL Configuration → Redirect URLs:** add
    `https://apps.agex.studio/auth-relay.html`. Supabase only redirects to
-   allow-listed URLs.
+   allow-listed URLs; the `?agex=` nonce the app appends is matched on
+   path, so the bare entry is enough (add `.../auth-relay.html?*` if your
+   project is configured to match query strings strictly).
 3. **Tables + RLS:** enable row-level security on shared tables and write
    policies keyed on `auth.uid()` (e.g. `using (auth.uid() = user_id)`).
    Without RLS, the public anon key lets anyone read everything.
@@ -136,7 +163,10 @@ step 2 is missing or misspelled.
   popup synchronously in the click handler first, then set its `location`.
 - **Exchange in the app, not elsewhere.** The PKCE verifier lives in this
   client's storage; only this origin can complete the exchange.
-- **`state` mismatch.** If multiple flows could overlap, verify the
-  returned `state` matches what you initiated (supabase-js tracks it; if
-  you build URLs by hand, check it yourself).
+- **Cross-tab interference.** `BroadcastChannel` is origin-wide, so a
+  sign-in in another tab on this origin would post to the same channel.
+  The per-attempt `agex` nonce above filters that out (don't rely on the
+  OAuth `state` — Supabase doesn't surface it on `redirectTo`). Even
+  without the filter it fails safe: a code is PKCE-bound to the client
+  that started the flow, so another tab can't exchange it.
 - **`service_role` key never ships to an app.** Anon key + RLS only.
