@@ -44,6 +44,7 @@ import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import _subtasksSkill from "./skills/subtasks.md?raw";
+import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import { extrasFor, supportsServiceTier } from "./models.js";
 import {
@@ -267,6 +268,10 @@ export async function initAgent(settings) {
     // defineTask / invokeTask. Parent-only; sub-agents don't get the
     // studio skills (they bake what they need into their own primer).
     _agent.skill(_subtasksSkill, { name: "subtasks" });
+    // Supabase auth & shared state — how an app gets real users and
+    // cross-device shared state, plus the studio-specific popup+relay
+    // sign-in pattern (redirect-based OAuth would lose app state).
+    _agent.skill(_supabaseAuthSkill, { name: "supabase-auth" });
 
     // Chat task. The per-task primer carries ONLY the output contract
     // (the renderer's part-shape table) — it's task-scoped and repeats

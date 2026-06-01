@@ -7,10 +7,13 @@ Write files to `app/` and they appear automatically when
 ## Architecture
 
 Your app runs in a cross-origin iframe (`apps.agex.studio` in prod)
-with a fixed import map and a few injected globals. **Don't guess at module names** — only what's
-listed below resolves.
+with a few injected globals. **Any bare npm specifier auto-resolves to
+esm.sh** — `import { Bar } from 'recharts'` just works, no build step and
+no studio-side config. The libraries below are *pinned and aliased*, so
+prefer them when they fit; anything else resolves on demand (see "Other
+packages" below).
 
-### Import map (use these specifiers, no build step required)
+### Pinned / aliased libraries (prefer these when they fit)
 
 | Import | What it gives you |
 | --- | --- |
@@ -30,10 +33,14 @@ Plus these globals (no import needed):
   `cache.set(key, value)`. The way to pass data from your agent
   code to the running app.
 
-**Bare `import ... from 'lodash'` (or any other unlisted package)
-will fail to resolve.** If you need something else, write it
-inline or check whether it's already covered by the above (e.g.,
-date math via `dayjs` instead of `date-fns`).
+**Other packages:** any other bare specifier (e.g. `import _ from
+'lodash'`) auto-resolves to `https://esm.sh/<pkg>` at load time — no
+config needed. Pin a version when it matters: `import { Bar } from
+'recharts@2.10.0'` (esm.sh accepts the versioned fragment). Two caveats:
+(1) esm.sh is a CDN — a network hop, plus the occasional CommonJS-interop
+wrinkle — so for libraries already in the table above, prefer those;
+(2) the resolver only scans *static* `import ... from '...'` statements,
+so a fully dynamic `import(someVariable)` won't be picked up.
 
 ## Powerful browser features available
 
@@ -60,6 +67,15 @@ means the user said no, and you should surface a "tap to enable" path
 rather than silently failing.
 
 **Not delegated:** `payment`, `clipboard-read` (privacy boundary — would expose whatever the user last copied).
+
+## Users & shared state
+
+Need real accounts, cross-device sync, or state shared between people
+(not just per-browser localStorage)? Back the app with Supabase
+(hosted Postgres + auth + row-level security). Sign-in — including
+"Sign in with Google" — works through a **popup relay, not a redirect**:
+a normal redirect would reload this iframe's bootloader and lose app
+state. `cat /skills/supabase-auth/SKILL.md` before building it.
 
 ## Quick start (no build step required)
 
@@ -520,9 +536,11 @@ Beyond the single-file case, organize as:
 - **JSX / TSX without a build step** — run `esbuild` (see the
   "JSX path" section above) to bundle to a runnable `.js`, or use
   HTM for the no-build path.
-- **Bare `npm install <pkg>`** — your dependencies are fixed by the
-  iframe's import map. React, Plotly, marked, DOMPurify, dayjs are
-  in; arbitrary npm packages aren't.
+- **`npm install` / `node_modules`** — there's no install step or
+  bundler manifest. Bare specifiers resolve via esm.sh at runtime, so
+  pure-ESM browser packages just work (`import _ from 'lodash'`), but
+  anything needing native bindings, a build step, or Node-only APIs
+  won't.
 - **Same-origin `fetch('/api/...')`** — there's no server. Use
   `getCacheValue` for agent-side data, hardcode external URLs (CORS
   permitting) for third-party APIs.
