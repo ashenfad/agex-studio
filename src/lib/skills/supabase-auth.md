@@ -139,23 +139,68 @@ supabase.channel("notes")
   .subscribe();
 ```
 
-## One-time setup (done by the project owner in dashboards, not in app code)
+## Setting up the backend (you walk the user through this)
 
-1. **Supabase → Authentication → Providers → Google:** enable it, paste a
-   Google OAuth client ID + secret. Google's authorized redirect URI is
-   `https://<project-ref>.supabase.co/auth/v1/callback` (Supabase's, not
-   yours).
-2. **Supabase → Authentication → URL Configuration → Redirect URLs:** add
-   `https://apps.agex.studio/auth-relay.html`. Supabase only redirects to
-   allow-listed URLs; the `?agex=` nonce the app appends is matched on
-   path, so the bare entry is enough (add `.../auth-relay.html?*` if your
-   project is configured to match query strings strictly).
-3. **Tables + RLS:** enable row-level security on shared tables and write
-   policies keyed on `auth.uid()` (e.g. `using (auth.uid() = user_id)`).
-   Without RLS, the public anon key lets anyone read everything.
+This is one-time dashboard work in **Supabase** and **Google Cloud**,
+owned by the user — both are *their* projects, independent of Agex Studio
+(the studio's own Google setup is a separate, unrelated thing). You can't
+click through these yourself, so **act as the guide**: go one step at a
+time, confirm each before the next, and fill in the exact values for them.
+Assume they're not a Supabase/Google expert — be patient and concrete.
 
-If sign-in fails with a redirect/`redirect_to is not allowed` error,
-step 2 is missing or misspelled.
+Ask up front for their **Supabase project URL** (`https://<ref>.supabase.co`)
+and **anon (public) key** (Supabase → Project Settings → API). From the URL
+you can derive every other value below; the anon key goes straight into the
+app's `createClient`.
+
+**The steps, in order:**
+
+1. **Create a Supabase project** (supabase.com) if they don't have one.
+   Copy the Project URL + anon key from Project Settings → API.
+2. **Google Cloud → OAuth consent screen** (console.cloud.google.com,
+   under "APIs & Services"; Google sometimes rebrands this "Google Auth
+   Platform"):
+   - User type **External**; fill in app name + support/developer email.
+   - **Leave the default scopes** (`email`, `profile`, `openid`). They're
+     non-sensitive, so **no Google verification review is required**.
+   - In **Testing** mode only listed test users can sign in (and refresh
+     tokens expire after 7 days). Gentlest path: add the user's own Google
+     address as a **test user** to try it now, then **Publish to
+     Production** (one click for basic scopes) so anyone can sign in.
+3. **Google Cloud → Credentials → Create credentials → OAuth client ID:**
+   - Application type **Web application**.
+   - **Authorized redirect URI:** `https://<ref>.supabase.co/auth/v1/callback`
+     — paste it exactly (build it for them from their project URL). This is
+     *Supabase's* callback, not the app's.
+   - Copy the **Client ID** and **Client secret**.
+4. **Supabase → Authentication → Providers → Google:** enable, paste the
+   Client ID + secret, save.
+5. **Supabase → Authentication → URL Configuration → Redirect URLs:** add
+   `https://apps.agex.studio/auth-relay.html`. (The `?agex=` nonce the app
+   appends is matched on path, so the bare entry suffices; add
+   `.../auth-relay.html?*` only if the project matches query strings
+   strictly.)
+6. **Supabase → tables + RLS:** create the shared-state tables, **enable
+   row-level security**, and add policies keyed on `auth.uid()` (e.g.
+   `using (auth.uid() = user_id)`). RLS on with *no* policy denies
+   everything — reads come back empty — so always add the policy too.
+7. **You wire the app:** put their Project URL + anon key into
+   `createClient(...)`. That's the only piece that lands in code.
+
+Nothing about the app's origin (`apps.agex.studio`) goes into Google —
+Google only ever sees Supabase's callback. The app origin lives solely in
+Supabase's redirect allow-list (step 5).
+
+**Rough spots — match the symptom to the fix:**
+
+| What they see | Cause → fix |
+| --- | --- |
+| Google: `Error 400: redirect_uri_mismatch` | The OAuth client's redirect URI isn't an *exact* match for Supabase's callback. Recheck step 3 — exact `https://<ref>.supabase.co/auth/v1/callback`, no trailing slash, correct project ref. |
+| Google: "Access blocked: app not verified" | Consent screen is in **Testing** and the signer isn't a test user → add them (step 2) or **Publish to Production**. (Only the verification *review* is triggered by sensitive scopes — stick to the defaults and there's none.) |
+| App error `redirect_to is not allowed` | The relay URL is missing or misspelled in Supabase's allow-list → step 5. |
+| Popup finishes but the app has no session | Either `exchangeCodeForSession` didn't run, or the Project URL / anon key in `createClient` is wrong → recheck step 7. |
+| Queries return empty or `permission denied` | RLS is on but the policy is missing or too strict → step 6. Empty (with no error) almost always means "RLS on, no matching policy." |
+| `Invalid API key` | Wrong key in the app — it must be the **anon/public** key, never `service_role`. |
 
 ## Footguns
 
