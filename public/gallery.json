@@ -25,5 +25,14 @@
     "hasApp": true,
     "tags": ["calendar", "utility"],
     "thumbnail": "tmnt-calendar.png"
+  },
+  {
+    "name": "Photo Booth",
+    "description": "Overlay filters for photo-booth silliness.",
+    "gistShorthand": "ashenfad/5c725907bba94490d56a43eddb4f55ed/195414f0f71deea672ecad1253e04ff88145c3ad/photo-booth",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["filters", "camera"],
+    "thumbnail": "photo-booth.png"
   }
 ]
