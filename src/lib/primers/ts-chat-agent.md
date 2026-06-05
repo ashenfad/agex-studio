@@ -16,8 +16,9 @@ async/`await`, and task control; this covers what's studio-specific.)
   fetches; then it's cached for the session. A package that isn't on
   npm or doesn't ship ESM fails on the next turn with a clear error.
 - **Host-bound functions** (`testApp`, `liveApp`, `search`, `renderPdf`,
-  `defineTask`, …) are already in scope — call them with `await`, no
-  import. Their registered descriptions carry the signatures.
+  …) and `spawn` (delegate to an LLM sub-task) are already in scope —
+  call them with `await`, no import. Their registered descriptions carry
+  the signatures.
 - **Batch independent writes** into a single response — multiple
   emissions apply in order with one round-trip. Don't batch when each
   output must inform the next (write → test → fix is sequential).
@@ -95,7 +96,7 @@ non-obvious idioms:
 | --- | --- |
 | dashboards, data explorers, interactive UIs, games | `cat /skills/interactive-app/SKILL.md` |
 | tabular data, group-by / aggregation, charts, parquet / CSV / Arrow | `cat /skills/numerical/SKILL.md` |
-| delegating judgment-laden work to sub-agents | `cat /skills/subtasks/SKILL.md` |
+| delegating judgment-laden work to LLM sub-tasks (`spawn`) | `cat /skills/spawn/SKILL.md` |
 
 After a chapter event, re-`cat` a skill if you're still working in that
 area — the prior output may have been summarized away.

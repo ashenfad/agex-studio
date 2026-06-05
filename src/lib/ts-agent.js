@@ -43,7 +43,7 @@ import _chatAgentPrimer from "./primers/ts-chat-agent.md?raw";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
-import _subtasksSkill from "./skills/subtasks.md?raw";
+import _spawnSkill from "./skills/spawn.md?raw";
 import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import { extrasFor, supportsServiceTier } from "./models.js";
@@ -72,11 +72,6 @@ import {
     serializeChapterEvents,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse, chatResponseSchema } from "./ts-chat-response.js";
-import {
-    createSubtaskManager,
-    STATE_KEY_SPECS,
-    STATE_KEY_INVOCATIONS,
-} from "./subtasks.js";
 
 /**
  * @typedef {import('agex-ts').Agent} Agent
@@ -122,23 +117,9 @@ let _agent = null;
 /** @type {((message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<string>) | null} */
 let _chatTask = null;
 
-/** The parent's live LLM client. Captured so sub-agents share the
- *  exact instance (centralized cost / key / model), and re-captured on
- *  `reconfigure` so a mid-session model/key change flows to sub-agents
- *  spawned afterwards. */
+/** The parent's live LLM client. Captured so it can be handed to
+ *  `reconfigure` on a mid-session model/key change. */
 let _llm = /** @type {LLMClient | null} */ (null);
-
-/** Sub-task manager (defineTask / invokeTask). Created in `initAgent`,
- *  re-hydrated per branch in `loadHistory`. */
-let _subtasks = /** @type {ReturnType<typeof createSubtaskManager> | null} */ (null);
-
-/** Per-turn sink for live sub-task chips. `chatMessage` installs this
- *  for the duration of a turn (from its `onSubtask` option) and clears
- *  it on the way out; the subtask manager forwards invocation
- *  start/complete events here so the chat shell can render a live
- *  "running → done" chip. Null outside a turn (and for iframe-initiated
- *  calls, which never record). */
-let _liveInvocationSink = /** @type {{ start: Function, end: Function } | null} */ (null);
 
 /** Module-level cache of the active branch — avoids redundant
  *  `versioned.switchBranch(...)` calls when the caller is operating
@@ -214,6 +195,11 @@ export async function initAgent(settings) {
                 ? settings.chapteringTrigger
                 : DEFAULT_CHAPTERING_TRIGGER,
         maxIterations: MAX_ITERATIONS,
+        // Enable native `spawn` (agex-ts builtin) for script-side
+        // delegation / fan-out. The same `spawn` is reached host-side
+        // (via `agent.spawn`) for app-initiated calls — see
+        // `spawnFromApp`. Default is 8; set explicitly for intent.
+        maxSpawns: 8,
         // Open-mode imports: any bare specifier the agent writes that
         // isn't in the registered namespace map (the explicit
         // `agent.namespace(...)` calls below) falls through to here
@@ -264,10 +250,10 @@ export async function initAgent(settings) {
     // not relevant.
     _agent.skill(_numericalSkill, { name: "numerical" });
     _agent.skill(_interactiveAppSkill, { name: "interactive-app" });
-    // Sub-tasks skill — teaches the chat agent when/how to reach for
-    // defineTask / invokeTask. Parent-only; sub-agents don't get the
-    // studio skills (they bake what they need into their own primer).
-    _agent.skill(_subtasksSkill, { name: "subtasks" });
+    // Spawn skill — when/how to reach for `spawn` (script-side fan-out
+    // and app-embedded callbacks). A clone inherits the agent's skills,
+    // but is depth-1 (no nested `spawn`) so it can't recurse.
+    _agent.skill(_spawnSkill, { name: "spawn" });
     // Supabase auth & shared state — how an app gets real users and
     // cross-device shared state, plus the studio-specific popup+relay
     // sign-in pattern (redirect-based OAuth would lose app state).
@@ -496,110 +482,14 @@ export async function initAgent(settings) {
         },
     );
 
-    // --- Sub-tasks (defineTask / invokeTask) -----------------------------
+    // --- Sub-tasks (`spawn`) ---------------------------------------------
     //
-    // `defineTask` registers a named, primed sub-task; `invokeTask`
-    // spawns a fresh sub-Agent (own workerRuntime, shared parent llm,
-    // ephemeral live state + memory fs) for it, runs it once, and
-    // disposes. Separate runtimes ⇒ genuine parallelism via
-    // `Promise.all`. The same manager backs iframe-initiated calls (via
-    // the kernel adapter's `invokeSubtask`). See roadmap/subagents.md
-    // and the `subtasks` skill.
-    _subtasks = createSubtaskManager({
-        createAgent,
-        workerRuntime,
-        // Reuse the chat agent's bundled worker URL — one self-contained
-        // worker bundle serves every runtime.
-        workerUrl: _agexWorkerUrl,
-        getLlm: () => _llm,
-        // Curated, minimal capability surface for sub-agents: just
-        // `search`. `console` / `cache` / `fs` are auto-injected by the
-        // worker against the sub-agent's own ephemeral state — no
-        // registration needed and no reach into the parent's VFS. No
-        // testApp/liveApp/esbuild, no recursive defineTask.
-        registerSubAgentFns: (subAgent) => {
-            subAgent.fn(runSearchHelper, {
-                name: "search",
-                description:
-                    "(Pre-registered global — `await search(query)`.) Web search via perplexity; returns a text summary with cited URLs. Signature: `search(query: string, deep?: boolean): Promise<string>`.",
-            });
-        },
-        // Resolves `defineTask({ maxIterations: 'inherit' })` to the
-        // chat agent's current cap (MAX_ITERATIONS).
-        getParentMaxIterations: () => _getAgent().maxIterations,
-        // Forward live invocation events to the active turn's sink (set
-        // by chatMessage). Wrapped in try/catch so a UI hiccup can't
-        // break the sub-task run.
-        onInvocationStart: (info) => {
-            try {
-                _liveInvocationSink?.start(info);
-            } catch {
-                /* live chip is best-effort */
-            }
-        },
-        onInvocationComplete: (info) => {
-            try {
-                _liveInvocationSink?.end(info);
-            } catch {
-                /* live chip is best-effort */
-            }
-        },
-        readState: async (key) => {
-            // `get` (not `peek`): reads the CURRENT branch — same branch
-            // loadHistory's event walk operates on — and is buffer-aware
-            // (sees staged-but-uncommitted writes), so rehydrate can't
-            // drop a spec defined earlier in an uncommitted turn. `peek`
-            // would bypass the staging buffer and also requires an
-            // explicit `{branch}` opt we weren't passing.
-            const staged = await _getStaged();
-            return staged.get(key);
-        },
-        writeState: async (key, value) => {
-            const state = await _getAgent().state(SESSION);
-            state.set(key, value);
-        },
-    });
-
-    _agent.fn(
-        async function defineTask(spec) {
-            return _subtasks.defineTask(spec);
-        },
-        {
-            name: "defineTask",
-            description: [
-                "(Pre-registered global — `await defineTask({...})`, no import needed.)",
-                "Register a named sub-task — a focused, LLM-powered function that runs in its own isolated sub-agent. Returns the name (a string handle) for `invokeTask`.",
-                "Signature: `defineTask({ name?, primer, description, inputs?, output?, maxIterations? }): Promise<string>` — `primer` (required) is the sub-agent's system prompt + task framing (tell it to call taskSuccess); `output` can be a JSON Schema (enforced); `maxIterations` accepts a number or `'inherit'`. Reserve for judgment-laden work, not mechanical logic.",
-                "See the subtasks skill (`cat /skills/subtasks/SKILL.md`) for when to delegate, the options, and footguns.",
-            ].join("\n"),
-        },
-    );
-
-    _agent.fn(
-        async function invokeTask(...args) {
-            // ctx is the trailing arg (wantsContext). The agent passes
-            // (name, args); ctx.signal is the parent task's cancel
-            // signal, so cancelling the chat turn aborts in-flight
-            // sub-agents this turn spawned.
-            const ctx = args[args.length - 1];
-            const [name, taskArgs] = args.slice(0, -1);
-            return _subtasks.invokeTask(name, taskArgs, {
-                signal: ctx.signal,
-                source: "worker",
-                record: true,
-            });
-        },
-        {
-            name: "invokeTask",
-            wantsContext: true,
-            description: [
-                "(Pre-registered global — `await invokeTask(...)`, no import needed.)",
-                "Run a sub-task defined with `defineTask` — spawns a fresh isolated sub-agent, runs it once, returns its result (throws on failure / budget exhaustion, so try/catch if you want a fallback).",
-                "Signature: `invokeTask(name: string, args: unknown): Promise<unknown>` — `args` is JSON-serialized into the sub-task's prompt (trim large payloads).",
-                "Fan out with `Promise.all([invokeTask(a, x), invokeTask(b, x), ...])` — each runs on its own worker thread, so wall-clock is max, not sum. See the subtasks skill.",
-            ].join("\n"),
-        },
-    );
+    // Script-side delegation / fan-out is the native agex-ts `spawn`
+    // builtin, injected by the runtime because `maxSpawns > 0` (set on
+    // createAgent above) — no host-fn registration needed. App-embedded
+    // callbacks reach the same capability host-side via `spawnFromApp`
+    // (the kernel adapter's `spawn`). See roadmap/spawn-migration.md and
+    // the `spawn` skill.
 }
 
 /** Send a chat message through the registered chat task. The
@@ -610,47 +500,47 @@ export async function chatMessage(message, opts = {}) {
     if (!_chatTask) {
         throw new Error("chat task not registered — call initAgent first");
     }
-    // `onSubtask` is a studio-only option (not an agex-ts task option):
-    // install it as the live invocation sink for this turn so
-    // parent-initiated invokeTask calls stream "running → done" chips
-    // into the chat shell. Strip it before forwarding to the task.
-    const { onSubtask, ...taskOpts } = opts;
-    if (onSubtask) {
-        _liveInvocationSink = {
-            start: (info) => onSubtask("start", info),
-            end: (info) => onSubtask("end", info),
-        };
-    }
-    try {
-        return await _chatTask(message, { session: SESSION, ...taskOpts });
-    } finally {
-        _liveInvocationSink = null;
-    }
+    return await _chatTask(message, { session: SESSION, ...opts });
 }
 
+/** Per-page-session cap on app-initiated `spawn` calls. Trust/cost
+ *  guard: an embedded app — possibly imported, not authored by the
+ *  person running it — can drive real LLM spend. Per page load, not
+ *  persisted. Script-side `spawn` is uncapped (the user drives chat
+ *  directly). */
+const APP_SPAWN_CAP = 200;
+let _appSpawns = 0;
+
 /**
- * Run a sub-task on behalf of an embedded app (iframe-initiated). The
- * studio's kernel adapter and `AppPreview` route `agex-invoke-task`
- * bridge messages here. Iframe-initiated calls are app runtime, not
- * chat narrative, so they record NOTHING (no chip, no state write) —
- * a user clicking through a game shouldn't spawn chip-bubbles between
- * chat turns. Resolves with the sub-task's result; rejects if the
- * sub-task fails / exhausts its budget (the app should try/catch).
+ * Run a `spawn` on behalf of an embedded app (iframe-initiated). The
+ * kernel adapter and `AppPreview` route `agex-spawn` bridge messages
+ * here. The app passes a full `SpawnSpec` inline (the app source is the
+ * registry — there is no named-task lookup). App runtime is not chat
+ * narrative, so nothing is recorded. Resolves with the clone's result;
+ * rejects if it fails / is cancelled (the app should try/catch).
  *
- * @param {string} name
- * @param {unknown} args
+ * Two app-specific guards beyond the script-side path: a per-session
+ * invocation cap, and `view` is stripped — an app-initiated clone never
+ * gets a window onto the user's real files.
+ *
+ * @param {string | object} spec - a SpawnSpec (or prose task string).
  * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<unknown>}
  */
-export async function invokeSubtask(name, args, opts = {}) {
-    if (!_subtasks) {
-        throw new Error("sub-tasks not initialized — call initAgent first");
+export async function spawnFromApp(spec, opts = {}) {
+    const agent = _getAgent();
+    if (++_appSpawns > APP_SPAWN_CAP) {
+        throw new Error(
+            `This app has reached the per-session limit of ${APP_SPAWN_CAP} AI calls. Reload to reset.`,
+        );
     }
-    return _subtasks.invokeTask(name, args, {
-        signal: opts.signal,
-        source: "iframe",
-        record: false,
-    });
+    // Strip `view`: an app-initiated clone must not reach the user's VFS.
+    let safeSpec = spec;
+    if (spec && typeof spec === "object" && "view" in spec) {
+        const { view: _view, ...rest } = /** @type {any} */ (spec);
+        safeSpec = rest;
+    }
+    return agent.spawn(safeSpec, { signal: opts.signal });
 }
 
 /** Construct the LLM client for the configured provider. The studio's
@@ -876,8 +766,11 @@ export async function createBranch(name, opts = {}) {
 const AGENT_MEMORY_PREFIXES = ["evt/", "cache/"];
 const AGENT_MEMORY_EXACT_KEYS = [
     "__event_log__",
-    STATE_KEY_SPECS,
-    STATE_KEY_INVOCATIONS,
+    // Legacy sub-task keys (pre-`spawn` migration). No longer written,
+    // but old sessions may still carry these blobs — keep tombstoning
+    // them so a memory wipe stays thorough.
+    "__subtasks__",
+    "__subtask_invocations__",
 ];
 
 /** Predicate used by `wipeAgentMemory` to decide which kvgit keys
@@ -1405,39 +1298,6 @@ export async function loadHistory() {
     const chapterMeta = [];
     await _doFlatten(rawEvents, flat, chapterMeta, resolveByKey, true);
 
-    // Sub-task invocation chips. Rehydrate the per-branch registry +
-    // records (so defineTask handles survive reload), then interleave
-    // each invocation into the turn it ran in. Records live in studio
-    // state (`__subtask_invocations__`), NOT the agex-ts event log —
-    // so they're decoupled from the closed AgentEvent union and
-    // invisible to the LLM. A cursor over the chronologically-sorted
-    // list attaches each record to the first task that ends after it
-    // (i.e. the task during which it ran).
-    if (_subtasks) await _subtasks.rehydrate();
-    /** @type {Array<Object>} */
-    const subtaskInvocations = (_subtasks ? _subtasks.getInvocations() : [])
-        .slice()
-        .sort(
-            (a, b) =>
-                _toDate(/** @type {any} */ (a).timestamp).getTime() -
-                _toDate(/** @type {any} */ (b).timestamp).getTime(),
-        );
-    let invCursor = 0;
-    /** Pull invocation chips with timestamp <= `endMs` off the cursor,
-     *  as `subtask` events ready to append to a turn's event card. */
-    const drainSubtasksUpTo = (endMs) => {
-        /** @type {Array<Object>} */
-        const taken = [];
-        while (invCursor < subtaskInvocations.length) {
-            const rec = /** @type {any} */ (subtaskInvocations[invCursor]);
-            if (_toDate(rec.timestamp).getTime() <= endMs) {
-                taken.push({ type: "subtask", ...rec });
-                invCursor++;
-            } else break;
-        }
-        return taken;
-    };
-
     /** @type {Array<Object>} */
     const messages = [];
     /** @type {string | null} */
@@ -1477,11 +1337,6 @@ export async function loadHistory() {
                 });
             }
         } else if (t === "action") {
-            // Flush any sub-task chips that completed before this action
-            // was emitted — they belong to the PRIOR action, so they
-            // land right after it (ActionEvents are stamped at emit
-            // time, before the code that spawns invocations runs).
-            currentEvents.push(...drainSubtasksUpTo(ts.getTime()));
             const action = synthesizeAction(/** @type {any} */ (e));
             currentEvents.push(action);
             // Surface text-emission report bodies as their own agent
@@ -1496,11 +1351,6 @@ export async function loadHistory() {
                 });
             }
         } else if (t === "output") {
-            // An invocation spawned by the action this output belongs to
-            // is stamped between the action and its output, so flushing
-            // here places the chip just after that action's card and
-            // before its console output.
-            currentEvents.push(...drainSubtasksUpTo(ts.getTime()));
             const parts = serializeOutputParts(/** @type {any} */ (e));
             currentEvents.push(...splitOutputEvents(parts));
         } else if (t === "file") {
@@ -1550,12 +1400,10 @@ export async function loadHistory() {
                 currentTaskName = null;
                 continue;
             }
-            // Attach any sub-task chips from this turn before sealing
-            // the event card. Normalizer routes structured returns
-            // (`["text", figure, table]`, single figure / table, etc.)
-            // into the renderer's expected shape. Bare strings still
-            // land as a simple text bubble.
-            currentEvents.push(...drainSubtasksUpTo(ts.getTime()));
+            // Normalizer routes structured returns (`["text", figure,
+            // table]`, single figure / table, etc.) into the renderer's
+            // expected shape. Bare strings still land as a simple text
+            // bubble.
             messages.push({
                 role: "agent",
                 content: normalizeChatResponse(result),
@@ -1566,7 +1414,6 @@ export async function loadHistory() {
             currentTaskName = null;
         } else if (t === "fail") {
             const message = /** @type {any} */ (e).message ?? "Task failed";
-            currentEvents.push(...drainSubtasksUpTo(ts.getTime()));
             messages.push({
                 role: "agent",
                 content: { type: "text", content: `Error: ${message}` },
@@ -1576,7 +1423,6 @@ export async function loadHistory() {
             currentEvents = [];
             currentTaskName = null;
         } else if (t === "cancelled") {
-            currentEvents.push(...drainSubtasksUpTo(ts.getTime()));
             messages.push({
                 role: "agent",
                 content: { type: "text", content: "" },
@@ -1592,12 +1438,6 @@ export async function loadHistory() {
         // the `__chapter__` task's `taskStart`/`success` handlers
         // above using metadata collected during flatten.
     }
-
-    // Drain any sub-task chips not yet attached to a turn (e.g. records
-    // whose enclosing task didn't emit a terminal event) so they still
-    // surface rather than silently vanishing.
-    const trailingSubtasks = drainSubtasksUpTo(Infinity);
-    if (trailingSubtasks.length > 0) currentEvents.push(...trailingSubtasks);
 
     // Flush any orphan events with no preceding TaskStart — match
     // Py's "trailing agent message" behavior.
@@ -1754,6 +1594,5 @@ export function _resetForTesting() {
     _chatTask = null;
     _activeBranch = null;
     _llm = null;
-    _subtasks = null;
-    _liveInvocationSink = null;
+    _appSpawns = 0;
 }

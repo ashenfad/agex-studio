@@ -380,12 +380,6 @@
     //   feed while subsequent turns stream.
     let streamingEvents = $state([])
     let currentTurn = $state(null)
-    // Live sub-task chips for the in-flight action — shown below the
-    // streaming activity card, then committed into `streamingEvents`
-    // (right after the action's snapshot) on turn_complete. A chip is
-    // appended "running" on start and resolved on completion, matched
-    // by id.
-    let pendingSubtaskChips = $state([])
     // Report streaming accumulator — null when no TextEmission is
     // currently building.  Lifted out of currentTurn so the
     // committed-chat-message flow (insert on done) stays simple.
@@ -585,44 +579,8 @@
             if (snapshot && snapshot.emissions.length) {
                 streamingEvents = [...streamingEvents, snapshot]
             }
-            // Commit this action's sub-task chips right after its
-            // snapshot, so the committed feed reads action → chip(s).
-            if (pendingSubtaskChips.length) {
-                streamingEvents = [...streamingEvents, ...pendingSubtaskChips]
-                pendingSubtaskChips = []
-            }
             currentTurn = null
             commitActiveReport()
-            rebuildStreamingMessages()
-            return
-        }
-
-        if (token.type === 'subtask') {
-            // Live delegation chip. `start` appends a running placeholder;
-            // `end` resolves it to the result/status. The host sends these
-            // for parent-initiated invokeTask calls only.
-            if (token.phase === 'start') {
-                pendingSubtaskChips = [...pendingSubtaskChips, {
-                    type: 'subtask',
-                    id: token.id,
-                    name: token.name,
-                    argsSummary: token.argsSummary,
-                    status: 'running',
-                }]
-            } else {
-                pendingSubtaskChips = pendingSubtaskChips.map(c =>
-                    c.id === token.id
-                        ? {
-                            ...c,
-                            status: token.status,
-                            resultSummary: token.resultSummary,
-                            iterations: token.iterations,
-                            durationMs: token.durationMs,
-                            error: token.error,
-                          }
-                        : c
-                )
-            }
             rebuildStreamingMessages()
             return
         }
@@ -757,8 +715,8 @@
     function rebuildStreamingMessages() {
         const liveSnapshot = snapshotTurn()
         const allEvents = liveSnapshot
-            ? [...streamingEvents, liveSnapshot, ...pendingSubtaskChips]
-            : [...streamingEvents, ...pendingSubtaskChips]
+            ? [...streamingEvents, liveSnapshot]
+            : [...streamingEvents]
 
         // Rebuild the tail of messages: strip all streaming messages, then
         // re-add current streaming state (optional report + activity).
@@ -964,7 +922,6 @@
         }]
 
         streamingEvents = []
-        pendingSubtaskChips = []
         currentTurn = null
         activeReportText = null
         activeReportIdx = null
@@ -1034,12 +991,6 @@
             if (liveSnapshot && liveSnapshot.emissions.length) {
                 eventsBeforeError.push(liveSnapshot)
             }
-            // Keep any in-flight sub-task chips (e.g. a sub-agent still
-            // running when the user cancelled) so the activity card
-            // shows the delegation that was in progress.
-            if (pendingSubtaskChips.length) {
-                eventsBeforeError.push(...pendingSubtaskChips)
-            }
             // User-initiated cancel (handleCancel set `cancelling` true
             // before the abort fired) lands here when the adapter
             // throws on signal abort instead of returning a response
@@ -1078,7 +1029,6 @@
             cancelling = false
             activeAbort = null
             streamingEvents = []
-            pendingSubtaskChips = []
             currentTurn = null
         }
     }
