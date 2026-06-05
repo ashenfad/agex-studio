@@ -622,17 +622,18 @@ window.getCacheValue = function(key) {
     });
 };
 
-// invokeTask(name, args, opts?) — run a sub-task the agent defined with
-// defineTask(), in its own isolated sub-agent on the host. Returns the
-// sub-task's result. The full LLM round-trip happens host-side; this
-// is just the transport. ALWAYS wrap in try/catch — a sub-task that
-// fails or exhausts its iteration budget rejects here, and an
-// unhandled rejection means the user clicks a button and nothing
+// spawn(spec, opts?) — run an LLM sub-task on the host: an ephemeral
+// clone of the agent fulfils the spec (a SpawnSpec: task, input?,
+// output?, primer?, ...) and returns its result. The spec lives inline
+// here in your app code — there's no pre-registration. The full LLM
+// round-trip happens host-side; this is just the transport. ALWAYS wrap
+// in try/catch — a sub-task that fails or is cancelled rejects here, and
+// an unhandled rejection means the user clicks a button and nothing
 // visibly happens. Pass an opts.signal (AbortSignal) for user-driven
 // cancel (e.g. a "Stop thinking" button); aborting posts a cancel to
 // the host and rejects with an AbortError.
 // NOTE: this whole block is inside a template literal — no backticks.
-window.invokeTask = function(name, args, opts) {
+window.spawn = function(spec, opts) {
     var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
     var signal = opts && opts.signal;
     return new Promise(function(resolve, reject) {
@@ -642,18 +643,18 @@ window.invokeTask = function(name, args, opts) {
         }
         function handler(event) {
             if (!event.data || event.data.id !== id) return;
-            if (event.data.type === 'agex-invoke-task-result') {
+            if (event.data.type === 'agex-spawn-result') {
                 cleanup();
                 resolve(event.data.data);
-            } else if (event.data.type === 'agex-invoke-task-error') {
+            } else if (event.data.type === 'agex-spawn-error') {
                 cleanup();
-                reject(new Error(event.data.error || 'invokeTask failed'));
+                reject(new Error(event.data.error || 'spawn failed'));
             }
         }
         function onAbort() {
             cleanup();
             window.parent.postMessage(
-                { type: 'agex-cancel-invoke-task', id: id },
+                { type: 'agex-cancel-spawn', id: id },
                 window.__AGEX_PARENT_ORIGIN || '*'
             );
             reject(new DOMException('Aborted', 'AbortError'));
@@ -662,10 +663,9 @@ window.invokeTask = function(name, args, opts) {
         window.addEventListener('message', handler);
         if (signal) signal.addEventListener('abort', onAbort);
         window.parent.postMessage({
-            type: 'agex-invoke-task',
+            type: 'agex-spawn',
             id: id,
-            name: name,
-            args: args === undefined ? null : args,
+            spec: spec === undefined ? null : spec,
         }, window.__AGEX_PARENT_ORIGIN || '*');
     });
 };

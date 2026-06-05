@@ -224,9 +224,9 @@
         }
     }
 
-    // In-flight iframe-initiated invokeTask calls, keyed by message id,
-    // so a `agex-cancel-invoke-task` from the app can abort the right
-    // sub-agent (e.g. a "Stop thinking" button).
+    // In-flight iframe-initiated spawn calls, keyed by message id, so an
+    // `agex-cancel-spawn` from the app can abort the right clone (e.g. a
+    // "Stop thinking" button).
     const invokeControllers = new Map()
 
     // Handle ready / query / app-storage messages from the iframe
@@ -302,36 +302,36 @@
             return
         }
 
-        if (event.data?.type === 'agex-invoke-task') {
-            // App-initiated sub-agent call. Origin + source already
-            // validated at the top of this handler. Records nothing to
-            // the chat narrative (app runtime, not a chat turn) — the
-            // host-side `invokeSubtask` enforces that. Per-call
-            // AbortController lets the app cancel via
-            // `agex-cancel-invoke-task`.
+        if (event.data?.type === 'agex-spawn') {
+            // App-initiated spawn. Origin + source already validated at
+            // the top of this handler. The app passes a full SpawnSpec
+            // inline. Records nothing to the chat narrative (app runtime,
+            // not a chat turn) — the host-side `spawnFromApp` enforces the
+            // cost cap and strips `view`. Per-call AbortController lets the
+            // app cancel via `agex-cancel-spawn`.
             if (!iframeReady) iframeReady = true
-            const { id, name, args } = event.data
-            if (!appAdapter || typeof appAdapter.invokeTask !== 'function') {
+            const { id, spec } = event.data
+            if (!appAdapter || typeof appAdapter.spawn !== 'function') {
                 iframe?.contentWindow?.postMessage({
-                    type: 'agex-invoke-task-error',
+                    type: 'agex-spawn-error',
                     id,
-                    error: 'invokeTask is not available on this kernel',
+                    error: 'spawn is not available on this kernel',
                 }, APPS_ORIGIN)
                 return
             }
             const ac = new AbortController()
             invokeControllers.set(id, ac)
-            appAdapter.invokeTask(appBranch, name, args, ac.signal)
+            appAdapter.spawn(appBranch, spec, ac.signal)
                 .then(data => {
                     iframe?.contentWindow?.postMessage({
-                        type: 'agex-invoke-task-result',
+                        type: 'agex-spawn-result',
                         id,
                         data: data === undefined ? null : data,
                     }, APPS_ORIGIN)
                 })
                 .catch(err => {
                     iframe?.contentWindow?.postMessage({
-                        type: 'agex-invoke-task-error',
+                        type: 'agex-spawn-error',
                         id,
                         error: err?.message || String(err),
                     }, APPS_ORIGIN)
@@ -340,7 +340,7 @@
             return
         }
 
-        if (event.data?.type === 'agex-cancel-invoke-task') {
+        if (event.data?.type === 'agex-cancel-spawn') {
             const ac = invokeControllers.get(event.data.id)
             if (ac) ac.abort()
             return

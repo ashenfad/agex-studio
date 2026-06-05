@@ -434,14 +434,14 @@
  *   Values must be JSON-roundtrippable (strings, numbers, arrays,
  *   plain objects) so the iframe can deserialize them via postMessage.
  *
- * @property {(branch: string, name: string, args: unknown, signal?: AbortSignal) => Promise<unknown>} invokeTask
- *   Run a sub-task (defined via the agent's `defineTask`) on behalf of
- *   an embedded app — iframe-initiated, so it records nothing to the
- *   chat narrative. Spawns a fresh isolated sub-agent, runs once,
- *   returns the result; rejects if the sub-task fails / exhausts its
- *   budget. `signal` lets the app cancel a long-running call. TS-side
- *   affordance (mirrors `getCacheValue`'s split); the Py adapter stubs
- *   it with a clear "not implemented" error.
+ * @property {(branch: string, spec: unknown, signal?: AbortSignal) => Promise<unknown>} spawn
+ *   Run a `spawn` (an ephemeral agent clone fulfilling an inline
+ *   SpawnSpec) on behalf of an embedded app — iframe-initiated, so it
+ *   records nothing to the chat narrative. Returns the clone's result;
+ *   rejects if it fails / is cancelled. `signal` lets the app cancel a
+ *   long-running call. TS-side affordance (mirrors `getCacheValue`'s
+ *   split); the Py adapter stubs it with a clear "not implemented"
+ *   error.
  *
  * --- Token telemetry -----------------------------------------------------
  *

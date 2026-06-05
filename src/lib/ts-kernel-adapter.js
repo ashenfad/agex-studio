@@ -39,7 +39,7 @@ import {
     readAppBinaries as agentReadAppBinaries,
     wipeAgentMemory as agentWipeAgentMemory,
     getCacheValue as agentGetCacheValue,
-    invokeSubtask as agentInvokeSubtask,
+    spawnFromApp as agentSpawnFromApp,
     loadHistory as agentLoadHistory,
     estimateLogTokens as agentEstimateLogTokens,
     getTokenHistory as agentGetTokenHistory,
@@ -243,6 +243,21 @@ export function createTsAdapter() {
                         // that inspect events (e.g. for cancelled-detection)
                         // see the same shape py emits.
                         const et = /** @type {any} */ (e)?.type;
+                        // Spawn-clone events ride this same stream, tagged
+                        // `<name>:spawn#<n>` (agex-ts forwards a clone's
+                        // events to the parent task's onEvent). They are
+                        // NOT chat narrative — drop them so the translator
+                        // doesn't render a clone's actions/output as if the
+                        // parent emitted them. (A future "live spawn chips"
+                        // feature would demux these instead of dropping —
+                        // see roadmap/spawn-migration.md.)
+                        const agentName = /** @type {any} */ (e)?.agentName;
+                        if (
+                            typeof agentName === "string" &&
+                            /:spawn#\d+$/.test(agentName)
+                        ) {
+                            return;
+                        }
                         if (et === "taskStart") {
                             currentTaskName =
                                 /** @type {any} */ (e).taskName ?? null;
@@ -309,38 +324,6 @@ export function createTsAdapter() {
                         // callback — the typed shape is the documented
                         // surface for callers who want low-level access.
                         if (userOnEvent) await userOnEvent(e);
-                    },
-                    onSubtask: (phase, info) => {
-                        if (phase === "end") {
-                            // Tier 1 — land the chip in the turn's final
-                            // events between its action and that action's
-                            // output. onEvent pushes the ActionEvent
-                            // BEFORE dispatch and the OutputEvent AFTER;
-                            // this completion fires DURING dispatch, so
-                            // pushing here yields action → chip → output.
-                            events.push({ type: "subtask", ...info.record });
-                        }
-                        // Tier 2 — stream a live chip token to the shell
-                        // ("running" on start, resolved on end). Already
-                        // shell-shape, so bypass the agex-ts translator.
-                        if (userOnToken) {
-                            userOnToken(
-                                phase === "start"
-                                    ? {
-                                          type: "subtask",
-                                          phase: "start",
-                                          id: info.id,
-                                          name: info.name,
-                                          argsSummary: info.argsSummary,
-                                      }
-                                    : {
-                                          type: "subtask",
-                                          phase: "end",
-                                          id: info.id,
-                                          ...info.record,
-                                      },
-                            );
-                        }
                     },
                 });
             } finally {
@@ -495,9 +478,9 @@ export function createTsAdapter() {
             return agentGetCacheValue(key);
         },
 
-        async invokeTask(branch, name, args, signal) {
+        async spawn(branch, spec, signal) {
             await _ensureBranch(branch);
-            return agentInvokeSubtask(name, args, { signal });
+            return agentSpawnFromApp(spec, { signal });
         },
 
         // --- Token telemetry --------------------------------------------
