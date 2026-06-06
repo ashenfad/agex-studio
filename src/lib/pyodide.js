@@ -14,6 +14,9 @@ import {
 } from './app-control.js';
 import { read as readAppStorage } from './app-storage.js';
 import { buildAppHtml } from './app-html.js';
+// Single source of truth for the settings localStorage key (the worker
+// LLM bridge below reads the API key out of it per-request).
+import { STORAGE_KEY as SETTINGS_STORAGE_KEY } from './settings.js';
 // `?url` makes vite emit `esbuild-bridge.js` as a static asset and
 // hand back its resolved URL (hashed in production, /src/... in dev).
 // Forwarded to the py worker via the init postMessage so worker.js
@@ -275,8 +278,6 @@ async function getPdfPageCount(pdfBase64, requestId) {
 }
 
 // --- LLM bridge: main-thread fetch with key from localStorage ---
-
-const SETTINGS_STORAGE_KEY = "agex-settings";
 
 /**
  * Read the OpenRouter / Anthropic API key from localStorage.
