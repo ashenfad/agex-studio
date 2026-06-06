@@ -231,10 +231,10 @@ export function createTsAdapter() {
             /** @type {string | null} */
             let currentTaskName = null;
             let chapterCount = 0;
-            // Per-clone live-chip state for this turn, keyed by the spawn
-            // index parsed from `agentName` (`<name>:spawn#<n>`). Tracks
-            // start time + step count so an `end` token can report
-            // duration/steps. Live-only — cleared with the turn.
+            // Per-clone live-chip state for this turn, keyed by the
+            // clone's `spawnIndex`. Tracks start time + step count so an
+            // `end` token can report duration/steps. Live-only — cleared
+            // with the turn.
             /** @type {Map<string, { startMs: number, steps: number }>} */
             const spawnChips = new Map();
 
@@ -263,23 +263,21 @@ export function createTsAdapter() {
                         // that inspect events (e.g. for cancelled-detection)
                         // see the same shape py emits.
                         const et = /** @type {any} */ (e)?.type;
-                        // Spawn-clone events ride this same stream, tagged
-                        // `<name>:spawn#<n>` (agex-ts forwards a clone's
-                        // events to the parent task's onEvent). They are
-                        // NOT chat narrative — never render them as parent
-                        // actions/output. Instead demux by the clone index
-                        // into a live "running → done" chip token. Live-only:
-                        // not pushed to `events`, so it never persists past
-                        // the turn (the shell injects it into the in-memory
-                        // final message; reload's loadHistory has no chips).
-                        const agentName = /** @type {any} */ (e)?.agentName;
-                        const spawnMatch =
-                            typeof agentName === "string"
-                                ? /:spawn#(\d+)$/.exec(agentName)
-                                : null;
-                        if (spawnMatch) {
+                        // Spawn-clone events ride this same stream (agex-ts
+                        // forwards a clone's events to the parent task's
+                        // onEvent), distinguished by a structured
+                        // `spawnIndex` (the clone's 0-based index per
+                        // spawning task; agex-ts >= 0.3.1). They are NOT chat
+                        // narrative — never render them as parent
+                        // actions/output. Instead demux by the index into a
+                        // live "running → done" chip token. Live-only: not
+                        // pushed to `events`, so it never persists past the
+                        // turn (the shell injects it into the in-memory final
+                        // message; reload's loadHistory has no chips).
+                        const spawnIndex = /** @type {any} */ (e)?.spawnIndex;
+                        if (typeof spawnIndex === "number") {
                             if (userOnToken) {
-                                const id = spawnMatch[1];
+                                const id = String(spawnIndex);
                                 const ev = /** @type {any} */ (e);
                                 if (et === "taskStart") {
                                     spawnChips.set(id, { startMs: Date.now(), steps: 0 });

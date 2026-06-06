@@ -381,7 +381,7 @@
     let streamingEvents = $state([])
     let currentTurn = $state(null)
     // Live spawn chips for the in-flight turn — one per concurrent clone,
-    // keyed by its spawn index (parsed from `<name>:spawn#<n>`). Appended
+    // keyed by its `spawnIndex`. Appended
     // "running" on the clone's taskStart, updated on each step, resolved on
     // completion. Live-only: shown during the turn and injected into the
     // turn's in-memory final message, but NOT persisted — gone on reload.
