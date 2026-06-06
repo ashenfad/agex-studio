@@ -148,6 +148,15 @@
                                     </div>
                                 {/if}
                             {/each}
+                        {:else if group.kind === 'report'}
+                            <!-- Agent narration/report — same markdown
+                                 bubble as a text result, mirroring the
+                                 main feed's `isReport` bubbles. -->
+                            <div class="message agent">
+                                <div class="bubble agent-bubble">
+                                    <div class="content markdown">{@html renderMarkdown(group.content)}</div>
+                                </div>
+                            </div>
                         {:else if group.kind === 'activity'}
                             <div class="activity-row">
                                 <ActivityPanel

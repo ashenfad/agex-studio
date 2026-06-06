@@ -143,12 +143,30 @@ describe("synthesizeAction", () => {
         expect(out.report).toBe("I computed two.\n\nAnd four.");
         expect(out.input_tokens).toBe(100);
         expect(out.output_tokens).toBe(50);
-        expect(out.emissions).toHaveLength(5);
+        // Text emissions are excluded from `emissions` — they render as
+        // the report bubble (`out.report`), not as activity-card
+        // sections. Only the thinking + two ts emissions remain, and
+        // their `idx` values stay stable (gaps where text was).
+        expect(out.emissions).toHaveLength(3);
+        expect(out.emissions.every((em) => em.kind !== "text")).toBe(true);
         expect(out.emissions[0].kind).toBe("thinking");
+        expect(out.emissions[0].idx).toBe(0);
         expect(out.emissions[1].kind).toBe("ts");
         expect(out.emissions[1].idx).toBe(1);
-        expect(out.emissions[3].kind).toBe("ts");
-        expect(out.emissions[3].idx).toBe(3);
+        expect(out.emissions[2].kind).toBe("ts");
+        expect(out.emissions[2].idx).toBe(3);
+    });
+
+    it("keeps a text-only turn's report but yields no emissions", () => {
+        const out = synthesizeAction({
+            type: "action",
+            emissions: [
+                { type: "text", text: "Just narrating." },
+                { type: "text", text: "Still narrating." },
+            ],
+        });
+        expect(out.report).toBe("Just narrating.\n\nStill narrating.");
+        expect(out.emissions).toHaveLength(0);
     });
 
     it("handles an empty emissions list", () => {

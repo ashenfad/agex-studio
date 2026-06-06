@@ -334,7 +334,14 @@ export function createTsAdapter() {
                                 inputTokens: a.inputTokens ?? a.input_tokens ?? null,
                                 outputTokens: a.outputTokens ?? a.output_tokens ?? null,
                             });
-                            events.push(synthesizeAction(e));
+                            // Pure-narration turns synthesize to an
+                            // emission-less action (text bodies become the
+                            // report bubble, not an activity section). Skip
+                            // the empty shell so the committed message
+                            // doesn't carry a contentless activity card —
+                            // matches the loadHistory reload path.
+                            const action = synthesizeAction(e);
+                            if (action.emissions.length) events.push(action);
                             // ActionEvent finished — flush the streaming
                             // turn so any subsequent ActionEvent starts
                             // fresh in the shell's snapshot accumulator.

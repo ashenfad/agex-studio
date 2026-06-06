@@ -1319,7 +1319,12 @@ export async function loadHistory() {
             }
         } else if (t === "action") {
             const action = synthesizeAction(/** @type {any} */ (e));
-            currentEvents.push(action);
+            // A text-only (pure narration) turn now synthesizes to an
+            // action with no emissions — text bodies are surfaced as the
+            // report bubble below, not as activity-card sections. Don't
+            // push an empty action: it would render as a contentless
+            // "Activity" card on reload.
+            if (action.emissions.length) currentEvents.push(action);
             // Surface text-emission report bodies as their own agent
             // messages, matching the py path. Lets the chat thread
             // show the model's narration inline above the event card.

@@ -112,13 +112,22 @@ export function synthesizeAction(actionEvent) {
     const emissionDicts = [];
     for (let idx = 0; idx < emissions.length; idx++) {
         const em = emissions[idx];
-        const ed = serializeEmission(em, idx);
-        if (ed !== null) emissionDicts.push(ed);
+        if (em && em.type === "text") {
+            // Narration/report bodies surface as their own chat bubble
+            // (the `report` field below), NOT as an activity-card
+            // section. Deliberately excluded from `emissions` so
+            // `EventDetail` doesn't re-render the report a second time —
+            // once in the bubble, once inside the action card. `idx`
+            // keys stay stable (gaps are fine; the renderer keys on
+            // `em.idx`, contiguity isn't required).
+            if (em.text) reportBits.push(em.text);
+            continue;
+        }
         if (em && (em.type === "ts" || em.type === "terminal")) {
             if (em.title) titles.push(em.title);
-        } else if (em && em.type === "text") {
-            if (em.text) reportBits.push(em.text);
         }
+        const ed = serializeEmission(em, idx);
+        if (ed !== null) emissionDicts.push(ed);
     }
     return {
         type: "action",
