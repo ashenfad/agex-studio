@@ -5,7 +5,7 @@
     import { sessionStore } from './sessions.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { getActiveAdapter } from './active-adapter.js'
-    import { APPS_ORIGIN } from './apps-origin.js'
+    import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
@@ -233,11 +233,10 @@
     // Handle ready / query / app-storage messages from the iframe
     function handleMessage(event) {
         if (frozen) return
-        if (!iframe || event.source !== iframe.contentWindow) return
-        // Cross-origin tightening: only accept messages whose origin
-        // matches the apps sandbox. Defends against other tabs /
-        // extensions posting into us with crafted payloads.
-        if (event.origin !== APPS_ORIGIN) return
+        // Only accept messages from the app iframe's window at the apps
+        // origin — defends against other tabs / extensions posting
+        // crafted payloads. See isFromAppFrame in apps-origin.js.
+        if (!isFromAppFrame(event, iframe)) return
 
         // Bootloader handshake: respond with the pending app HTML.
         // A stale ready (from an earlier load whose iframe finished
@@ -246,10 +245,7 @@
         // trigger its own reload + ready.
         if (event.data?.type === 'agex-host-ready') {
             if (pendingHtml === null) return
-            iframe.contentWindow?.postMessage(
-                { type: 'agex-host-init', html: pendingHtml },
-                APPS_ORIGIN,
-            )
+            replyToApp(iframe, { type: 'agex-host-init', html: pendingHtml })
             pendingHtml = null
             return
         }
@@ -275,30 +271,30 @@
             if (!iframeReady) iframeReady = true
             const { id, key } = event.data
             if (!appAdapter) {
-                iframe?.contentWindow?.postMessage({
+                replyToApp(iframe, {
                     type: 'agex-cache-get-result',
                     id,
                     data: null,
                     error: 'app preview adapter not ready',
-                }, APPS_ORIGIN)
+                })
                 return
             }
             appAdapter.getCacheValue(appBranch, key)
                 .then(data => {
-                    iframe?.contentWindow?.postMessage({
+                    replyToApp(iframe, {
                         type: 'agex-cache-get-result',
                         id,
                         data: data === undefined ? null : data,
                         error: null,
-                    }, APPS_ORIGIN)
+                    })
                 })
                 .catch(err => {
-                    iframe?.contentWindow?.postMessage({
+                    replyToApp(iframe, {
                         type: 'agex-cache-get-result',
                         id,
                         data: null,
                         error: err.message || String(err),
-                    }, APPS_ORIGIN)
+                    })
                 })
             return
         }
@@ -313,29 +309,29 @@
             if (!iframeReady) iframeReady = true
             const { id, spec } = event.data
             if (!appAdapter || typeof appAdapter.spawn !== 'function') {
-                iframe?.contentWindow?.postMessage({
+                replyToApp(iframe, {
                     type: 'agex-spawn-error',
                     id,
                     error: 'spawn is not available on this kernel',
-                }, APPS_ORIGIN)
+                })
                 return
             }
             const ac = new AbortController()
             spawnControllers.set(id, ac)
             appAdapter.spawn(appBranch, spec, ac.signal)
                 .then(data => {
-                    iframe?.contentWindow?.postMessage({
+                    replyToApp(iframe, {
                         type: 'agex-spawn-result',
                         id,
                         data: data === undefined ? null : data,
-                    }, APPS_ORIGIN)
+                    })
                 })
                 .catch(err => {
-                    iframe?.contentWindow?.postMessage({
+                    replyToApp(iframe, {
                         type: 'agex-spawn-error',
                         id,
                         error: err?.message || String(err),
-                    }, APPS_ORIGIN)
+                    })
                 })
                 .finally(() => spawnControllers.delete(id))
             return
@@ -364,22 +360,22 @@
             // shouldn't happen in practice (query messages only fire
             // after the iframe loads, which is after loadPreview's
             // adapter capture), but be defensive.
-            iframe?.contentWindow?.postMessage({
+            replyToApp(iframe, {
                 type: 'agex-query-result',
                 id,
                 data: null,
                 error: 'app preview adapter not ready',
-            }, APPS_ORIGIN)
+            })
             return
         }
         appAdapter.runQuery(appBranch, code, result)
             .then(data => {
-                iframe?.contentWindow?.postMessage({
+                replyToApp(iframe, {
                     type: 'agex-query-result',
                     id,
                     data,
                     error: null,
-                }, APPS_ORIGIN)
+                })
             })
             .catch(err => {
                 const msg = err.message || String(err)
@@ -390,12 +386,12 @@
                     triggerFreeze()
                     return
                 }
-                iframe?.contentWindow?.postMessage({
+                replyToApp(iframe, {
                     type: 'agex-query-result',
                     id,
                     data: null,
                     error: msg,
-                }, APPS_ORIGIN)
+                })
             })
     }
 

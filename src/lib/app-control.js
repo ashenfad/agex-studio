@@ -28,7 +28,7 @@
  */
 
 import { sendControl } from "./iframe-bridge.js";
-import { APPS_ORIGIN } from "./apps-origin.js";
+import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 
 // ---------------------------------------------------------------------------
 // Live preview iframe — module-level ref shared by callers
@@ -231,11 +231,9 @@ export function _enforceTotalCap(entries, max) {
 function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, initHtml = null) {
     let initPosted = false;
     const handler = (event) => {
-        if (!iframe || event.source !== iframe.contentWindow) return;
-        // Cross-origin tightening: only accept messages from the
-        // apps sandbox host. Defends against other tabs / extensions
-        // posting crafted payloads to us.
-        if (event.origin !== APPS_ORIGIN) return;
+        // Only accept messages from the app iframe's window at the apps
+        // origin (see isFromAppFrame in apps-origin.js).
+        if (!isFromAppFrame(event, iframe)) return;
         const data = event.data;
         if (!data) return;
 
@@ -243,10 +241,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, ini
         // app HTML so the bootloader can render it.
         if (data.type === "agex-host-ready" && !initPosted && initHtml) {
             initPosted = true;
-            iframe.contentWindow?.postMessage(
-                { type: "agex-host-init", html: initHtml },
-                APPS_ORIGIN,
-            );
+            replyToApp(iframe, { type: "agex-host-init", html: initHtml });
             return;
         }
 
@@ -258,32 +253,23 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, ini
                         ? await queryHandler(code, result)
                         : null;
                     if (queryHandler) {
-                        iframe.contentWindow?.postMessage(
-                            { type: "agex-query-result", id, data: out, error: null },
-                            APPS_ORIGIN,
-                        );
+                        replyToApp(iframe, { type: "agex-query-result", id, data: out, error: null });
                     } else {
-                        iframe.contentWindow?.postMessage(
-                            {
-                                type: "agex-query-result",
-                                id,
-                                data: null,
-                                error:
-                                    "query() not available on this kernel — use getCacheValue() instead",
-                            },
-                            APPS_ORIGIN,
-                        );
-                    }
-                } catch (err) {
-                    iframe.contentWindow?.postMessage(
-                        {
+                        replyToApp(iframe, {
                             type: "agex-query-result",
                             id,
                             data: null,
-                            error: err.message || String(err),
-                        },
-                        APPS_ORIGIN,
-                    );
+                            error:
+                                "query() not available on this kernel — use getCacheValue() instead",
+                        });
+                    }
+                } catch (err) {
+                    replyToApp(iframe, {
+                        type: "agex-query-result",
+                        id,
+                        data: null,
+                        error: err.message || String(err),
+                    });
                 }
                 iframe.__onQueryDone?.();
             })();
@@ -297,37 +283,28 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, ini
                 try {
                     const out = cacheHandler ? await cacheHandler(key) : undefined;
                     if (cacheHandler) {
-                        iframe.contentWindow?.postMessage(
-                            {
-                                type: "agex-cache-get-result",
-                                id,
-                                data: out === undefined ? null : out,
-                                error: null,
-                            },
-                            APPS_ORIGIN,
-                        );
+                        replyToApp(iframe, {
+                            type: "agex-cache-get-result",
+                            id,
+                            data: out === undefined ? null : out,
+                            error: null,
+                        });
                     } else {
-                        iframe.contentWindow?.postMessage(
-                            {
-                                type: "agex-cache-get-result",
-                                id,
-                                data: null,
-                                error:
-                                    "getCacheValue() not available on this kernel — use query() instead",
-                            },
-                            APPS_ORIGIN,
-                        );
-                    }
-                } catch (err) {
-                    iframe.contentWindow?.postMessage(
-                        {
+                        replyToApp(iframe, {
                             type: "agex-cache-get-result",
                             id,
                             data: null,
-                            error: err.message || String(err),
-                        },
-                        APPS_ORIGIN,
-                    );
+                            error:
+                                "getCacheValue() not available on this kernel — use query() instead",
+                        });
+                    }
+                } catch (err) {
+                    replyToApp(iframe, {
+                        type: "agex-cache-get-result",
+                        id,
+                        data: null,
+                        error: err.message || String(err),
+                    });
                 }
                 iframe.__onQueryDone?.();
             })();
@@ -451,8 +428,7 @@ export async function runTestApp(opts) {
                 ));
             }, BRIDGE_READY_TIMEOUT_MS);
             const readyListener = (event) => {
-                if (event.source !== iframe.contentWindow) return;
-                if (event.origin !== APPS_ORIGIN) return;
+                if (!isFromAppFrame(event, iframe)) return;
                 if (event.data?.type !== "agex-bridge-ready") return;
                 clearTimeout(timeout);
                 window.removeEventListener("message", readyListener);
