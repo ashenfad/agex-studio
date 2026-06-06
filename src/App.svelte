@@ -1,5 +1,5 @@
 <script>
-    import { preloadPlotly } from './lib/pyodide.js'
+    import { preloadPlotly } from './lib/app-html.js'
     import { handleVfsClick } from './lib/vfs-download.js'
     import { viewingFile } from './lib/viewing-file.js'
     import ChatShell from './lib/ChatShell.svelte'
