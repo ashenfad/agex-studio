@@ -11,13 +11,14 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
-    import { cancelTask, pyodideStore } from './pyodide.js'
-    import { initSessionsFromUrl, loadHistoryChunked, persistSessionMeta, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { pyodideStore } from './pyodide.js'
+    import { initSessionsFromUrl, loadHistoryChunked, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
     import { queueFiles } from './pending-attachments.js'
     import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
+    import { getSessionRuntime } from './session-runtime.svelte.js'
 
     /** Resolve the active session's kernel synchronously from
      *  localStorage (no kernel boot required). The session-index cache
@@ -38,18 +39,13 @@
         return record.kernel === 'py' ? 'py' : 'ts'
     }
 
-    /** @type {Array<{role: 'user'|'agent', content: string, timestamp: Date}>} */
-    let messages = $state([])
-    let busy = $state(false)
-    let cancelling = $state(false)
-    /** AbortController for the in-flight task. The TS adapter forwards
-     *  `signal` into agex-ts's task call (which honors AbortSignal
-     *  natively); the py adapter ignores it and uses its own
-     *  worker-side `cancelTask` mechanism. handleCancel calls both
-     *  so cancellation works regardless of kernel.
-     *  @type {AbortController | null} */
-    let activeAbort = $state(null)
-    let historyChunks = $state(null)
+    // Per-session conversation + streaming state and the agent run loop
+    // live in a `SessionRuntime` keyed by branch (session-runtime.svelte.js
+    // — see roadmap/concurrent-sessions.md). This shell projects whichever
+    // session is foreground via `rt`; view-scoped state (drawers, modals,
+    // layout, boot status) stays in this component. `'__boot__'` is a
+    // throwaway placeholder runtime until `currentBranch` is resolved.
+    let rt = $derived(getSessionRuntime($sessionStore.currentBranch || '__boot__'))
     let settingsOpen = $state(false)
     let sessionsOpen = $state(false)
     let filesOpen = $state(false)
@@ -58,9 +54,6 @@
     let initError = $state('')
     /** @type {'py' | 'ts'} */
     let activeKernel = $state(_resolveActiveKernel())
-    /** @type {string[]} */
-    let files = $state([])
-    let inputPrefill = $state('')
     let previewRefreshKey = $state(0)
     /** @type {'chat' | 'app'} */
     let mobileView = $state('chat')
@@ -73,20 +66,17 @@
     /** @type {'split' | 'app-only'} */
     let viewMode = $state('split')
     let scrollKey = $state(0)
-    let chaptering = $state(false)
     let tokenModalOpen = $state(false)
-    /** @type {number[] | null} */
-    let tokenHistory = $state(null)
     let chapterModalData = $state(null)
     let actionModalIndex = $state(-1)
     let actionModalEvents = $derived(
-        actionModalIndex >= 0 && actionModalIndex < messages.length
-            ? messages[actionModalIndex].events
+        actionModalIndex >= 0 && actionModalIndex < rt.messages.length
+            ? rt.messages[actionModalIndex].events
             : null
     )
     let actionModalStreaming = $derived(
-        actionModalIndex >= 0 && actionModalIndex < messages.length
-            ? messages[actionModalIndex].streaming ?? false
+        actionModalIndex >= 0 && actionModalIndex < rt.messages.length
+            ? rt.messages[actionModalIndex].streaming ?? false
             : false
     )
     let configured = $derived($settingsStore.apiKey.length > 0)
@@ -127,46 +117,15 @@
         // `@media (max-width: 768px)` mobile-* rules don't apply.
         mobileView = 'app'
     }
-    let hasAppFiles = $derived(files.some(f => f === 'app' || f.startsWith('app/')))
-
-    let tokenOverride = $state(null)
-
-    // Undo toast state
-    let undoToast = $state(null) // { preCommit, timer }
+    let hasAppFiles = $derived(rt.files.some(f => f === 'app' || f.startsWith('app/')))
 
     function dismissUndoToast() {
-        if (undoToast?.timer) clearTimeout(undoToast.timer)
-        undoToast = null
-    }
-
-    /** Quick fingerprint of all app/* files: sorted `path:size` lines.
-     *  Snapshot before/after a turn to decide whether to refresh the
-     *  preview iframe. Catches every common way an agent modifies app
-     *  files — direct file_write / file_edit emissions, terminal_action
-     *  writes (esbuild output), and ts_action writes (await fs.write) —
-     *  uniformly, because all of them flow through kvgit and end up in
-     *  the post-turn file list with new sizes. One extra fileSize call
-     *  per app file, parallelized, sub-ms in practice.
-     *
-     *  `allPaths` is an optional pre-fetched listFiles result — the
-     *  post-turn call site has just done that listFiles for its own
-     *  reasons, so we let it pass the result in to skip a redundant
-     *  IDB walk. */
-    async function appFilesFingerprint(adapter, branch, allPaths = null) {
-        const all = allPaths ?? await adapter.listFiles(branch)
-        const appPaths = all.filter(p => p === 'app' || p.startsWith('app/'))
-        if (appPaths.length === 0) return ''
-        const sizes = await Promise.all(
-            appPaths.map(p => adapter.fileSize(branch, p).catch(() => -1))
-        )
-        return appPaths
-            .map((p, i) => `${p}:${sizes[i]}`)
-            .sort()
-            .join('\n')
+        rt.dismissUndoToast()
     }
 
     let lastInputTokens = $derived.by(() => {
-        if (tokenOverride != null) return tokenOverride
+        if (rt.tokenOverride != null) return rt.tokenOverride
+        const messages = rt.messages
         for (let i = messages.length - 1; i >= 0; i--) {
             const events = messages[i].events
             if (!events) continue
@@ -198,7 +157,7 @@
     // the custom message and show their own "Leave site?" dialog,
     // so we just need to set returnValue + return a string.
     $effect(() => {
-        if (!busy) return
+        if (!rt.busy) return
         const handler = (e) => {
             e.preventDefault()
             // Legacy form for older browsers — modern ones use
@@ -283,15 +242,16 @@
                             : 'Loading sessions...'
                         await initSessionsFromUrl()
                         initStatus = 'Loading history...'
-                        historyChunks = await loadHistoryChunked()
-                        messages = historyChunks.messages
-                        if (messages.length && messages[messages.length - 1].role === 'chaptering') {
-                            const { adapter, branch } = await getActiveAdapter()
-                            tokenOverride = await adapter.estimateLogTokens(branch)
+                        const chunks = await loadHistoryChunked()
+                        const { adapter, branch } = await getActiveAdapter()
+                        const target = getSessionRuntime(branch)
+                        target.historyChunks = chunks
+                        target.messages = chunks.messages
+                        if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
+                            target.tokenOverride = await adapter.estimateLogTokens(branch)
                         }
                         initStatus = 'Loading files...'
-                        const { adapter, branch } = await getActiveAdapter()
-                        files = await adapter.listFiles(branch)
+                        target.files = await adapter.listFiles(branch)
                         historyReady = true
                         initStatus = 'Loading capabilities...'
                     }
@@ -346,748 +306,61 @@
         const branch = $sessionStore.currentBranch
         if (agentReady && branch && branch !== lastBranch) {
             lastBranch = branch
+            const target = getSessionRuntime(branch)
             loadHistoryChunked().then(async (chunks) => {
-                historyChunks = chunks
-                messages = chunks.messages
+                target.historyChunks = chunks
+                target.messages = chunks.messages
                 scrollKey++
                 const { adapter, branch: activeBranch } = await getActiveAdapter()
-                if (messages.length && messages[messages.length - 1].role === 'chaptering') {
-                    tokenOverride = await adapter.estimateLogTokens(activeBranch)
+                if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
+                    target.tokenOverride = await adapter.estimateLogTokens(activeBranch)
                 } else {
-                    tokenOverride = null
+                    target.tokenOverride = null
                 }
-                files = await adapter.listFiles(activeBranch)
+                target.files = await adapter.listFiles(activeBranch)
                 previewRefreshKey++
             })
         }
     })
 
-    // Streaming state — accumulates tokens into events for live display.
-    //
-    // The retool gives every token an ``emission_index`` (one per
-    // emission in the turn: python / terminal / file_write /
-    // file_edit / text / thinking).  Tokens for different emissions
-    // can arrive interleaved on some providers (esp. OpenAI Chat
-    // Completions), so we group strictly by emission_index rather
-    // than by the older "title-start means new action" heuristic
-    // which silently scrambled multi-emission turns.
-    //
-    // ``currentTurn``: Map of emission_index → partial block built
-    //   from streaming tokens.  Finalized into a single action event
-    //   (with an ``emissions`` list preserving order) when Python
-    //   emits the ``turn_complete`` marker via ``_on_event``.
-    // ``streamingEvents``: committed turns, shown in the live chat
-    //   feed while subsequent turns stream.
-    let streamingEvents = $state([])
-    let currentTurn = $state(null)
-    // Live spawn chips for the in-flight turn — one per concurrent clone,
-    // keyed by its `spawnIndex`. Appended
-    // "running" on the clone's taskStart, updated on each step, resolved on
-    // completion. Live-only: shown during the turn and injected into the
-    // turn's in-memory final message, but NOT persisted — gone on reload.
-    let liveSpawnChips = $state([])
-    // Report streaming accumulator — null when no TextEmission is
-    // currently building.  Lifted out of currentTurn so the
-    // committed-chat-message flow (insert on done) stays simple.
-    let activeReportText = $state(null)
-    let activeReportIdx = $state(null)
+    // --- Foreground projections of the session runtime --------------
+    // Thin wrappers: each reads `rt` (the foreground SessionRuntime) at
+    // call time and delegates. The run loop + conversation/streaming
+    // state live in the runtime so a session survives the view switching
+    // away from it. `agentReady` is a shell/boot concern, threaded in.
 
-    function ensureBlock(eidx, kindHint = null) {
-        if (!currentTurn) {
-            currentTurn = { blocks: {}, order: [] }
-        }
-        if (currentTurn.blocks[eidx] === undefined) {
-            currentTurn.blocks[eidx] = {
-                idx: eidx,
-                kind: kindHint,
-                title: '',
-                thinking: '',
-                code: '',
-                commands: '',
-                text: '',
-                path: '',
-                search: '',
-                content: '',
-                mode: 'write',
-                match_all: false,
-                streaming: true,
-            }
-            currentTurn.order = [...currentTurn.order, eidx]
-        } else if (kindHint && !currentTurn.blocks[eidx].kind) {
-            currentTurn.blocks[eidx].kind = kindHint
-        }
-        return currentTurn.blocks[eidx]
+    function handleSend(prompt, attachments = []) {
+        return rt.send(prompt, attachments, agentReady)
     }
 
-    function updateBlock(eidx, patch) {
-        const b = ensureBlock(eidx)
-        currentTurn.blocks[eidx] = { ...b, ...patch }
-        // Trigger Svelte reactivity on the outer map.
-        currentTurn = { ...currentTurn, blocks: { ...currentTurn.blocks } }
+    function handleCancel() {
+        rt.cancel()
     }
 
-    function snapshotTurn() {
-        if (!currentTurn) return null
-        const ordered = currentTurn.order.map(i => currentTurn.blocks[i])
-        const titles = []
-        const thinkingBits = []
-        const reportBits = []
-        const codeBits = []
-        const terminalBits = []
-        const fileActions = []
-        const emissions = []
-        for (const b of ordered) {
-            // Build the emissions-list shape EventDetail prefers (so
-            // per-emission rendering ordered by emission_index takes
-            // over from the flat-fields fallback).
-            if (b.kind === 'python' || b.kind === 'ts') {
-                emissions.push({
-                    kind: b.kind,
-                    idx: b.idx,
-                    code: b.code,
-                    title: b.title,
-                    thinking: b.thinking,
-                })
-                if (b.title) titles.push(b.title)
-                if (b.thinking) thinkingBits.push(b.thinking)
-                if (b.code) codeBits.push(b.code)
-            } else if (b.kind === 'terminal') {
-                emissions.push({
-                    kind: 'terminal',
-                    idx: b.idx,
-                    commands: b.commands,
-                    title: b.title,
-                    thinking: b.thinking,
-                })
-                if (b.title) titles.push(b.title)
-                if (b.thinking) thinkingBits.push(b.thinking)
-                if (b.commands) terminalBits.push(b.commands)
-            } else if (b.kind === 'file_write') {
-                emissions.push({
-                    kind: 'file_write',
-                    idx: b.idx,
-                    path: b.path,
-                    content: b.content,
-                    mode: b.mode,
-                })
-                fileActions.push({
-                    kind: 'file',
-                    path: b.path || '…',
-                    content: b.content,
-                    mode: b.mode || 'write',
-                    streaming: b.streaming,
-                })
-            } else if (b.kind === 'file_edit') {
-                emissions.push({
-                    kind: 'file_edit',
-                    idx: b.idx,
-                    path: b.path,
-                    search: b.search,
-                    content: b.content,
-                    match_all: b.match_all,
-                })
-                fileActions.push({
-                    kind: 'edit',
-                    path: b.path || '…',
-                    search: b.search,
-                    content: b.content,
-                    operation: 'replace',
-                    streaming: b.streaming,
-                })
-            } else if (b.kind === 'text') {
-                // Report/narration renders as its own chat bubble (live
-                // via `commitActiveReport`), not inside the activity
-                // card — keep it out of `emissions` so EventDetail
-                // doesn't render the report twice. Mirrors
-                // `synthesizeAction` on the committed/reload path.
-                if (b.text) reportBits.push(b.text)
-            } else if (b.kind === 'thinking') {
-                emissions.push({
-                    kind: 'thinking',
-                    idx: b.idx,
-                    text: b.text,
-                    redacted: b.redacted,
-                })
-                if (b.text && !b.redacted) thinkingBits.push(b.text)
-            }
-        }
-        const NL2 = '\n\n'
-        return {
-            type: 'action',
-            title: titles[0] || '',
-            thinking: thinkingBits.join(NL2),
-            report: reportBits.join(NL2),
-            code: codeBits.length ? codeBits.join(NL2) : null,
-            terminal: terminalBits.length ? terminalBits.join(NL2) : null,
-            file_actions: fileActions,
-            emissions,
-        }
+    function handleUndo(index) {
+        return rt.handleUndo(index, agentReady)
     }
 
-    /** Commit the in-flight report text as a permanent chat bubble
-     *  before any clear-state path that would discard it. Called from
-     *  both the explicit `report.done` token AND the `turn_complete`
-     *  fallback — agex-ts's token stream doesn't always set
-     *  `done: true` on the last text chunk for a TextEmission, so
-     *  relying solely on `report.done` would leave the streaming
-     *  bubble accumulated but never committed; `turn_complete` then
-     *  cleared `activeReportText` and the bubble vanished after the
-     *  turn finished. Idempotent — if there's no in-flight text or
-     *  it was already committed, this is a no-op. */
-    /** Capture an error's stack-like context for inline rendering
-     *  in the error bubble's <details>. Prefers `e.stack` (already
-     *  has `Name: msg\n   at ...` format in V8 / SpiderMonkey /
-     *  WebKit); falls back to `name + message` for thrown values
-     *  that aren't proper Error instances. Returns null when there's
-     *  nothing useful to show. */
-    function _captureStack(e) {
-        if (!e) return null
-        if (typeof e === 'object' && typeof e.stack === 'string' && e.stack.length > 0) {
-            return e.stack
-        }
-        if (typeof e === 'object' && (e.name || e.message)) {
-            return `${e.name || 'Error'}: ${e.message || String(e)}`
-        }
-        return String(e)
+    function handleRedoFromToast() {
+        return rt.handleRedoFromToast(agentReady)
     }
 
-    function commitActiveReport() {
-        const finalText = activeReportText
-        if (!finalText) return
-        const eidx = activeReportIdx
-        if (eidx != null) {
-            updateBlock(eidx, { kind: 'text', text: finalText })
-        }
-        const committedMsg = {
-            role: 'agent',
-            content: finalText,
-            isReport: true,
-            timestamp: new Date(),
-        }
-        const insertIdx = messages.findIndex(m => m.streaming)
-        if (insertIdx === -1) {
-            messages = [...messages, committedMsg]
-        } else {
-            messages = [
-                ...messages.slice(0, insertIdx),
-                committedMsg,
-                ...messages.slice(insertIdx),
-            ]
-        }
-        activeReportText = null
-        activeReportIdx = null
-    }
-
-    function handleToken(token) {
-        // ``turn_complete`` is the explicit end-of-turn signal —
-        // fires after each ActionEvent lands. Flushes any lingering
-        // ``currentTurn`` into ``streamingEvents`` AND commits any
-        // un-flushed report text into a permanent bubble (see
-        // `commitActiveReport` for the rationale).
-        if (token.type === 'turn_complete') {
-            const snapshot = snapshotTurn()
-            if (snapshot && snapshot.emissions.length) {
-                streamingEvents = [...streamingEvents, snapshot]
-            }
-            currentTurn = null
-            commitActiveReport()
-            rebuildStreamingMessages()
-            return
-        }
-
-        if (token.type === 'spawn') {
-            // Live delegation chip for a spawned clone. `start` appends
-            // a running chip (keyed by clone index); `progress` bumps its
-            // step count; `end` resolves it to success/fail/cancelled.
-            if (token.phase === 'start') {
-                liveSpawnChips = [...liveSpawnChips, {
-                    type: 'spawn',
-                    id: token.id,
-                    inputsSummary: token.inputsSummary,
-                    status: 'running',
-                    steps: 0,
-                }]
-            } else {
-                liveSpawnChips = liveSpawnChips.map(c =>
-                    c.id === token.id
-                        ? token.phase === 'progress'
-                            ? { ...c, steps: token.steps }
-                            : {
-                                ...c,
-                                status: token.status,
-                                steps: token.steps ?? c.steps,
-                                durationMs: token.durationMs,
-                                resultSummary: token.resultSummary,
-                                error: token.error,
-                              }
-                        : c
-                )
-            }
-            rebuildStreamingMessages()
-            return
-        }
-
-        // Drop final-usage bookkeeping tokens (done=true, no
-        // content, no emission_index).
-        if (token.done && !token.content && token.emission_index === undefined) {
-            return
-        }
-
-        const eidx = token.emission_index ?? 0
-
-        if (token.type === 'title') {
-            // Title rides on a PythonEmission or TerminalEmission —
-            // kind will be confirmed when the content field streams.
-            const b = ensureBlock(eidx)
-            updateBlock(eidx, { title: (b.title || '') + (token.content || '') })
-        } else if (token.type === 'thinking') {
-            // Narration-in-schema thinking rides on python/terminal;
-            // native-thinking providers emit it as its own emission
-            // (our Python-side synthetic burst).  Same slot either
-            // way — only the kind differs.
-            const b = ensureBlock(eidx)
-            const kind = b.kind || 'thinking'
-            updateBlock(eidx, {
-                kind: kind === 'thinking' ? 'thinking' : kind,
-                thinking: kind === 'thinking' ? b.thinking : (b.thinking || '') + (token.content || ''),
-                text: kind === 'thinking' ? (b.text || '') + (token.content || '') : b.text,
-            })
-        } else if (token.type === 'report') {
-            // TextEmission — streams as report tokens from our Python
-            // adapter.  Accumulates on the text block and commits as
-            // a chat message on done.
-            if (token.start) {
-                activeReportText = ''
-                activeReportIdx = eidx
-            }
-            if (token.content) {
-                activeReportText = (activeReportText || '') + token.content
-                updateBlock(eidx, { kind: 'text', text: activeReportText })
-            }
-            if (token.done) {
-                commitActiveReport()
-            }
-        } else if (token.type === 'python') {
-            // If thinking streamed first on this emission, the
-            // thinking handler optimistically labeled the block as
-            // a standalone 'thinking' emission and stashed the
-            // content in `b.text` (kind:'thinking' uses `text`).
-            // Now that real code is arriving we know this is in-
-            // schema thinking-on-a-python emission — migrate
-            // `text` → `thinking` so the python snapshot branch
-            // (which reads `b.thinking`) surfaces it. Without this
-            // the thinking content visibly streams in then vanishes
-            // the moment code starts.
-            const b = ensureBlock(eidx, 'python')
-            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
-            updateBlock(eidx, {
-                ...migration,
-                kind: 'python',
-                code: (b.code || '') + (token.content || ''),
-            })
-        } else if (token.type === 'ts') {
-            // agex-ts code emission — same layout as 'python', different
-            // syntax highlighter downstream (EventDetail switches on kind).
-            // Same thinking → text → thinking migration as the python
-            // branch above; see that comment for the in-schema-thinking
-            // rationale.
-            const b = ensureBlock(eidx, 'ts')
-            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
-            updateBlock(eidx, {
-                ...migration,
-                kind: 'ts',
-                code: (b.code || '') + (token.content || ''),
-            })
-        } else if (token.type === 'terminal') {
-            // Same thinking-migration as the python/ts handlers —
-            // terminal_action's schema also carries a `thinking`
-            // parameter, so the in-schema case applies here too.
-            const b = ensureBlock(eidx, 'terminal')
-            const migration = b.kind === 'thinking' ? { thinking: b.text, text: '' } : {}
-            updateBlock(eidx, {
-                ...migration,
-                kind: 'terminal',
-                commands: (b.commands || '') + (token.content || ''),
-            })
-        } else if (token.type === 'file_path') {
-            const b = ensureBlock(eidx, 'file_write')
-            updateBlock(eidx, { path: (b.path || '') + (token.content || '') })
-        } else if (token.type === 'file_search') {
-            const b = ensureBlock(eidx, 'file_edit')
-            updateBlock(eidx, {
-                kind: 'file_edit',
-                search: (b.search || '') + (token.content || ''),
-            })
-        } else if (token.type === 'file_content') {
-            const b = ensureBlock(eidx)
-            // Only bump kind to file_write if unclaimed — a prior
-            // file_search would've already set file_edit.
-            updateBlock(eidx, {
-                kind: b.kind || 'file_write',
-                content: (b.content || '') + (token.content || ''),
-            })
-        } else if (token.type === 'file_action') {
-            // Final prebuilt file emission — authoritative values
-            // replace whatever the streaming deltas accumulated.
-            if (token.action) {
-                const action = token.action
-                if (action.kind === 'file') {
-                    updateBlock(eidx, {
-                        kind: 'file_write',
-                        path: action.path,
-                        content: action.content,
-                        mode: action.mode || 'write',
-                        streaming: false,
-                    })
-                } else if (action.kind === 'edit') {
-                    updateBlock(eidx, {
-                        kind: 'file_edit',
-                        path: action.path,
-                        search: action.search,
-                        content: action.content,
-                        streaming: false,
-                    })
-                }
-            }
-        }
-
-        rebuildStreamingMessages()
-    }
-
-    function rebuildStreamingMessages() {
-        const liveSnapshot = snapshotTurn()
-        // A pure-narration turn snapshots to an emission-less action
-        // now that text bodies live only in the report bubble — don't
-        // fold it into the activity feed (it would render as an empty
-        // "Activity" card with a streaming dot).
-        const hasLive = liveSnapshot && liveSnapshot.emissions.length
-        const allEvents = hasLive
-            ? [...streamingEvents, liveSnapshot, ...liveSpawnChips]
-            : [...streamingEvents, ...liveSpawnChips]
-
-        // Rebuild the tail of messages: strip all streaming messages, then
-        // re-add current streaming state (optional report + activity).
-        const nonStreaming = messages.filter(m => !m.streaming)
-        const streamParts = []
-        if (activeReportText !== null) {
-            streamParts.push({
-                role: 'agent',
-                content: activeReportText,
-                isReport: true,
-                streaming: true,
-                timestamp: new Date(),
-            })
-        }
-        streamParts.push({
-            role: 'agent',
-            content: '',
-            events: allEvents,
-            timestamp: new Date(),
-            streaming: true,
-        })
-        messages = [...nonStreaming, ...streamParts]
-    }
-
-    async function handleUpload(names, commitHash) {
-        const { adapter, branch } = await getActiveAdapter()
-        files = await adapter.listFiles(branch)
-        const label = names.length === 1
-            ? `**Uploaded:** \`${names[0]}\``
-            : `**Uploaded ${names.length} files:**\n${names.map(n => `- \`${n}\``).join('\n')}`
-        messages = [...messages, {
-            role: 'user',
-            content: label,
-            timestamp: new Date(),
-            isMarkdown: true,
-            commit_hash: commitHash,
-        }]
-    }
-
-    async function handleDelete(names, commitHash) {
-        const { adapter, branch } = await getActiveAdapter()
-        files = await adapter.listFiles(branch)
-        const label = names.length === 1
-            ? `**Deleted:** \`${names[0]}\``
-            : `**Deleted ${names.length} files:**\n${names.map(n => `- \`${n}\``).join('\n')}`
-        messages = [...messages, {
-            role: 'user',
-            content: label,
-            timestamp: new Date(),
-            isMarkdown: true,
-            commit_hash: commitHash,
-        }]
+    function handleChapter() {
+        return rt.handleChapter(agentReady)
     }
 
     function handleLoadMore() {
-        // Prepend the just-revealed older range to `messages`. Don't
-        // replace `messages` wholesale from the chunk manager — the
-        // manager holds a snapshot of history captured at init time
-        // and is unaware of live appends (chat turns, uploads). A
-        // full replace would drop anything appended after the
-        // manager was constructed (symptom: scroll up, scroll back
-        // down, your latest reply is gone until reload).
-        const older = historyChunks?.loadOlder?.() ?? []
-        if (older.length > 0) {
-            messages = [...older, ...messages]
-            // Reassign to trigger Svelte reactivity for hasMore getter
-            historyChunks = historyChunks
-        }
+        rt.handleLoadMore()
     }
 
-    async function handleUndo(index) {
-        if (busy || !agentReady) return
-        const msg = messages[index]
-        if (!msg?.commit_hash) return
-        const undoneText = msg.content
-        dismissUndoToast()
-        busy = true
-        try {
-            const { adapter, branch } = await getActiveAdapter()
-            const preCommit = await adapter.getCurrentCommit(branch)
-            await adapter.undoToCommit(branch, msg.commit_hash)
-            historyChunks = await loadHistoryChunked()
-            messages = historyChunks.messages
-            files = await adapter.listFiles(branch)
-            previewRefreshKey++
-            if (!msg.isMarkdown) inputPrefill = undoneText
-            tokenOverride = await adapter.estimateLogTokens(branch)
-            // Show toast with option to redo
-            const timer = setTimeout(dismissUndoToast, 5000)
-            undoToast = { preCommit, timer }
-        } catch (e) {
-            console.error('Undo failed:', e)
-        } finally {
-            busy = false
-        }
-    }
-
-    async function handleRedoFromToast() {
-        if (!undoToast || busy || !agentReady) return
-        const { preCommit } = undoToast
-        dismissUndoToast()
-        busy = true
-        try {
-            const { adapter, branch } = await getActiveAdapter()
-            await adapter.undoToCommit(branch, preCommit)
-            historyChunks = await loadHistoryChunked()
-            messages = historyChunks.messages
-            files = await adapter.listFiles(branch)
-            previewRefreshKey++
-            inputPrefill = ''
-            tokenOverride = await adapter.estimateLogTokens(branch)
-        } catch (e) {
-            console.error('Redo failed:', e)
-        } finally {
-            busy = false
-        }
+    function handleDelete(names, commitHash) {
+        return rt.handleDelete(names, commitHash)
     }
 
     async function handleTokenClick() {
         if (!agentReady) return
         tokenModalOpen = true
-        try {
-            const { adapter, branch } = await getActiveAdapter()
-            tokenHistory = await adapter.getTokenHistory(branch)
-        } catch (e) {
-            console.error('Failed to load token history:', e)
-        }
-    }
-
-    async function handleChapter() {
-        if (busy || !agentReady || chaptering) return
-        chaptering = true
-        try {
-            const { adapter, branch } = await getActiveAdapter()
-            await adapter.runChaptering(branch)
-            historyChunks = await loadHistoryChunked()
-            messages = historyChunks.messages
-            tokenOverride = await adapter.estimateLogTokens(branch)
-            tokenHistory = await adapter.getTokenHistory(branch)
-        } catch (e) {
-            console.error('Chaptering failed:', e)
-        } finally {
-            chaptering = false
-        }
-    }
-
-    async function handleSend(prompt, attachments = []) {
-        if (busy || !agentReady) return
-        const trimmed = (prompt || '').trim()
-        if (!trimmed && attachments.length === 0) return
-
-        // Claim `busy` BEFORE any await so a double-click on Send
-        // re-enters the busy-guard above instead of slipping through
-        // while we're partway through an upload. Every early-return
-        // path below must reset `busy` (the eventual try/finally for
-        // the agent send handles the long-running path); the
-        // upload-only path is the one the previous version missed.
-        busy = true
-        inputPrefill = ''
-
-        const { adapter, branch } = await getActiveAdapter()
-
-        // 1. Push attachments first (if any). This writes them to the
-        //    VFS, fires `handleUpload` (creates the upload bubble),
-        //    and the FileEvent we now log makes the agent aware on
-        //    their next turn. Doing this BEFORE the prompt means the
-        //    upload bubble appears above the user's message — natural
-        //    reading order ("here are the files I'm asking about").
-        if (attachments.length > 0) {
-            const uploadCommit = await adapter.getCurrentCommit(branch)
-            const fileMap = {}
-            for (const att of attachments) fileMap[att.name] = att.bytes
-            try {
-                await adapter.writeFiles(branch, fileMap)
-                await handleUpload(Object.keys(fileMap), uploadCommit)
-            } catch (e) {
-                console.error('Attachment upload failed:', e)
-                messages = [...messages, {
-                    role: 'agent',
-                    content: `Error uploading files: ${e.message || String(e)}`,
-                    errorStack: _captureStack(e),
-                    timestamp: new Date(),
-                }]
-                busy = false
-                return
-            }
-        }
-
-        // 2. If there's no text, we're done — files-only "send"
-        //    just creates the upload bubble. The agent will see the
-        //    file event next time they get a turn.
-        if (!trimmed) {
-            busy = false
-            return
-        }
-
-        const commitHash = await adapter.getCurrentCommit(branch)
-        messages = [...messages, {
-            role: 'user',
-            content: trimmed,
-            timestamp: new Date(),
-            commit_hash: commitHash,
-        }]
-
-        streamingEvents = []
-        liveSpawnChips = []
-        currentTurn = null
-        activeReportText = null
-        activeReportIdx = null
-
-        // Snapshot app file state for the post-turn refresh decision —
-        // see `appFilesFingerprint` for what this captures and why a
-        // diff over this catches every way agents modify app files.
-        const preAppFp = await appFilesFingerprint(adapter, branch)
-
-        activeAbort = new AbortController()
-        try {
-            tokenOverride = null
-            const response = await adapter.sendMessage(branch, trimmed, {
-                onToken: handleToken,
-                signal: activeAbort.signal,
-            })
-            const cancelled = response.events.some(e => e.type === 'cancelled')
-
-            // Replace streaming message with final message. Spawn chips
-            // (live-only, never in response.events) ride along in-memory so
-            // the turn's fan-out stays visible until reload.
-            const finalMessages = messages.filter(m => !m.streaming)
-            const finalEvents = [...response.events, ...liveSpawnChips]
-            if (cancelled) {
-                messages = [...finalMessages, {
-                    role: 'agent',
-                    content: { type: 'text', content: '' },
-                    events: finalEvents,
-                    timestamp: new Date(),
-                    cancelled: true,
-                }]
-            } else {
-                messages = [...finalMessages, {
-                    role: 'agent',
-                    content: response.result,
-                    events: finalEvents,
-                    timestamp: new Date(),
-                }]
-            }
-
-            // Refresh file list, preview, and persist session meta
-            files = await adapter.listFiles(branch)
-            if (!cancelled) {
-                // Re-fingerprint app files and refresh the preview if
-                // anything under app/ changed during the turn — by any
-                // mechanism. file_write / file_edit emissions are only
-                // produced when the LLM uses the write_file / edit_file
-                // *action tools* directly; common paths like esbuild
-                // (terminal_action) and `await fs.write` (ts_action)
-                // don't produce those emissions even though they
-                // modify app files, so the previous emission-walking
-                // check missed them.
-                const postAppFp = await appFilesFingerprint(adapter, branch, files)
-                if (postAppFp !== preAppFp) previewRefreshKey++
-                const lastAction = [...response.events].reverse().find(e => e.type === 'action' && e.title)
-                await persistSessionMeta(lastAction?.title || '')
-            }
-        } catch (e) {
-            // Preserve the agent's in-flight emissions when the task
-            // errors mid-stream. Without this, the streaming activity
-            // card vanishes (filter strips `streaming: true` entries)
-            // and the chat just shows a bare "Error: ..." — the user
-            // loses all context about what the agent was doing right
-            // up to the failure. Snapshot the active turn (if any)
-            // and pair the partial events with the error message so
-            // the activity card stays visible alongside the error.
-            const finalMessages = messages.filter(m => !m.streaming)
-            const eventsBeforeError = [...streamingEvents]
-            const liveSnapshot = snapshotTurn()
-            if (liveSnapshot && liveSnapshot.emissions.length) {
-                eventsBeforeError.push(liveSnapshot)
-            }
-            // Keep any spawn chips (e.g. clones still running when the turn
-            // errored/cancelled) so the activity card shows the delegation.
-            if (liveSpawnChips.length) {
-                eventsBeforeError.push(...liveSpawnChips)
-            }
-            // User-initiated cancel (handleCancel set `cancelling` true
-            // before the abort fired) lands here when the adapter
-            // throws on signal abort instead of returning a response
-            // with a cancelled event. Render as cancelled, not as a
-            // crash — the partial events still show what the agent
-            // was doing up to the cancel.
-            const userCancelled = cancelling || e?.name === 'AbortError'
-            if (userCancelled) {
-                messages = [...finalMessages, {
-                    role: 'agent',
-                    content: { type: 'text', content: '' },
-                    events: eventsBeforeError,
-                    timestamp: new Date(),
-                    cancelled: true,
-                }]
-            } else {
-                console.error('Agent turn failed:', e)
-                messages = [...finalMessages, {
-                    role: 'agent',
-                    content: `Error: ${e.message}`,
-                    errorStack: _captureStack(e),
-                    events: eventsBeforeError,
-                    timestamp: new Date(),
-                }]
-            }
-        } finally {
-            // Flush any in-flight report text into a permanent bubble
-            // before tearing down. Symmetric with eventsBeforeError —
-            // when a cancel / error fires mid-text-emission (before
-            // `turn_complete` arrives), the streaming bubble's content
-            // would otherwise vanish along with `activeReportText`.
-            // No-op for the success path (turn_complete already
-            // committed). Idempotent in any case.
-            commitActiveReport()
-            busy = false
-            cancelling = false
-            activeAbort = null
-            streamingEvents = []
-            liveSpawnChips = []
-            currentTurn = null
-        }
+        rt.loadTokenHistory()
     }
 
     /** Drive import — opens Google Drive picker, downloads selected
@@ -1106,7 +379,7 @@
             if (written.length === 0) return
             const { adapter, branch } = await getActiveAdapter()
             const commitHash = await adapter.getCurrentCommit(branch)
-            await handleUpload(written, commitHash)
+            await rt.handleUpload(written, commitHash)
         } catch (e) {
             console.error('Drive import failed:', e)
         }
@@ -1143,20 +416,6 @@
     }
 
     let chatDragOver = $state(false)
-
-    function handleCancel() {
-        cancelling = true
-        // Two cancel paths, both safe to fire:
-        //   - cancelTask: py-only worker-side mechanism (sets a flag in
-        //     pyodide's globals; agent loop checks at iteration boundary).
-        //     No-op for ts sessions or when no py task is running.
-        //   - activeAbort.abort: AbortSignal that the TS adapter forwards
-        //     to agex-ts's task call. agex-ts honors AbortSignal natively.
-        // Calling both means cancellation works regardless of which
-        // kernel the active session is on.
-        cancelTask()
-        activeAbort?.abort()
-    }
 </script>
 
 {#snippet chatContent()}
@@ -1178,7 +437,7 @@
             onAppReloadClick={() => previewRefreshKey++}
             onChapterClick={handleTokenClick}
             {configured}
-            fileCount={files?.length ?? 0}
+            fileCount={rt.files?.length ?? 0}
             showAppReload={hasAppFiles}
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
@@ -1186,7 +445,7 @@
         />
 
         {#if historyReady}
-            <MessageList {messages} {busy} {scrollKey} onUndo={handleUndo} hasMore={historyChunks?.hasMore ?? false} onLoadMore={handleLoadMore} onActionOpen={(i) => actionModalIndex = i} onChapterOpen={(msg) => chapterModalData = msg} />
+            <MessageList messages={rt.messages} busy={rt.busy} {scrollKey} onUndo={handleUndo} hasMore={rt.historyChunks?.hasMore ?? false} onLoadMore={handleLoadMore} onActionOpen={(i) => actionModalIndex = i} onChapterOpen={(msg) => chapterModalData = msg} />
             {#if !agentReady && warmingMessage}
                 <div class="status-row">
                     <span class="spinner"></span>
@@ -1206,10 +465,10 @@
                 onCancel={handleCancel}
                 onDriveImport={handleDriveImport}
                 {driveAvailable}
-                {busy}
-                {cancelling}
-                sendDisabled={busy || !agentReady || !configured}
-                prefill={inputPrefill}
+                busy={rt.busy}
+                cancelling={rt.cancelling}
+                sendDisabled={rt.busy || !agentReady || !configured}
+                prefill={rt.inputPrefill}
                 placeholder={configured ? 'Ask the agent...' : 'Add an API key in Settings to chat.'}
             />
         {:else if pyodideError}
@@ -1364,7 +623,7 @@
         {@render chatContent()}
     {/snippet}
     {#snippet preview()}
-        <AppPreview refreshKey={previewRefreshKey} />
+        <AppPreview refreshKey={previewRefreshKey + rt.previewTick} />
     {/snippet}
 </SplitPane>
 
@@ -1376,9 +635,9 @@
 <FileDrawer
     open={filesOpen}
     onClose={() => filesOpen = false}
-    {files}
+    files={rt.files}
     onDelete={handleDelete}
-    onFilesChanged={(f) => files = f}
+    onFilesChanged={(f) => rt.files = f}
 />
 
 <SettingsDrawer
@@ -1397,7 +656,7 @@
     onClose={() => chapterModalData = null}
 />
 
-{#if undoToast}
+{#if rt.undoToast}
     <div class="undo-toast">
         <span>Undone</span>
         <button class="undo-toast-btn" onclick={handleRedoFromToast}>Redo</button>
@@ -1407,10 +666,10 @@
 
 {#if tokenModalOpen}
     <TokenModal
-        tokens={tokenHistory}
+        tokens={rt.tokenHistory}
         current={lastInputTokens}
         trigger={$settingsStore.chapteringTrigger}
-        {chaptering}
+        chaptering={rt.chaptering}
         onChapter={handleChapter}
         onClose={() => tokenModalOpen = false}
     />
