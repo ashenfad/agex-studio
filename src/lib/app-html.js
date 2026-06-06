@@ -380,6 +380,9 @@ export function preloadPlotly() {
         .catch((e) => {
             console.warn("[plotly] preload failed; falling back to <script src>", e);
             _plotlyDataUrl = null;
+            // Drop the cached (failed) promise so a later call retries the
+            // preload instead of re-returning the failed attempt.
+            _plotlyPreloadPromise = null;
         });
     return _plotlyPreloadPromise;
 }
@@ -627,7 +630,7 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
         // Replace <script type="module" src="./foo.js"> with import via import map
         for (const name of jsFiles.keys()) {
             const pattern = new RegExp(
-                `<script([^>]*?)\\bsrc=["']\\./${_escapeRegex(name)}["']([^>]*)>[\\s\\S]*?</script>`,
+                `<script([^>]*?)\\bsrc=["'](?:\\./)?${_escapeRegex(name)}["']([^>]*)>[\\s\\S]*?</script>`,
                 'g',
             );
             html = html.replace(pattern, (match, before, after) => {
