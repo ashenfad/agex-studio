@@ -167,16 +167,23 @@ export async function initAgent(settings) {
         // import above gives us a self-contained bundled worker.
         workerUrl: _agexWorkerUrl,
         //
-        // Per-emission wall-clock budget. The default 5s is too
-        // tight for studio agents: a single `await testApp(...)`
-        // covers iframe creation + script load (Plotly etc. on
-        // cold cache routinely takes 3–8s), and `await
-        // search(..., {deep: true})` can run 10–30s on multi-step
-        // queries. Bumping to 60s gives those room without
-        // letting genuine infinite loops hang the worker — the
-        // user can always hit the chat-UI cancel for shorter
-        // exits via the AbortSignal we plumb through.
-        timeoutMs: 60_000,
+        // Per-emission wall-clock budget, shared by the chat agent AND
+        // its `spawn` clones (native spawn multiplexes onto this same
+        // worker — there is no separate clone timeout). It must comfortably
+        // fit the slowest *legitimate* single emission, because a timeout
+        // is all-or-nothing: killing the worker settles EVERY co-resident
+        // execute, so one slow clone takes down its in-flight siblings and
+        // the parked parent (see @agex-ts/runtime-worker runtime.ts).
+        //
+        // The slow cases: `await testApp(...)` (iframe + cold-cache Plotly,
+        // 3–8s), and especially `await search(..., { deep: true })` —
+        // multi-step deep research routinely runs 60–90s, and a research
+        // fan-out fires several concurrently. 60s was too tight for that
+        // (deep-search clones hit the wall and cancelled the batch). 3min
+        // fits a deep search (plus a follow-up step) with margin; a genuine
+        // infinite loop is still bounded, and the user can hit the chat-UI
+        // cancel for a faster exit via the AbortSignal we plumb through.
+        timeoutMs: 180_000,
     });
     _agent = await createAgent({
         name: "chat",

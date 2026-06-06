@@ -103,6 +103,20 @@ function _dbg(...args) {
     }
 }
 
+/** Compact single-line summary of a spawn chip's inputs/result. Keeps a
+ *  big payload from blowing out the chip. */
+function _summarizeSpawn(value, max = 60) {
+    let s;
+    try {
+        s = typeof value === "string" ? value : JSON.stringify(value);
+    } catch {
+        s = String(value);
+    }
+    if (s === undefined) s = "";
+    s = s.replace(/\s+/g, " ");
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
 /** Switch kvgit's current branch to `branch`. Goes through Staged
  *  (not the underlying Versioned) so Staged's per-key read cache is
  *  invalidated on switch — direct `versioned.switchBranch` would
@@ -217,6 +231,12 @@ export function createTsAdapter() {
             /** @type {string | null} */
             let currentTaskName = null;
             let chapterCount = 0;
+            // Per-clone live-chip state for this turn, keyed by the spawn
+            // index parsed from `agentName` (`<name>:spawn#<n>`). Tracks
+            // start time + step count so an `end` token can report
+            // duration/steps. Live-only — cleared with the turn.
+            /** @type {Map<string, { startMs: number, steps: number }>} */
+            const spawnChips = new Map();
 
             const sendTokens = async (tokens) => {
                 if (!userOnToken) return;
@@ -246,16 +266,60 @@ export function createTsAdapter() {
                         // Spawn-clone events ride this same stream, tagged
                         // `<name>:spawn#<n>` (agex-ts forwards a clone's
                         // events to the parent task's onEvent). They are
-                        // NOT chat narrative — drop them so the translator
-                        // doesn't render a clone's actions/output as if the
-                        // parent emitted them. (A future "live spawn chips"
-                        // feature would demux these instead of dropping —
-                        // see roadmap/spawn-migration.md.)
+                        // NOT chat narrative — never render them as parent
+                        // actions/output. Instead demux by the clone index
+                        // into a live "running → done" chip token. Live-only:
+                        // not pushed to `events`, so it never persists past
+                        // the turn (the shell injects it into the in-memory
+                        // final message; reload's loadHistory has no chips).
                         const agentName = /** @type {any} */ (e)?.agentName;
-                        if (
-                            typeof agentName === "string" &&
-                            /:spawn#\d+$/.test(agentName)
-                        ) {
+                        const spawnMatch =
+                            typeof agentName === "string"
+                                ? /:spawn#(\d+)$/.exec(agentName)
+                                : null;
+                        if (spawnMatch) {
+                            if (userOnToken) {
+                                const id = spawnMatch[1];
+                                const ev = /** @type {any} */ (e);
+                                if (et === "taskStart") {
+                                    spawnChips.set(id, { startMs: Date.now(), steps: 0 });
+                                    userOnToken({
+                                        type: "spawn",
+                                        phase: "start",
+                                        id,
+                                        inputsSummary: _summarizeSpawn(ev.inputs),
+                                    });
+                                } else if (et === "action") {
+                                    const c = spawnChips.get(id);
+                                    if (c) c.steps += 1;
+                                    userOnToken({
+                                        type: "spawn",
+                                        phase: "progress",
+                                        id,
+                                        steps: c ? c.steps : 1,
+                                    });
+                                } else if (
+                                    et === "success" ||
+                                    et === "fail" ||
+                                    et === "cancelled"
+                                ) {
+                                    const c = spawnChips.get(id);
+                                    spawnChips.delete(id);
+                                    userOnToken({
+                                        type: "spawn",
+                                        phase: "end",
+                                        id,
+                                        status: et === "success" ? "success" : et,
+                                        steps: c ? c.steps : undefined,
+                                        durationMs: c ? Date.now() - c.startMs : undefined,
+                                        resultSummary:
+                                            et === "success"
+                                                ? _summarizeSpawn(ev.result)
+                                                : undefined,
+                                        error: et === "fail" ? ev.message : undefined,
+                                    });
+                                }
+                            }
                             return;
                         }
                         if (et === "taskStart") {
