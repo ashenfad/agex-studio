@@ -37,7 +37,14 @@ beforeEach(() => {
 });
 
 async function loadPyodide() {
-    return await import("./pyodide.js");
+    const pyodideModule = await import("./pyodide.js");
+    const appHtmlModule = await import("./app-html.js");
+    return {
+        ...pyodideModule,
+        buildAppHtml: appHtmlModule.buildAppHtml,
+        buildAppStorageShim: appHtmlModule.buildAppStorageShim,
+        _rewriteLocalImports: appHtmlModule._rewriteLocalImports,
+    };
 }
 
 describe("pyodideStore", () => {

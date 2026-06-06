@@ -1,6 +1,7 @@
 <script>
     import { disableQueries, enableQueries } from './agent.js'
-    import { buildAppHtml, setLiveIframe } from './pyodide.js'
+    import { buildAppHtml } from './app-html.js'
+    import { setLiveIframe } from './pyodide.js'
     import { sessionStore } from './sessions.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { getActiveAdapter } from './active-adapter.js'

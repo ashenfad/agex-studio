@@ -45,7 +45,7 @@ import {
     runLiveApp as appControlRunLiveApp,
     getLiveIframe as appControlGetLiveIframe,
 } from "./app-control.js";
-import { buildAppHtml } from "./pyodide.js";
+import { buildAppHtml } from "./app-html.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
