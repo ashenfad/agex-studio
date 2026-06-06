@@ -30,7 +30,7 @@ describe("_isAgentMemoryKey", () => {
         expect(_isAgentMemoryKey("cache/nested/path")).toBe(true);
     });
 
-    it("matches the sub-task registry by exact name", () => {
+    it("matches the legacy sub-task key by exact name", () => {
         expect(_isAgentMemoryKey("__subtasks__")).toBe(true);
     });
 

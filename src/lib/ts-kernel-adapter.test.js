@@ -2,11 +2,9 @@
  * `TsKernelAdapter` shape check + the methods that don't depend on
  * the chat task / LLM / runtime.
  *
- * The chat-task-dependent surface (`sendMessage`, `runChaptering`,
- * `runQuery`) currently throws `not yet implemented (Phase 5 PR 2)`;
- * a small set of tests covers that contract so the throw doesn't
- * silently turn into a no-op when PR 2 lands without removing the
- * stubs.
+ * `runQuery` is the one chat-adjacent method still stubbed (it throws
+ * "not yet implemented for the TS kernel"); a test covers that contract
+ * so the throw doesn't silently turn into a no-op.
  *
  * The richer round-trip behavior (branch ops, VFS, bundle, history,
  * telemetry) gets exercised through ts-bundle's own round-trip suite

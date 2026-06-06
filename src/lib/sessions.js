@@ -484,9 +484,8 @@ export async function forkSession() {
 }
 
 /** Fork the current session, keeping the VFS workspace but
- *  dropping the agent's conversation context (event log, cache,
- *  sub-task registry). The new branch starts blank — same files,
- *  no prior chat history.
+ *  dropping the agent's conversation context (event log, cache).
+ *  The new branch starts blank — same files, no prior chat history.
  *
  *  Implementation: squash. Create an empty branch (from initial
  *  commit), then re-set each VFS file on the new branch. Because

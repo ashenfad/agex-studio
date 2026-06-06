@@ -48,6 +48,10 @@ chosen LLM, and some features reach other origins on demand (see
   agent can reason over.
 - **Web search** — Perplexity Sonar; parallel `Promise.all` across
   several searches for multi-topic research.
+- **Sub-agent fan-out** — the agent can `spawn` parallel LLM
+  sub-tasks (multi-angle research, candidate generation), and apps it
+  builds can call the LLM on a user action (an NPC's reply, an
+  opponent's move). Runs on your same provider — no extra egress.
 - **Google Drive import** — pick files via the Google Picker; their
   bytes download into the agent's workspace under `/downloads/`. The
   access token stays on the main thread and is dropped right after the

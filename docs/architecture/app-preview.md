@@ -299,6 +299,12 @@ The iframe also pushes some unsolicited messages (note the
 - `agex-cache-get` — the asset-bridge / `getCacheValue`
   helper agents reach for to read agent-stashed data. Parent
   replies with `agex-cache-get-result`.
+- `agex-spawn` — an app-initiated LLM sub-task. Carries an inline
+  `SpawnSpec` (the app source is the registry — no named lookup),
+  routed to `appAdapter.spawn` → `spawnFromApp` (which strips
+  `view` and enforces a per-session cap). Parent replies with
+  `agex-spawn-result` / `agex-spawn-error`. `agex-cancel-spawn`
+  (with the message id) aborts an in-flight one.
 - `agex-app-storage` — shim for the per-session iframe
   localStorage.
 - `agex-bridge-ready` — the iframe's control bridge signals it's

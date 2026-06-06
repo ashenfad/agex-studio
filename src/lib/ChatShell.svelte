@@ -592,7 +592,7 @@
         }
 
         if (token.type === 'spawn') {
-            // Live delegation chip for a spawned sub-agent. `start` appends
+            // Live delegation chip for a spawned clone. `start` appends
             // a running chip (keyed by clone index); `progress` bumps its
             // step count; `end` resolves it to success/fail/cancelled.
             if (token.phase === 'start') {

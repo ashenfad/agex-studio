@@ -360,7 +360,7 @@
  *
  * @property {(branch: string) => Promise<void>} wipeAgentMemory
  *   Drop the "agent memory" keys on `branch` — event log, cache,
- *   sub-task registry — while leaving the VFS file blobs and
+ *   legacy sub-task keys — while leaving the VFS file blobs and
  *   session metadata intact.  Not currently consumed by fork (the
  *   fresh-chat fork mode now squashes by re-setting files onto a
  *   genesis-branch instead), but kept as a documented primitive

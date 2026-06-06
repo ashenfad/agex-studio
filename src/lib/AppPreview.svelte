@@ -227,7 +227,7 @@
     // In-flight iframe-initiated spawn calls, keyed by message id, so an
     // `agex-cancel-spawn` from the app can abort the right clone (e.g. a
     // "Stop thinking" button).
-    const invokeControllers = new Map()
+    const spawnControllers = new Map()
 
     // Handle ready / query / app-storage messages from the iframe
     function handleMessage(event) {
@@ -320,7 +320,7 @@
                 return
             }
             const ac = new AbortController()
-            invokeControllers.set(id, ac)
+            spawnControllers.set(id, ac)
             appAdapter.spawn(appBranch, spec, ac.signal)
                 .then(data => {
                     iframe?.contentWindow?.postMessage({
@@ -336,12 +336,12 @@
                         error: err?.message || String(err),
                     }, APPS_ORIGIN)
                 })
-                .finally(() => invokeControllers.delete(id))
+                .finally(() => spawnControllers.delete(id))
             return
         }
 
         if (event.data?.type === 'agex-cancel-spawn') {
-            const ac = invokeControllers.get(event.data.id)
+            const ac = spawnControllers.get(event.data.id)
             if (ac) ac.abort()
             return
         }
