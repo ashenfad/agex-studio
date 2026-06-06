@@ -18,3 +18,34 @@
 export const APPS_ORIGIN = (
     import.meta.env.VITE_APPS_ORIGIN ?? "https://apps.agex.studio"
 ).replace(/\/$/, "");
+
+/**
+ * Security guard for inbound iframe→host messages: true only when the
+ * `MessageEvent` came from the app-preview `iframe`'s window AND the
+ * expected apps origin. Every place that handles unsolicited iframe
+ * messages (the live preview in `AppPreview`, the ephemeral test/live-app
+ * bridges in `app-control`) gates on this so the check lives once.
+ *
+ * @param {MessageEvent} event
+ * @param {HTMLIFrameElement | null | undefined} iframe
+ * @returns {boolean}
+ */
+export function isFromAppFrame(event, iframe) {
+    return (
+        !!iframe &&
+        event.source === iframe.contentWindow &&
+        event.origin === APPS_ORIGIN
+    );
+}
+
+/**
+ * Post a message back into the app-preview `iframe`, targeting the apps
+ * origin. No-op if the iframe is gone. Mirror of `isFromAppFrame` for the
+ * outbound direction.
+ *
+ * @param {HTMLIFrameElement | null | undefined} iframe
+ * @param {unknown} message
+ */
+export function replyToApp(iframe, message) {
+    iframe?.contentWindow?.postMessage(message, APPS_ORIGIN);
+}
