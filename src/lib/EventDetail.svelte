@@ -143,6 +143,34 @@
                 {/if}
             </div>
         </div>
+    {:else if evt.type === 'spawn'}
+        <!-- Live spawn chip — one delegated sub-agent. Shown while the
+             turn streams; live-only (not persisted past reload). -->
+        <div
+            class="spawn-chip"
+            class:spawn-running={evt.status === 'running'}
+            class:spawn-fail={evt.status === 'fail'}
+            class:spawn-cancelled={evt.status === 'cancelled'}
+        >
+            <span class="spawn-arrow">⤷</span>
+            <span class="spawn-label">spawn</span>{#if evt.inputsSummary}<span
+                    class="spawn-args">({evt.inputsSummary})</span
+                >{/if}
+            {#if evt.status === 'running'}
+                <span class="spawn-outcome">running… {evt.steps ? `(${evt.steps})` : ''}</span>
+            {:else}
+                <span class="spawn-meta"
+                    >[{evt.steps ?? 0} steps · {((evt.durationMs ?? 0) / 1000).toFixed(1)}s]</span
+                >
+                {#if evt.status === 'success'}
+                    <span class="spawn-result">→ {evt.resultSummary ?? ''}</span>
+                {:else if evt.status === 'cancelled'}
+                    <span class="spawn-outcome">cancelled</span>
+                {:else}
+                    <span class="spawn-outcome">failed{evt.error ? ` — ${evt.error}` : ''}</span>
+                {/if}
+            {/if}
+        </div>
     {/if}
 {/each}
 
@@ -268,4 +296,39 @@
 
     .output-image { margin-top: 0.25rem; border-radius: 4px; overflow: hidden; }
     .output-image img { max-width: 100%; display: block; border-radius: 4px; }
+
+    /* Live spawn chip — one compact line per delegated sub-agent, distinct
+       from the event cards so a delegation reads as a side-call. */
+    .spawn-chip {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.35em;
+        padding: 0.3rem 0.6rem;
+        border-left: 2px solid var(--purple);
+        background: var(--surface);
+        border-radius: 4px;
+        font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        font-size: 0.76rem;
+        line-height: 1.4;
+        word-break: break-word;
+    }
+    .spawn-chip.spawn-fail { border-left-color: var(--error); }
+    .spawn-chip.spawn-cancelled { border-left-color: var(--text-muted); opacity: 0.85; }
+    .spawn-chip.spawn-running {
+        border-left-color: var(--accent);
+        animation: spawn-pulse 1.2s ease-in-out infinite;
+    }
+    .spawn-running .spawn-outcome { color: var(--accent); }
+    @keyframes spawn-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+    }
+    .spawn-arrow { color: var(--purple); font-weight: 600; }
+    .spawn-label { font-weight: 600; color: var(--text); }
+    .spawn-args { color: var(--text-muted); }
+    .spawn-meta { color: var(--text-muted); font-size: 0.72rem; }
+    .spawn-result { color: var(--success); }
+    .spawn-fail .spawn-outcome { color: var(--error); }
+    .spawn-cancelled .spawn-outcome { color: var(--text-muted); }
 </style>

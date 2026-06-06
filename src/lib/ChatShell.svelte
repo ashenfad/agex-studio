@@ -380,6 +380,12 @@
     //   feed while subsequent turns stream.
     let streamingEvents = $state([])
     let currentTurn = $state(null)
+    // Live spawn chips for the in-flight turn — one per concurrent clone,
+    // keyed by its spawn index (parsed from `<name>:spawn#<n>`). Appended
+    // "running" on the clone's taskStart, updated on each step, resolved on
+    // completion. Live-only: shown during the turn and injected into the
+    // turn's in-memory final message, but NOT persisted — gone on reload.
+    let liveSpawnChips = $state([])
     // Report streaming accumulator — null when no TextEmission is
     // currently building.  Lifted out of currentTurn so the
     // committed-chat-message flow (insert on done) stays simple.
@@ -585,6 +591,38 @@
             return
         }
 
+        if (token.type === 'spawn') {
+            // Live delegation chip for a spawned sub-agent. `start` appends
+            // a running chip (keyed by clone index); `progress` bumps its
+            // step count; `end` resolves it to success/fail/cancelled.
+            if (token.phase === 'start') {
+                liveSpawnChips = [...liveSpawnChips, {
+                    type: 'spawn',
+                    id: token.id,
+                    inputsSummary: token.inputsSummary,
+                    status: 'running',
+                    steps: 0,
+                }]
+            } else {
+                liveSpawnChips = liveSpawnChips.map(c =>
+                    c.id === token.id
+                        ? token.phase === 'progress'
+                            ? { ...c, steps: token.steps }
+                            : {
+                                ...c,
+                                status: token.status,
+                                steps: token.steps ?? c.steps,
+                                durationMs: token.durationMs,
+                                resultSummary: token.resultSummary,
+                                error: token.error,
+                              }
+                        : c
+                )
+            }
+            rebuildStreamingMessages()
+            return
+        }
+
         // Drop final-usage bookkeeping tokens (done=true, no
         // content, no emission_index).
         if (token.done && !token.content && token.emission_index === undefined) {
@@ -715,8 +753,8 @@
     function rebuildStreamingMessages() {
         const liveSnapshot = snapshotTurn()
         const allEvents = liveSnapshot
-            ? [...streamingEvents, liveSnapshot]
-            : [...streamingEvents]
+            ? [...streamingEvents, liveSnapshot, ...liveSpawnChips]
+            : [...streamingEvents, ...liveSpawnChips]
 
         // Rebuild the tail of messages: strip all streaming messages, then
         // re-add current streaming state (optional report + activity).
@@ -922,6 +960,7 @@
         }]
 
         streamingEvents = []
+        liveSpawnChips = []
         currentTurn = null
         activeReportText = null
         activeReportIdx = null
@@ -940,13 +979,16 @@
             })
             const cancelled = response.events.some(e => e.type === 'cancelled')
 
-            // Replace streaming message with final message
+            // Replace streaming message with final message. Spawn chips
+            // (live-only, never in response.events) ride along in-memory so
+            // the turn's fan-out stays visible until reload.
             const finalMessages = messages.filter(m => !m.streaming)
+            const finalEvents = [...response.events, ...liveSpawnChips]
             if (cancelled) {
                 messages = [...finalMessages, {
                     role: 'agent',
                     content: { type: 'text', content: '' },
-                    events: response.events,
+                    events: finalEvents,
                     timestamp: new Date(),
                     cancelled: true,
                 }]
@@ -954,7 +996,7 @@
                 messages = [...finalMessages, {
                     role: 'agent',
                     content: response.result,
-                    events: response.events,
+                    events: finalEvents,
                     timestamp: new Date(),
                 }]
             }
@@ -990,6 +1032,11 @@
             const liveSnapshot = snapshotTurn()
             if (liveSnapshot && liveSnapshot.emissions.length) {
                 eventsBeforeError.push(liveSnapshot)
+            }
+            // Keep any spawn chips (e.g. clones still running when the turn
+            // errored/cancelled) so the activity card shows the delegation.
+            if (liveSpawnChips.length) {
+                eventsBeforeError.push(...liveSpawnChips)
             }
             // User-initiated cancel (handleCancel set `cancelling` true
             // before the abort fired) lands here when the adapter
@@ -1029,6 +1076,7 @@
             cancelling = false
             activeAbort = null
             streamingEvents = []
+            liveSpawnChips = []
             currentTurn = null
         }
     }
