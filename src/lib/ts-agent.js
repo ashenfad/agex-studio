@@ -325,30 +325,14 @@ export async function initAgent(settings) {
             /** @type {Record<string, Uint8Array>} */
             const appBinaries = {};
             const decoder = new TextDecoder("utf-8", { fatal: false });
-            try {
-                const entries = await fs.list("app/", { recursive: true });
-                await Promise.all(
-                    entries.map(async (rel) => {
-                        const full = "app/" + rel;
-                        try {
-                            if (await fs.isFile(full)) {
-                                const bytes = await fs.read(full);
-                                if (isBinaryAppFile(full)) {
-                                    appBinaries[full] = bytes;
-                                } else {
-                                    appFiles[full] = decoder.decode(bytes);
-                                }
-                            }
-                        } catch {
-                            // Skip files that vanish or fail mid-walk.
-                        }
-                    }),
-                );
-            } catch {
-                // No `app/` dir yet — fall through with empty appFiles
-                // so the orchestrator returns a clean "no app files"
-                // entry rather than throwing.
-            }
+            // One pass collecting both maps (a missing `app/` dir just
+            // yields empty maps, so the orchestrator returns a clean
+            // "no app files" result rather than throwing).
+            await _eachAppFile(fs, async (full) => {
+                const bytes = await fs.read(full);
+                if (isBinaryAppFile(full)) appBinaries[full] = bytes;
+                else appFiles[full] = decoder.decode(bytes);
+            });
             let appStorageSeed = {};
             if (!fresh && _activeBranch) {
                 appStorageSeed = readAppStorage("ts", _activeBranch);
@@ -1100,37 +1084,52 @@ export async function getCacheValue(key) {
     return cache.get(key);
 }
 
-export async function readAppFiles() {
-    const agent = _getAgent();
-    const fs = await agent.fs(SESSION);
-    const decoder = new TextDecoder("utf-8", { fatal: false });
-    /** @type {Record<string, string>} */
-    const out = {};
+/**
+ * Walk the active session's `app/` directory, invoking `visit(fullPath)`
+ * for each regular file (full path includes the `app/` prefix). The list
+ * + per-file `isFile` round-trips fan out concurrently — app dirs are
+ * usually small, so unbounded concurrency is fine. Files that vanish or
+ * fail mid-walk are skipped; a missing `app/` dir yields no visits.
+ *
+ * Shared by the text-only / binary-only / both-at-once readers so the
+ * walk boilerplate lives once. Each visitor does its own byte read, so a
+ * single-purpose reader can skip the half it doesn't want *before*
+ * reading (preserving the read-saving the `readAppFiles` /
+ * `readAppBinaries` split was built for).
+ *
+ * @param {any} fs
+ * @param {(fullPath: string) => Promise<void>} visit
+ */
+async function _eachAppFile(fs, visit) {
     let entries;
     try {
         entries = await fs.list("app/", { recursive: true });
     } catch {
-        return out;
+        return;
     }
-    // Fan out the per-file `isFile` + `read` round-trips. App
-    // directories are usually small (a handful of HTML/JS files),
-    // so unbounded concurrency is fine here. Binary assets are
-    // skipped here — `readAppBinaries` is the parallel call that
-    // collects those as raw bytes.
     await Promise.all(
         entries.map(async (rel) => {
             const full = "app/" + rel;
-            if (isBinaryAppFile(full)) return;
             try {
-                if (await fs.isFile(full)) {
-                    const bytes = await fs.read(full);
-                    out[full] = decoder.decode(bytes);
-                }
+                if (await fs.isFile(full)) await visit(full);
             } catch {
                 // Skip files that vanish or fail to read mid-walk.
             }
         }),
     );
+}
+
+export async function readAppFiles() {
+    const fs = await _getAgent().fs(SESSION);
+    const decoder = new TextDecoder("utf-8", { fatal: false });
+    /** @type {Record<string, string>} */
+    const out = {};
+    // Binary assets are skipped here (no byte read) — `readAppBinaries`
+    // is the parallel call that collects those as raw bytes.
+    await _eachAppFile(fs, async (full) => {
+        if (isBinaryAppFile(full)) return;
+        out[full] = decoder.decode(await fs.read(full));
+    });
     return out;
 }
 
@@ -1147,29 +1146,12 @@ export async function readAppFiles() {
  * @returns {Promise<Record<string, Uint8Array>>}
  */
 export async function readAppBinaries() {
-    const agent = _getAgent();
-    const fs = await agent.fs(SESSION);
+    const fs = await _getAgent().fs(SESSION);
     /** @type {Record<string, Uint8Array>} */
     const out = {};
-    let entries;
-    try {
-        entries = await fs.list("app/", { recursive: true });
-    } catch {
-        return out;
-    }
-    await Promise.all(
-        entries.map(async (rel) => {
-            const full = "app/" + rel;
-            if (!isBinaryAppFile(full)) return;
-            try {
-                if (await fs.isFile(full)) {
-                    out[full] = await fs.read(full);
-                }
-            } catch {
-                // Skip files that vanish or fail to read mid-walk.
-            }
-        }),
-    );
+    await _eachAppFile(fs, async (full) => {
+        if (isBinaryAppFile(full)) out[full] = await fs.read(full);
+    });
     return out;
 }
 

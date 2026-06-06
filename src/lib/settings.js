@@ -2,7 +2,7 @@
  * Settings store — API key and model config, persisted to localStorage.
  */
 
-const STORAGE_KEY = "agex-settings";
+export const STORAGE_KEY = "agex-settings";
 
 const DEFAULTS = {
     apiKey: "",

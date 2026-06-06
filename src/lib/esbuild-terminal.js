@@ -26,9 +26,11 @@ import { bytesToBase64 } from "./bytes.js";
  *  the py-side `SOURCE_EXTS` in `_collect_app_sources`. */
 const SOURCE_EXTS = [".jsx", ".tsx", ".ts", ".js", ".css", ".json", ".svg"];
 
-/** Image extensions the bridge inlines via the `dataurl` loader.
- *  Mirrors py-side `BINARY_EXTS`. */
-const BINARY_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+/** Image extensions esbuild inlines via its `dataurl` loader during
+ *  bundling. Deliberately narrower than `app-assets.js`'s `BINARY_EXTS`
+ *  (which also covers fonts / svg / audio for the app-preview asset
+ *  pipeline) — only raster images are worth inlining into a JS bundle. */
+const INLINE_IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
 /** Per-image cap: refuse to bundle anything larger so an agent's
  *  `import logo from './huge.png'` doesn't bloat the bundle. The
@@ -142,7 +144,7 @@ export async function collectAppSources(fs) {
                 } catch {
                     // Skip files that vanish or fail mid-walk.
                 }
-            } else if (BINARY_EXTS.some((ext) => lower.endsWith(ext))) {
+            } else if (INLINE_IMAGE_EXTS.some((ext) => lower.endsWith(ext))) {
                 try {
                     const bytes = await fs.read(full);
                     if (bytes.length > BINARY_MAX_BYTES) continue;
