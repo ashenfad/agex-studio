@@ -194,9 +194,17 @@ A single LLM response can contain multiple emissions (e.g.,
 `emissionIndex`; tokens for different emissions interleave in
 the stream but are partitioned by index in the translator.
 
-The activity card shows one block per emission. The `report`
-text emissions (if any) stream into their own bubble between
-the activity card and the user's next message.
+The activity card shows one block per *tool* emission (ts /
+terminal / file ops / thinking). `text` emissions are
+deliberately excluded from the card — they render only as the
+`report` bubble that sits above the activity, so the narration
+isn't shown twice (once as a bubble, once as a card section).
+This exclusion lives in `synthesizeAction` (committed / reload
+path) and `snapshotTurn` (live streaming); `groupEventsForChat`
+mirrors it for the chapter modal by surfacing `action.report`
+as its own bubble. A turn that's *only* narration synthesizes to
+an emission-less action, which the feed, reload, and chapter
+paths all drop so it never renders as an empty card.
 
 ## Spawn (sub-agent fan-out) chips
 

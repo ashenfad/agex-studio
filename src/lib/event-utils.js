@@ -169,6 +169,7 @@ export function segmentParts(content) {
  * Returns an array of items, each one of:
  *   { kind: 'user', message: string }
  *   { kind: 'agent', content: object }     — rendered as markdown bubble
+ *   { kind: 'report', content: string }    — agent narration, markdown bubble
  *   { kind: 'activity', events: Array }    — action/output/error group
  *   { kind: 'chapter', name, message, events }
  *
@@ -199,8 +200,24 @@ export function groupEventsForChat(events) {
         } else if (evt.type === 'chapter') {
             flushActivity()
             groups.push({ kind: 'chapter', name: evt.name, message: evt.message, events: evt.events })
+        } else if (evt.type === 'action') {
+            // Surface the action's narration/report as its own agent
+            // bubble (matching the main feed + reload path), then keep
+            // its tool emissions in the activity group. Text bodies no
+            // longer live inside the action's emissions, so without this
+            // a chaptered turn's narration would vanish entirely.
+            if (evt.report) {
+                flushActivity()
+                groups.push({ kind: 'report', content: evt.report })
+            }
+            // A pure-narration action (no tool emissions) contributes
+            // only the report bubble — don't add it to the activity
+            // group or it renders as an empty card.
+            const emissionless =
+                Array.isArray(evt.emissions) && evt.emissions.length === 0
+            if (!emissionless) activityBuf.push(evt)
         } else {
-            // action, output, error → accumulate into activity group
+            // output, error → accumulate into activity group
             activityBuf.push(evt)
         }
     }

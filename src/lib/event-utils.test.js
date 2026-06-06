@@ -314,6 +314,34 @@ describe("groupEventsForChat", () => {
         expect(groups[2].kind).toBe("activity");
     });
 
+    it("surfaces an action's report as its own bubble before its activity", () => {
+        const events = [
+            {
+                type: "action",
+                report: "Narrating the plan.",
+                emissions: [{ kind: "ts", idx: 0, code: "1 + 1" }],
+            },
+        ];
+        const groups = groupEventsForChat(events);
+        expect(groups).toHaveLength(2);
+        expect(groups[0]).toEqual({
+            kind: "report",
+            content: "Narrating the plan.",
+        });
+        expect(groups[1].kind).toBe("activity");
+        expect(groups[1].events).toHaveLength(1);
+    });
+
+    it("a pure-narration action yields only a report bubble, no activity", () => {
+        const events = [
+            { type: "action", report: "Just thinking out loud.", emissions: [] },
+        ];
+        const groups = groupEventsForChat(events);
+        expect(groups).toEqual([
+            { kind: "report", content: "Just thinking out loud." },
+        ]);
+    });
+
     it("returns empty array for empty events", () => {
         expect(groupEventsForChat([])).toEqual([]);
     });

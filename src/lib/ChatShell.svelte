@@ -495,7 +495,11 @@
                     streaming: b.streaming,
                 })
             } else if (b.kind === 'text') {
-                emissions.push({ kind: 'text', idx: b.idx, text: b.text })
+                // Report/narration renders as its own chat bubble (live
+                // via `commitActiveReport`), not inside the activity
+                // card — keep it out of `emissions` so EventDetail
+                // doesn't render the report twice. Mirrors
+                // `synthesizeAction` on the committed/reload path.
                 if (b.text) reportBits.push(b.text)
             } else if (b.kind === 'thinking') {
                 emissions.push({
@@ -752,7 +756,12 @@
 
     function rebuildStreamingMessages() {
         const liveSnapshot = snapshotTurn()
-        const allEvents = liveSnapshot
+        // A pure-narration turn snapshots to an emission-less action
+        // now that text bodies live only in the report bubble — don't
+        // fold it into the activity feed (it would render as an empty
+        // "Activity" card with a streaming dot).
+        const hasLive = liveSnapshot && liveSnapshot.emissions.length
+        const allEvents = hasLive
             ? [...streamingEvents, liveSnapshot, ...liveSpawnChips]
             : [...streamingEvents, ...liveSpawnChips]
 
