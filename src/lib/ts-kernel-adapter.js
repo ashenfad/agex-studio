@@ -8,12 +8,8 @@
  * around branch-implicit helpers, with `_ensureBranch` synchronizing
  * kvgit's current branch before each call.
  *
- * **Phase 5 PR 1 scope (this commit).** Adapter exists with every
- * typedef method present, real implementations for branch ops, VFS,
- * bundle, history scaffolding, telemetry, and debug. Methods that
- * depend on the chat task (`sendMessage`, `runChaptering`, `runQuery`)
- * throw `Error: not yet implemented (Phase 5 PR 2)`. Chat task,
- * skill set, LLM client, runtime adapter land in PR 2.
+ * `runQuery` is the one stubbed method — the agent↔app data bridge is a
+ * Pyodide-kernel affordance with no TS-kernel equivalent yet.
  */
 
 import {
@@ -73,8 +69,7 @@ import { normalizeChatResponse } from "./ts-chat-response.js";
 
 const RUN_QUERY_NOT_YET =
     "runQuery not yet implemented for the TS kernel — needs " +
-    "RuntimeAdapter.execute namespace-capture support; tracked as " +
-    "follow-up after Phase 5 PR 2c.";
+    "RuntimeAdapter.execute namespace-capture support.";
 
 // Future direction (note, not a TODO):
 // `runQuery` was a Pyodide-era affordance — apps in the live iframe
@@ -281,7 +276,7 @@ export function createTsAdapter() {
                                 const ev = /** @type {any} */ (e);
                                 if (et === "taskStart") {
                                     spawnChips.set(id, { startMs: Date.now(), steps: 0 });
-                                    userOnToken({
+                                    await userOnToken({
                                         type: "spawn",
                                         phase: "start",
                                         id,
@@ -290,7 +285,7 @@ export function createTsAdapter() {
                                 } else if (et === "action") {
                                     const c = spawnChips.get(id);
                                     if (c) c.steps += 1;
-                                    userOnToken({
+                                    await userOnToken({
                                         type: "spawn",
                                         phase: "progress",
                                         id,
@@ -303,7 +298,7 @@ export function createTsAdapter() {
                                 ) {
                                     const c = spawnChips.get(id);
                                     spawnChips.delete(id);
-                                    userOnToken({
+                                    await userOnToken({
                                         type: "spawn",
                                         phase: "end",
                                         id,
@@ -525,7 +520,6 @@ export function createTsAdapter() {
 
         async loadHistory(branch) {
             await _ensureBranch(branch);
-            // Stub for PR 1; PR 2 implements the full event-renderer.
             return agentLoadHistory();
         },
 

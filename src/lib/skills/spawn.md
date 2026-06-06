@@ -118,4 +118,3 @@ await fs.writeText('app/index.js', `
 - **Clone reasoning isn't recorded.** Only the result surfaces. If you
   need to know *why* it answered, have the sub-task return reasoning
   alongside the answer (e.g. `taskSuccess({ result, why })`).
-</content>

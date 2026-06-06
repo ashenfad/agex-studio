@@ -13,7 +13,7 @@ Four backing stores. Everything in the studio lives in one of them.
 
 | Store | Holds | Survives reload? |
 |---|---|---|
-| **IndexedDB (kvgit-backed)** | event log, agent cache, sub-task registry, VFS files | yes |
+| **IndexedDB (kvgit-backed)** | event log, agent cache, VFS files | yes |
 | **`localStorage`** | API key, settings, active session id, per-session app-storage | yes |
 | **Pyodide globals (py kernel, in-memory)** | `_agent`, `_llm`, JS bridges, `_agex_running_task` | no |
 | **TS worker module-globals** | The runtime worker's per-emission state | no |
@@ -53,7 +53,6 @@ agree on a set of namespaces:
 | `cache/<key>` | agex-ts `Cache` | Persistent across-turn cache the agent writes via `cache.set(k, v)` |
 | `f:<absPath>` | termish-ts kvgit-fs | One per VFS file |
 | `d:<absPath>` | termish-ts kvgit-fs | One per VFS directory |
-| `__subtasks__` | studio (`ts-agent.js`) | JSON blob of registered sub-task specs (when sub-agents land) |
 | `__session_title__` | studio | Session display title |
 | `__session_name__` | studio | Optional user-provided slug |
 | `__session_description__` | studio | Optional description |
@@ -61,10 +60,15 @@ agree on a set of namespaces:
 | `__session_kernel__` | studio | `"ts"` or `"py"` — kernel discriminator |
 | `__session_external__` | studio | True for sessions imported from a published gist |
 
-The `__session_*__` and `__subtasks__` exact keys are defined in
-`ts-agent.js`'s `META_KEYS` constant (and mirrored in `agent.js`
-for py). The other prefixes are conventions from upstream
-packages and considered stable contracts.
+The `__session_*__` exact keys are defined in `ts-agent.js`'s
+`META_KEYS` constant (and mirrored in `agent.js` for py). The other
+prefixes are conventions from upstream packages and considered stable
+contracts.
+
+(A legacy `__subtasks__` / `__subtask_invocations__` pair, from the
+pre-`spawn` sub-task design, is no longer written — `spawn` persists
+nothing. The keys survive only in `AGENT_MEMORY_EXACT_KEYS` so
+`wipeAgentMemory` still tombstones them in old sessions.)
 
 If you add a new persistent key, add it to this table.
 
@@ -79,7 +83,7 @@ When does state become durable on disk?
 | File delete via studio | yes | inline after `fs.remove_many` |
 | Branch meta edit (title, name, etc.) | yes | inline after `state.set(...)` |
 | Branch create / fork | yes | the createBranch op itself commits |
-| Sub-task registration (when shipped) | yes | inline with the `__subtasks__` blob write |
+| `spawn` (script- or app-initiated) | **no** | clones run on throwaway state; nothing is written |
 | `runQuery` (py app preview bridge) | **no** | writes go to a scratch `Live`, discarded |
 | `testApp` | **no** | writes during the headless test discarded |
 | `liveApp` | reads only | sees last-committed `app/` |
@@ -124,8 +128,9 @@ tree:
   the agent's event log gets folded into chapter summaries. The
   agent can `cat` these to recall earlier context.
 - `/skills/<name>/SKILL.md` — read-only overlay for the studio's
-  registered skills (`interactive-app`, `numerical`). Sourced from
-  the markdown files in `src/lib/skills/`.
+  registered skills (`interactive-app`, `numerical`, `spawn`,
+  `supabase-auth`). Sourced from the markdown files in
+  `src/lib/skills/`.
 
 Anything outside `app/`, `helpers/`, `/chapters/`, `/skills/` is
 "workspace" — uploaded data, intermediate files the agent wrote

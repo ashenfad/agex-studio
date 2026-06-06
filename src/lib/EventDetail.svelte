@@ -144,8 +144,8 @@
             </div>
         </div>
     {:else if evt.type === 'spawn'}
-        <!-- Live spawn chip — one delegated sub-agent. Shown while the
-             turn streams; live-only (not persisted past reload). -->
+        <!-- Live spawn chip — one spawned clone. Shown while the turn
+             streams; live-only (not persisted past reload). -->
         <div
             class="spawn-chip"
             class:spawn-running={evt.status === 'running'}
@@ -163,7 +163,7 @@
                     >[{evt.steps ?? 0} steps · {((evt.durationMs ?? 0) / 1000).toFixed(1)}s]</span
                 >
                 {#if evt.status === 'success'}
-                    <span class="spawn-result">→ {evt.resultSummary ?? ''}</span>
+                    {#if evt.resultSummary}<span class="spawn-result">→ {evt.resultSummary}</span>{/if}
                 {:else if evt.status === 'cancelled'}
                     <span class="spawn-outcome">cancelled</span>
                 {:else}
@@ -297,7 +297,7 @@
     .output-image { margin-top: 0.25rem; border-radius: 4px; overflow: hidden; }
     .output-image img { max-width: 100%; display: block; border-radius: 4px; }
 
-    /* Live spawn chip — one compact line per delegated sub-agent, distinct
+    /* Live spawn chip — one compact line per spawned clone, distinct
        from the event cards so a delegation reads as a side-call. */
     .spawn-chip {
         display: flex;

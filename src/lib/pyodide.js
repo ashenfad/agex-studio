@@ -826,7 +826,6 @@ const CDN_IMPORTS = {
     "react-dom": "https://esm.sh/preact@10.25.4/compat",
     "react-dom/client": "https://esm.sh/preact@10.25.4/compat/client",
     "react/jsx-runtime": "https://esm.sh/preact@10.25.4/jsx-runtime",
-    "htm": "https://esm.sh/htm@3.1.1",
     "marked": "https://esm.sh/marked@17.0.4",
     "dayjs": "https://esm.sh/dayjs@1.11.20",
     "dayjs/": "https://esm.sh/dayjs@1.11.20/",

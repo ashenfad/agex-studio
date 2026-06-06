@@ -16,7 +16,7 @@ creation), but the UI treats them uniformly.
 | **Cold boot** | <1s | ~30s (cached after first load) |
 | **Bare npm imports** | Routed through esm.sh by `namespaceResolver` | Limited to wheels pre-bundled in the worker |
 | **File I/O** | termish-ts kvgit-fs (`f:` / `d:` keys) | agex-py fs API (same kvgit backend) |
-| **State persistence** | `evt/` + `cache/` + `__subtasks__` keys | `evt/` + `cache.PREFIX/` keys |
+| **State persistence** | `evt/` + `cache/` keys | `evt/` + `cache.PREFIX/` keys |
 | **Action emissions** | `ts_action`, `terminal_action`, `write_file`, `edit_file` | py action emission |
 | **Cancellation** | `AbortSignal` honored natively by agex-ts | Cooperative-flag machinery (`__agex_cancel_chat`) exists in the worker, but the adapter doesn't yet plumb the signal through (`py-kernel-adapter.js:367`) — cancel is TS-only today |
 | **App preview support** | Full (`testApp`, `liveApp`, asset inlining) | Full (older path through worker postMessage) |
@@ -71,8 +71,11 @@ fails loudly.
 - Namespace registrations (`_agent.namespace(...)`) for
   `arquero` / `apache-arrow` against esm.sh URLs.
 - `_agent.terminal(...)` for the `esbuild` command.
-- Skills registered: `numerical.md`, `interactive-app.md` (in
-  `src/lib/skills/`).
+- `maxSpawns: 8` — enables the native agex-ts `spawn` builtin for
+  script-side fan-out; iframe-initiated spawns route host-side
+  through `spawnFromApp` (the adapter's `spawn`).
+- Skills registered: `numerical.md`, `interactive-app.md`,
+  `spawn.md`, `supabase-auth.md` (in `src/lib/skills/`).
 
 `src/lib/ts-kernel-adapter.js` is a thin layer turning the
 agex-ts API into the `KernelAdapter` shape — mostly straight

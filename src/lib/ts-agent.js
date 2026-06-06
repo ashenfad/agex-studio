@@ -6,23 +6,16 @@
  *
  *   1. Agent lifecycle: `initAgent(settings)` constructs the
  *      `agex-ts` `Agent` with the studio's state / fs config and
- *      caches it as a module-level singleton. Re-init for settings
- *      changes is no-op for now (matches agex-py side; settings
- *      changes need a page reload until Phase 5 PR 2 wires re-init).
+ *      caches it as a module-level singleton. Runtime-changeable
+ *      settings (model, key, chaptering threshold) flow through
+ *      `agent.reconfigure`; structural ones (state / fs backend)
+ *      still need a page reload.
  *
  *   2. Branch-implicit helpers the TsKernelAdapter wraps: VFS reads
  *      and writes against the active branch, history rendering,
  *      token telemetry computation, etc. Mirrors the per-function
  *      shape of `agent.js` so the adapter's call sites parallel
  *      `py-kernel-adapter.js` line-for-line.
- *
- * **Phase 5 PR 1 scope (this commit).** Chat task, LLM client,
- * runtime adapter, and skill registration are deliberately not
- * wired — those land in PR 2 alongside the TS chat primer and
- * skill set. Adapter methods that depend on them (`sendMessage`,
- * `runChaptering`, `runQuery`) throw `not yet implemented`.
- * Everything else (branch ops, VFS, bundle, history, telemetry)
- * is real.
  */
 
 import { createAgent } from "agex-ts";
@@ -489,14 +482,13 @@ export async function initAgent(settings) {
         },
     );
 
-    // --- Sub-tasks (`spawn`) ---------------------------------------------
+    // --- Spawn -----------------------------------------------------------
     //
     // Script-side delegation / fan-out is the native agex-ts `spawn`
     // builtin, injected by the runtime because `maxSpawns > 0` (set on
     // createAgent above) — no host-fn registration needed. App-embedded
     // callbacks reach the same capability host-side via `spawnFromApp`
-    // (the kernel adapter's `spawn`). See roadmap/spawn-migration.md and
-    // the `spawn` skill.
+    // (the kernel adapter's `spawn`). See the `spawn` skill.
 }
 
 /** Send a chat message through the registered chat task. The
@@ -792,7 +784,7 @@ export function _isAgentMemoryKey(key) {
 
 /**
  * Drop every "agent memory" key on `branch` — event log, cache,
- * and the sub-task registry — while leaving the VFS file blobs
+ * and legacy sub-task keys — while leaving the VFS file blobs
  * and session meta intact.
  *
  * Exposed as an adapter primitive (toward a future "soft wipe in

@@ -198,6 +198,31 @@ The activity card shows one block per emission. The `report`
 text emissions (if any) stream into their own bubble between
 the activity card and the user's next message.
 
+## Spawn (sub-agent fan-out) chips
+
+When agent code calls native `spawn(...)` (script-side fan-out) or an
+app fires `spawn(spec)` from the iframe, agex-ts runs an ephemeral
+**clone** and forwards the clone's events to the parent task's
+`onEvent`, tagged with a structured `spawnIndex` (0-based per spawning
+task; agex-ts ≥ 0.3.1).
+
+The adapter (`ts-kernel-adapter.js`) does **not** render those clone
+events into the chat narrative — that would surface a clone's actions as
+if the parent emitted them. Instead it keys off `spawnIndex` and demuxes
+them into a synthetic `spawn` **token** (not an agex-ts `TokenChunk` —
+the adapter emits it directly):
+
+- clone `taskStart` → `{ type: 'spawn', phase: 'start', id, inputsSummary }`
+- clone `action` → `{ phase: 'progress', id, steps }`
+- clone `success`/`fail`/`cancelled` → `{ phase: 'end', id, status, steps, durationMs, resultSummary?/error? }`
+
+`ChatShell` maintains a per-turn `liveSpawnChips` list keyed by `id`,
+rendered by `EventDetail` as a "running → done/failed" chip under the
+action that spawned it. These are **live-only**: injected into the
+turn's in-memory final message but never written to `response.events` or
+the durable log, so they vanish on reload (a research fan-out's
+delegations stay visible in the parent's logged code, not as chips).
+
 ## Activity panel collapse / expand
 
 The compact activity card in `MessageList` shows a per-emission
