@@ -166,10 +166,28 @@ const SHARED_DB = "kvgit/default";
  *  Mirrors connectState's versioned-path construction. */
 const _CODEC = { encoder: polymorphicEncoder, decoder: polymorphicDecoder };
 
+/** Test-only injection seams (default → production). Set via
+ *  `_configureForTesting` so e2e tests drive the real pool with an
+ *  in-process runtime + scripted LLM + memory store (no Worker / IDB).
+ *  @type {{
+ *    makeRuntime?: () => any,
+ *    makeLlm?: (branch?: string) => LLMClient,
+ *    makeStore?: () => Promise<any> | any,
+ *  } | null} */
+let _testHooks = null;
+
+/** Inject test doubles for the runtime / LLM / store. `null` clears.
+ *  Not part of the studio's public surface. */
+export function _configureForTesting(hooks) {
+    _testHooks = hooks;
+}
+
 /** Open the shared KVStore once. */
 async function _openStore() {
     if (_kvstore === null) {
-        _kvstore = await IndexedDB.open({ dbName: SHARED_DB });
+        _kvstore = _testHooks?.makeStore
+            ? await _testHooks.makeStore()
+            : await IndexedDB.open({ dbName: SHARED_DB });
     }
     return _kvstore;
 }
@@ -288,7 +306,7 @@ export async function initAgent(settings) {
     // substrate; model / key / baseUrl / provider all flow through
     // `_buildLlmClient`.)
     _settings = settings;
-    _llm = _buildLlmClient(settings);
+    _llm = _testHooks?.makeLlm ? _testHooks.makeLlm() : _buildLlmClient(settings);
     if (_kvstore !== null) {
         // Already booted — propagate the new client + chaptering trigger
         // to every live agent.
@@ -328,16 +346,19 @@ async function _createBranchAgent(branch) {
         );
     }
     const settings = _settings;
-    const llm = _llm;
-    const runtime = workerRuntime({
-        // Vite-bundled worker URL (the `?worker&url` import) — without it
-        // the prod worker 404s on its bare imports. Per-emission wall-
-        // clock budget: generous because spawn clones multiplex onto this
-        // agent's worker and a deep search runs 60–90s; a runaway is still
-        // bounded and the chat-UI cancel exits faster via the AbortSignal.
-        workerUrl: _agexWorkerUrl,
-        timeoutMs: 180_000,
-    });
+    const llm = _testHooks?.makeLlm ? _testHooks.makeLlm(branch) : _llm;
+    const runtime = _testHooks?.makeRuntime
+        ? _testHooks.makeRuntime()
+        : workerRuntime({
+              // Vite-bundled worker URL (the `?worker&url` import) —
+              // without it the prod worker 404s on its bare imports.
+              // Per-emission wall-clock budget: generous because spawn
+              // clones multiplex onto this agent's worker and a deep
+              // search runs 60–90s; a runaway is still bounded and the
+              // chat-UI cancel exits faster via the AbortSignal.
+              workerUrl: _agexWorkerUrl,
+              timeoutMs: 180_000,
+          });
     const agent = await createAgent({
         name: "chat",
         // Agent-level primer (system message, built once + cached): the
@@ -1711,5 +1732,6 @@ export function _resetForTesting() {
     _mgmt = null;
     _settings = null;
     _llm = null;
+    _testHooks = null;
     _appSpawns = 0;
 }
