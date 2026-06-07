@@ -86,7 +86,9 @@ control or opt into:
 - **esm.sh** — when agent code imports a bare npm package, the module
   is fetched from esm.sh on demand.
 - **Perplexity Sonar** — only when the agent uses web search.
-- **GitHub Gists** — only when you publish or open a shared session.
+- **GitHub Gists** — when you publish or open a shared session, and an
+  occasional lightweight revision check for sessions you imported from a
+  gist (so the studio can offer to update them when the source changes).
 - **`apps.agex.studio`** — the cross-origin iframe that renders live
   app previews (static bootloader; your app HTML is posted to it
   locally, not uploaded).

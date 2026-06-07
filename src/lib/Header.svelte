@@ -1,6 +1,6 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts' }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts' } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false } = $props()
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -18,7 +18,7 @@
     <button
         class="sessions-btn"
         onclick={onSessionsClick}
-        title="Sessions"
+        title={hasSessionUpdates ? 'Sessions — update available' : 'Sessions'}
     >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="8" y1="6" x2="21" y2="6"></line>
@@ -28,6 +28,9 @@
             <line x1="3" y1="12" x2="3.01" y2="12"></line>
             <line x1="3" y1="18" x2="3.01" y2="18"></line>
         </svg>
+        {#if hasSessionUpdates}
+            <span class="sessions-badge" aria-label="Update available"></span>
+        {/if}
     </button>
     <h1 class="brand">
         <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
@@ -185,6 +188,7 @@
     }
 
     .sessions-btn {
+        position: relative;
         background: none;
         border: none;
         color: var(--text-muted);
@@ -198,6 +202,19 @@
     .sessions-btn:hover {
         color: var(--text);
         background: var(--surface-hover);
+    }
+
+    /* Unviewed-update badge — a session imported from a gist has a newer
+       revision the user hasn't seen. Cleared when the drawer opens. */
+    .sessions-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 0 2px var(--bg);
     }
 
     .files-btn {

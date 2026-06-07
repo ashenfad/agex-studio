@@ -467,6 +467,7 @@
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
             {activeKernel}
+            hasSessionUpdates={$sessionStore.sessions.some((s) => s.updateUnviewed)}
         />
 
         {#if historyReady}
