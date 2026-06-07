@@ -23,7 +23,6 @@
  */
 
 import { get } from "svelte/store";
-import { SvelteMap } from "svelte/reactivity";
 import { getActiveAdapter } from "./active-adapter.js";
 import { loadHistoryChunked, persistSessionMeta, sessionStore } from "./sessions.js";
 import { cancelTask } from "./pyodide.js";
@@ -31,10 +30,16 @@ import { cancelTask } from "./pyodide.js";
 /** Live registry of per-branch runtimes. A runtime is created lazily on
  *  first access for a branch and kept for the page's lifetime so its
  *  conversation + in-flight state persist across foreground switches.
- *  A `SvelteMap` so the session drawer can reactively reflect membership
- *  (a session gaining a runtime) as well as each runtime's `busy` /
- *  `unseen` $state. */
-const _registry = new SvelteMap();
+ *
+ *  A plain `Map` on purpose: `getSessionRuntime` runs inside ChatShell's
+ *  `$derived(getSessionRuntime(currentBranch))`, and a reactive map's
+ *  `.set` there trips Svelte's `state_unsafe_mutation`. The drawer's
+ *  status indicators don't need membership reactivity — a session can
+ *  only be working/unseen if it was foreground when its turn started, so
+ *  its runtime already exists when the drawer reads it; the live updates
+ *  come from each runtime's `busy` / `unseen` $state, which are reactive
+ *  on the (stable) instance regardless of the map. */
+const _registry = new Map();
 
 /** Get (or lazily create) the runtime for `branch`. */
 export function getSessionRuntime(branch) {
