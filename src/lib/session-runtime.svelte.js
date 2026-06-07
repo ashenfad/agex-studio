@@ -87,6 +87,12 @@ export class SessionRuntime {
      *  @type {AbortController | null} */
     activeAbort = $state(null);
     historyChunks = $state(null);
+    /** Set once this runtime has been hydrated from the store. The
+     *  foreground-switch effect re-hydrates only when this is false, so
+     *  switching back to a running (or just-visited) session preserves
+     *  its in-memory state instead of clobbering the live streaming tail
+     *  with committed-only history. */
+    loaded = $state(false);
     /** @type {string[]} */
     files = $state([]);
     chaptering = $state(false);

@@ -247,6 +247,7 @@
                         const target = getSessionRuntime(branch)
                         target.historyChunks = chunks
                         target.messages = chunks.messages
+                        target.loaded = true
                         if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
                             target.tokenOverride = await adapter.estimateLogTokens(branch)
                         }
@@ -308,26 +309,38 @@
         if (rt) rt.unseen = false
     })
 
-    // Reload history when session changes
+    // Foreground session changed.
     let lastBranch = ''
     $effect(() => {
         const branch = $sessionStore.currentBranch
         if (agentReady && branch && branch !== lastBranch) {
             lastBranch = branch
+            // Always scroll the now-foregrounded list to bottom and
+            // refresh the preview for the new session (its app may differ).
+            scrollKey++
+            previewRefreshKey++
             const target = getSessionRuntime(branch)
-            loadHistoryChunked().then(async (chunks) => {
-                target.historyChunks = chunks
-                target.messages = chunks.messages
-                scrollKey++
-                const { adapter, branch: activeBranch } = await getActiveAdapter()
-                if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
-                    target.tokenOverride = await adapter.estimateLogTokens(activeBranch)
-                } else {
-                    target.tokenOverride = null
-                }
-                target.files = await adapter.listFiles(activeBranch)
-                previewRefreshKey++
-            })
+            // Hydrate from the store ONLY the first time a session opens.
+            // An already-loaded runtime holds the authoritative state —
+            // live streaming for a running session, or the cached
+            // conversation otherwise — so re-reading committed history
+            // here would clobber an in-flight turn's uncommitted tail
+            // (activity card collapses to "Thinking…" until the next
+            // token rebuilds it). undo / chaptering reload explicitly.
+            if (!target.loaded) {
+                loadHistoryChunked().then(async (chunks) => {
+                    target.historyChunks = chunks
+                    target.messages = chunks.messages
+                    target.loaded = true
+                    const { adapter, branch: activeBranch } = await getActiveAdapter()
+                    if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
+                        target.tokenOverride = await adapter.estimateLogTokens(activeBranch)
+                    } else {
+                        target.tokenOverride = null
+                    }
+                    target.files = await adapter.listFiles(activeBranch)
+                })
+            }
         }
     })
 
