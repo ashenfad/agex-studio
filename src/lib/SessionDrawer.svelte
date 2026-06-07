@@ -67,6 +67,36 @@
         }
     }
 
+    // Manual "check for updates" — force-bypasses the lazy TTL on the
+    // boot/open checks. Shown only when there are imported sessions.
+    let hasImported = $derived(sessions.some((s) => s.imported))
+    /** null | 'checking' | a transient result message */
+    let checkState = $state(null)
+    let checkTimer = null
+
+    async function handleCheckUpdates() {
+        if (checkState === 'checking') return
+        checkState = 'checking'
+        if (checkTimer) clearTimeout(checkTimer)
+        try {
+            const { updates } = await checkImportedUpdates(
+                $settingsStore.githubPat,
+                { force: true },
+            )
+            checkState =
+                updates > 0
+                    ? `${updates} update${updates === 1 ? '' : 's'} available`
+                    : 'Up to date'
+        } catch (e) {
+            console.error('Update check failed:', e)
+            checkState = 'Check failed'
+        } finally {
+            checkTimer = setTimeout(() => {
+                checkState = null
+            }, 4000)
+        }
+    }
+
     let storageUsage = $state(null)
     let purgeConfirm = $state(false)
     let purging = $state(false)
@@ -746,6 +776,20 @@
         />
         {#if importError}
             <div class="import-error">{importError}</div>
+        {/if}
+
+        {#if hasImported}
+            <div class="update-check-bar">
+                <button
+                    class="update-check-btn"
+                    onclick={handleCheckUpdates}
+                    disabled={checkState === 'checking'}
+                    title="Check imported sessions for newer gist revisions"
+                >{checkState === 'checking' ? 'Checking…' : 'Check for updates'}</button>
+                {#if checkState && checkState !== 'checking'}
+                    <span class="update-check-status">{checkState}</span>
+                {/if}
+            </div>
         {/if}
 
         <div class="session-list">
@@ -1976,6 +2020,37 @@
     @keyframes session-pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.35; }
+    }
+
+    /* Manual "check for updates" bar — shown only when ≥1 imported
+       session exists. Forces a check past the lazy TTL. */
+    .update-check-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 1rem 0;
+    }
+
+    .update-check-btn {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        border-radius: 4px;
+        padding: 0.18rem 0.5rem;
+        font-size: 0.72rem;
+        cursor: pointer;
+    }
+
+    .update-check-btn:hover:not(:disabled) {
+        color: var(--text);
+        background: var(--surface-hover);
+    }
+
+    .update-check-btn:disabled { opacity: 0.6; cursor: default; }
+
+    .update-check-status {
+        font-size: 0.72rem;
+        color: var(--text-muted);
     }
 
     /* "Update available" affordance on an imported session's card. */
