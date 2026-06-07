@@ -189,17 +189,27 @@ export function makeImportInfo(source, importedHead) {
  * @returns {Promise<ImportInfo|null>} the (possibly updated) record
  */
 export async function checkGistUpdate(branch, opts = {}) {
-    const { force = false, now = Date.now(), fetchImpl = fetch } = opts;
-    const info = getImportInfo(branch);
+    const {
+        force = false,
+        now = Date.now(),
+        fetchImpl = fetch,
+        pat = null,
+        importInfo = null,
+    } = opts;
+    // Callers that already hold the record (e.g. the sweep below) pass it
+    // to skip a redundant localStorage read.
+    const info = importInfo || getImportInfo(branch);
     if (!info || info.pinned || info.deleted) return info;
     if (!force && info.lastCheckedAt && now - info.lastCheckedAt < CHECK_TTL_MS) {
         return info;
     }
+    // A configured PAT lifts the rate limit (60 → 5000/hr). `token`
+    // scheme matches gist-publish.js. Unauthenticated otherwise.
+    const headers = { Accept: "application/vnd.github+json" };
+    if (pat) headers.Authorization = `token ${pat}`;
     let resp;
     try {
-        resp = await fetchImpl(GIST_API + info.gistId, {
-            headers: { Accept: "application/vnd.github+json" },
-        });
+        resp = await fetchImpl(GIST_API + info.gistId, { headers });
     } catch {
         return info; // network error — leave cached, retry next time
     }

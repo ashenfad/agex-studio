@@ -29,6 +29,7 @@ import {
 } from "./session-index.js";
 import { kernelRegistry } from "./kernel-registry.js";
 import { resolveAdapter } from "./active-adapter.js";
+import { getSettings } from "./settings.js";
 import {
     makeImportInfo,
     setImportInfo,
@@ -429,7 +430,8 @@ async function initSessions() {
     // Occasionally check imported sessions for newer gist revisions
     // (lazy/TTL-gated) so the drawer-button badge can surface on load
     // without opening the drawer. Non-blocking — never gates startup.
-    void checkImportedUpdates();
+    // Uses the configured PAT (if any) for the higher rate limit.
+    void checkImportedUpdates(getSettings().githubPat);
 }
 
 /** Create a new chat session and switch to it.
@@ -864,15 +866,16 @@ async function openExternalBundle(url, gistSource = null) {
  *  (each call is lazy/TTL-gated inside `checkGistUpdate`), then refresh
  *  the store so markers/badge reflect the results. Non-blocking-friendly:
  *  callers can `void` it. */
-export async function checkImportedUpdates() {
-    const branches = state.sessions
-        .map((s) => s.branch)
-        .filter((b) => {
-            const info = getImportInfo(b);
-            return info && !info.pinned && !info.deleted;
-        });
-    if (branches.length === 0) return;
-    await Promise.all(branches.map((b) => checkGistUpdate(b)));
+export async function checkImportedUpdates(pat = null) {
+    const targets = state.sessions
+        .map((s) => ({ branch: s.branch, info: getImportInfo(s.branch) }))
+        .filter(({ info }) => info && !info.pinned && !info.deleted);
+    if (targets.length === 0) return;
+    await Promise.all(
+        targets.map(({ branch, info }) =>
+            checkGistUpdate(branch, { pat, importInfo: info }),
+        ),
+    );
     refreshUpdateStatus();
 }
 
@@ -925,8 +928,10 @@ export async function updateImportedSession(branch) {
 
     const result = await importBundle(bytes, { external: true, gistSource: source });
 
-    if (pristine && !result.deduped && result.branch !== branch) {
+    if (pristine && result.branch !== branch) {
         // Safe to drop the old pristine branch — no user data on it.
+        // Covers the deduped case too (we switched to an existing copy),
+        // so the stale pristine duplicate doesn't linger with a badge.
         await deleteSession(branch);
     } else if (!pristine) {
         // Opened a fresh copy; stop nagging the diverged original.
