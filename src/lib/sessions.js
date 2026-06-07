@@ -29,6 +29,13 @@ import {
 } from "./session-index.js";
 import { kernelRegistry } from "./kernel-registry.js";
 import { resolveAdapter } from "./active-adapter.js";
+import {
+    makeImportInfo,
+    setImportInfo,
+    removeImportInfo,
+    checkGistUpdate,
+    parseGistSource,
+} from "./gist-update.js";
 // ts-bundle is dynamic-imported below — pulls @agex-ts/kvgit which adds
 // ~34KB to the cold-start bundle if statically reachable. The
 // manifest-read function runs only on user-driven bundle import,
@@ -445,6 +452,7 @@ export async function deleteSession(branch) {
     await adapter.deleteBranch(branch);
     appStorageRemove(targetKernel, branch);
     clearSessionGistInfo(branch);
+    removeImportInfo(branch);
 
     // Pick a fallback active branch — most-recently-updated chat-*
     // branch on either kernel. If none remain, create a fresh py
@@ -712,7 +720,10 @@ export async function exportBundle(branch, onProgress) {
  *  to the user; non-deduped imports return the underlying adapter
  *  result with `deduped: false`.
  */
-export async function importBundle(bytes, { external = false } = {}) {
+export async function importBundle(
+    bytes,
+    { external = false, gistSource = null } = {},
+) {
     const manifest = await inspectBundleAsync(bytes);
     const kernel = manifest?.kernel === "ts" ? "ts" : "py";
     const adapter = await resolveAdapter(kernel);
@@ -763,6 +774,17 @@ export async function importBundle(bytes, { external = false } = {}) {
     const sessions = _decorateAppStorage([newSession, ...state.sessions]);
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     update({ currentBranch: branch, sessions });
+
+    // Record gist provenance so we can later check for newer revisions.
+    // Only on a fresh import (the dedup path above returned early); the
+    // bundle's head is the imported branch's HEAD, i.e. the pristine
+    // baseline. Fire a non-blocking baseline check for HEAD-tracking
+    // sources so the first revisit can detect post-import updates.
+    if (gistSource) {
+        setImportInfo(branch, makeImportInfo(gistSource, bundleHead ?? null));
+        if (!gistSource.pinned) void checkGistUpdate(branch);
+    }
+
     return { ...result, deduped: false };
 }
 
@@ -784,7 +806,7 @@ export async function inspectBundle(bytes) {
 /** Open a published artifact from its URL: fetch the bundle bytes,
  *  import them as a fresh local branch flagged `external: true`,
  *  and switch to it. */
-async function openExternalBundle(url) {
+async function openExternalBundle(url, gistSource = null) {
     const resp = await fetch(url);
     if (!resp.ok) {
         throw new Error(`Failed to fetch artifact bundle: HTTP ${resp.status}`);
@@ -801,7 +823,7 @@ async function openExternalBundle(url) {
     } else {
         bytes = new Uint8Array(await resp.arrayBuffer());
     }
-    return importBundle(bytes, { external: true });
+    return importBundle(bytes, { external: true, gistSource });
 }
 
 /** Param names accepted by the `/run/` entry point. */
@@ -845,9 +867,14 @@ export async function initSessionsFromUrl() {
     }
     const params = new URLSearchParams(window.location.search);
     let bundleUrl = null;
+    let gistSource = null;
     const gistShort = params.get(GIST_PARAM);
     if (gistShort && _isValidGistShorthand(gistShort)) {
         bundleUrl = _expandGistShorthand(gistShort);
+        // Records where this import came from so we can later check the
+        // gist for newer revisions. Null for `?src=` URLs (no revision
+        // concept) — those just import with no update tracking.
+        gistSource = parseGistSource(gistShort);
     } else {
         const src = params.get(SRC_PARAM);
         if (src) bundleUrl = src;
@@ -856,7 +883,7 @@ export async function initSessionsFromUrl() {
         return await initSessions();
     }
     await initSessions();
-    await openExternalBundle(bundleUrl);
+    await openExternalBundle(bundleUrl, gistSource);
     if (window.history && typeof window.history.replaceState === "function") {
         window.history.replaceState({}, "", "/");
     }
