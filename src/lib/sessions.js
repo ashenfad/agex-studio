@@ -35,6 +35,11 @@ import {
     removeImportInfo,
     checkGistUpdate,
     parseGistSource,
+    getImportInfo,
+    hasUpdate,
+    isUnviewed,
+    ignoreUpdate,
+    markUpdatesSeen,
 } from "./gist-update.js";
 // ts-bundle is dynamic-imported below — pulls @agex-ts/kvgit which adds
 // ~34KB to the cold-start bundle if statically reachable. The
@@ -307,10 +312,25 @@ function _randomHex8() {
  *  field. App-storage lives in the parent's localStorage; size is
  *  recomputed on each render. */
 function _decorateAppStorage(sessions) {
-    return sessions.map((s) => ({
-        ...s,
-        app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
-    }));
+    return sessions.map((s) => {
+        // Fold in gist-import update status (cheap localStorage reads) so
+        // the drawer's "update available" marker + button badge react
+        // off the session store like everything else.
+        const info = getImportInfo(s.branch);
+        return {
+            ...s,
+            app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
+            updateAvailable: hasUpdate(info),
+            updateUnviewed: isUnviewed(info),
+        };
+    });
+}
+
+/** Re-decorate the current session list (picks up changed import-update
+ *  state) and push to the store. Lighter than `refreshSessionList` — no
+ *  branch re-read. */
+function refreshUpdateStatus() {
+    update({ sessions: _decorateAppStorage(state.sessions) });
 }
 
 /** Read all known sessions across both kernels. For each kernel:
@@ -405,6 +425,11 @@ async function initSessions() {
         currentBranch: current,
         sessions: _decorateAppStorage(sessions),
     });
+
+    // Occasionally check imported sessions for newer gist revisions
+    // (lazy/TTL-gated) so the drawer-button badge can surface on load
+    // without opening the drawer. Non-blocking — never gates startup.
+    void checkImportedUpdates();
 }
 
 /** Create a new chat session and switch to it.
@@ -806,24 +831,108 @@ export async function inspectBundle(bytes) {
 /** Open a published artifact from its URL: fetch the bundle bytes,
  *  import them as a fresh local branch flagged `external: true`,
  *  and switch to it. */
-async function openExternalBundle(url, gistSource = null) {
+/** Fetch + decode an artifact bundle from a URL (decodes the `.b64`
+ *  text wrapper used for gist storage). Shared by the URL-open path and
+ *  the gist-update re-import. */
+async function _fetchBundleBytes(url) {
     const resp = await fetch(url);
     if (!resp.ok) {
         throw new Error(`Failed to fetch artifact bundle: HTTP ${resp.status}`);
     }
     const path = url.split("?")[0].split("#")[0];
-    const isBase64 = path.endsWith(".b64");
-    let bytes;
-    if (isBase64) {
+    if (path.endsWith(".b64")) {
         const text = await resp.text();
         const cleaned = text.replace(/\s+/g, "");
         const binary = atob(cleaned);
-        bytes = new Uint8Array(binary.length);
+        const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    } else {
-        bytes = new Uint8Array(await resp.arrayBuffer());
+        return bytes;
     }
+    return new Uint8Array(await resp.arrayBuffer());
+}
+
+async function openExternalBundle(url, gistSource = null) {
+    const bytes = await _fetchBundleBytes(url);
     return importBundle(bytes, { external: true, gistSource });
+}
+
+// ---------------------------------------------------------------------------
+// Gist-update checks (imported sessions)
+// ---------------------------------------------------------------------------
+
+/** Poll every imported, HEAD-tracking session for a newer gist revision
+ *  (each call is lazy/TTL-gated inside `checkGistUpdate`), then refresh
+ *  the store so markers/badge reflect the results. Non-blocking-friendly:
+ *  callers can `void` it. */
+export async function checkImportedUpdates() {
+    const branches = state.sessions
+        .map((s) => s.branch)
+        .filter((b) => {
+            const info = getImportInfo(b);
+            return info && !info.pinned && !info.deleted;
+        });
+    if (branches.length === 0) return;
+    await Promise.all(branches.map((b) => checkGistUpdate(b)));
+    refreshUpdateStatus();
+}
+
+/** Mark all available updates as seen — clears the drawer-button badge
+ *  (the per-card marker stays). Call when the drawer opens. */
+export function markImportedUpdatesSeen() {
+    markUpdatesSeen(state.sessions.map((s) => s.branch));
+    refreshUpdateStatus();
+}
+
+/** Dismiss the current update for `branch` (card "ignore this version"). */
+export function dismissImportedUpdate(branch) {
+    ignoreUpdate(branch);
+    refreshUpdateStatus();
+}
+
+/**
+ * Apply the available gist update for `branch`.
+ *
+ * Pristine (no local commits since import) → in-place: re-import the
+ * latest as a fresh branch, switch to it, delete the old one. Diverged
+ * (the user has used the session) → open the latest as a new sibling
+ * session, leave the original (and stop nagging it).
+ *
+ * @returns {Promise<{ pristine: boolean, branch: string } | undefined>}
+ */
+export async function updateImportedSession(branch) {
+    const info = getImportInfo(branch);
+    if (!info || info.pinned || info.deleted) return;
+    const url = `https://gist.githubusercontent.com/${info.user}/${info.gistId}/raw/${info.slug}.agex.b64`;
+    const bytes = await _fetchBundleBytes(url);
+    const source = {
+        user: info.user,
+        id: info.gistId,
+        slug: info.slug,
+        pinned: false,
+        sha: null,
+    };
+
+    // Pristine = current HEAD still equals the import baseline (no turns
+    // / edits since). Determine before re-importing.
+    let pristine = false;
+    try {
+        const adapter = await resolveAdapter(_kernelFor(branch));
+        const head = await adapter.getCurrentCommit(branch);
+        pristine = !!info.importedHead && head === info.importedHead;
+    } catch {
+        pristine = false; // can't confirm pristine → treat as diverged (safe)
+    }
+
+    const result = await importBundle(bytes, { external: true, gistSource: source });
+
+    if (pristine && !result.deduped && result.branch !== branch) {
+        // Safe to drop the old pristine branch — no user data on it.
+        await deleteSession(branch);
+    } else if (!pristine) {
+        // Opened a fresh copy; stop nagging the diverged original.
+        dismissImportedUpdate(branch);
+    }
+    return { pristine, branch: result.branch };
 }
 
 /** Param names accepted by the `/run/` entry point. */

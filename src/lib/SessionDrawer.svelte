@@ -16,6 +16,10 @@
         markPyExperimentalWarningSeen,
         getSessionGistInfo,
         setSessionGistInfo,
+        updateImportedSession,
+        dismissImportedUpdate,
+        checkImportedUpdates,
+        markImportedUpdatesSeen,
     } from './sessions.js'
     import {
         remove as removeAppStorage,
@@ -34,6 +38,34 @@
 
     let sessions = $derived($sessionStore.sessions)
     let currentBranch = $derived($sessionStore.currentBranch)
+
+    // On open: mark available updates as seen (clears the Header badge),
+    // then re-poll imported sessions for newer gist revisions (lazy /
+    // TTL-gated, so most are no-ops).
+    $effect(() => {
+        if (open) {
+            markImportedUpdatesSeen()
+            void checkImportedUpdates()
+        }
+    })
+
+    /** @type {string | null} */
+    let updatingBranch = $state(null)
+
+    async function handleUpdate(branch) {
+        if (updatingBranch) return
+        updatingBranch = branch
+        try {
+            await updateImportedSession(branch)
+            // The session switched to the updated/opened version — close
+            // the drawer so the user lands on it.
+            onClose()
+        } catch (e) {
+            console.error('Session update failed:', e)
+        } finally {
+            updatingBranch = null
+        }
+    }
 
     let storageUsage = $state(null)
     let purgeConfirm = $state(false)
@@ -738,6 +770,22 @@
                     </div>
                     {#if s.description}
                         <div class="session-description" title={s.description}>{s.description}</div>
+                    {/if}
+                    {#if s.updateAvailable}
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div class="update-row" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                            <span class="update-label">Update available</span>
+                            <button
+                                class="update-btn"
+                                disabled={updatingBranch === s.branch}
+                                onclick={() => handleUpdate(s.branch)}
+                            >{updatingBranch === s.branch ? 'Updating…' : 'Update'}</button>
+                            <button
+                                class="update-dismiss"
+                                title="Ignore this version"
+                                onclick={() => dismissImportedUpdate(s.branch)}
+                            >&times;</button>
+                        </div>
                     {/if}
                     <div class="session-meta">
                         <span class="session-date">
@@ -1929,6 +1977,46 @@
         0%, 100% { opacity: 1; }
         50% { opacity: 0.35; }
     }
+
+    /* "Update available" affordance on an imported session's card. */
+    .update-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0.3rem 0 0.1rem;
+    }
+
+    .update-label {
+        font-size: 0.72rem;
+        color: var(--success);
+        font-weight: 500;
+    }
+
+    .update-btn {
+        background: var(--success);
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 0.12rem 0.45rem;
+        font-size: 0.7rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .update-btn:hover { filter: brightness(1.08); }
+    .update-btn:disabled { opacity: 0.6; cursor: default; }
+
+    .update-dismiss {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.95rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 0.15rem;
+    }
+
+    .update-dismiss:hover { color: var(--text); }
 
     .session-description {
         font-size: 0.72rem;
