@@ -3,28 +3,23 @@
  * agent run loop, lifted out of `ChatShell.svelte` so a session's state
  * survives the foreground view switching away from it.
  *
- * Phase 1 of the concurrent-sessions work (see
- * `roadmap/concurrent-sessions.md`). This commit is a behavior-
- * preserving *relocation*: one `SessionRuntime` per branch holds what
- * used to be `ChatShell`'s component-local `$state` (messages, busy,
- * the streaming accumulators, …) and the methods that mutate it
- * (`send`, `handleToken`, `snapshotTurn`, …). `ChatShell` becomes a
- * projection of the foreground session's runtime.
+ * Concurrent-sessions work (see `roadmap/concurrent-sessions.md`). One
+ * `SessionRuntime` per branch holds what used to be `ChatShell`'s
+ * component-local `$state` (messages, busy, the streaming accumulators,
+ * …) and the methods that mutate it (`send`, `handleToken`,
+ * `snapshotTurn`, …). `ChatShell` is a projection of the foreground
+ * session's runtime.
  *
- * What is deliberately NOT changed yet:
- *   - Adapter resolution still goes through `getActiveAdapter()`
- *     (foreground-coupled). A runtime only *executes* while it is the
- *     foreground session — enforced by the global single-flight guard
- *     below — so `getActiveAdapter()` resolves to this runtime's branch.
- *     Phase 2 makes the runtime resolve by its own branch/kernel so
- *     background loops can run.
- *   - `loadHistoryChunked()` / `persistSessionMeta()` are likewise
- *     foreground-coupled and called only while this runtime is active.
- *
- * The single-flight guard (`anyTurnRunning`) is the one line that
- * couples Phase 1 to Phase 2: today it serializes turns across all
- * sessions; Phase 2 relaxes it to per-session once each runtime has its
- * own working tree.
+ * With Phase 2 landed, each session is its own agex-ts agent + worker
+ * over a shared kvgit store (a branch per session), so turns on
+ * different sessions run concurrently — fire one, switch away, it keeps
+ * streaming. `send` captures `{ adapter, branch }` once at the top (the
+ * runtime is foreground when you hit send) and uses that captured branch
+ * for every call in the turn — including the post-turn
+ * `persistSessionMeta(title, branch)` — so a turn that finishes after a
+ * foreground switch still lands on the session it ran on. The other
+ * methods (undo / chapter / upload …) are synchronous foreground
+ * actions, so `getActiveAdapter()` correctly resolves to this runtime.
  */
 
 import { getActiveAdapter } from "./active-adapter.js";
@@ -46,18 +41,11 @@ export function getSessionRuntime(branch) {
     return rt;
 }
 
-/** True if any session currently has a turn in flight.
- *
- *  Phase 1 single-flight guard: with one shared kvgit `Staged`, only one
- *  session can safely touch the kernel at a time, so `send` bails if
- *  another turn is running. Phase 2 (per-session working trees) drops
- *  this in favor of per-runtime execution. Reads each runtime's `busy`
- *  flag — already maintained at every exit path — so there's no
- *  separate lock lifecycle to keep in sync. */
-function anyTurnRunning() {
-    for (const rt of _registry.values()) if (rt.busy) return true;
-    return false;
-}
+// Phase 2 landed per-session working trees (each session is its own
+// agent + worker over a shared store), so turns on different sessions run
+// concurrently — the Phase 1 global single-flight guard is gone. Each
+// runtime's own `busy` flag still guards re-entrancy on the *same*
+// session.
 
 export class SessionRuntime {
     /** @param {string} branch */
@@ -719,11 +707,10 @@ export class SessionRuntime {
      * @param {boolean} agentReady
      */
     send = async (prompt, attachments = [], agentReady = true) => {
+        // Per-session re-entrancy guard only — turns on *other* sessions
+        // run concurrently (each has its own agent + worker over the
+        // shared store; Phase 2).
         if (this.busy || !agentReady) return;
-        // Phase 1 single-flight: only one session may touch the shared
-        // kvgit Staged at a time. Phase 2 (per-session working trees)
-        // drops this guard.
-        if (anyTurnRunning()) return;
         const trimmed = (prompt || "").trim();
         if (!trimmed && attachments.length === 0) return;
 
@@ -847,7 +834,7 @@ export class SessionRuntime {
                 const lastAction = [...response.events]
                     .reverse()
                     .find((e) => e.type === "action" && e.title);
-                await persistSessionMeta(lastAction?.title || "");
+                await persistSessionMeta(lastAction?.title || "", branch);
             }
         } catch (e) {
             // Preserve the agent's in-flight emissions when the task
