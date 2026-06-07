@@ -242,8 +242,8 @@
                             : 'Loading sessions...'
                         await initSessionsFromUrl()
                         initStatus = 'Loading history...'
-                        const chunks = await loadHistoryChunked()
                         const { adapter, branch } = await getActiveAdapter()
+                        const chunks = await loadHistoryChunked(branch)
                         const target = getSessionRuntime(branch)
                         target.historyChunks = chunks
                         target.messages = chunks.messages
@@ -328,17 +328,21 @@
             // (activity card collapses to "Thinking…" until the next
             // token rebuilds it). undo / chaptering reload explicitly.
             if (!target.loaded) {
-                loadHistoryChunked().then(async (chunks) => {
+                // Branch-explicit throughout: if the user switches again
+                // before this async hydration resolves, it must still
+                // load `branch` (the session this effect fired for), not
+                // whatever's foreground by then.
+                loadHistoryChunked(branch).then(async (chunks) => {
                     target.historyChunks = chunks
                     target.messages = chunks.messages
                     target.loaded = true
-                    const { adapter, branch: activeBranch } = await getActiveAdapter()
+                    const { adapter } = await getActiveAdapter()
                     if (target.messages.length && target.messages[target.messages.length - 1].role === 'chaptering') {
-                        target.tokenOverride = await adapter.estimateLogTokens(activeBranch)
+                        target.tokenOverride = await adapter.estimateLogTokens(branch)
                     } else {
                         target.tokenOverride = null
                     }
-                    target.files = await adapter.listFiles(activeBranch)
+                    target.files = await adapter.listFiles(branch)
                 })
             }
         }

@@ -566,17 +566,22 @@ async function _forkSession({ filesOnly }) {
 // History
 // ---------------------------------------------------------------------------
 
-/** Load chat history from the current session's events. */
-export async function loadHistory() {
-    const adapter = await _adapterForCurrent();
-    return adapter.loadHistory(state.currentBranch);
+/** Load chat history for `branch`'s events. Branch-explicit (defaults to
+ *  the foreground) so a background/concurrent op — undo, redo,
+ *  chaptering, or hydration of a session the user has since switched away
+ *  from — loads the right session instead of whatever's foreground when
+ *  the await resolves. */
+export async function loadHistory(branch = state.currentBranch) {
+    const adapter = await resolveAdapter(_kernelFor(branch));
+    return adapter.loadHistory(branch);
 }
 
 const CHUNK_SIZE = 8;
 
-/** Load history as a chunk manager for lazy rendering. */
-export async function loadHistoryChunked() {
-    const all = await loadHistory();
+/** Load history as a chunk manager for lazy rendering. Branch-explicit
+ *  for the same reason as `loadHistory`. */
+export async function loadHistoryChunked(branch = state.currentBranch) {
+    const all = await loadHistory(branch);
 
     // Group into "units": a user message + everything that follows
     // it until the next user message. Closing units on first agent
