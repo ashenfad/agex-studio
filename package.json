@@ -18,12 +18,12 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@agex-ts/anthropic": "^2.0.0",
+    "@agex-ts/anthropic": "^3.0.0",
     "@agex-ts/kvgit": "^0.1.0",
-    "@agex-ts/openai": "^2.0.0",
-    "@agex-ts/runtime-worker": "^2.0.0",
+    "@agex-ts/openai": "^3.0.0",
+    "@agex-ts/runtime-worker": "^3.0.0",
     "@agex-ts/termish": "^0.1.0",
-    "agex-ts": "^0.3.1",
+    "agex-ts": "^0.4.0",
     "fflate": "^0.8.2",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.4",
