@@ -194,6 +194,34 @@ describe("checkGistUpdate", () => {
         expect(getImportInfo("chat-a")).toEqual(seed);
     });
 
+    it("authenticates with a PAT when provided", async () => {
+        setImportInfo("chat-a", makeImportInfo(source, "head1"));
+        let seenHeaders = null;
+        const spy = async (_url, init) => {
+            seenHeaders = init.headers;
+            return { status: 200, ok: true, json: async () => gist(SHA1) };
+        };
+        await checkGistUpdate("chat-a", { fetchImpl: spy, pat: "tok123", now: 1 });
+        expect(seenHeaders.Authorization).toBe("token tok123");
+    });
+
+    it("uses a provided importInfo without reading storage", async () => {
+        // No setImportInfo for chat-x — checkGistUpdate must use the
+        // passed-in record rather than returning early on a null lookup.
+        let called = false;
+        const spy = async () => {
+            called = true;
+            return { status: 200, ok: true, json: async () => gist(SHA1) };
+        };
+        const out = await checkGistUpdate("chat-x", {
+            fetchImpl: spy,
+            importInfo: makeImportInfo(source, "head1"),
+            now: 1,
+        });
+        expect(called).toBe(true);
+        expect(out.latestRevision).toBe(SHA1);
+    });
+
     it("never polls a pinned source", async () => {
         setImportInfo(
             "chat-a",

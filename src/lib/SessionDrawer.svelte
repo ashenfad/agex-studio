@@ -45,7 +45,7 @@
     $effect(() => {
         if (open) {
             markImportedUpdatesSeen()
-            void checkImportedUpdates()
+            void checkImportedUpdates($settingsStore.githubPat)
         }
     })
 
