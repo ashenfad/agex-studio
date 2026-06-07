@@ -300,6 +300,14 @@
         $pyodideStore.status === 'error' ? $pyodideStore.message : ''
     )
 
+    // The foreground session is, by definition, seen — clear its
+    // "unseen result" badge (set when a turn finishes on a backgrounded
+    // session). Re-runs when `rt` changes (foreground switch); only
+    // writes, so no reactive loop.
+    $effect(() => {
+        if (rt) rt.unseen = false
+    })
+
     // Reload history when session changes
     let lastBranch = ''
     $effect(() => {

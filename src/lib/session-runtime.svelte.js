@@ -22,14 +22,19 @@
  * actions, so `getActiveAdapter()` correctly resolves to this runtime.
  */
 
+import { get } from "svelte/store";
+import { SvelteMap } from "svelte/reactivity";
 import { getActiveAdapter } from "./active-adapter.js";
-import { loadHistoryChunked, persistSessionMeta } from "./sessions.js";
+import { loadHistoryChunked, persistSessionMeta, sessionStore } from "./sessions.js";
 import { cancelTask } from "./pyodide.js";
 
 /** Live registry of per-branch runtimes. A runtime is created lazily on
  *  first access for a branch and kept for the page's lifetime so its
- *  conversation + in-flight state persist across foreground switches. */
-const _registry = new Map();
+ *  conversation + in-flight state persist across foreground switches.
+ *  A `SvelteMap` so the session drawer can reactively reflect membership
+ *  (a session gaining a runtime) as well as each runtime's `busy` /
+ *  `unseen` $state. */
+const _registry = new SvelteMap();
 
 /** Get (or lazily create) the runtime for `branch`. */
 export function getSessionRuntime(branch) {
@@ -39,6 +44,13 @@ export function getSessionRuntime(branch) {
         _registry.set(branch, rt);
     }
     return rt;
+}
+
+/** The runtime for `branch` if one exists — WITHOUT creating it. The
+ *  session drawer uses this to show per-session status (working dot /
+ *  unseen badge) without spinning up runtimes for unvisited sessions. */
+export function peekSessionRuntime(branch) {
+    return _registry.get(branch);
 }
 
 // Phase 2 landed per-session working trees (each session is its own
@@ -59,6 +71,11 @@ export class SessionRuntime {
     messages = $state([]);
     busy = $state(false);
     cancelling = $state(false);
+    /** True when a turn finished while this session was NOT in the
+     *  foreground — drives the "unseen result" badge in the session
+     *  drawer. Cleared when the session is brought to foreground (see
+     *  ChatShell). */
+    unseen = $state(false);
     /** AbortController for the in-flight task. The TS adapter forwards
      *  `signal` into agex-ts's task call; the py adapter ignores it and
      *  uses its own worker-side `cancelTask`. `cancel()` fires both.
@@ -900,6 +917,11 @@ export class SessionRuntime {
             this.streamingEvents = [];
             this.liveSpawnChips = [];
             this.currentTurn = null;
+            // If the turn finished while the user was looking at another
+            // session, flag it as an unseen result (drawer badge). Stays
+            // false when this session is foreground — ChatShell also
+            // clears it on focus.
+            this.unseen = get(sessionStore).currentBranch !== this.branch;
         }
     };
 }

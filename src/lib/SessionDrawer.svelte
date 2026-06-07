@@ -23,6 +23,7 @@
         clearAll as clearAllAppStorage,
     } from './app-storage.js'
     import { clearCache as clearSessionCache } from './session-index.js'
+    import { peekSessionRuntime } from './session-runtime.svelte.js'
     import { settingsStore } from './settings.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
@@ -717,6 +718,7 @@
 
         <div class="session-list">
             {#each sessions as s (s.branch)}
+                {@const rt = peekSessionRuntime(s.branch)}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="session-item"
@@ -727,6 +729,11 @@
                     tabindex="0"
                 >
                     <div class="session-title">
+                        {#if rt?.busy}
+                            <span class="status-dot working" title="Working…"></span>
+                        {:else if rt?.unseen}
+                            <span class="status-dot unseen" title="New result — not yet viewed"></span>
+                        {/if}
                         {s.name || s.title}
                     </div>
                     {#if s.description}
@@ -1890,6 +1897,35 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* Per-session status indicator before the title. `working` pulses
+       like the chat's thinking dot (a turn is in flight on this
+       session); `unseen` is a steady badge — the turn finished while
+       the user was looking at another session and hasn't been viewed. */
+    .status-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 0.4rem;
+        vertical-align: middle;
+        flex-shrink: 0;
+    }
+
+    .status-dot.working {
+        background: var(--accent);
+        animation: session-pulse 1.2s ease-in-out infinite;
+    }
+
+    .status-dot.unseen {
+        background: var(--accent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+    }
+
+    @keyframes session-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
     }
 
     .session-description {
