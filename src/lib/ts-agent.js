@@ -19,6 +19,13 @@
  */
 
 import { createAgent } from "agex-ts";
+import { KvgitState } from "agex-ts/state";
+import { Staged, VersionedKV } from "@agex-ts/kvgit";
+import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
+import {
+    polymorphicEncoder,
+    polymorphicDecoder,
+} from "@agex-ts/termish/fs/kvgit";
 import { Anthropic } from "@agex-ts/anthropic";
 import { OpenAI } from "@agex-ts/openai";
 import { workerRuntime } from "@agex-ts/runtime-worker";
@@ -120,6 +127,57 @@ let _llm = /** @type {LLMClient | null} */ (null);
  *  reads/writes this. */
 let _activeBranch = /** @type {string | null} */ (null);
 
+/** The studio's single shared kvgit substrate — one IndexedDB database
+ *  holding every session as a branch. Opened once on first init.
+ *
+ *  Phase 2 foundation (see roadmap/concurrent-sessions.md): the studio
+ *  now hands agex-ts an injected `StateResolver` over this shared store
+ *  instead of the built-in `versioned` storage (which gives each
+ *  session its own db). Today the single agent's resolver returns one
+ *  Staged that branch-ops switch across branches; the next increment
+ *  wraps this same store with a Staged per branch for a per-session
+ *  agent pool. Keeping it injected now validates the seam end-to-end
+ *  and is a no-op behaviorally. */
+let _sharedVersioned = /** @type {VersionedKV | null} */ (null);
+
+/** Db name connectState used for the pinned "default" session
+ *  (`kvgit/<session>`). Reused verbatim so existing sessions stay
+ *  readable — all `chat-*` branches already live in this one database. */
+const SHARED_DB = "kvgit/default";
+
+/** Open (once) the shared substrate and build the injected resolver.
+ *  Mirrors connectState's versioned/indexeddb construction field-for-
+ *  field — crucially the polymorphic codec, so termish VFS FileRecords
+ *  and JSON-able state (cache, event log, meta) share one atomically-
+ *  committable Staged. Caches per session id (the agent relies on
+ *  `resolve(session)` returning a stable backend across
+ *  state/events/fs/cache calls). */
+async function _buildStateResolver() {
+    if (_sharedVersioned === null) {
+        const store = await IndexedDB.open({ dbName: SHARED_DB });
+        _sharedVersioned = await VersionedKV.open(store);
+    }
+    const versioned = _sharedVersioned;
+    /** @type {Map<string, import('agex-ts/state').StateBackend>} */
+    const cache = new Map();
+    return {
+        versioned: true,
+        /** @param {string} session */
+        async resolve(session) {
+            const hit = cache.get(session);
+            if (hit !== undefined) return hit;
+            const fresh = new KvgitState(
+                new Staged(versioned, {
+                    encoder: polymorphicEncoder,
+                    decoder: polymorphicDecoder,
+                }),
+            );
+            cache.set(session, fresh);
+            return fresh;
+        },
+    };
+}
+
 /**
  * Construct (or reuse) the agex-ts Agent for the studio.  Idempotent
  * for the lifetime of the page — the second caller's settings are
@@ -178,6 +236,10 @@ export async function initAgent(settings) {
         // cancel for a faster exit via the AbortSignal we plumb through.
         timeoutMs: 180_000,
     });
+    // Injected resolver over the studio's single shared store (replaces
+    // the built-in `versioned`/indexeddb mode, which would put each
+    // session in its own db). See `_buildStateResolver`.
+    const stateResolver = await _buildStateResolver();
     _agent = await createAgent({
         name: "chat",
         // Agent-level primer (system message, built once + cached): the
@@ -188,7 +250,7 @@ export async function initAgent(settings) {
         primer: _chatAgentPrimer,
         llm,
         runtime,
-        state: { type: "versioned", storage: "indexeddb" },
+        state: { type: "resolver", resolver: stateResolver },
         fs: { type: "kvgit" },
         chapteringTrigger:
             typeof settings.chapteringTrigger === "number"
@@ -1579,6 +1641,7 @@ export function _resetForTesting() {
     _agent = null;
     _chatTask = null;
     _activeBranch = null;
+    _sharedVersioned = null;
     _llm = null;
     _appSpawns = 0;
 }
