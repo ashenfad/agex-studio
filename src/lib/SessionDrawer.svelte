@@ -1919,11 +1919,10 @@
     }
 
     /* Distinct from the working dot: a steady GREEN dot (done, ready to
-       view) vs the blue pulsing one (in flight). The ring gives it a
-       slight "badge" weight so a finished session reads at a glance. */
+       view) vs the blue pulsing one (in flight). No ring — the title's
+       `overflow: hidden` clips it. */
     .status-dot.unseen {
         background: var(--success);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 35%, transparent);
     }
 
     @keyframes session-pulse {
