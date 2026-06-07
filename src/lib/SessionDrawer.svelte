@@ -1918,9 +1918,12 @@
         animation: session-pulse 1.2s ease-in-out infinite;
     }
 
+    /* Distinct from the working dot: a steady GREEN dot (done, ready to
+       view) vs the blue pulsing one (in flight). The ring gives it a
+       slight "badge" weight so a finished session reads at a glance. */
     .status-dot.unseen {
-        background: var(--accent);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+        background: var(--success);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 35%, transparent);
     }
 
     @keyframes session-pulse {
