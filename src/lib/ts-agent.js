@@ -111,53 +111,90 @@ const META_KEYS = /** @type {const} */ ({
     external: "__session_external__",
 });
 
-/** @type {Agent | null} */
-let _agent = null;
+// --- Per-branch agent pool (Phase 2) ---------------------------------
+//
+// Each studio session is its own single-session agex-ts Agent — its own
+// Web Worker and a working tree pinned to that session's branch over ONE
+// shared kvgit store. Concurrent sessions run on independent agents, so a
+// turn (or its cancel / timeout) on one never disturbs another. See
+// roadmap/concurrent-sessions.md.
 
-/** @type {((message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<string>) | null} */
-let _chatTask = null;
+/**
+ * @typedef {{
+ *   agent: Agent,
+ *   chatTask: (message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<string>,
+ *   busy: boolean,
+ *   lastUsed: number,
+ * }} PoolEntry
+ */
 
-/** The parent's live LLM client. Captured so it can be handed to
- *  `reconfigure` on a mid-session model/key change. */
+/** Live agents keyed by branch. */
+/** @type {Map<string, PoolEntry>} */
+const _pool = new Map();
+
+/** Max concurrently-live agents (each owns a Worker). When a new branch
+ *  pushes past this, the least-recently-used IDLE agent is disposed — its
+ *  session's state persists in the shared store and re-opens on demand.
+ *  Busy agents (mid-turn) are never evicted. */
+const MAX_LIVE_AGENTS = 5;
+
+/** Studio settings captured at init — used to build each pooled agent's
+ *  LLM client + chaptering trigger lazily. */
+let _settings = /** @type {KernelSettings | null} */ (null);
+
+/** Shared LLM client (stateless per request) handed to every pooled
+ *  agent; rebuilt + hot-swapped into all live agents on settings change. */
 let _llm = /** @type {LLMClient | null} */ (null);
 
-/** Module-level cache of the active branch — avoids redundant
- *  `versioned.switchBranch(...)` calls when the caller is operating
- *  on the same branch repeatedly. The adapter's `_ensureBranch`
- *  reads/writes this. */
-let _activeBranch = /** @type {string | null} */ (null);
-
 /** The studio's single shared kvgit substrate — one IndexedDB database
- *  holding every session as a branch. Opened once on first init.
- *
- *  Phase 2 foundation (see roadmap/concurrent-sessions.md): the studio
- *  now hands agex-ts an injected `StateResolver` over this shared store
- *  instead of the built-in `versioned` storage (which gives each
- *  session its own db). Today the single agent's resolver returns one
- *  Staged that branch-ops switch across branches; the next increment
- *  wraps this same store with a Staged per branch for a per-session
- *  agent pool. Keeping it injected now validates the seam end-to-end
- *  and is a no-op behaviorally. */
-let _sharedVersioned = /** @type {VersionedKV | null} */ (null);
+ *  (KVStore) holding every session as a branch. Opened once. */
+let _kvstore = /** @type {import('@agex-ts/kvgit').KVStore | null} */ (null);
+
+/** Management working tree over the shared store — a single Staged used
+ *  ONLY for branch admin (list / meta / create / fork / delete /
+ *  inspect), which are quick, user-initiated, and don't run concurrently.
+ *  It switches branches freely; the per-session agents never do. */
+let _mgmt = /** @type {import('@agex-ts/kvgit').Staged | null} */ (null);
 
 /** Db name connectState used for the pinned "default" session
  *  (`kvgit/<session>`). Reused verbatim so existing sessions stay
  *  readable — all `chat-*` branches already live in this one database. */
 const SHARED_DB = "kvgit/default";
 
-/** Open (once) the shared substrate and build the injected resolver.
- *  Mirrors connectState's versioned/indexeddb construction field-for-
- *  field — crucially the polymorphic codec, so termish VFS FileRecords
- *  and JSON-able state (cache, event log, meta) share one atomically-
- *  committable Staged. Caches per session id (the agent relies on
- *  `resolve(session)` returning a stable backend across
- *  state/events/fs/cache calls). */
-async function _buildStateResolver() {
-    if (_sharedVersioned === null) {
-        const store = await IndexedDB.open({ dbName: SHARED_DB });
-        _sharedVersioned = await VersionedKV.open(store);
+/** Polymorphic codec — lets one Staged carry termish VFS FileRecords and
+ *  JSON-able state (cache, event log, meta) in one atomic commit.
+ *  Mirrors connectState's versioned-path construction. */
+const _CODEC = { encoder: polymorphicEncoder, decoder: polymorphicDecoder };
+
+/** Open the shared KVStore once. */
+async function _openStore() {
+    if (_kvstore === null) {
+        _kvstore = await IndexedDB.open({ dbName: SHARED_DB });
     }
-    const versioned = _sharedVersioned;
+    return _kvstore;
+}
+
+/** The management Staged (lazily created), for branch admin only. */
+async function _getMgmt() {
+    if (_mgmt === null) {
+        const store = await _openStore();
+        const vk = await VersionedKV.open(store);
+        _mgmt = new Staged(vk, _CODEC);
+    }
+    return _mgmt;
+}
+
+/** The shared `VersionedKV` (the management tree's) — for bundle export /
+ *  import / stats, which read a branch's commit subgraph directly. */
+export async function getSharedVersioned() {
+    return (await _getMgmt()).versioned;
+}
+
+/** Build a StateResolver pinned to one branch over the shared store. The
+ *  agent's single "default" session resolves to a Staged on `branch`
+ *  (polymorphic codec). Cached per session id so the agent sees a stable
+ *  backend across state/events/fs/cache calls. */
+function _branchResolver(branch) {
     /** @type {Map<string, import('agex-ts/state').StateBackend>} */
     const cache = new Map();
     return {
@@ -166,16 +203,74 @@ async function _buildStateResolver() {
         async resolve(session) {
             const hit = cache.get(session);
             if (hit !== undefined) return hit;
-            const fresh = new KvgitState(
-                new Staged(versioned, {
-                    encoder: polymorphicEncoder,
-                    decoder: polymorphicDecoder,
-                }),
-            );
+            const store = await _openStore();
+            const vk = await VersionedKV.open(store, { branch });
+            const fresh = new KvgitState(new Staged(vk, _CODEC));
             cache.set(session, fresh);
             return fresh;
         },
     };
+}
+
+/** Get-or-create the pool entry for `branch`. Lazily boots the agent
+ *  (and its Worker) on first use; bumps LRU; evicts idle agents past the
+ *  cap. */
+async function _entryForBranch(branch) {
+    const existing = _pool.get(branch);
+    if (existing) {
+        existing.lastUsed = Date.now();
+        return existing;
+    }
+    const entry = await _createBranchAgent(branch);
+    _pool.set(branch, entry);
+    await _evictIdle(branch);
+    return entry;
+}
+
+/** The agent for `branch` (single-session "default" pinned to it). */
+async function _agentForBranch(branch) {
+    return (await _entryForBranch(branch)).agent;
+}
+
+/** The kvgit `Staged` backing `branch`'s working tree (for resetTo). */
+async function _stagedFor(branch) {
+    const agent = await _agentForBranch(branch);
+    const state = await agent.state(SESSION);
+    return /** @type {import('@agex-ts/kvgit').Staged} */ (
+        /** @type {import('agex-ts/state').KvgitState} */ (state).staged
+    );
+}
+
+/** Dispose `branch`'s agent (terminates its Worker) and drop it from the
+ *  pool. The branch's state persists in the shared store. Idempotent. */
+export async function disposeBranchAgent(branch) {
+    const entry = _pool.get(branch);
+    if (!entry) return;
+    _pool.delete(branch);
+    try {
+        await entry.agent.dispose();
+    } catch (e) {
+        console.warn("[ts-agent] dispose failed:", e);
+    }
+}
+
+/** Dispose every pooled agent (terminates all workers). Kernel teardown. */
+export async function disposeAll() {
+    const branches = [..._pool.keys()];
+    await Promise.all(branches.map((b) => disposeBranchAgent(b)));
+}
+
+/** Evict least-recently-used IDLE agents until within MAX_LIVE_AGENTS.
+ *  Never evicts `keep` or a busy (mid-turn) agent. */
+async function _evictIdle(keep) {
+    if (_pool.size <= MAX_LIVE_AGENTS) return;
+    const victims = [..._pool.entries()]
+        .filter(([b, e]) => b !== keep && !e.busy)
+        .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [b] of victims) {
+        if (_pool.size <= MAX_LIVE_AGENTS) break;
+        await disposeBranchAgent(b);
+    }
 }
 
 /**
@@ -186,61 +281,64 @@ async function _buildStateResolver() {
  * @param {KernelSettings} settings
  */
 export async function initAgent(settings) {
-    // Already-constructed agent: hot-swap the safe-to-mutate fields
-    // (LLM client, chaptering trigger) and bail. The runtime / state /
-    // fs are deliberately not in `reconfigure`'s surface — mutating
-    // those mid-session would orphan workers or break substrate
-    // invariants. Settings the user can change at runtime (model,
-    // API key, baseUrl, provider, chaptering threshold) all flow
-    // through `_buildLlmClient` + `chapteringTrigger`.
-    if (_agent) {
-        _llm = _buildLlmClient(settings);
-        _agent.reconfigure({
-            llm: _llm,
-            chapteringTrigger:
-                typeof settings.chapteringTrigger === "number"
-                    ? settings.chapteringTrigger
-                    : DEFAULT_CHAPTERING_TRIGGER,
-            maxIterations: MAX_ITERATIONS,
-        });
+    // Capture settings + (re)build the shared LLM client. Pooled agents
+    // read `_settings`/`_llm` when created; live ones get the new client
+    // hot-swapped in below. (state / fs / runtime aren't reconfigurable —
+    // mutating those mid-session would orphan workers or break the
+    // substrate; model / key / baseUrl / provider all flow through
+    // `_buildLlmClient`.)
+    _settings = settings;
+    _llm = _buildLlmClient(settings);
+    if (_kvstore !== null) {
+        // Already booted — propagate the new client + chaptering trigger
+        // to every live agent.
+        for (const entry of _pool.values()) {
+            entry.agent.reconfigure({
+                llm: _llm,
+                chapteringTrigger: _chapteringTrigger(settings),
+                maxIterations: MAX_ITERATIONS,
+            });
+        }
         return;
     }
-    const llm = _buildLlmClient(settings);
-    _llm = llm;
+    // First init: open the shared store. Agents (and their workers) are
+    // created lazily per branch on first use.
+    await _openStore();
+}
+
+/** Chaptering threshold from settings, falling back to the default. */
+function _chapteringTrigger(settings) {
+    return typeof settings.chapteringTrigger === "number"
+        ? settings.chapteringTrigger
+        : DEFAULT_CHAPTERING_TRIGGER;
+}
+
+/**
+ * Construct a fresh single-session agent pinned to `branch` over the
+ * shared store, with every studio registration applied. Each agent owns
+ * its own Web Worker. Returns a pool entry.
+ *
+ * @param {string} branch
+ * @returns {Promise<PoolEntry>}
+ */
+async function _createBranchAgent(branch) {
+    if (_settings === null || _llm === null) {
+        throw new Error(
+            "agex-ts kernel not initialized — call initAgent first",
+        );
+    }
+    const settings = _settings;
+    const llm = _llm;
     const runtime = workerRuntime({
-        // Hand vite-bundled worker URL through explicitly. The
-        // runtime would otherwise fall back to its own
-        // `new URL('./worker.js', import.meta.url)` which only
-        // resolves against the *vendored* worker file — vite
-        // copies that file as-is into dist with its bare
-        // `agex-ts/wrap-fs` imports unresolved, so the worker
-        // 404s during boot in production. The `?worker&url`
-        // import above gives us a self-contained bundled worker.
+        // Vite-bundled worker URL (the `?worker&url` import) — without it
+        // the prod worker 404s on its bare imports. Per-emission wall-
+        // clock budget: generous because spawn clones multiplex onto this
+        // agent's worker and a deep search runs 60–90s; a runaway is still
+        // bounded and the chat-UI cancel exits faster via the AbortSignal.
         workerUrl: _agexWorkerUrl,
-        //
-        // Per-emission wall-clock budget, shared by the chat agent AND
-        // its `spawn` clones (native spawn multiplexes onto this same
-        // worker — there is no separate clone timeout). It must comfortably
-        // fit the slowest *legitimate* single emission, because a timeout
-        // is all-or-nothing: killing the worker settles EVERY co-resident
-        // execute, so one slow clone takes down its in-flight siblings and
-        // the parked parent (see @agex-ts/runtime-worker runtime.ts).
-        //
-        // The slow cases: `await testApp(...)` (iframe + cold-cache Plotly,
-        // 3–8s), and especially `await search(..., { deep: true })` —
-        // multi-step deep research routinely runs 60–90s, and a research
-        // fan-out fires several concurrently. 60s was too tight for that
-        // (deep-search clones hit the wall and cancelled the batch). 3min
-        // fits a deep search (plus a follow-up step) with margin; a genuine
-        // infinite loop is still bounded, and the user can hit the chat-UI
-        // cancel for a faster exit via the AbortSignal we plumb through.
         timeoutMs: 180_000,
     });
-    // Injected resolver over the studio's single shared store (replaces
-    // the built-in `versioned`/indexeddb mode, which would put each
-    // session in its own db). See `_buildStateResolver`.
-    const stateResolver = await _buildStateResolver();
-    _agent = await createAgent({
+    const agent = await createAgent({
         name: "chat",
         // Agent-level primer (system message, built once + cached): the
         // evergreen studio environment and "active" capabilities (rich
@@ -250,12 +348,9 @@ export async function initAgent(settings) {
         primer: _chatAgentPrimer,
         llm,
         runtime,
-        state: { type: "resolver", resolver: stateResolver },
+        state: { type: "resolver", resolver: _branchResolver(branch) },
         fs: { type: "kvgit" },
-        chapteringTrigger:
-            typeof settings.chapteringTrigger === "number"
-                ? settings.chapteringTrigger
-                : DEFAULT_CHAPTERING_TRIGGER,
+        chapteringTrigger: _chapteringTrigger(settings),
         maxIterations: MAX_ITERATIONS,
         // Enable native `spawn` (agex-ts builtin) for script-side
         // delegation / fan-out. The same `spawn` is reached host-side
@@ -297,11 +392,11 @@ export async function initAgent(settings) {
     // good version (e.g. `https://esm.sh/arquero@5.4.0`) if a future
     // release breaks something we depend on without affecting the
     // open-resolver fallback for everything else.
-    _agent.namespace(
+    agent.namespace(
         { url: "https://esm.sh/apache-arrow" },
         { name: "apache-arrow" },
     );
-    _agent.namespace(
+    agent.namespace(
         { url: "https://esm.sh/arquero" },
         { name: "arquero" },
     );
@@ -310,16 +405,16 @@ export async function initAgent(settings) {
     // loader; agex creates the `/skills/<name>/SKILL.md` VFS overlay
     // for `cat` access. Chaptering keeps these out of context when
     // not relevant.
-    _agent.skill(_numericalSkill, { name: "numerical" });
-    _agent.skill(_interactiveAppSkill, { name: "interactive-app" });
+    agent.skill(_numericalSkill, { name: "numerical" });
+    agent.skill(_interactiveAppSkill, { name: "interactive-app" });
     // Spawn skill — when/how to reach for `spawn` (script-side fan-out
     // and app-embedded callbacks). A clone inherits the agent's skills,
     // but is depth-1 (no nested `spawn`) so it can't recurse.
-    _agent.skill(_spawnSkill, { name: "spawn" });
+    agent.skill(_spawnSkill, { name: "spawn" });
     // Supabase auth & shared state — how an app gets real users and
     // cross-device shared state, plus the studio-specific popup+relay
     // sign-in pattern (redirect-based OAuth would lose app state).
-    _agent.skill(_supabaseAuthSkill, { name: "supabase-auth" });
+    agent.skill(_supabaseAuthSkill, { name: "supabase-auth" });
 
     // Chat task. The per-task primer carries ONLY the output contract
     // (the renderer's part-shape table) — it's task-scoped and repeats
@@ -329,7 +424,7 @@ export async function initAgent(settings) {
     // at the adapter boundary (see `ts-chat-response.js`) so the chat
     // shell renders text / tables / Plotly charts inline. Both primers
     // are inlined at build time via vite's ?raw loader.
-    _chatTask = _agent.task({
+    const chatTask = agent.task({
         description: "Answer the user's chat message.",
         primer: _chatPrimer,
         // Validate the response shape so a bare domain object (which the
@@ -366,7 +461,7 @@ export async function initAgent(settings) {
         return emitObservations(ctx, normalizeEvalValues(results));
     }
 
-    _agent.fn(
+    agent.fn(
         async function testApp(...args) {
             // agex-ts appends `ctx` as the trailing positional arg
             // (per `wantsContext: true`). Since the agent may pass
@@ -375,7 +470,7 @@ export async function initAgent(settings) {
             // the end and slice the user args explicitly.
             const ctx = args[args.length - 1];
             const [actions, fresh] = args.slice(0, -1);
-            const fs = await _agent.fs(SESSION);
+            const fs = await agent.fs(SESSION);
             // Split the app/ dir into text files (HTML / JS / CSS / JSON
             // — passed as decoded strings) and binary assets (images /
             // fonts — passed as raw bytes). Decoding binaries as UTF-8
@@ -396,8 +491,8 @@ export async function initAgent(settings) {
                 else appFiles[full] = decoder.decode(bytes);
             });
             let appStorageSeed = {};
-            if (!fresh && _activeBranch) {
-                appStorageSeed = readAppStorage("ts", _activeBranch);
+            if (!fresh) {
+                appStorageSeed = readAppStorage("ts", branch);
             }
             const results = await appControlRunTestApp({
                 appFiles,
@@ -406,7 +501,7 @@ export async function initAgent(settings) {
                 appStorageSeed,
                 buildAppHtml,
                 queryHandler: null, // TS adapter has no runQuery
-                cacheHandler: (key) => getCacheValue(key),
+                cacheHandler: (key) => getCacheValue(branch, key),
             });
             return _postProcessResults(ctx, results);
         },
@@ -422,7 +517,7 @@ export async function initAgent(settings) {
         },
     );
 
-    _agent.fn(
+    agent.fn(
         async function liveApp(...args) {
             // Same rest-and-extract pattern as `testApp` — ctx is
             // the trailing arg per `wantsContext: true`.
@@ -456,7 +551,7 @@ export async function initAgent(settings) {
     // search(b), ...])` from the agent results in genuinely
     // concurrent fetches — same parallelism the py-side
     // `asyncio.gather(search(a), search(b), ...)` pattern unlocks.
-    _agent.fn(runSearchHelper, {
+    agent.fn(runSearchHelper, {
         name: "search",
         description: [
             "(Pre-registered global — `await search(query)`, no import needed.)",
@@ -473,7 +568,7 @@ export async function initAgent(settings) {
     // means the agent can `console.log(pages[0])` to surface a page
     // as an image observation directly — agex-ts's console-capture
     // detects PNG magic bytes and routes through the image pipeline.
-    _agent.fn(
+    agent.fn(
         async function renderPdf(bytes, pages = null, scale = 2) {
             return await renderPdfPagesToBytes(bytes, pages, scale);
         },
@@ -487,7 +582,7 @@ export async function initAgent(settings) {
         },
     );
 
-    _agent.fn(
+    agent.fn(
         async function pdfPageCount(bytes) {
             return await getPdfPageCount(bytes);
         },
@@ -513,7 +608,7 @@ export async function initAgent(settings) {
     // "low")` does — the description ships in the agent's tool list
     // unconditionally. Kept short here, with the longer story in the
     // interactive-app skill.
-    _agent.terminal(
+    agent.terminal(
         async (ctx) => {
             const { runEsbuild } = await import("./esbuild-bridge.js");
             await runEsbuildCommand(ctx, runEsbuild);
@@ -535,17 +630,21 @@ export async function initAgent(settings) {
     // createAgent above) — no host-fn registration needed. App-embedded
     // callbacks reach the same capability host-side via `spawnFromApp`
     // (the kernel adapter's `spawn`). See the `spawn` skill.
+
+    return { agent, chatTask, busy: false, lastUsed: Date.now() };
 }
 
-/** Send a chat message through the registered chat task. The
- *  TsKernelAdapter's sendMessage wraps this with the branch-explicit
- *  signature; this helper is the studio-side entry point matching
- *  agent.js's `sendMessage(message, onToken)` shape. */
-export async function chatMessage(message, opts = {}) {
-    if (!_chatTask) {
-        throw new Error("chat task not registered — call initAgent first");
+/** Send a chat message through `branch`'s chat task. The pool entry's
+ *  `busy` flag is held for the turn so eviction never disposes an agent
+ *  mid-turn. */
+export async function chatMessage(branch, message, opts = {}) {
+    const entry = await _entryForBranch(branch);
+    entry.busy = true;
+    try {
+        return await entry.chatTask(message, { session: SESSION, ...opts });
+    } finally {
+        entry.busy = false;
     }
-    return await _chatTask(message, { session: SESSION, ...opts });
 }
 
 /** Per-page-session cap on app-initiated `spawn` calls. Trust/cost
@@ -572,8 +671,8 @@ let _appSpawns = 0;
  * @param {{ signal?: AbortSignal }} [opts]
  * @returns {Promise<unknown>}
  */
-export async function spawnFromApp(spec, opts = {}) {
-    const agent = _getAgent();
+export async function spawnFromApp(branch, spec, opts = {}) {
+    const agent = await _agentForBranch(branch);
     if (++_appSpawns > APP_SPAWN_CAP) {
         throw new Error(
             `This app has reached the per-session limit of ${APP_SPAWN_CAP} AI calls. Reload to reset.`,
@@ -692,58 +791,23 @@ function _buildLlmClient(settings) {
     });
 }
 
-/** Module-internal accessor.  Throws if `initAgent` hasn't run yet. */
-export function _getAgent() {
-    if (!_agent) {
-        throw new Error("agex-ts kernel not initialized — call initAgent first");
-    }
-    return _agent;
-}
-
-/** Read the underlying @agex-ts/kvgit `Staged` for the studio's pinned
- *  default session. HEAD-movers (`switchBranch`, `resetTo`, `refresh`)
- *  must go through Staged so its read cache is invalidated — direct
- *  reach-through to `staged.versioned.switchBranch(...)` would leave
- *  Staged's per-key cache holding stale data from the prior branch. */
-async function _getStaged() {
-    const agent = _getAgent();
-    const state = await agent.state(SESSION);
-    return /** @type {import('@agex-ts/kvgit').Staged} */ (
-        /** @type {import('agex-ts/state').KvgitState} */ (state).staged
-    );
-}
-
-/** Switch kvgit's current branch if not already there. Mirrors the
- *  PyKernelAdapter's _ensureBranch pattern; cached so repeat calls
- *  on the same branch are zero-op. */
-async function _ensureBranch(branch) {
-    if (_activeBranch === branch) return;
-    const staged = await _getStaged();
-    if (staged.currentBranch !== branch) {
-        await staged.switchBranch(branch);
-    }
-    _activeBranch = branch;
-}
-
-/** Invalidate the cached active-branch — call when an external
- *  operation (like `versioned.deleteBranch` or `resetTo`) may have
- *  changed kvgit's current_branch out from under us. */
-function _invalidateActiveBranch() {
-    _activeBranch = null;
-}
-
 // ---------------------------------------------------------------------------
-// Branch operations
+// Branch operations — run on the management Staged (`_getMgmt`) over the
+// shared store, independent of the per-session agent pool. They're quick,
+// user-initiated, and don't run concurrently, so a single admin working
+// tree that switches branches is fine. Writes to a branch that also has a
+// live agent are reconciled by kvgit's CAS + three-way merge on the
+// agent's next commit (different keys → no conflict).
 // ---------------------------------------------------------------------------
 
 export async function listBranches() {
-    const staged = await _getStaged();
+    const staged = await _getMgmt();
     const all = await staged.listBranches();
     return all.filter((b) => b.startsWith("chat-"));
 }
 
 export async function listBranchesWithMeta() {
-    const staged = await _getStaged();
+    const staged = await _getMgmt();
     const all = await staged.listBranches();
     // staged.peek returns the already-decoded value (T | undefined),
     // using the same encoder/decoder pair the underlying state was
@@ -777,8 +841,7 @@ export async function listBranchesWithMeta() {
 }
 
 export async function createBranch(name, opts = {}) {
-    const agent = _getAgent();
-    const staged = await _getStaged();
+    const staged = await _getMgmt();
     if (opts.from) {
         // Fork-from semantics: switch to opts.from so the new branch
         // is created off its HEAD. Matches agex-py forkSession
@@ -794,12 +857,9 @@ export async function createBranch(name, opts = {}) {
         await staged.createBranch(name, { at: initialCommit });
     }
     await staged.switchBranch(name);
-    _activeBranch = name;
-
-    const state = await agent.state(SESSION);
-    state.set(META_KEYS.updated, new Date().toISOString());
-    state.set(META_KEYS.kernel, "ts");
-    await agent.commit(SESSION);
+    staged.set(META_KEYS.updated, new Date().toISOString());
+    staged.set(META_KEYS.kernel, "ts");
+    await staged.commit();
 }
 
 /** Prefixes the studio considers "agent memory" — the keys
@@ -846,36 +906,34 @@ export function _isAgentMemoryKey(key) {
  * @param {string} branch
  */
 export async function wipeAgentMemory(branch) {
-    const staged = await _getStaged();
+    // Drop any live agent first so it re-opens against the wiped state
+    // (its working tree is a separate Staged that would otherwise hold
+    // pre-wipe reads).
+    await disposeBranchAgent(branch);
+    const staged = await _getMgmt();
     const cur = staged.currentBranch;
     const switched = branch !== cur;
-    if (switched) {
-        await staged.switchBranch(branch);
-        _activeBranch = branch;
-    }
+    if (switched) await staged.switchBranch(branch);
     try {
         // Walk all keys once. Per-key delete is cheap (in-memory
         // staged-buffer set add); the cost is the keys iteration.
-        // For sessions with thousands of events this is still
-        // milliseconds — the iteration's the same shape backups,
-        // chaptering, and the existing keys-walks already use.
         const victims = [];
         for await (const k of staged.keys()) {
             if (_isAgentMemoryKey(k)) victims.push(k);
         }
         if (victims.length === 0) return; // already clean
         for (const k of victims) staged.delete(k);
-        await _getAgent().commit(SESSION);
+        await staged.commit();
     } finally {
-        if (switched) {
-            await staged.switchBranch(cur);
-            _activeBranch = cur;
-        }
+        if (switched) await staged.switchBranch(cur);
     }
 }
 
 export async function deleteBranch(name) {
-    const staged = await _getStaged();
+    // Tear down the live agent (terminates its Worker) before removing
+    // the branch from under it.
+    await disposeBranchAgent(name);
+    const staged = await _getMgmt();
     if (staged.currentBranch === name) {
         // Adapter's contract: the adapter falls back to another
         // chat- branch internally so subsequent ops don't trip on
@@ -913,11 +971,10 @@ export async function deleteBranch(name) {
         // (next delete, or a future startup-time pass).
         console.warn("[deleteBranch] cleanOrphans failed:", e);
     }
-    _invalidateActiveBranch();
 }
 
 export async function readBranchMeta(name) {
-    const staged = await _getStaged();
+    const staged = await _getMgmt();
     /** @param {string} key */
     const peekStr = async (key) => {
         const v = await staged.peek(key, { branch: name });
@@ -938,31 +995,38 @@ export async function readBranchMeta(name) {
 }
 
 export async function writeBranchMeta(name, patch) {
-    const agent = _getAgent();
-    const staged = await _getStaged();
+    /** @param {{ set: (k: string, v: unknown) => void }} target */
+    const applyPatch = (target) => {
+        if (patch.title !== undefined) target.set(META_KEYS.title, patch.title);
+        if (patch.name !== undefined) target.set(META_KEYS.name, patch.name);
+        if (patch.description !== undefined)
+            target.set(META_KEYS.description, patch.description);
+        if (patch.external !== undefined)
+            target.set(META_KEYS.external, patch.external);
+        // Always bump `updated` alongside any other write so the
+        // session-list ordering reflects the edit.
+        target.set(META_KEYS.updated, patch.updated ?? new Date().toISOString());
+    };
+    // Hot path: a live agent on this branch (e.g. `persistSessionMeta`
+    // right after a turn). Write through it so there's one writer per
+    // branch — no CAS-merge against the management tree.
+    const live = _pool.get(name);
+    if (live) {
+        const state = await live.agent.state(SESSION);
+        applyPatch(state);
+        await live.agent.commit(SESSION);
+        return;
+    }
+    // Otherwise use the management tree (switch, write, restore).
+    const staged = await _getMgmt();
     const cur = staged.currentBranch;
     const switched = name !== cur;
     if (switched) await staged.switchBranch(name);
     try {
-        const state = await agent.state(SESSION);
-        if (patch.title !== undefined) state.set(META_KEYS.title, patch.title);
-        if (patch.name !== undefined) state.set(META_KEYS.name, patch.name);
-        if (patch.description !== undefined) state.set(META_KEYS.description, patch.description);
-        if (patch.external !== undefined) state.set(META_KEYS.external, patch.external);
-        // Always bump `updated` alongside any other write so the
-        // session-list ordering reflects the edit.
-        state.set(
-            META_KEYS.updated,
-            patch.updated ?? new Date().toISOString(),
-        );
-        await agent.commit(SESSION);
+        applyPatch(staged);
+        await staged.commit();
     } finally {
-        if (switched) {
-            await staged.switchBranch(cur);
-            _activeBranch = cur;
-        } else {
-            _activeBranch = name;
-        }
+        if (switched) await staged.switchBranch(cur);
     }
 }
 
@@ -970,8 +1034,8 @@ export async function writeBranchMeta(name, patch) {
 // State / commits
 // ---------------------------------------------------------------------------
 
-export async function getCurrentCommit() {
-    const agent = _getAgent();
+export async function getCurrentCommit(branch) {
+    const agent = await _agentForBranch(branch);
     const state = await agent.state(SESSION);
     return state.currentCommit ?? null;
 }
@@ -984,25 +1048,24 @@ export async function getCurrentCommit() {
  *  reload (only side-effect ops like uploads, which commit on their
  *  own, accidentally salvage them). Idempotent — committing with no
  *  staged changes is a no-op. */
-export async function commitSession() {
-    const agent = _getAgent();
+export async function commitSession(branch) {
+    const agent = await _agentForBranch(branch);
     await agent.commit(SESSION);
 }
 
-export async function undoToCommit(hash) {
-    const staged = await _getStaged();
+export async function undoToCommit(branch, hash) {
+    const staged = await _stagedFor(branch);
     // staged.resetTo clears Staged's read cache + buffered writes on
     // success, so reads after the rewind see the post-reset state.
     await staged.resetTo(hash);
-    _invalidateActiveBranch();
 }
 
 // ---------------------------------------------------------------------------
 // VFS
 // ---------------------------------------------------------------------------
 
-export async function listFiles() {
-    const agent = _getAgent();
+export async function listFiles(branch) {
+    const agent = await _agentForBranch(branch);
     const fs = await agent.fs(SESSION);
     const all = await fs.list(undefined, { recursive: true });
     // Filter to actual files (list returns dirs too with isDir=true
@@ -1024,21 +1087,21 @@ export async function listFiles() {
     return checked.filter((p) => p !== null).sort();
 }
 
-export async function readFile(path) {
-    const agent = _getAgent();
+export async function readFile(branch, path) {
+    const agent = await _agentForBranch(branch);
     const fs = await agent.fs(SESSION);
     return fs.read(path);
 }
 
-export async function fileSize(path) {
-    const agent = _getAgent();
+export async function fileSize(branch, path) {
+    const agent = await _agentForBranch(branch);
     const fs = await agent.fs(SESSION);
     const stat = await fs.stat(path);
     return stat.size;
 }
 
-export async function writeFiles(files) {
-    const agent = _getAgent();
+export async function writeFiles(branch, files) {
+    const agent = await _agentForBranch(branch);
     const fs = await agent.fs(SESSION);
     // Ensure each unique parent directory exists before writing.
     // kvgit-fs `write` requires `dirname(path)` to be present (no
@@ -1089,8 +1152,8 @@ export async function writeFiles(files) {
     await agent.commit(SESSION);
 }
 
-export async function deleteFilesHelper(paths) {
-    const agent = _getAgent();
+export async function deleteFilesHelper(branch, paths) {
+    const agent = await _agentForBranch(branch);
     const fs = await agent.fs(SESSION);
     const removed = [];
     for (const path of paths) {
@@ -1140,8 +1203,8 @@ export async function deleteFilesHelper(paths) {
  * @param {string} key
  * @returns {Promise<unknown>}
  */
-export async function getCacheValue(key) {
-    const agent = _getAgent();
+export async function getCacheValue(branch, key) {
+    const agent = await _agentForBranch(branch);
     const cache = await agent.cache(SESSION);
     return cache.get(key);
 }
@@ -1181,8 +1244,8 @@ async function _eachAppFile(fs, visit) {
     );
 }
 
-export async function readAppFiles() {
-    const fs = await _getAgent().fs(SESSION);
+export async function readAppFiles(branch) {
+    const fs = await (await _agentForBranch(branch)).fs(SESSION);
     const decoder = new TextDecoder("utf-8", { fatal: false });
     /** @type {Record<string, string>} */
     const out = {};
@@ -1207,8 +1270,8 @@ export async function readAppFiles() {
  *
  * @returns {Promise<Record<string, Uint8Array>>}
  */
-export async function readAppBinaries() {
-    const fs = await _getAgent().fs(SESSION);
+export async function readAppBinaries(branch) {
+    const fs = await (await _agentForBranch(branch)).fs(SESSION);
     /** @type {Record<string, Uint8Array>} */
     const out = {};
     await _eachAppFile(fs, async (full) => {
@@ -1308,8 +1371,8 @@ async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
  *
  * @returns {Promise<Array<Object>>}
  */
-export async function loadHistory() {
-    const agent = _getAgent();
+export async function loadHistory(branch) {
+    const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
     /** Resolve a ChapterEvent's `eventRefs` state keys to the original
      *  events. The originals are left at their state keys when
@@ -1536,8 +1599,8 @@ function _renderFileEvent(fe) {
 // Telemetry
 // ---------------------------------------------------------------------------
 
-export async function estimateLogTokens() {
-    const agent = _getAgent();
+export async function estimateLogTokens(branch) {
+    const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
     let latestActionTokens = 0;
     for await (const e of log.iter()) {
@@ -1553,8 +1616,8 @@ export async function estimateLogTokens() {
     return latestActionTokens;
 }
 
-export async function getTokenHistory() {
-    const agent = _getAgent();
+export async function getTokenHistory(branch) {
+    const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
     /** @type {number[]} */
     const out = [];
@@ -1576,7 +1639,7 @@ export async function getTokenHistory() {
 // ---------------------------------------------------------------------------
 
 export async function getSessionDebugInfo(branch) {
-    const staged = await _getStaged();
+    const staged = await _getMgmt();
     // TODO(@agex-ts/kvgit): bulk read still goes through `versioned.getMany`
     // since Staged doesn't expose a cache-aware `getMany` yet (kvgit-py
     // does — `get_many(*keys)`). Singleton-loop fallback would be
@@ -1623,11 +1686,16 @@ export async function getSessionDebugInfo(branch) {
             top_keys: topKeys,
         };
     } finally {
-        if (switched) {
-            await staged.switchBranch(cur);
-            _activeBranch = cur;
-        }
+        if (switched) await staged.switchBranch(cur);
     }
+}
+
+/** Run chaptering on `branch`'s agent (folds its event log into chapter
+ *  summaries). The adapter commits afterward — agex-ts doesn't
+ *  auto-commit the ChapterEvent + rewritten index. */
+export async function runChaptering(branch) {
+    const agent = await _agentForBranch(branch);
+    await agent.runChaptering(SESSION);
 }
 
 // ---------------------------------------------------------------------------
@@ -1638,10 +1706,10 @@ export async function getSessionDebugInfo(branch) {
  *  studio configurations need this between suites. Not part of the
  *  public studio surface. */
 export function _resetForTesting() {
-    _agent = null;
-    _chatTask = null;
-    _activeBranch = null;
-    _sharedVersioned = null;
+    _pool.clear();
+    _kvstore = null;
+    _mgmt = null;
+    _settings = null;
     _llm = null;
     _appSpawns = 0;
 }

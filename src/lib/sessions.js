@@ -863,12 +863,15 @@ export async function initSessionsFromUrl() {
 
 /** Update session title and timestamp after a turn. Call with the
  *  last action title. */
-export async function persistSessionMeta(title) {
-    const adapter = await _adapterForCurrent();
+export async function persistSessionMeta(title, branch = state.currentBranch) {
+    // `branch` is explicit so a turn that finishes after the user has
+    // switched foreground (concurrent sessions) writes its title to the
+    // session it ran on — not whatever's foreground now.
+    const adapter = await resolveAdapter(_kernelFor(branch));
     /** @type {Record<string, string>} */
     const patch = {};
     if (title) patch.title = title;
-    await adapter.writeBranchMeta(state.currentBranch, patch);
+    await adapter.writeBranchMeta(branch, patch);
     await refreshSessionList(state.currentBranch);
 }
 

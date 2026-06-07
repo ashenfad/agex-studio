@@ -4,9 +4,10 @@
  *
  * Mirrors `py-kernel-adapter.js`'s shape: a thin delegation layer over
  * a studio-side helper module (`ts-agent.js`). The adapter's role is
- * shape-translation, not new logic — branch-explicit signatures
- * around branch-implicit helpers, with `_ensureBranch` synchronizing
- * kvgit's current branch before each call.
+ * shape-translation, not new logic — every method just forwards its
+ * `branch` to the matching branch-explicit `ts-agent` helper, which
+ * resolves that branch's agent from the per-session pool (Phase 2 —
+ * concurrent sessions; no shared "current branch" to synchronize).
  *
  * `runQuery` is the one stubbed method — the agent↔app data bridge is a
  * Pyodide-kernel affordance with no TS-kernel equivalent yet.
@@ -14,8 +15,10 @@
 
 import {
     initAgent,
-    _getAgent,
     _resetForTesting,
+    runChaptering as agentRunChaptering,
+    getSharedVersioned as agentGetSharedVersioned,
+    disposeAll as agentDisposeAll,
     chatMessage as agentChatMessage,
     listBranches as agentListBranches,
     listBranchesWithMeta as agentListBranchesWithMeta,
@@ -112,19 +115,6 @@ function _summarizeSpawn(value, max = 60) {
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-/** Switch kvgit's current branch to `branch`. Goes through Staged
- *  (not the underlying Versioned) so Staged's per-key read cache is
- *  invalidated on switch — direct `versioned.switchBranch` would
- *  leave Staged returning stale values from the prior branch. */
-async function _ensureBranch(branch) {
-    const agent = _getAgent();
-    const state = await agent.state("default");
-    const staged = /** @type {any} */ (state).staged;
-    if (staged.currentBranch !== branch) {
-        await staged.switchBranch(branch);
-    }
-}
-
 /**
  * Construct a `KernelAdapter` instance bound to the agex-ts kernel.
  * The factory shape mirrors `createPyAdapter()` so the registry
@@ -171,7 +161,7 @@ export function createTsAdapter() {
         async dispose() {
             if (!initialized) return;
             try {
-                await _getAgent().dispose();
+                await agentDisposeAll();
             } catch (err) {
                 console.warn("[agex] ts-adapter dispose failed:", err);
             }
@@ -208,7 +198,6 @@ export function createTsAdapter() {
         // --- Messaging ---------------------------------------------------
 
         async sendMessage(branch, message, opts = {}) {
-            await _ensureBranch(branch);
             _dbg("sendMessage start", {
                 branch,
                 messageLen: typeof message === "string" ? message.length : -1,
@@ -247,7 +236,7 @@ export function createTsAdapter() {
             // is a no-op when the buffer is clean.
             let result;
             try {
-                result = await agentChatMessage(message, {
+                result = await agentChatMessage(branch, message, {
                     signal: opts.signal,
                     onToken: async (chunk) => {
                         await sendTokens(translator.translate(chunk));
@@ -391,7 +380,7 @@ export function createTsAdapter() {
                     },
                 });
             } finally {
-                await agentCommitSession();
+                await agentCommitSession(branch);
                 _dbg("sendMessage done", {
                     branch,
                     eventCount: events.length,
@@ -408,11 +397,9 @@ export function createTsAdapter() {
         },
 
         async runChaptering(branch) {
-            await _ensureBranch(branch);
             _dbg("runChaptering start (manual)", { branch });
-            const agent = _getAgent();
             try {
-                await agent.runChaptering("default");
+                await agentRunChaptering(branch);
             } finally {
                 // agex-ts doesn't auto-commit anywhere; its
                 // `runChaptering` writes the ChapterEvent + new index
@@ -423,7 +410,7 @@ export function createTsAdapter() {
                 // next session load loses it. Matches the
                 // `sendMessage` pattern that defends against the same
                 // bug on the chat path.
-                await agentCommitSession();
+                await agentCommitSession(branch);
                 _dbg("runChaptering done (manual)", { branch });
             }
         },
@@ -431,50 +418,41 @@ export function createTsAdapter() {
         // --- State / commits --------------------------------------------
 
         async getCurrentCommit(branch) {
-            await _ensureBranch(branch);
-            return agentGetCurrentCommit();
+            return agentGetCurrentCommit(branch);
         },
 
         async undoToCommit(branch, hash) {
-            await _ensureBranch(branch);
-            await agentUndoToCommit(hash);
+            await agentUndoToCommit(branch, hash);
         },
 
         // --- VFS ---------------------------------------------------------
 
         async listFiles(branch) {
-            await _ensureBranch(branch);
-            return agentListFiles();
+            return agentListFiles(branch);
         },
 
         async readFile(branch, path) {
-            await _ensureBranch(branch);
-            return agentReadFile(path);
+            return agentReadFile(branch, path);
         },
 
         async fileSize(branch, path) {
-            await _ensureBranch(branch);
-            return agentFileSize(path);
+            return agentFileSize(branch, path);
         },
 
         async writeFiles(branch, files) {
-            await _ensureBranch(branch);
-            await agentWriteFiles(files);
+            await agentWriteFiles(branch, files);
         },
 
         async deleteFiles(branch, paths) {
-            await _ensureBranch(branch);
-            await agentDeleteFiles(paths);
+            await agentDeleteFiles(branch, paths);
         },
 
         async readAppFiles(branch) {
-            await _ensureBranch(branch);
-            return agentReadAppFiles();
+            return agentReadAppFiles(branch);
         },
 
         async readAppBinaries(branch) {
-            await _ensureBranch(branch);
-            return agentReadAppBinaries();
+            return agentReadAppBinaries(branch);
         },
 
         async wipeAgentMemory(branch) {
@@ -482,11 +460,12 @@ export function createTsAdapter() {
         },
 
         // --- Bundle payloads --------------------------------------------
+        //
+        // Bundle ops read/write a branch's commit subgraph directly on the
+        // shared `VersionedKV`, independent of the per-session agent pool.
 
         async exportBundlePayload(branch, /** @type {ExportBundleOptions} */ opts = {}) {
-            const agent = _getAgent();
-            const state = await agent.state("default");
-            const versioned = /** @type {any} */ (state).staged.versioned;
+            const versioned = await agentGetSharedVersioned();
             const meta = await agentReadBranchMeta(branch);
             const { bytes, manifest } = await bundleExport(versioned, branch, {
                 kernel: "ts",
@@ -498,17 +477,13 @@ export function createTsAdapter() {
         },
 
         async importBundlePayload(payload) {
-            const agent = _getAgent();
-            const state = await agent.state("default");
-            const versioned = /** @type {any} */ (state).staged.versioned;
+            const versioned = await agentGetSharedVersioned();
             const result = await bundleImport(versioned, payload);
             return result;
         },
 
         async getBundleStats(branch) {
-            const agent = _getAgent();
-            const state = await agent.state("default");
-            const versioned = /** @type {any} */ (state).staged.versioned;
+            const versioned = await agentGetSharedVersioned();
             const stats = await bundleGetStats(versioned, branch);
             const meta = await agentReadBranchMeta(branch);
             // Match the Py adapter's combined shape: bundle-walk stats
@@ -526,8 +501,7 @@ export function createTsAdapter() {
         // --- History rendering ------------------------------------------
 
         async loadHistory(branch) {
-            await _ensureBranch(branch);
-            return agentLoadHistory();
+            return agentLoadHistory(branch);
         },
 
         // --- Query / cache bridges --------------------------------------
@@ -537,25 +511,21 @@ export function createTsAdapter() {
         },
 
         async getCacheValue(branch, key) {
-            await _ensureBranch(branch);
-            return agentGetCacheValue(key);
+            return agentGetCacheValue(branch, key);
         },
 
         async spawn(branch, spec, signal) {
-            await _ensureBranch(branch);
-            return agentSpawnFromApp(spec, { signal });
+            return agentSpawnFromApp(branch, spec, { signal });
         },
 
         // --- Token telemetry --------------------------------------------
 
         async estimateLogTokens(branch) {
-            await _ensureBranch(branch);
-            return agentEstimateLogTokens();
+            return agentEstimateLogTokens(branch);
         },
 
         async getTokenHistory(branch) {
-            await _ensureBranch(branch);
-            return agentGetTokenHistory();
+            return agentGetTokenHistory(branch);
         },
 
         // --- Debug -------------------------------------------------------
