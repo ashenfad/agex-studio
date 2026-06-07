@@ -651,7 +651,7 @@ export class SessionRuntime {
             const { adapter, branch } = await getActiveAdapter();
             const preCommit = await adapter.getCurrentCommit(branch);
             await adapter.undoToCommit(branch, msg.commit_hash);
-            this.historyChunks = await loadHistoryChunked();
+            this.historyChunks = await loadHistoryChunked(branch);
             this.messages = this.historyChunks.messages;
             this.files = await adapter.listFiles(branch);
             this.previewTick++;
@@ -675,7 +675,7 @@ export class SessionRuntime {
         try {
             const { adapter, branch } = await getActiveAdapter();
             await adapter.undoToCommit(branch, preCommit);
-            this.historyChunks = await loadHistoryChunked();
+            this.historyChunks = await loadHistoryChunked(branch);
             this.messages = this.historyChunks.messages;
             this.files = await adapter.listFiles(branch);
             this.previewTick++;
@@ -703,7 +703,7 @@ export class SessionRuntime {
         try {
             const { adapter, branch } = await getActiveAdapter();
             await adapter.runChaptering(branch);
-            this.historyChunks = await loadHistoryChunked();
+            this.historyChunks = await loadHistoryChunked(branch);
             this.messages = this.historyChunks.messages;
             this.tokenOverride = await adapter.estimateLogTokens(branch);
             this.tokenHistory = await adapter.getTokenHistory(branch);
