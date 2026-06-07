@@ -321,6 +321,7 @@ function _decorateAppStorage(sessions) {
         return {
             ...s,
             app_storage_bytes: appStorageSize(s.kernel || "py", s.branch),
+            imported: !!info,
             updateAvailable: hasUpdate(info),
             updateUnviewed: isUnviewed(info),
         };
@@ -866,17 +867,21 @@ async function openExternalBundle(url, gistSource = null) {
  *  (each call is lazy/TTL-gated inside `checkGistUpdate`), then refresh
  *  the store so markers/badge reflect the results. Non-blocking-friendly:
  *  callers can `void` it. */
-export async function checkImportedUpdates(pat = null) {
+export async function checkImportedUpdates(pat = null, { force = false } = {}) {
     const targets = state.sessions
         .map((s) => ({ branch: s.branch, info: getImportInfo(s.branch) }))
         .filter(({ info }) => info && !info.pinned && !info.deleted);
-    if (targets.length === 0) return;
+    if (targets.length === 0) return { checked: 0, updates: 0 };
     await Promise.all(
         targets.map(({ branch, info }) =>
-            checkGistUpdate(branch, { pat, importInfo: info }),
+            checkGistUpdate(branch, { pat, importInfo: info, force }),
         ),
     );
     refreshUpdateStatus();
+    // Count available updates post-refresh so a manual check can report
+    // "N available" / "up to date".
+    const updates = state.sessions.filter((s) => s.updateAvailable).length;
+    return { checked: targets.length, updates };
 }
 
 /** Mark all available updates as seen — clears the drawer-button badge
