@@ -6,6 +6,12 @@
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { getActiveAdapter } from './active-adapter.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
+    import {
+        notificationsSupported,
+        notificationPermission,
+        requestNotificationPermission,
+        showAppNotification,
+    } from './notify.js'
     import { onMount } from 'svelte'
 
     /** @type {{ refreshKey: number }} */
@@ -230,6 +236,49 @@
     // "Stop thinking" button).
     const spawnControllers = new Map()
 
+    // Rate cap for app-requested notifications: a rolling window of
+    // recent show-timestamps. Keeps a misbehaving (or buggy) app from
+    // spamming the OS notification tray. Resets on reload (module-fresh).
+    const NOTIFY_MAX = 5
+    const NOTIFY_WINDOW_MS = 60_000
+    let notifyTimes = []
+
+    /** Host-mediate an app's notification request. The cross-origin
+     *  sandbox can't construct Notifications or prompt for permission,
+     *  so we do it here behind a rate cap and a permission re-check,
+     *  then reply with whether it showed. */
+    async function handleAppNotify(id, title, body) {
+        const reply = (shown, reason) =>
+            replyToApp(iframe, {
+                type: 'agex-notify-result',
+                id,
+                shown,
+                error: reason || null,
+            })
+        if (!notificationsSupported()) {
+            reply(false, 'notifications are not supported in this browser')
+            return
+        }
+        const now = Date.now()
+        notifyTimes = notifyTimes.filter((t) => now - t < NOTIFY_WINDOW_MS)
+        if (notifyTimes.length >= NOTIFY_MAX) {
+            reply(false, 'notification rate limit reached — try again shortly')
+            return
+        }
+        // Prompt only when the user hasn't decided yet. A hard "denied"
+        // can't be undone from script — surface it so the app can fall
+        // back to in-page UI.
+        let perm = notificationPermission()
+        if (perm === 'default') perm = await requestNotificationPermission()
+        if (perm !== 'granted') {
+            reply(false, 'notification permission not granted')
+            return
+        }
+        notifyTimes.push(now)
+        const shown = showAppNotification({ title, body, branch: appBranch })
+        reply(shown, shown ? null : 'failed to show notification')
+    }
+
     // Handle ready / query / app-storage messages from the iframe
     function handleMessage(event) {
         if (frozen) return
@@ -340,6 +389,16 @@
         if (event.data?.type === 'agex-cancel-spawn') {
             const ac = spawnControllers.get(event.data.id)
             if (ac) ac.abort()
+            return
+        }
+
+        if (event.data?.type === 'agex-notify') {
+            // App-requested desktop notification. Origin + source already
+            // validated above. Host-mediated because the sandbox can't
+            // construct Notifications or prompt for permission itself.
+            if (!iframeReady) iframeReady = true
+            const { id, title, body } = event.data
+            void handleAppNotify(id, title, body)
             return
         }
 

@@ -174,6 +174,35 @@ window.spawn = function(spec, opts) {
         }, window.__AGEX_PARENT_ORIGIN || '*');
     });
 };
+
+// notify(title, body?) — show a desktop notification via the host.
+// The sandbox can't construct Notifications (or prompt for permission)
+// itself, so the studio does it on your behalf, behind a permission
+// prompt (first use) and a per-session rate cap. Resolves to true when
+// a notification was shown, false otherwise (permission not granted,
+// rate-limited, unsupported) — it NEVER rejects, so a denied permission
+// won't throw; check the boolean and fall back to in-page UI. Accepts
+// either notify('Title', 'Body') or notify({ title, body }). Clicking
+// the notification focuses the studio tab and switches to this session.
+// NOTE: this whole block is inside a template literal — no backticks.
+window.notify = function(title, body) {
+    var opts = (title && typeof title === 'object') ? title : { title: title, body: body };
+    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return new Promise(function(resolve) {
+        function handler(event) {
+            if (!event.data || event.data.type !== 'agex-notify-result' || event.data.id !== id) return;
+            window.removeEventListener('message', handler);
+            resolve(!!event.data.shown);
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({
+            type: 'agex-notify',
+            id: id,
+            title: opts.title == null ? '' : String(opts.title),
+            body: opts.body == null ? '' : String(opts.body),
+        }, window.__AGEX_PARENT_ORIGIN || '*');
+    });
+};
 <\/script>`;
 
 /**
