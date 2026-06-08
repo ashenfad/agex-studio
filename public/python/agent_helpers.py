@@ -215,6 +215,10 @@ def register(agent, llm, user_tz):
                 - {"eval": "js expression"}     — evaluate JS, capture result
                 - {"screenshot": True}          — capture a full screenshot (via view_image)
                 - {"screenshot": "#selector"}   — screenshot a specific element
+                - {"viewport": "mobile"} or {"viewport": {"width": W, "height": H}}
+                                                — resize the test iframe mid-run so
+                                                  following actions/screenshots see a
+                                                  new shape (one boot, many breakpoints)
                 The app is given time to settle (query() calls, re-renders)
                 after each action before proceeding to the next.
             fresh: When True, skip seeding the iframe's localStorage from
@@ -223,13 +227,16 @@ def register(agent, llm, user_tz):
                 inherits the previous run's saved state (Game Over
                 boards, mid-flow form values, etc.) which can mask
                 bugs in fresh-load paths.
-            viewport: Size of the test iframe, so you can verify
+            viewport: INITIAL size of the test iframe, so you can verify
                 responsive layouts at different shapes.  Either a preset
                 name ("desktop" 1280x800, "tablet" 768x1024, "mobile"
                 390x844) or an explicit {"width": W, "height": H} dict.
                 Defaults to 800x600.  The app's CSS media queries and
                 window.innerWidth see this size, and screenshots capture
-                at it — to check three shapes, make three test_app calls.
+                at it.  To shoot several breakpoints in one boot, prefer
+                {"viewport": ...} *actions* (which resize mid-run); use
+                this argument when an app reads innerWidth only at init
+                and needs a fresh boot per shape.
 
         Returns:
             List of result dicts (also auto-displayed via print).

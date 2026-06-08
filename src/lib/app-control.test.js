@@ -9,9 +9,13 @@
  * Pure helper, no DOM / iframe involved.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { _enforceTotalCap, resolveViewport } from "./app-control.js";
+import {
+    _enforceTotalCap,
+    executeActions,
+    resolveViewport,
+} from "./app-control.js";
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -144,5 +148,60 @@ describe("resolveViewport", () => {
             width: 800,
             height: 500,
         });
+    });
+});
+
+describe("executeActions — viewport action", () => {
+    it("resizes the iframe (preset) when viewport is allowed", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = { style: {} };
+            const p = executeActions(iframe, [{ viewport: "mobile" }], {
+                allowViewport: true,
+            });
+            await vi.runAllTimersAsync();
+            const results = await p;
+            expect(iframe.style.width).toBe("390px");
+            expect(iframe.style.height).toBe("844px");
+            // A resize produces no result entry (silent, like wait/click).
+            expect(results).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("resizes to explicit dimensions when allowed", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = { style: {} };
+            const p = executeActions(
+                iframe,
+                [{ viewport: { width: 1440, height: 900 } }],
+                { allowViewport: true },
+            );
+            await vi.runAllTimersAsync();
+            await p;
+            expect(iframe.style.width).toBe("1440px");
+            expect(iframe.style.height).toBe("900px");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("no-ops with a warn note when viewport is not allowed (liveApp)", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = { style: {} };
+            // Default opts → allowViewport false.
+            const p = executeActions(iframe, [{ viewport: "mobile" }]);
+            await vi.runAllTimersAsync();
+            const results = await p;
+            expect(iframe.style.width).toBeUndefined();
+            expect(results).toHaveLength(1);
+            expect(results[0].level).toBe("warn");
+            expect(results[0].message).toMatch(/only supported in testApp/);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
