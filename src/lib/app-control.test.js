@@ -149,6 +149,19 @@ describe("resolveViewport", () => {
             height: 500,
         });
     });
+
+    it("treats explicit null/undefined dimensions as omitted", () => {
+        // Number(null) === 0 (finite) would otherwise clamp to the floor
+        // (200) instead of falling back to the default.
+        expect(resolveViewport({ width: null, height: 500 })).toEqual({
+            width: 800,
+            height: 500,
+        });
+        expect(resolveViewport({ width: 1000, height: undefined })).toEqual({
+            width: 1000,
+            height: 600,
+        });
+    });
 });
 
 describe("executeActions — viewport action", () => {
