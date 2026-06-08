@@ -127,7 +127,12 @@ export function notifyTurnComplete({ branch, title, foreground }) {
             body: `${title || "A session"} finished working`,
             // Per-session tag coalesces repeated finishes so a chatty
             // background session doesn't stack a pile of notifications.
+            // `renotify` is required alongside `tag` to actually re-alert
+            // on each fire — without it the browser silently *replaces*
+            // the prior same-tag notification (no banner, no sound), which
+            // reads as "nothing happened."
             tag: `agex-session-${branch}`,
+            renotify: true,
         });
         n.onclick = () => {
             try {
@@ -171,7 +176,10 @@ export function showAppNotification({ title, body, branch }) {
             body: _cap(body, 250),
             // Tagged per session so a chatty app coalesces rather than
             // stacking; an app that wants distinct alerts can vary title.
+            // `renotify` re-alerts on each fire (without it a same-tag
+            // notification is silently replaced — see notifyTurnComplete).
             tag: `agex-app-${branch}`,
+            renotify: true,
         });
         n.onclick = () => {
             try {
