@@ -143,7 +143,7 @@ export function startWorker() {
         } else if (msg.type === "pdf-page-count") {
             getPdfPageCount(msg.pdfBase64, msg.id);
         } else if (msg.type === "test-app") {
-            _handleTestApp(msg.appFilesJson, msg.actionsJson, msg.fresh, msg.id);
+            _handleTestApp(msg.appFilesJson, msg.actionsJson, msg.fresh, msg.viewportJson, msg.id);
         } else if (msg.type === "live-app") {
             _handleLiveApp(msg.actionsJson, msg.id);
         } else if (msg.type === "llm-fetch") {
@@ -517,7 +517,7 @@ export function setLiveIframe(iframe) {
  * post results back to the worker.
  */
 
-async function _handleTestApp(appFilesJson, actionsJson, fresh, requestId) {
+async function _handleTestApp(appFilesJson, actionsJson, fresh, viewportJson, requestId) {
     let appStorageSeed = {};
     if (!fresh) {
         const branch = localStorage.getItem("agex-current-branch") || "";
@@ -533,6 +533,7 @@ async function _handleTestApp(appFilesJson, actionsJson, fresh, requestId) {
                 ? (code, resultVars) => queryHandler(code, resultVars)
                 : null,
             cacheHandler: null,
+            viewport: viewportJson ? JSON.parse(viewportJson) : null,
         });
         worker.postMessage({
             type: "test-app-result",

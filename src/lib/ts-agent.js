@@ -490,7 +490,7 @@ async function _createBranchAgent(branch) {
             // fresh would put ctx at the wrong index — pull it off
             // the end and slice the user args explicitly.
             const ctx = args[args.length - 1];
-            const [actions, fresh] = args.slice(0, -1);
+            const [actions, fresh, viewport] = args.slice(0, -1);
             const fs = await agent.fs(SESSION);
             // Split the app/ dir into text files (HTML / JS / CSS / JSON
             // — passed as decoded strings) and binary assets (images /
@@ -523,6 +523,7 @@ async function _createBranchAgent(branch) {
                 buildAppHtml,
                 queryHandler: null, // TS adapter has no runQuery
                 cacheHandler: (key) => getCacheValue(branch, key),
+                viewport: viewport ?? null,
             });
             return _postProcessResults(ctx, results);
         },
@@ -532,8 +533,8 @@ async function _createBranchAgent(branch) {
             description: [
                 "(Pre-registered global — `await testApp(...)`, no import needed.)",
                 "Build a hidden iframe from your uncommitted app/ files, run optional UI actions, and return console + action results. Use to verify app changes before taskSuccess; screenshots auto-ship to your next-turn observation.",
-                "Signature: `testApp(actions?: ActionDict[], fresh?: boolean): Promise<ResultDict[]>` (`fresh=true` skips seeding persisted app-storage).",
-                "Action shapes (click / type / read / eval / assert / screenshot), screenshot timing, and the act→observe rule are in the interactive-app skill — `cat /skills/interactive-app/SKILL.md` before building.",
+                "Signature: `testApp(actions?: ActionDict[], fresh?: boolean, viewport?: 'desktop'|'tablet'|'mobile'|{width,height}): Promise<ResultDict[]>` (`fresh=true` skips seeding persisted app-storage; `viewport` sizes the test iframe so you can verify responsive layouts — default 800×600).",
+                "Action shapes (click / type / read / eval / assert / screenshot), screenshot timing, viewport presets, and the act→observe rule are in the interactive-app skill — `cat /skills/interactive-app/SKILL.md` before building.",
             ].join("\n"),
         },
     );

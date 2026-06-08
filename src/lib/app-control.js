@@ -93,6 +93,58 @@ export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
     });
 }
 
+/** Named viewport presets the agent can pass to `testApp` to size the
+ *  test iframe — so a responsive app can be verified at desktop, tablet,
+ *  and mobile shapes. Dimensions are CSS pixels (the iframe's content
+ *  box), which is exactly what the app's media queries and
+ *  `window.innerWidth` see. Sizes chosen as representative-not-exact:
+ *  ~laptop, iPad-portrait, and a tall modern phone. */
+const VIEWPORT_PRESETS = {
+    desktop: { width: 1280, height: 800 },
+    tablet: { width: 768, height: 1024 },
+    mobile: { width: 390, height: 844 },
+};
+
+/** Legacy default size — preserved for callers that pass no viewport so
+ *  existing screenshots don't silently change shape. */
+const DEFAULT_VIEWPORT = { width: 800, height: 600 };
+
+const _VIEWPORT_MIN = 200;
+const _VIEWPORT_MAX = 4000;
+
+function _clampDim(n, fallback) {
+    const v = Math.round(Number(n));
+    if (!Number.isFinite(v)) return fallback;
+    return Math.max(_VIEWPORT_MIN, Math.min(_VIEWPORT_MAX, v));
+}
+
+/**
+ * Resolve a viewport spec to concrete `{ width, height }` CSS pixels.
+ *
+ * Accepts a named preset (`'desktop' | 'tablet' | 'mobile'`), an explicit
+ * `{ width, height }` object (clamped to a sane range), or nothing (the
+ * legacy 800×600 default). Unknown strings / malformed objects fall back
+ * to the default rather than throwing — a bad viewport shouldn't abort a
+ * test the agent otherwise set up correctly.
+ *
+ * @param {string | { width?: number, height?: number } | null | undefined} viewport
+ * @returns {{ width: number, height: number }}
+ */
+export function resolveViewport(viewport) {
+    if (!viewport) return { ...DEFAULT_VIEWPORT };
+    if (typeof viewport === "string") {
+        const preset = VIEWPORT_PRESETS[viewport.toLowerCase()];
+        return preset ? { ...preset } : { ...DEFAULT_VIEWPORT };
+    }
+    if (typeof viewport === "object") {
+        return {
+            width: _clampDim(viewport.width, DEFAULT_VIEWPORT.width),
+            height: _clampDim(viewport.height, DEFAULT_VIEWPORT.height),
+        };
+    }
+    return { ...DEFAULT_VIEWPORT };
+}
+
 /** Action keys whose dispatch is purely synchronous in the iframe —
  *  the bridge response carries the full result and there's no
  *  follow-on async work to wait for. Skip the post-action
@@ -331,6 +383,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, ini
  *   buildAppHtml: (files: Record<string, string>, opts?: object) => string,
  *   queryHandler?: ((code: string, resultVars: string[] | null) => Promise<unknown>) | null,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
+ *   viewport?: string | { width?: number, height?: number },
  * }} opts
  * @returns {Promise<Array<object>>}
  */
@@ -343,7 +396,9 @@ export async function runTestApp(opts) {
         buildAppHtml,
         queryHandler = null,
         cacheHandler = null,
+        viewport = null,
     } = opts;
+    const { width: vpWidth, height: vpHeight } = resolveViewport(viewport);
 
     let iframe = null;
     let messageHandler = null;
@@ -377,8 +432,11 @@ export async function runTestApp(opts) {
         // though transitions / rAF still run). opacity:0 +
         // pointer-events:none + z-index:-1 keeps the user from seeing
         // or interacting with it.
+        // Size to the resolved viewport so the app lays out (media
+        // queries, window.innerWidth) exactly as it would on a device of
+        // that shape — and screenshots capture at that shape.
         iframe.style.cssText =
-            "position:fixed;top:0;left:0;width:800px;height:600px;" +
+            `position:fixed;top:0;left:0;width:${vpWidth}px;height:${vpHeight}px;` +
             "opacity:0;pointer-events:none;z-index:-1;";
         // No sandbox attribute — the cross-origin separation between
         // agex.studio and apps.agex.studio provides the isolation
