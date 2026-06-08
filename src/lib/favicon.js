@@ -31,11 +31,22 @@ let _originalHref = null;
 /** Last status written, to skip redundant DOM/data-URL work. */
 let _current = "__init__";
 
-function _loadBaseSvg() {
+function _loadBaseSvg(url) {
     if (!_baseSvgPromise) {
-        _baseSvgPromise = fetch("/favicon.svg")
-            .then((r) => (r.ok ? r.text() : null))
-            .catch(() => null);
+        // Use the actual link href (works under subpath hosting), falling
+        // back to the root path. Null out the cached promise on any
+        // failure so a transient fetch error doesn't permanently disable
+        // badging — the next call retries.
+        _baseSvgPromise = fetch(url || "/favicon.svg")
+            .then((r) => {
+                if (r.ok) return r.text();
+                _baseSvgPromise = null;
+                return null;
+            })
+            .catch(() => {
+                _baseSvgPromise = null;
+                return null;
+            });
     }
     return _baseSvgPromise;
 }
@@ -84,7 +95,7 @@ export async function setFaviconStatus(status) {
         link.setAttribute("href", _originalHref || "/favicon.svg");
         return;
     }
-    const base = await _loadBaseSvg();
+    const base = await _loadBaseSvg(_originalHref);
     // Bail if the fetch failed, or the status changed while we awaited.
     if (!base || _current !== next) return;
     const badged = base.replace("</svg>", `${_dotMarkup(next)}</svg>`);

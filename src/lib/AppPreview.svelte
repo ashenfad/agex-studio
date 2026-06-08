@@ -180,6 +180,10 @@
 
     async function loadPreview() {
         iframeReady = false
+        // A fresh bootloader load is about to re-install the bridge, so
+        // clear any "navigated/dead" mark left by an in-app location.reload
+        // — otherwise sendControl would keep bailing on the rebuilt iframe.
+        if (iframe) iframe.__navigated = false
         if (iframeReadyTimer) {
             clearTimeout(iframeReadyTimer)
             iframeReadyTimer = null

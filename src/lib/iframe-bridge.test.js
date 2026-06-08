@@ -441,6 +441,23 @@ describe("sendControl — navigation handling", () => {
         await expect(p).rejects.toThrow(/^NavigationError:/);
         // Both listeners are torn down (the load one via the iframe).
         expect(removed).toContain("load");
+        // The iframe is marked dead so later calls bail fast.
+        expect(iframe.__navigated).toBe(true);
+    });
+
+    it("rejects immediately (no hang) on an already-navigated iframe", async () => {
+        // Mirrors collectResults' get-logs call after a mid-action
+        // navigation: the bridge is gone and no load event will fire, so
+        // without the guard this would wait forever.
+        const iframe = {
+            __navigated: true,
+            contentWindow: { postMessage: () => {} },
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        };
+        await expect(
+            sendControl(iframe, { "get-logs": true }),
+        ).rejects.toThrow(/^NavigationError:/);
     });
 });
 

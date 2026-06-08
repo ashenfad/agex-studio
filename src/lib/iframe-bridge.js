@@ -429,6 +429,19 @@ let _controlIdCounter = 0;
  * @returns {Promise<any>}
  */
 export function sendControl(iframe, action) {
+    // Once the iframe has navigated, the bridge is gone and no further
+    // `load` event will fire — so a later call (e.g. `collectResults`'
+    // get-logs, which runs after `executeActions`) would wait forever.
+    // `onNavigate` marks the iframe; short-circuit here so those calls
+    // reject immediately instead of hanging to the emission timeout.
+    if (iframe?.__navigated) {
+        return Promise.reject(
+            new Error(
+                "NavigationError: the app already navigated/reloaded and can't " +
+                "accept further actions (the control bridge is gone).",
+            ),
+        );
+    }
     const id = `ctrl-${++_controlIdCounter}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve, reject) => {
         function cleanup() {
@@ -459,6 +472,13 @@ export function sendControl(iframe, action) {
         // `executeActions` stop the run (later actions would hang too).
         function onNavigate() {
             cleanup();
+            // Mark the iframe dead so subsequent sendControl calls bail
+            // fast (see the guard above) rather than hanging.
+            try {
+                iframe.__navigated = true;
+            } catch {
+                // Frozen/exotic object — best-effort.
+            }
             reject(
                 new Error(
                     "NavigationError: the app navigated or reloaded during this " +
