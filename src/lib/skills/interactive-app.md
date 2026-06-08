@@ -32,6 +32,8 @@ Plus these globals (no import needed):
 - `getCacheValue(key)` — read values the agent stashed via
   `cache.set(key, value)`. The way to pass data from your agent
   code to the running app.
+- `notify(title, body?)` — show a desktop notification (see
+  "Powerful browser features" below).
 
 **Other packages:** any other bare specifier (e.g. `import _ from
 'lodash'`) auto-resolves to `https://esm.sh/<pkg>` at load time — no
@@ -60,6 +62,7 @@ the user on first use; some just unblock the API silently.
 - **web share** — `navigator.share({ title, text, url, files })`. Requires a user gesture (button click, not effect).
 - **downloads** — `<a href={blobUrl} download="x.csv">` triggers the browser's save dialog.
 - **clipboard write** — `navigator.clipboard.writeText(text)`. Call from a click handler (browser user-activation requirement). Use for "copy hex," "copy share link" buttons.
+- **desktop notifications** — `await notify(title, body?)`. Host-mediated (the sandbox can't construct `Notification` itself), so use the `notify` global rather than the `Notification` API directly. First use prompts the user for permission; calls are rate-capped per session. Resolves to `true` if a notification was shown, `false` otherwise (permission denied, rate-limited, unsupported) — it **never throws**, so check the boolean and fall back to in-page UI when it's `false`. Best for timers, long async work, or turn-based games signalling the other player. Clicking the notification refocuses the studio tab. Example: `if (!(await notify('Timer done', '25:00 elapsed'))) showInPageBanner()`.
 
 Permission state is per-origin and persists per the user's allow/block
 choice. Wrap `getUserMedia` and friends in try/catch — `NotAllowedError`

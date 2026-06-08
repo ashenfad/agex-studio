@@ -84,3 +84,43 @@ export function notifyTurnComplete({ branch, title, foreground }) {
         // Construction can throw under some policies; stay silent.
     }
 }
+
+/** Cap a string for use in a notification field — notifications are a
+ *  shout, not a document; long payloads get clipped by the OS anyway. */
+function _cap(s, max) {
+    if (typeof s !== "string") return "";
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * Show a notification on behalf of an app running in the preview iframe.
+ * The cross-origin sandbox can't construct Notifications itself (and
+ * can't even prompt for permission), so the host does it. Caller
+ * (AppPreview) owns the rate cap and the permission prompt; this just
+ * renders, after a permission re-check. Returns whether it showed.
+ *
+ * @param {{ title?: string, body?: string, branch: string }} info
+ * @returns {boolean}
+ */
+export function showAppNotification({ title, body, branch }) {
+    if (!notificationsSupported()) return false;
+    if (Notification.permission !== "granted") return false;
+    try {
+        const n = new Notification(_cap(title, 100) || "agex.studio", {
+            body: _cap(body, 250),
+            // Tagged per session so a chatty app coalesces rather than
+            // stacking; an app that wants distinct alerts can vary title.
+            tag: `agex-app-${branch}`,
+        });
+        n.onclick = () => {
+            try {
+                window.focus();
+            } catch {}
+            if (_onActivate) _onActivate(branch);
+            n.close();
+        };
+        return true;
+    } catch {
+        return false;
+    }
+}
