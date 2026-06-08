@@ -28,7 +28,8 @@
     } from './app-storage.js'
     import { clearCache as clearSessionCache } from './session-index.js'
     import { peekSessionRuntime } from './session-runtime.svelte.js'
-    import { settingsStore } from './settings.js'
+    import { settingsStore, updateSettings } from './settings.js'
+    import { wakeLockSupported } from './wake-lock.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
     import ForkModal from './ForkModal.svelte'
@@ -1013,6 +1014,21 @@
 
 
         <div class="drawer-footer">
+            <label
+                class="keep-awake-row"
+                class:disabled={!wakeLockSupported()}
+                title={wakeLockSupported()
+                    ? 'Hold a screen wake lock while a session is working so the display does not dim. Released automatically when the tab is hidden.'
+                    : 'Your browser does not support the Wake Lock API.'}
+            >
+                <input
+                    type="checkbox"
+                    checked={$settingsStore.keepAwake}
+                    disabled={!wakeLockSupported()}
+                    onchange={() => updateSettings({ keepAwake: !$settingsStore.keepAwake })}
+                />
+                <span>Keep screen awake while working</span>
+            </label>
             {#if storageUsage !== null}
                 <span class="storage-usage" title="Includes cached packages">{formatBytes(storageUsage)} used (incl. cache)</span>
             {/if}
@@ -2455,9 +2471,35 @@
         padding-top: 0.75rem;
         margin-top: 0.5rem;
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 0.5rem;
+    }
+
+    /* Keep-screen-awake toggle — its own full-width row above the
+       storage/purge line (footer wraps). */
+    .keep-awake-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        cursor: pointer;
+    }
+
+    .keep-awake-row input {
+        cursor: pointer;
+    }
+
+    .keep-awake-row.disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .keep-awake-row.disabled input {
+        cursor: default;
     }
 
     .storage-usage {

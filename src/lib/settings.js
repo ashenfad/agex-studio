@@ -32,6 +32,11 @@ const DEFAULTS = {
     // models.js for the gating rule.
     serviceTier: "standard",
     githubPat: "",
+    // Hold a screen wake lock while any session has a turn in flight, so
+    // the display doesn't dim during long agent turns. Surfaced in the
+    // session drawer; auto-released when the tab is hidden (the browser
+    // does this) and re-acquired on return.
+    keepAwake: false,
 };
 
 /** @type {((s: Settings) => void)[]} */
@@ -75,6 +80,8 @@ let subscribers = [];
  *     ``gist`` scope.  Used to publish artifact bundles as secret
  *     gists.  Stored locally; never sent anywhere except api.github.com.
  *     Empty string when the user hasn't connected GitHub yet.
+ * @property {boolean} keepAwake — hold a screen wake lock while a session
+ *     has a turn in flight (display won't dim during long turns).
  */
 
 /** @type {Settings} */
