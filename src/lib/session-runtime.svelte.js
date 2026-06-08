@@ -58,6 +58,15 @@ export function peekSessionRuntime(branch) {
     return _registry.get(branch);
 }
 
+/** Count of in-flight agent turns across all sessions. Reactive: read it
+ *  in a reactive context (e.g. the wake-lock effect) to track it. */
+let _activeTurns = $state(0);
+
+/** Number of agent turns currently running across all sessions. */
+export function activeTurnCount() {
+    return _activeTurns;
+}
+
 // Phase 2 landed per-session working trees (each session is its own
 // agent + worker over a shared store), so turns on different sessions run
 // concurrently — the Phase 1 global single-flight guard is gone. Each
@@ -808,6 +817,7 @@ export class SessionRuntime {
         const preAppFp = await this.appFilesFingerprint(adapter, branch);
 
         this.activeAbort = new AbortController();
+        _activeTurns++;
         try {
             this.tokenOverride = null;
             const response = await adapter.sendMessage(branch, trimmed, {
@@ -928,6 +938,7 @@ export class SessionRuntime {
             this.streamingEvents = [];
             this.liveSpawnChips = [];
             this.currentTurn = null;
+            _activeTurns = Math.max(0, _activeTurns - 1);
             // If the turn finished while the user was looking at another
             // session, flag it as an unseen result (drawer badge). Stays
             // false when this session is foreground — ChatShell also

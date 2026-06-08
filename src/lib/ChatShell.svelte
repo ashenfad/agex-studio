@@ -18,7 +18,8 @@
     import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
-    import { getSessionRuntime } from './session-runtime.svelte.js'
+    import { getSessionRuntime, activeTurnCount } from './session-runtime.svelte.js'
+    import { setWakeLockDesired } from './wake-lock.js'
 
     /** Resolve the active session's kernel synchronously from
      *  localStorage (no kernel boot required). The session-index cache
@@ -80,6 +81,13 @@
             : false
     )
     let configured = $derived($settingsStore.apiKey.length > 0)
+
+    // Keep the screen awake while a turn is in flight, if the user opted
+    // in (session-drawer toggle). The wake-lock manager is imperative and
+    // re-acquires on `visibilitychange`; we just feed it "desired" here.
+    $effect(() => {
+        setWakeLockDesired($settingsStore.keepAwake && activeTurnCount() > 0)
+    })
 
     // Captured once at mount, before ``initSessionsFromUrl`` replaces
     // the URL with ``/`` post-import.  When true, this load was kicked

@@ -39,6 +39,7 @@ describe("settingsStore", () => {
             reasoningEffort: "medium",
             serviceTier: "standard",
             githubPat: "",
+            keepAwake: false,
         });
         unsub();
     });
