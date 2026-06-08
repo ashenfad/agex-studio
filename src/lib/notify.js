@@ -123,16 +123,13 @@ export function notifyTurnComplete({ branch, title, foreground }) {
         return;
     }
     try {
+        // No `tag`: tagged notifications were silently coalesced rather
+        // than re-alerted on at least some platforms (macOS Chrome) even
+        // with `renotify: true` — the constructor "succeeds" but nothing
+        // pops. Reliability of actually being seen beats deduping; a
+        // once-per-completion notification doesn't stack enough to matter.
         const n = new Notification("agex.studio", {
             body: `${title || "A session"} finished working`,
-            // Per-session tag coalesces repeated finishes so a chatty
-            // background session doesn't stack a pile of notifications.
-            // `renotify` is required alongside `tag` to actually re-alert
-            // on each fire — without it the browser silently *replaces*
-            // the prior same-tag notification (no banner, no sound), which
-            // reads as "nothing happened."
-            tag: `agex-session-${branch}`,
-            renotify: true,
         });
         n.onclick = () => {
             try {
@@ -172,14 +169,11 @@ export function showAppNotification({ title, body, branch }) {
     if (!notificationsSupported()) return false;
     if (Notification.permission !== "granted") return false;
     try {
+        // No `tag` — see notifyTurnComplete: tagged notifications were
+        // silently coalesced (not re-alerted) on some platforms even with
+        // `renotify`, so they never appeared. Showing reliably wins.
         const n = new Notification(_cap(title, 100) || "agex.studio", {
             body: _cap(body, 250),
-            // Tagged per session so a chatty app coalesces rather than
-            // stacking; an app that wants distinct alerts can vary title.
-            // `renotify` re-alerts on each fire (without it a same-tag
-            // notification is silently replaced — see notifyTurnComplete).
-            tag: `agex-app-${branch}`,
-            renotify: true,
         });
         n.onclick = () => {
             try {
