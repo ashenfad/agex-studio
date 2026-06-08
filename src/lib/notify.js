@@ -22,6 +22,37 @@ import { getSettings } from "./settings.js";
 /** @type {((branch: string) => void) | null} */
 let _onActivate = null;
 
+/** Opt-in console tracing for diagnosing "why didn't a notification
+ *  appear." Enable from the devtools console with
+ *  `localStorage.setItem('agex-notify-debug', '1')` (reload not needed),
+ *  reproduce, then read the `[notify]` lines. Disable by removing the
+ *  key. Off by default so it never spams a normal session. */
+function _debug(...args) {
+    try {
+        if (
+            typeof localStorage !== "undefined" &&
+            localStorage.getItem("agex-notify-debug") === "1"
+        ) {
+            console.log("[notify]", ...args);
+        }
+    } catch {
+        // localStorage can throw in locked-down contexts — never let
+        // debug tracing affect behavior.
+    }
+}
+
+/** Snapshot of the inputs that gate a notification, for `_debug`. */
+function _env() {
+    const doc = typeof document !== "undefined" ? document : null;
+    return {
+        supported: notificationsSupported(),
+        permission: notificationsSupported() ? Notification.permission : "n/a",
+        notifyOnFinish: !!getSettings().notifyOnFinish,
+        visibilityState: doc ? doc.visibilityState : "n/a",
+        hasFocus: doc && typeof doc.hasFocus === "function" ? doc.hasFocus() : "n/a",
+    };
+}
+
 export function notificationsSupported() {
     return typeof window !== "undefined" && "Notification" in window;
 }
@@ -49,6 +80,17 @@ export function setNotificationActivateHandler(fn) {
     _onActivate = fn;
 }
 
+/** True only when the studio is genuinely in front of the user: the tab
+ *  is visible AND the window has focus. `visibilityState` alone treats a
+ *  window/app switch as "still visible"; `hasFocus()` closes that gap. */
+function _onScreen() {
+    if (typeof document === "undefined") return false;
+    const visible = document.visibilityState !== "hidden";
+    const focused =
+        typeof document.hasFocus !== "function" || document.hasFocus();
+    return visible && focused;
+}
+
 /**
  * Fire a completion notification, if appropriate. No-op unless the user
  * opted in, permission is granted, and the result is genuinely off-screen
@@ -57,15 +99,29 @@ export function setNotificationActivateHandler(fn) {
  * @param {{ branch: string, title?: string, foreground: boolean }} info
  */
 export function notifyTurnComplete({ branch, title, foreground }) {
-    if (!notificationsSupported()) return;
-    if (Notification.permission !== "granted") return;
-    if (!getSettings().notifyOnFinish) return;
-    const hidden =
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden";
-    // On screen = this session is foreground AND the tab is visible.
-    // Only notify when at least one of those isn't true.
-    if (foreground && !hidden) return;
+    _debug("turnComplete", { branch, title, foreground, ..._env() });
+    if (!notificationsSupported()) {
+        _debug("skip: Notification API unsupported");
+        return;
+    }
+    if (Notification.permission !== "granted") {
+        _debug("skip: permission is", Notification.permission);
+        return;
+    }
+    if (!getSettings().notifyOnFinish) {
+        _debug("skip: notifyOnFinish setting is off");
+        return;
+    }
+    // "On screen" = this session is foreground AND the tab is visible AND
+    // the studio window has focus. The focus check matters: switching to
+    // another *app or window* leaves the tab "visible" (it's still the
+    // active tab of its window) — only `hasFocus()` catches that. It also
+    // returns false when the tab is hidden, so it covers tab-switching
+    // too. Notify whenever the result isn't on screen by this definition.
+    if (foreground && _onScreen()) {
+        _debug("skip: session is on screen (foreground + visible + focused)");
+        return;
+    }
     try {
         const n = new Notification("agex.studio", {
             body: `${title || "A session"} finished working`,
@@ -80,8 +136,13 @@ export function notifyTurnComplete({ branch, title, foreground }) {
             if (_onActivate) _onActivate(branch);
             n.close();
         };
-    } catch {
-        // Construction can throw under some policies; stay silent.
+        _debug("fired session notification");
+    } catch (e) {
+        // Some platforms reject `new Notification()` (notably Android
+        // Chrome, which requires ServiceWorkerRegistration.showNotification).
+        // Surface it rather than swallowing — a silent throw here looks
+        // exactly like "nothing happened."
+        console.warn("[notify] Notification constructor threw:", e);
     }
 }
 
@@ -119,8 +180,10 @@ export function showAppNotification({ title, body, branch }) {
             if (_onActivate) _onActivate(branch);
             n.close();
         };
+        _debug("fired app notification", { branch });
         return true;
-    } catch {
+    } catch (e) {
+        console.warn("[notify] app Notification constructor threw:", e);
         return false;
     }
 }

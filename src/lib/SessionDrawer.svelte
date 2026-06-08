@@ -1067,7 +1067,7 @@
                     ? 'Your browser does not support notifications.'
                     : notifyBlocked
                       ? 'Notifications are blocked for this site — re-enable them in your browser settings.'
-                      : 'Get a desktop notification when a session finishes while you are on another tab or session.'}
+                      : 'Get a desktop notification when a session finishes while you are on another tab, window, app, or session.'}
             >
                 <input
                     type="checkbox"
