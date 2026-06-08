@@ -1,6 +1,22 @@
 <script>
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean, hasUnseenSessions?: boolean }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false, hasUnseenSessions = false } = $props()
+
+    // One green "something in Sessions wants a look" dot, fed by either a
+    // newer gist revision (hasSessionUpdates) or a background session that
+    // finished but hasn't been viewed (hasUnseenSessions). The drawer
+    // disambiguates which; stacking two identical green dots here would
+    // just be noise.
+    let sessionsBadge = $derived(hasSessionUpdates || hasUnseenSessions)
+    let sessionsTitle = $derived(
+        hasSessionUpdates && hasUnseenSessions
+            ? 'Sessions — finished results and an update available'
+            : hasSessionUpdates
+              ? 'Sessions — update available'
+              : hasUnseenSessions
+                ? 'Sessions — a finished result is unviewed'
+                : 'Sessions',
+    )
 
     function formatTokens(n) {
         if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
@@ -18,7 +34,7 @@
     <button
         class="sessions-btn"
         onclick={onSessionsClick}
-        title={hasSessionUpdates ? 'Sessions — update available' : 'Sessions'}
+        title={sessionsTitle}
     >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="8" y1="6" x2="21" y2="6"></line>
@@ -28,8 +44,8 @@
             <line x1="3" y1="12" x2="3.01" y2="12"></line>
             <line x1="3" y1="18" x2="3.01" y2="18"></line>
         </svg>
-        {#if hasSessionUpdates}
-            <span class="sessions-badge" aria-label="Update available"></span>
+        {#if sessionsBadge}
+            <span class="sessions-badge" aria-label={sessionsTitle}></span>
         {/if}
     </button>
     <h1 class="brand">
@@ -204,8 +220,10 @@
         background: var(--surface-hover);
     }
 
-    /* Unviewed-update badge — a session imported from a gist has a newer
-       revision the user hasn't seen. Cleared when the drawer opens. */
+    /* "Something in Sessions wants a look" badge — either a gist-imported
+       session has a newer revision (cleared when the drawer opens) or a
+       background session finished and hasn't been viewed (cleared when
+       that session is brought forward). The drawer shows which. */
     .sessions-badge {
         position: absolute;
         top: 2px;
