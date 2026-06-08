@@ -174,7 +174,19 @@
     </div>
     {#if !collapsed}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="divider" onpointerdown={onPointerDown}></div>
+        <div
+            class="divider"
+            onpointerdown={onPointerDown}
+            role="separator"
+            aria-orientation="vertical"
+            title="Drag to resize"
+        >
+            <!-- Always-visible grab handle: a small pill with grip dots
+                 centered on the seam. Signals "draggable" at rest, not
+                 just on hover. pointer-events stay on the divider; the
+                 handle is purely decorative. -->
+            <span class="grip" aria-hidden="true"></span>
+        </div>
         <div class="pane right">
             {@render preview()}
         </div>
@@ -268,13 +280,17 @@
     }
 
     .divider {
-        width: 1px;
+        width: 2px;
         flex-shrink: 0;
         background: var(--border);
         cursor: col-resize;
         transition: background 0.15s;
         position: relative;
         touch-action: none;
+        /* Center the grab handle on the seam. */
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     /* Wide invisible hit area (44px for touch-friendly target) */
@@ -290,6 +306,59 @@
     .divider:hover,
     .split-pane.dragging .divider {
         background: var(--accent);
+    }
+
+    /* Grab handle — a small capsule floating on the seam, with a column
+       of grip dots. Visible (subtly) at rest so the divider clearly
+       reads as draggable; brightens to the accent on hover / drag. It
+       overflows the 2px seam without affecting layout and ignores
+       pointer events so the divider itself owns the drag. */
+    .grip {
+        position: absolute;
+        width: 10px;
+        height: 44px;
+        border-radius: 5px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    /* Column of three grip dots (radial-gradient tile). */
+    .grip::after {
+        content: '';
+        width: 3px;
+        height: 20px;
+        background-image: radial-gradient(
+            circle,
+            var(--text-muted) 1.1px,
+            transparent 1.4px
+        );
+        background-size: 3px 7px;
+        background-position: center;
+        background-repeat: repeat-y;
+    }
+
+    .divider:hover .grip,
+    .split-pane.dragging .grip {
+        border-color: var(--accent);
+        background: var(--surface-hover);
+    }
+
+    .divider:hover .grip::after,
+    .split-pane.dragging .grip::after {
+        background-image: radial-gradient(
+            circle,
+            var(--accent) 1.2px,
+            transparent 1.5px
+        );
+        background-size: 3px 7px;
+        background-position: center;
+        background-repeat: repeat-y;
     }
 
     .mobile-fab {
