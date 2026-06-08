@@ -120,7 +120,7 @@ describe("notifyTurnComplete", () => {
         const { notifyTurnComplete } = await load();
         notifyTurnComplete({ branch: "b2", title: "Side", foreground: false });
         expect(shown).toHaveLength(1);
-        expect(shown[0].options.tag).toBe("agex-session-b2");
+        expect(shown[0].options.body).toContain("Side");
     });
 });
 
@@ -139,7 +139,7 @@ describe("showAppNotification", () => {
         ).toBe(true);
         expect(shown).toHaveLength(1);
         expect(shown[0].title.length).toBeLessThanOrEqual(100);
-        expect(shown[0].options.tag).toBe("agex-app-b1");
+        expect(shown[0].options.body).toBe("go");
     });
 
     it("routes a click through the activate handler", async () => {
