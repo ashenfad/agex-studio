@@ -180,10 +180,14 @@
 
     async function loadPreview() {
         iframeReady = false
-        // A fresh bootloader load is about to re-install the bridge, so
-        // clear any "navigated/dead" mark left by an in-app location.reload
-        // — otherwise sendControl would keep bailing on the rebuilt iframe.
-        if (iframe) iframe.__navigated = false
+        // NOTE: do NOT read `iframe` here. This runs synchronously inside
+        // the reload `$effect`, so touching the `iframe` $state would make
+        // the effect depend on it — and `iframe` toggles null↔element each
+        // load (loading=true unmounts it, then it remounts), which would
+        // retrigger the effect forever (a flood of bootloader reloads).
+        // The `__navigated` mark left by an in-app location.reload doesn't
+        // need clearing here anyway: a fresh load remounts a brand-new
+        // iframe element, so the old marked element is simply discarded.
         if (iframeReadyTimer) {
             clearTimeout(iframeReadyTimer)
             iframeReadyTimer = null
