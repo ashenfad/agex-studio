@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { _enforceTotalCap } from "./app-control.js";
+import { _enforceTotalCap, resolveViewport } from "./app-control.js";
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -93,5 +93,56 @@ describe("_enforceTotalCap", () => {
         expect(out[0].message).toMatch(/^\[truncated/);
         const types = out.slice(1).map((e) => e.type);
         expect(types).toEqual(["screenshot", "eval"]);
+    });
+});
+
+describe("resolveViewport", () => {
+    it("defaults to 800×600 when unspecified", () => {
+        expect(resolveViewport()).toEqual({ width: 800, height: 600 });
+        expect(resolveViewport(null)).toEqual({ width: 800, height: 600 });
+        expect(resolveViewport("")).toEqual({ width: 800, height: 600 });
+    });
+
+    it("resolves named presets (case-insensitive)", () => {
+        expect(resolveViewport("desktop")).toEqual({ width: 1280, height: 800 });
+        expect(resolveViewport("tablet")).toEqual({ width: 768, height: 1024 });
+        expect(resolveViewport("mobile")).toEqual({ width: 390, height: 844 });
+        expect(resolveViewport("MOBILE")).toEqual({ width: 390, height: 844 });
+    });
+
+    it("falls back to the default for unknown presets", () => {
+        expect(resolveViewport("phablet")).toEqual({ width: 800, height: 600 });
+    });
+
+    it("accepts explicit width/height objects", () => {
+        expect(resolveViewport({ width: 1440, height: 900 })).toEqual({
+            width: 1440,
+            height: 900,
+        });
+    });
+
+    it("rounds and clamps out-of-range dimensions", () => {
+        // Below the floor / above the ceiling get clamped to [200, 4000].
+        expect(resolveViewport({ width: 10, height: 99999 })).toEqual({
+            width: 200,
+            height: 4000,
+        });
+        // Non-integers round.
+        expect(resolveViewport({ width: 375.6, height: 667.2 })).toEqual({
+            width: 376,
+            height: 667,
+        });
+    });
+
+    it("fills a missing dimension from the default", () => {
+        expect(resolveViewport({ width: 1000 })).toEqual({
+            width: 1000,
+            height: 600,
+        });
+        // Garbage values fall back per-dimension rather than throwing.
+        expect(resolveViewport({ width: "abc", height: 500 })).toEqual({
+            width: 800,
+            height: 500,
+        });
     });
 });

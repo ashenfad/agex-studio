@@ -190,7 +190,9 @@ def register(agent, llm, user_tz):
         return data["choices"][0]["message"]["content"]
 
     async def test_app(
-        actions: list[dict] | None = None, fresh: bool = False
+        actions: list[dict] | None = None,
+        fresh: bool = False,
+        viewport: str | dict | None = None,
     ) -> list[dict]:
         """Test the current app by loading it in a hidden browser iframe.
         Reads files from app/, renders the HTML, waits for initialization
@@ -221,6 +223,13 @@ def register(agent, llm, user_tz):
                 inherits the previous run's saved state (Game Over
                 boards, mid-flow form values, etc.) which can mask
                 bugs in fresh-load paths.
+            viewport: Size of the test iframe, so you can verify
+                responsive layouts at different shapes.  Either a preset
+                name ("desktop" 1280x800, "tablet" 768x1024, "mobile"
+                390x844) or an explicit {"width": W, "height": H} dict.
+                Defaults to 800x600.  The app's CSS media queries and
+                window.innerWidth see this size, and screenshots capture
+                at it — to check three shapes, make three test_app calls.
 
         Returns:
             List of result dicts (also auto-displayed via print).
@@ -246,8 +255,9 @@ def register(agent, llm, user_tz):
         # pre-fetch the seed here because Pyodide can't read the
         # parent's localStorage and the data lives there now.
         # ``fresh=True`` makes the bridge use an empty seed dict.
+        viewport_json = json.dumps(viewport) if viewport else None
         results_json = await _js_test_app(
-            json.dumps(app_files), actions_json, bool(fresh)
+            json.dumps(app_files), actions_json, bool(fresh), viewport_json
         )
         results = json.loads(results_json)
         await _display_app_results(results, "test_app")

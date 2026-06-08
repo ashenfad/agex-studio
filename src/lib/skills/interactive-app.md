@@ -387,6 +387,35 @@ Skip when:
   the failure messages are more precise than "looks wrong in this
   screenshot."
 
+#### Responsive testing — viewport sizes
+
+`testApp` takes a third argument that sizes the test iframe, so you can
+verify a responsive layout at desktop, tablet, and mobile shapes. The
+app's CSS media queries and `window.innerWidth` see this size, and any
+screenshot captures at it.
+
+```ts
+// Preset names — 'desktop' (1280×800), 'tablet' (768×1024), 'mobile' (390×844)
+await testApp([{ screenshot: true }], false, 'mobile')
+
+// Or an explicit size
+await testApp([{ screenshot: true }], false, { width: 1440, height: 900 })
+```
+
+The default (omit the argument) is 800×600. Each viewport boots the app
+fresh at that shape — the most faithful simulation of a real device
+loading the page — so **to check several shapes, make several calls**:
+
+```ts
+// Turn N — capture each shape; look at all three next turn.
+await testApp([{ screenshot: true }], false, 'desktop')
+await testApp([{ screenshot: true }], false, 'tablet')
+await testApp([{ screenshot: true }], false, 'mobile')
+```
+
+(The `fresh` argument is positional, so pass it — usually `false` — to
+reach `viewport`.)
+
 #### Canvas / animated apps
 
 `testApp` paints a fresh animation frame right before each
