@@ -27,6 +27,7 @@ import { getActiveAdapter } from "./active-adapter.js";
 import { loadHistoryChunked, persistSessionMeta, sessionStore } from "./sessions.js";
 import { cancelTask } from "./pyodide.js";
 import { notifyTurnComplete } from "./notify.js";
+import { isOnScreen } from "./presence.js";
 
 /** Live registry of per-branch runtimes. A runtime is created lazily on
  *  first access for a branch and kept for the page's lifetime so its
@@ -940,13 +941,16 @@ export class SessionRuntime {
             this.liveSpawnChips = [];
             this.currentTurn = null;
             _activeTurns = Math.max(0, _activeTurns - 1);
-            // If the turn finished while the user was looking at another
-            // session, flag it as an unseen result (drawer badge). Stays
-            // false when this session is foreground — ChatShell also
-            // clears it on focus.
+            // Flag the result as unseen unless the user is actively
+            // viewing it — i.e. this is the foreground session AND the tab
+            // is on screen (visible + focused). A turn that finishes while
+            // they're on another session OR tabbed/app'd away counts as
+            // unseen (drives the drawer dot + favicon badge). Matches the
+            // notification's on-screen gate. Cleared in ChatShell when the
+            // session is brought forward or the tab regains focus.
             const store = get(sessionStore);
             const foreground = store.currentBranch === this.branch;
-            this.unseen = !foreground;
+            this.unseen = !(foreground && isOnScreen());
             // Off-screen completion → optional desktop notification (the
             // notify module also checks tab visibility, the opt-in flag,
             // and permission). Title falls back through name → title.

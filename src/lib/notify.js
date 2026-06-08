@@ -18,6 +18,7 @@
  */
 
 import { getSettings } from "./settings.js";
+import { isOnScreen } from "./presence.js";
 
 /** @type {((branch: string) => void) | null} */
 let _onActivate = null;
@@ -80,16 +81,6 @@ export function setNotificationActivateHandler(fn) {
     _onActivate = fn;
 }
 
-/** True only when the studio is genuinely in front of the user: the tab
- *  is visible AND the window has focus. `visibilityState` alone treats a
- *  window/app switch as "still visible"; `hasFocus()` closes that gap. */
-function _onScreen() {
-    if (typeof document === "undefined") return false;
-    const visible = document.visibilityState !== "hidden";
-    const focused =
-        typeof document.hasFocus !== "function" || document.hasFocus();
-    return visible && focused;
-}
 
 /**
  * Fire a completion notification, if appropriate. No-op unless the user
@@ -118,7 +109,7 @@ export function notifyTurnComplete({ branch, title, foreground }) {
     // active tab of its window) — only `hasFocus()` catches that. It also
     // returns false when the tab is hidden, so it covers tab-switching
     // too. Notify whenever the result isn't on screen by this definition.
-    if (foreground && _onScreen()) {
+    if (foreground && isOnScreen()) {
         _debug("skip: session is on screen (foreground + visible + focused)");
         return;
     }

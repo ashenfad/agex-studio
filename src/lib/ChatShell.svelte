@@ -14,12 +14,14 @@
     import { pyodideStore } from './pyodide.js'
     import { initSessionsFromUrl, loadHistoryChunked, switchSession, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
     import { setNotificationActivateHandler } from './notify.js'
+    import { setFaviconStatus } from './favicon.js'
+    import { isOnScreen } from './presence.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
     import { queueFiles } from './pending-attachments.js'
     import { loadCache as loadSessionCache } from './session-index.js'
     import { kernelRegistry } from './kernel-registry.js'
     import { getActiveAdapter } from './active-adapter.js'
-    import { getSessionRuntime, activeTurnCount } from './session-runtime.svelte.js'
+    import { getSessionRuntime, peekSessionRuntime, activeTurnCount } from './session-runtime.svelte.js'
     import { setWakeLockDesired } from './wake-lock.js'
 
     /** Resolve the active session's kernel synchronously from
@@ -88,6 +90,22 @@
     // re-acquires on `visibilitychange`; we just feed it "desired" here.
     $effect(() => {
         setWakeLockDesired($settingsStore.keepAwake && activeTurnCount() > 0)
+    })
+
+    // Ambient status as a favicon badge — a small dot on the tab icon,
+    // mirroring the drawer's per-session status dots (red `--accent` while
+    // a turn is in flight, green `--success` for an unseen finished
+    // result, plain icon when idle). Working takes priority, same as a
+    // single row's dot. The unseen flag is read off each session's runtime
+    // (the very flag that drives those dots); the turn start/end that
+    // flips it also flips `activeTurnCount`, so this effect re-evaluates
+    // at exactly the right moments. The title itself stays clean.
+    $effect(() => {
+        const working = activeTurnCount() > 0
+        const unseen = $sessionStore.sessions.some(
+            (s) => peekSessionRuntime(s.branch)?.unseen,
+        )
+        void setFaviconStatus(working ? 'working' : unseen ? 'unseen' : null)
     })
 
     // Clicking a completion notification should bring the user to that
@@ -320,12 +338,26 @@
         $pyodideStore.status === 'error' ? $pyodideStore.message : ''
     )
 
-    // The foreground session is, by definition, seen — clear its
-    // "unseen result" badge (set when a turn finishes on a backgrounded
-    // session). Re-runs when `rt` changes (foreground switch); only
-    // writes, so no reactive loop.
+    // The foreground session is seen once you're actually looking at it.
+    // Clear its "unseen result" badge on foreground switch (this effect,
+    // re-runs when `rt` changes — you can only switch while looking)...
     $effect(() => {
         if (rt) rt.unseen = false
+    })
+    // ...and when the tab regains focus/visibility, since a turn can
+    // finish on the *foreground* session while you're tabbed away (it's
+    // flagged unseen then — see session-runtime). Reads `rt` live at
+    // event time. Set up once.
+    $effect(() => {
+        const clearIfLooking = () => {
+            if (isOnScreen() && rt) rt.unseen = false
+        }
+        document.addEventListener('visibilitychange', clearIfLooking)
+        window.addEventListener('focus', clearIfLooking)
+        return () => {
+            document.removeEventListener('visibilitychange', clearIfLooking)
+            window.removeEventListener('focus', clearIfLooking)
+        }
     })
 
     // Foreground session changed.
@@ -487,6 +519,7 @@
             chapteringTrigger={$settingsStore.chapteringTrigger}
             {activeKernel}
             hasSessionUpdates={$sessionStore.sessions.some((s) => s.updateUnviewed)}
+            hasUnseenSessions={$sessionStore.sessions.some((s) => peekSessionRuntime(s.branch)?.unseen)}
         />
 
         {#if historyReady}
