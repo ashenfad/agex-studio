@@ -444,6 +444,12 @@
                 bytes,
                 ack: false,
                 priorGist,
+                // 'existing' (PATCH the prior gist, same URL) vs 'new'
+                // (POST a fresh gist). Default to updating when this branch
+                // earned the mapping, but to a new gist for an inherited
+                // (fresh-fork) mapping so we don't overwrite the parent's
+                // share URL by default. No prior gist → always 'new'.
+                target: priorGist && !priorGist.inherited ? 'existing' : 'new',
             }
         } catch (err) {
             console.error('Failed to bundle for publish:', err)
@@ -484,7 +490,10 @@
 
     async function confirmPublish() {
         if (!publishState || publishState.stage !== 'preview' || !publishState.ack) return
-        const { session, manifest, bytes, priorGist } = publishState
+        const { session, manifest, bytes, priorGist, target } = publishState
+        // Only PATCH the prior gist when the user chose "update existing".
+        // A "new" choice (or no prior gist) POSTs a fresh one.
+        const useExisting = target === 'existing' && !!priorGist
         const pat = $settingsStore.githubPat || ''
         if (!pat) {
             publishState = {
@@ -511,9 +520,10 @@
                 description: (session.description || '').slice(0, 300),
                 // When set, PATCH the prior gist (preserving the
                 // share URL). publishGistBundle falls back to POST
-                // if the gist was deleted out from under us.
-                existingGistId: priorGist?.gistId || '',
-                existingSlug: priorGist?.slug || '',
+                // if the gist was deleted out from under us. Empty when
+                // the user chose "new gist".
+                existingGistId: useExisting ? priorGist.gistId : '',
+                existingSlug: useExisting ? priorGist.slug : '',
             })
             // Persist the (possibly new) mapping for future updates.
             // After a 404-fallback the gistId/slug differ from
@@ -524,15 +534,15 @@
                 slug: result.slug,
                 lastPublishedAt: new Date().toISOString(),
             })
-            // Detect a 404-fallback: preview promised an update to a
-            // specific prior gist, but publishGistBundle landed on a
-            // *different* gist (the prior was deleted on github.com
-            // out from under us, PATCH 404'd, POST fired). Surface
-            // this on the done modal so the user understands why
-            // the share URL is new — otherwise the URL silently
-            // changes after a "Update existing gist" preview.
+            // Detect a 404-fallback: the user chose "update existing" but
+            // publishGistBundle landed on a *different* gist (the prior was
+            // deleted on github.com out from under us, PATCH 404'd, POST
+            // fired). Surface this on the done modal so the user
+            // understands why the share URL is new. Gated on `useExisting`
+            // so an intentional "new gist" publish isn't mislabeled as a
+            // fallback.
             const fallbackFromGistId =
-                priorGist && priorGist.gistId !== result.gistId
+                useExisting && priorGist.gistId !== result.gistId
                     ? priorGist.gistId
                     : ''
             publishState = { stage: 'done', session, result, fallbackFromGistId }
@@ -1240,34 +1250,63 @@
                 </div>
                 <div class="preview-field">
                     <span class="field-label">Destination</span>
-                    <div class="preview-value">
-                        {#if publishState.priorGist}
-                            Update existing gist
+                    {#if publishState.priorGist}
+                        <!-- A prior gist mapping exists (this branch
+                             published before, or inherited it from a fork).
+                             Let the user update it (same URL) or split off a
+                             new gist. -->
+                        <div class="destination-choice">
+                            <label class="destination-option">
+                                <input
+                                    type="radio"
+                                    name="publish-target"
+                                    value="existing"
+                                    bind:group={publishState.target}
+                                />
+                                <span class="destination-option-body">
+                                    <span class="destination-option-title">Update existing gist</span>
+                                    <span class="destination-detail">
+                                        <a
+                                            href={`https://gist.github.com/${publishState.priorGist.gistId}`}
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="destination-link"
+                                            onclick={(e) => e.stopPropagation()}
+                                        >gist.github.com/…/{publishState.priorGist.gistId.slice(0, 8)}</a>
+                                        {#if publishState.priorGist.lastPublishedAt}
+                                            · last published {_relativeTime(publishState.priorGist.lastPublishedAt)}
+                                        {/if}
+                                        — keeps the same share URL
+                                    </span>
+                                </span>
+                            </label>
+                            <label class="destination-option">
+                                <input
+                                    type="radio"
+                                    name="publish-target"
+                                    value="new"
+                                    bind:group={publishState.target}
+                                />
+                                <span class="destination-option-body">
+                                    <span class="destination-option-title">Create a new gist</span>
+                                    <span class="destination-detail">
+                                        publishes as a separate app with its own URL{#if publishState.priorGist.inherited} — this is a forked copy{/if}
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+                    {:else}
+                        <div class="preview-value">
+                            New gist
                             <div class="destination-detail">
-                                <a
-                                    href={`https://gist.github.com/${publishState.priorGist.gistId}`}
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="destination-link"
-                                >
-                                    gist.github.com/…/{publishState.priorGist.gistId.slice(0, 8)}
-                                </a>
-                                {#if publishState.priorGist.lastPublishedAt}
-                                    · last published {_relativeTime(publishState.priorGist.lastPublishedAt)}
+                                {#if publishState.session.external}
+                                    this is an imported session — publishing creates a fresh gist under your account
+                                {:else}
+                                    this session has not been published from this browser before
                                 {/if}
                             </div>
-                        {:else if publishState.session.external}
-                            New gist
-                            <div class="destination-detail">
-                                this is an imported session — publishing creates a fresh gist under your account
-                            </div>
-                        {:else}
-                            New gist
-                            <div class="destination-detail">
-                                this session has not been published from this browser before
-                            </div>
-                        {/if}
-                    </div>
+                        </div>
+                    {/if}
                 </div>
                 <div class="publish-disclosure">
                     <strong>Anyone with the URL can see everything in this bundle</strong> — your conversation history, agent-authored helper modules, the app, and any data persisted into the session.  Treat this like an "anyone with the link" share, not a private copy.
@@ -1815,6 +1854,41 @@
         color: var(--text-muted);
         margin-top: 0.15rem;
         line-height: 1.35;
+    }
+
+    /* New-vs-existing gist radio choice in the publish preview. */
+    .destination-choice {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin-top: 0.1rem;
+    }
+
+    .destination-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        cursor: pointer;
+    }
+
+    .destination-option input[type="radio"] {
+        margin-top: 0.15rem;
+        flex-shrink: 0;
+        cursor: pointer;
+    }
+
+    .destination-option-body {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .destination-option-title {
+        font-size: 0.85rem;
+        color: var(--text);
+    }
+
+    .destination-option .destination-detail {
+        margin-top: 0.1rem;
     }
 
     .destination-link {

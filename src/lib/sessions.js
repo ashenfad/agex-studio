@@ -75,18 +75,21 @@ const PY_EXPERIMENTAL_SEEN_KEY = "agex-py-experimental-seen-v2";
 /** localStorage key prefix mapping a local branch to the gist it
  *  most recently published to.  Used by the publish flow to decide
  *  between PATCH (update existing gist) and POST (create new). The
- *  value is JSON of shape `{ gistId, slug, lastPublishedAt }` —
- *  `slug` is preserved across re-publishes so existing share URLs
+ *  value is JSON of shape `{ gistId, slug, lastPublishedAt, inherited? }`
+ *  — `slug` is preserved across re-publishes so existing share URLs
  *  keep resolving even after the publisher renames the session.
+ *  `inherited: true` marks a mapping copied to a fresh-chat fork: the
+ *  fork *can* update that gist, but the publish modal defaults to a new
+ *  gist so it won't silently overwrite the parent's share URL. Cleared
+ *  once the branch actually publishes (the mapping is then "earned").
  *
  *  Why localStorage instead of branch meta:
- *    * Forks of any kind that DON'T inherit publish identity (fresh-
- *      forks, imports from a bundle) naturally land on a different
- *      branch name, so they get no key and start clean.
- *    * Full-forks DO inherit by virtue of `forkSession` copying this
- *      key — the fork shares the parent's publish identity, so its
- *      next publish updates the same gist (matches "one share URL
- *      per app" intuition).
+ *    * Imports from a bundle land on a different branch name with no
+ *      key, so they start clean.
+ *    * Forks copy this key (`forkSession` / `forkSessionFreshChat`) so
+ *      the fork can update the parent's gist — full-fork by default
+ *      ("one share URL per app"), fresh-fork only if the user opts in
+ *      at publish time (the `inherited` flag drives that default).
  *    * Bundle exports don't carry it (recipient shouldn't think
  *      they own the publisher's gist).
  *    * Kernel-agnostic — no per-kernel difference in publish
@@ -128,8 +131,7 @@ export function setSessionGistInfo(branch, info) {
 }
 
 /** Remove the published-gist mapping for `branch`. Called on session
- *  delete, and during forkSessionFreshChat (the fresh fork is a new
- *  publish identity by intent). */
+ *  delete. */
 export function clearSessionGistInfo(branch) {
     if (typeof localStorage === "undefined" || !branch) return;
     try {
@@ -574,14 +576,19 @@ async function _forkSession({ filesOnly }) {
     await adapter.writeBranchMeta(newBranch, { title: newTitle });
     appStorageCopy(sourceKernel, sourceBranch, newBranch);
 
-    // Inherit the source's publish identity on a full-fork — the
-    // fork's next publish should update the same gist (matches "one
-    // share URL per app" intuition). Fresh-fork explicitly drops it
-    // (the fresh starting point should publish as a new gist if at
-    // all). See `SESSION_GIST_KEY_PREFIX` for the rationale.
-    if (!filesOnly) {
-        const sourceGistInfo = getSessionGistInfo(sourceBranch);
-        if (sourceGistInfo) setSessionGistInfo(newBranch, sourceGistInfo);
+    // Carry the source's publish identity to the fork so its next
+    // publish *can* update the same gist. Full-fork inherits it outright
+    // (its next publish updates the same gist — "one share URL per app").
+    // Fresh-fork carries it too, but tagged `inherited` so the publish
+    // modal defaults to a NEW gist instead of silently overwriting the
+    // parent's share URL — the user can still pick "update existing"
+    // there. See `SESSION_GIST_KEY_PREFIX` for the rationale.
+    const sourceGistInfo = getSessionGistInfo(sourceBranch);
+    if (sourceGistInfo) {
+        setSessionGistInfo(
+            newBranch,
+            filesOnly ? { ...sourceGistInfo, inherited: true } : sourceGistInfo,
+        );
     }
 
     const newSession = {
