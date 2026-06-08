@@ -26,6 +26,7 @@ import { get } from "svelte/store";
 import { getActiveAdapter } from "./active-adapter.js";
 import { loadHistoryChunked, persistSessionMeta, sessionStore } from "./sessions.js";
 import { cancelTask } from "./pyodide.js";
+import { notifyTurnComplete } from "./notify.js";
 
 /** Live registry of per-branch runtimes. A runtime is created lazily on
  *  first access for a branch and kept for the page's lifetime so its
@@ -943,7 +944,18 @@ export class SessionRuntime {
             // session, flag it as an unseen result (drawer badge). Stays
             // false when this session is foreground — ChatShell also
             // clears it on focus.
-            this.unseen = get(sessionStore).currentBranch !== this.branch;
+            const store = get(sessionStore);
+            const foreground = store.currentBranch === this.branch;
+            this.unseen = !foreground;
+            // Off-screen completion → optional desktop notification (the
+            // notify module also checks tab visibility, the opt-in flag,
+            // and permission). Title falls back through name → title.
+            const meta = store.sessions.find((s) => s.branch === this.branch);
+            notifyTurnComplete({
+                branch: this.branch,
+                title: meta?.name || meta?.title,
+                foreground,
+            });
         }
     };
 }

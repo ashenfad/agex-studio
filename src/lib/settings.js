@@ -37,6 +37,11 @@ const DEFAULTS = {
     // session drawer; auto-released when the tab is hidden (the browser
     // does this) and re-acquired on return.
     keepAwake: false,
+    // Fire a desktop notification when a session finishes a turn while
+    // its result isn't on screen (different session foreground, or tab
+    // hidden). Surfaced in the session drawer; gated on the browser
+    // notification permission grant in addition to this flag.
+    notifyOnFinish: false,
 };
 
 /** @type {((s: Settings) => void)[]} */
@@ -82,6 +87,9 @@ let subscribers = [];
  *     Empty string when the user hasn't connected GitHub yet.
  * @property {boolean} keepAwake — hold a screen wake lock while a session
  *     has a turn in flight (display won't dim during long turns).
+ * @property {boolean} notifyOnFinish — fire a desktop notification when a
+ *     session finishes a turn while its result isn't on screen. Also
+ *     gated on the browser notification permission.
  */
 
 /** @type {Settings} */
