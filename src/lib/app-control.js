@@ -178,17 +178,54 @@ function _isAssertionError(e) {
  *  explicit `{ wait: N }` action if a sync action's expression
  *  itself spawned background work it wants to await.
  *
+ *  Two actions are handled parent-side instead of via the bridge:
+ *  `{ wait: N }` (sleep N ms) and `{ viewport }` (resize the iframe
+ *  element so the app relays out at a new shape, then settle). The
+ *  viewport action is gated on `opts.allowViewport` — true for the
+ *  hidden test iframe, false (a no-op + note) for the live preview,
+ *  which the studio's panes own and shouldn't be resized under the user.
+ *
  *  Error handling: most action-dispatch failures are caught and
  *  surfaced as `error`-level log entries so a single bad selector
  *  doesn't terminate the test. Assertion failures are the
  *  exception — they propagate so the agent's emission errors out
  *  and the recoverable-error path lets the agent see the failure
- *  and self-correct on the next turn. */
-export async function executeActions(iframe, actions) {
+ *  and self-correct on the next turn.
+ *
+ *  @param {HTMLIFrameElement} iframe
+ *  @param {Array<object>} actions
+ *  @param {{ allowViewport?: boolean }} [opts]
+ */
+export async function executeActions(iframe, actions, opts = {}) {
+    const { allowViewport = false } = opts;
     const results = [];
     for (const action of actions) {
         if (action.wait) {
             await new Promise((r) => setTimeout(r, action.wait));
+            continue;
+        }
+        if (action.viewport !== undefined) {
+            // Parent-side: resize the iframe element so the app's media
+            // queries / window.innerWidth re-evaluate, then settle. Only
+            // honored for the hidden test iframe — the live preview is
+            // laid out by the studio's panes, and resizing it would jolt
+            // what the user sees, so we no-op it there with a note.
+            if (!allowViewport) {
+                results.push({
+                    type: "log",
+                    level: "warn",
+                    message:
+                        "viewport actions are only supported in testApp — " +
+                        "the live preview can't be resized.",
+                });
+                continue;
+            }
+            const { width, height } = resolveViewport(action.viewport);
+            iframe.style.width = `${width}px`;
+            iframe.style.height = `${height}px`;
+            // Let layout reflow + any resize-driven re-render / query
+            // settle before the next action (e.g. a screenshot) runs.
+            await waitForIdle(iframe, 10000);
             continue;
         }
         try {
@@ -509,7 +546,11 @@ export async function runTestApp(opts) {
         const COLD_START_IDLE_GAP_MS = 1000;
         await waitForIdle(iframe, 15000, COLD_START_IDLE_GAP_MS);
 
-        const actionResults = await executeActions(iframe, actions);
+        // testApp owns a hidden iframe, so mid-run `{ viewport }` resizes
+        // are safe — they let one boot capture several breakpoints.
+        const actionResults = await executeActions(iframe, actions, {
+            allowViewport: true,
+        });
 
         // Drain any handler promises spawned by actions but not yet
         // resolved (e.g. a long-running chunk generation kicked off

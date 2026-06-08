@@ -338,15 +338,25 @@ HTM differs from JSX in syntax: `${expr}` instead of `{expr}`, `class=` instead 
 - **Iterating on first-load behavior?** Pass `fresh=True` to
   `test_app(...)` to skip the localStorage seed — useful when the
   previous run's saved state would mask bugs in the fresh-load path.
-- **Checking a responsive layout?** Pass `viewport=` to size the test
-  iframe — a preset name (`"desktop"` 1280x800, `"tablet"` 768x1024,
-  `"mobile"` 390x844) or an explicit `{"width": W, "height": H}` dict.
-  The app's media queries and `window.innerWidth` see this size, and
-  screenshots capture at it. Each call boots fresh at that shape, so to
-  check several shapes make several calls:
+- **Checking a responsive layout?** Size the test iframe — a preset name
+  (`"desktop"` 1280x800, `"tablet"` 768x1024, `"mobile"` 390x844) or an
+  explicit `{"width": W, "height": H}` dict. The app's media queries and
+  `window.innerWidth` see this size, and screenshots capture at it. To
+  shoot several breakpoints in one boot, use `{"viewport": ...}`
+  **actions** (they resize mid-run):
 
   ```python
-  await test_app(actions=[{"screenshot": True}], viewport="desktop")
+  await test_app(actions=[
+      {"viewport": "desktop"}, {"screenshot": True},
+      {"viewport": "mobile"},  {"screenshot": True},
+  ])
+  ```
+
+  Caveat: the resize fires a real `resize` event, so an app that reads
+  `window.innerWidth` only at init won't relayout. For those, boot fresh
+  at each shape via the `viewport=` argument (sets the **initial** size):
+
+  ```python
   await test_app(actions=[{"screenshot": True}], viewport="mobile")
   ```
 

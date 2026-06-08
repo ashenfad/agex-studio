@@ -298,6 +298,7 @@ there is no `page`. Each entry is one of:
 - `{ eval: '<expr>' }` — evaluate a JS expression in the iframe and capture the result (awaits Promises — see above)
 - `{ assert: '<expr>', message?: '...' }` — truthy/falsy gate; a failing assert throws from `testApp` (see the assert section below)
 - `{ screenshot: true }` or `{ screenshot: '#sel' }` — capture a PNG (see the screenshot section below)
+- `{ viewport: 'mobile' }` or `{ viewport: { width, height } }` — resize the test iframe mid-run so following actions/screenshots see a new shape (`testApp` only; see the responsive section below)
 
 All values must be JSON-serializable (functions/closures fail with
 `DataCloneError` — use `eval` for in-iframe JS). Results return as a
@@ -389,32 +390,38 @@ Skip when:
 
 #### Responsive testing — viewport sizes
 
-`testApp` takes a third argument that sizes the test iframe, so you can
-verify a responsive layout at desktop, tablet, and mobile shapes. The
-app's CSS media queries and `window.innerWidth` see this size, and any
-screenshot captures at it.
+You can verify a responsive layout at desktop, tablet, and mobile
+shapes. The size you choose is what the app's CSS media queries and
+`window.innerWidth` see, and what any screenshot captures at. Sizes are
+a preset name — `'desktop'` (1280×800), `'tablet'` (768×1024),
+`'mobile'` (390×844) — or an explicit `{ width, height }`.
+
+**Best for checking several breakpoints in one go: the `viewport`
+action.** It resizes the live test iframe between actions, so a single
+`testApp` boot can shoot every shape:
 
 ```ts
-// Preset names — 'desktop' (1280×800), 'tablet' (768×1024), 'mobile' (390×844)
-await testApp([{ screenshot: true }], false, 'mobile')
+// One boot, three screenshots — look at all three next turn.
+await testApp([
+  { viewport: 'desktop' }, { screenshot: true },
+  { viewport: 'tablet' },  { screenshot: true },
+  { viewport: 'mobile' },  { screenshot: true },
+])
+```
 
-// Or an explicit size
+After each resize the app relays out and settles before the next action
+runs. **Caveat:** this fires a real `resize`, so apps that read
+`window.innerWidth` *only once at init* (and don't listen for resize)
+won't relayout. For those, boot fresh at each size instead — the third
+`testApp` argument sets the **initial** viewport:
+
+```ts
+await testApp([{ screenshot: true }], false, 'mobile')
 await testApp([{ screenshot: true }], false, { width: 1440, height: 900 })
 ```
 
-The default (omit the argument) is 800×600. Each viewport boots the app
-fresh at that shape — the most faithful simulation of a real device
-loading the page — so **to check several shapes, make several calls**:
-
-```ts
-// Turn N — capture each shape; look at all three next turn.
-await testApp([{ screenshot: true }], false, 'desktop')
-await testApp([{ screenshot: true }], false, 'tablet')
-await testApp([{ screenshot: true }], false, 'mobile')
-```
-
-(The `fresh` argument is positional, so pass it — usually `false` — to
-reach `viewport`.)
+The default (no action, no argument) is 800×600. The `fresh` argument is
+positional, so pass it — usually `false` — to reach the `viewport` arg.
 
 #### Canvas / animated apps
 
