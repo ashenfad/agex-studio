@@ -47,6 +47,8 @@ Your app is loaded inside a parent page, not driving a top-level tab. A handful 
 - **`window.open(url)`** — works when called from a user gesture (click handler, etc.); opens a new tab. Use this for "open in GitHub," "view documentation," etc.
 - **`top.location = …` / cross-frame navigation** — gated by browser user-activation policy and generally won't get your app where you want it to go. Render "navigate" actions inside the app instead (modal, drawer, route-style component state).
 
+- **`location.reload()` / same-frame navigation** (`location.href = …`) — your app is `document.write`n into the sandbox host, not served at a URL, so reloading lands on an empty bootloader shell, not your app — it tears the app down rather than restarting it. In `test_app` / `live_app` this surfaces as a `NavigationError` that stops the action sequence (previously it hung the call until the emission timeout). To "reload," reset your in-app state and re-render; to re-apply agent-pushed data, re-run the apply step via an `{"eval": "…"}` action instead.
+
   Note on forms: standard React/Preact `<form onSubmit={(e) => { e.preventDefault(); … }}>` patterns work — the submit event fires and your handler runs. What you should *not* do is let a form navigate to its `action` URL (without `preventDefault`) — the iframe page has no app routes, so a real form submission would unload your app.
 
 ### Powerful features available to your app

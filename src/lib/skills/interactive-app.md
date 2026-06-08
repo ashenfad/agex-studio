@@ -249,8 +249,18 @@ for (const [k, v] of Object.entries(theme)) {
 // then in styles.css: `color: var(--accent)`, etc.
 ```
 
-The app picks up the new theme on next reload (or call `liveApp([{eval: 'location.reload()'}])` after `cache.set` to apply
-immediately).
+The app picks up the new theme the next time the preview is rebuilt. To
+apply it immediately, re-run the apply step against the live preview —
+**don't** `location.reload()` (navigation tears the app down; see "Things
+that don't work"):
+
+```ts
+await liveApp([{ eval: `(async () => {
+  const t = (await getCacheValue('theme')) || {}
+  const r = document.documentElement
+  for (const [k, v] of Object.entries(t)) r.style.setProperty('--' + k, v)
+})()` }])
+```
 
 ## Verifying your app — `testApp`
 
@@ -583,6 +593,13 @@ Beyond the single-file case, organize as:
 - **Same-origin `fetch('/api/...')`** — there's no server. Use
   `getCacheValue` for agent-side data, hardcode external URLs (CORS
   permitting) for third-party APIs.
+- **`location.reload()` / navigation** (`location.href = ...`, link/form
+  navigation) — your app is injected into the sandbox host, not served at
+  a URL, so navigating reloads an empty bootloader shell and tears the app
+  (and the test bridge) down. In `testApp` / `liveApp` this surfaces as a
+  `NavigationError` and stops the action sequence. To "reload," reset your
+  in-app state and re-render instead. To re-apply agent-pushed data (e.g.
+  a new theme), re-run the apply step via `eval` rather than reloading.
 
 ## Static image / font assets
 

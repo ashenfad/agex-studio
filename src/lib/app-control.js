@@ -169,6 +169,15 @@ function _isAssertionError(e) {
         e.message.startsWith("AssertionError:");
 }
 
+/** Marker prefix `sendControl` stamps when the iframe navigated /
+ *  reloaded mid-action (e.g. `location.reload()`). Once that happens the
+ *  control bridge is gone, so the remaining actions can't run — we
+ *  surface this one and stop the sequence rather than hang on each. */
+function _isNavigationError(e) {
+    return typeof e?.message === "string" &&
+        e.message.startsWith("NavigationError:");
+}
+
 /** Execute `actions` sequentially against `iframe`'s control bridge.
  *  Returns the read/eval/screenshot result entries (the bridge
  *  itself dispatches click/type/select with no return).
@@ -237,6 +246,12 @@ export async function executeActions(iframe, actions, opts = {}) {
             if (data != null) results.push(data);
         } catch (e) {
             if (_isAssertionError(e)) throw e;
+            if (_isNavigationError(e)) {
+                // The app tore itself down — every remaining action would
+                // hang the same way. Record the cause and stop here.
+                results.push({ type: "log", level: "error", message: e.message });
+                break;
+            }
             results.push({
                 type: "log",
                 level: "error",
