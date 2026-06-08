@@ -31,9 +31,10 @@ function makeNotification(permission) {
     return Notification;
 }
 
-function setVisibility(state) {
+function setVisibility(state, focused = true) {
     vi.stubGlobal("document", {
         visibilityState: state,
+        hasFocus: () => focused,
         addEventListener: () => {},
     });
 }
@@ -103,6 +104,16 @@ describe("notifyTurnComplete", () => {
         notifyTurnComplete({ branch: "b1", title: "T", foreground: true });
         expect(shown).toHaveLength(1);
         expect(shown[0].options.body).toContain("T");
+    });
+
+    it("notifies when foreground + visible but the window is unfocused", async () => {
+        // The window/app-switch case: the tab stays "visible" but the
+        // studio window doesn't have focus. visibilityState alone misses
+        // it; hasFocus() catches it.
+        setVisibility("visible", false);
+        const { notifyTurnComplete } = await load();
+        notifyTurnComplete({ branch: "b1", title: "T", foreground: true });
+        expect(shown).toHaveLength(1);
     });
 
     it("notifies when a background session finishes", async () => {
