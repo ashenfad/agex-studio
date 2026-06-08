@@ -30,6 +30,11 @@
     import { peekSessionRuntime } from './session-runtime.svelte.js'
     import { settingsStore, updateSettings } from './settings.js'
     import { wakeLockSupported } from './wake-lock.js'
+    import {
+        notificationsSupported,
+        notificationPermission,
+        requestNotificationPermission,
+    } from './notify.js'
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
     import ForkModal from './ForkModal.svelte'
@@ -95,6 +100,31 @@
             checkTimer = setTimeout(() => {
                 checkState = null
             }, 4000)
+        }
+    }
+
+    // Notification permission, tracked reactively so the toggle reflects
+    // a grant/denial immediately. Seeded on open.
+    let notifyPermission = $state(notificationPermission())
+    // "denied" is a hard block the page can't undo (the user must change
+    // it in browser settings) — surface that distinctly from "off".
+    let notifyBlocked = $derived(notifyPermission === 'denied')
+
+    async function toggleNotify() {
+        if (!notificationsSupported() || notifyBlocked) return
+        if ($settingsStore.notifyOnFinish) {
+            updateSettings({ notifyOnFinish: false })
+            return
+        }
+        // Turning on: ensure permission first so the flag never sits
+        // "on but silently blocked."
+        const perm =
+            notificationPermission() === 'granted'
+                ? 'granted'
+                : await requestNotificationPermission()
+        notifyPermission = perm
+        if (perm === 'granted') {
+            updateSettings({ notifyOnFinish: true })
         }
     }
 
@@ -176,6 +206,7 @@
             deleteConfirmBranch = null
             settingsResetConfirm = false
             refreshStorageUsage()
+            notifyPermission = notificationPermission()
         }
     })
 
@@ -1028,6 +1059,23 @@
                     onchange={() => updateSettings({ keepAwake: !$settingsStore.keepAwake })}
                 />
                 <span>Keep screen awake while working</span>
+            </label>
+            <label
+                class="keep-awake-row"
+                class:disabled={!notificationsSupported() || notifyBlocked}
+                title={!notificationsSupported()
+                    ? 'Your browser does not support notifications.'
+                    : notifyBlocked
+                      ? 'Notifications are blocked for this site — re-enable them in your browser settings.'
+                      : 'Get a desktop notification when a session finishes while you are on another tab or session.'}
+            >
+                <input
+                    type="checkbox"
+                    checked={$settingsStore.notifyOnFinish && !notifyBlocked}
+                    disabled={!notificationsSupported() || notifyBlocked}
+                    onchange={toggleNotify}
+                />
+                <span>Notify when a session finishes off-screen</span>
             </label>
             {#if storageUsage !== null}
                 <span class="storage-usage" title="Includes cached packages">{formatBytes(storageUsage)} used (incl. cache)</span>

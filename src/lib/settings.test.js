@@ -40,6 +40,7 @@ describe("settingsStore", () => {
             serviceTier: "standard",
             githubPat: "",
             keepAwake: false,
+            notifyOnFinish: false,
         });
         unsub();
     });

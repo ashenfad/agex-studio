@@ -12,7 +12,8 @@
     import { settingsStore } from './settings.js'
     import TokenModal from './TokenModal.svelte'
     import { pyodideStore } from './pyodide.js'
-    import { initSessionsFromUrl, loadHistoryChunked, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { initSessionsFromUrl, loadHistoryChunked, switchSession, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { setNotificationActivateHandler } from './notify.js'
     import { importFromDrive, isDriveImportAvailable } from './drive-import.js'
     import { queueFiles } from './pending-attachments.js'
     import { loadCache as loadSessionCache } from './session-index.js'
@@ -87,6 +88,16 @@
     // re-acquires on `visibilitychange`; we just feed it "desired" here.
     $effect(() => {
         setWakeLockDesired($settingsStore.keepAwake && activeTurnCount() > 0)
+    })
+
+    // Clicking a completion notification should bring the user to that
+    // session. Registered once; the notify module already focuses the
+    // window before invoking this.
+    setNotificationActivateHandler((branch) => {
+        if (branch === $sessionStore.currentBranch) return
+        void switchSession(branch).catch((e) =>
+            console.error('Notification switch failed:', e),
+        )
     })
 
     // Captured once at mount, before ``initSessionsFromUrl`` replaces
