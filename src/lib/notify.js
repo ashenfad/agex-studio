@@ -23,6 +23,48 @@ import { isOnScreen } from "./presence.js";
 /** @type {((branch: string) => void) | null} */
 let _onActivate = null;
 
+/** The app glyph from public/favicon.svg — keep in sync. */
+const _ICON_PATH =
+    "M8,3A2,2 0 0,0 6,5V9A2,2 0 0,1 4,11H3V13H4A2,2 0 0,1 6,15V19A2,2 0 0,0 8,21H10V19H8V14A2,2 0 0,0 6,12A2,2 0 0,0 8,10V5H10V3M16,3A2,2 0 0,1 18,5V9A2,2 0 0,0 20,11H21V13H20A2,2 0 0,0 18,15V19A2,2 0 0,1 16,21H14V19H16V14A2,2 0 0,1 18,12A2,2 0 0,1 16,10V5H14V3H16Z";
+
+/** PNG data URL of the app icon for notifications, rasterized once.
+ *  Notification `icon` wants a raster image — SVG icons don't render
+ *  reliably across platforms — so we draw the glyph (on a rounded dark
+ *  tile, the way an app icon reads) to a canvas. Best-effort: stays null
+ *  if any DOM API is missing, in which case notifications fall back to
+ *  the browser default. */
+let _iconUrl = null;
+(function _rasterizeIcon() {
+    try {
+        if (typeof document === "undefined" || typeof Image === "undefined") {
+            return;
+        }
+        if (typeof document.createElement !== "function") return;
+        const size = 192;
+        const svg =
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">` +
+            `<rect width="24" height="24" rx="5" fill="#16213e"/>` +
+            `<path fill="#7c6fe0" d="${_ICON_PATH}"/></svg>`;
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const canvas = document.createElement("canvas");
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) return;
+                ctx.drawImage(img, 0, 0, size, size);
+                _iconUrl = canvas.toDataURL("image/png");
+            } catch {
+                // Tainted canvas / unsupported — leave the default icon.
+            }
+        };
+        img.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    } catch {
+        // No DOM — leave _iconUrl null.
+    }
+})();
+
 /** Opt-in console tracing for diagnosing "why didn't a notification
  *  appear." Enable from the devtools console with
  *  `localStorage.setItem('agex-notify-debug', '1')` (reload not needed),
@@ -121,6 +163,7 @@ export function notifyTurnComplete({ branch, title, foreground }) {
         // once-per-completion notification doesn't stack enough to matter.
         const n = new Notification("agex.studio", {
             body: `${title || "A session"} finished working`,
+            icon: _iconUrl || undefined,
         });
         n.onclick = () => {
             try {
@@ -165,6 +208,7 @@ export function showAppNotification({ title, body, branch }) {
         // `renotify`, so they never appeared. Showing reliably wins.
         const n = new Notification(_cap(title, 100) || "agex.studio", {
             body: _cap(body, 250),
+            icon: _iconUrl || undefined,
         });
         n.onclick = () => {
             try {
