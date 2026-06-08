@@ -17,6 +17,17 @@
 let _desired = false;
 /** @type {WakeLockSentinel | null} */
 let _sentinel = null;
+/** Serializes `_sync` runs. `_sync` awaits across `request()` / `release()`,
+ *  so overlapping calls could each observe `_sentinel === null` mid-request
+ *  and acquire duplicate locks — leaking every sentinel but the last and
+ *  draining the battery. Chaining through one promise makes reconciliation
+ *  strictly sequential; the `.catch` keeps a stray rejection from wedging
+ *  the chain (though `_sync` already swallows acquire/release errors). */
+let _syncChain = Promise.resolve();
+
+function _scheduleSync() {
+    _syncChain = _syncChain.then(_sync).catch(() => {});
+}
 
 function _supported() {
     return typeof navigator !== "undefined" && "wakeLock" in navigator;
@@ -60,10 +71,10 @@ async function _sync() {
 /** Set whether the screen should be kept awake. Idempotent. */
 export function setWakeLockDesired(desired) {
     _desired = !!desired;
-    void _sync();
+    _scheduleSync();
 }
 
 // Re-acquire after the browser auto-releases on tab hide / restore.
 if (typeof document !== "undefined") {
-    document.addEventListener("visibilitychange", () => void _sync());
+    document.addEventListener("visibilitychange", _scheduleSync);
 }

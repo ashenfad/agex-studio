@@ -872,9 +872,16 @@ export async function checkImportedUpdates(pat = null, { force = false } = {}) {
         .map((s) => ({ branch: s.branch, info: getImportInfo(s.branch) }))
         .filter(({ info }) => info && !info.pinned && !info.deleted);
     if (targets.length === 0) return { checked: 0, updates: 0 };
+    // `checkGistUpdate` is built to be non-throwing (network / rate-limit
+    // / deleted-gist all return the cached record), but the synchronous
+    // localStorage write inside it can still throw (e.g. quota). Catch
+    // per-call so one branch's failure can't abort the whole sweep —
+    // keeps this independent of that internal contract.
     await Promise.all(
         targets.map(({ branch, info }) =>
-            checkGistUpdate(branch, { pat, importInfo: info, force }),
+            checkGistUpdate(branch, { pat, importInfo: info, force }).catch(
+                (e) => console.error(`Gist update check failed for ${branch}:`, e),
+            ),
         ),
     );
     refreshUpdateStatus();

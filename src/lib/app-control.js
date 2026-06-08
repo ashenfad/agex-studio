@@ -113,6 +113,10 @@ const _VIEWPORT_MIN = 200;
 const _VIEWPORT_MAX = 4000;
 
 function _clampDim(n, fallback) {
+    // `null`/`undefined` mean "omitted" → fallback. Guard explicitly:
+    // `Number(null)` is 0 (finite), which would otherwise clamp to the
+    // floor instead of falling back.
+    if (n == null) return fallback;
     const v = Math.round(Number(n));
     if (!Number.isFinite(v)) return fallback;
     return Math.max(_VIEWPORT_MIN, Math.min(_VIEWPORT_MAX, v));
