@@ -431,18 +431,46 @@ let _controlIdCounter = 0;
 export function sendControl(iframe, action) {
     const id = `ctrl-${++_controlIdCounter}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve, reject) => {
+        function cleanup() {
+            window.removeEventListener('message', handler);
+            iframe.removeEventListener?.('load', onNavigate);
+        }
         function handler(event) {
             if (event.source !== iframe.contentWindow) return;
             const data = event.data;
             if (data?.type !== 'agex-control-result' || data.id !== id) return;
-            window.removeEventListener('message', handler);
+            cleanup();
             if (data.error) {
                 reject(new Error(data.error));
             } else {
                 resolve(data.data);
             }
         }
+        // The iframe fires `load` when it (re)navigates — e.g. the app
+        // called `location.reload()` / set `location.href`, or a link /
+        // form navigated it. agex apps are `document.write`n into the
+        // sandbox host rather than served at a URL, so any navigation
+        // throws the app (and the control bridge) away: the reply we're
+        // waiting for is lost in the unload, and the one-shot host
+        // handshake won't re-inject the app, so the bridge never comes
+        // back. Without this the pending promise would hang until the
+        // agent's emission timeout (~180s). Fail fast with a message the
+        // agent can act on instead. The `NavigationError:` prefix lets
+        // `executeActions` stop the run (later actions would hang too).
+        function onNavigate() {
+            cleanup();
+            reject(
+                new Error(
+                    "NavigationError: the app navigated or reloaded during this " +
+                    "action (e.g. location.reload(), location.href = ..., or a link/" +
+                    "form navigation). agex apps are injected into the sandbox host, " +
+                    "not served at a URL, so navigation tears down the app and isn't " +
+                    "supported — reset in-app state to 're-render' instead of reloading.",
+                ),
+            );
+        }
         window.addEventListener('message', handler);
+        iframe.addEventListener?.('load', onNavigate);
         // Target origin '*' here lets the same code path serve both
         // the cross-origin apps-host iframes (prod / staging) and any
         // future same-origin fallback. The iframe-side handler

@@ -422,6 +422,28 @@ describe("dispatchAction — get-logs", () => {
     });
 });
 
+describe("sendControl — navigation handling", () => {
+    it("rejects with NavigationError when the iframe (re)loads mid-action", async () => {
+        let loadHandler = null;
+        const removed = [];
+        const iframe = {
+            contentWindow: { postMessage: () => {} },
+            addEventListener: (type, fn) => {
+                if (type === "load") loadHandler = fn;
+            },
+            removeEventListener: (type) => removed.push(type),
+        };
+        const p = sendControl(iframe, { eval: "location.reload()" });
+        // The bridge attached a load listener; simulate the app
+        // navigating (what location.reload() triggers).
+        expect(typeof loadHandler).toBe("function");
+        loadHandler();
+        await expect(p).rejects.toThrow(/^NavigationError:/);
+        // Both listeners are torn down (the load one via the iframe).
+        expect(removed).toContain("load");
+    });
+});
+
 describe("dispatchAction — unknown action", () => {
     it("throws for unrecognized action shape", async () => {
         await expect(
