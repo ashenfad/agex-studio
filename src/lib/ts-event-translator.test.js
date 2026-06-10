@@ -645,9 +645,19 @@ describe("serializeChapterEvents", () => {
         expect(band.chapters[0].name).toBe("only");
     });
 
-    it("emits spawn chips before a success carrying spawnEvents", async () => {
+    it("interleaves spawn chips after the action that spawned them", async () => {
         const resolver = makeResolver({
             ts: { type: "taskStart", taskName: "chat", inputs: "fan out" },
+            a1: {
+                type: "action",
+                timestamp: "2026-06-09T00:00:01.000Z",
+                emissions: [{ type: "ts", code: "spawn(...)", title: "a1" }],
+            },
+            a2: {
+                type: "action",
+                timestamp: "2026-06-09T00:00:05.000Z",
+                emissions: [{ type: "ts", code: "wrapUp()", title: "a2" }],
+            },
             succ: {
                 type: "success",
                 result: "done",
@@ -655,7 +665,12 @@ describe("serializeChapterEvents", () => {
                     {
                         spawnIndex: 0,
                         events: [
-                            { type: "taskStart", inputs: "subtask" },
+                            {
+                                type: "taskStart",
+                                inputs: "subtask",
+                                // Started during a1's execution.
+                                timestamp: "2026-06-09T00:00:02.000Z",
+                            },
                             {
                                 type: "action",
                                 emissions: [
@@ -669,21 +684,44 @@ describe("serializeChapterEvents", () => {
             },
         });
         const out = await serializeChapterEvents(
-            ["ts", "succ"],
+            ["ts", "a1", "a2", "succ"],
             resolver,
             normalizeChatResponse,
         );
-        expect(out.map((x) => x.type)).toEqual([
+        // Chip lands between the spawning action (a1) and the next
+        // (a2), not at the end of the activity.
+        expect(out.map((x) => (x.type === "action" ? x.title : x.type))).toEqual([
             "task_start",
+            "a1",
             "spawn",
+            "a2",
             "success",
         ]);
-        expect(out[1].status).toBe("success");
-        expect(out[1].events).toHaveLength(1);
+        expect(out[2].status).toBe("success");
+        expect(out[2].events).toHaveLength(1);
     });
 });
 
 // ---------------------------------------------------------------------------
+
+describe("synthesizeAction ts stamp", () => {
+    it("stamps epoch-ms ts from the event timestamp", () => {
+        const out = synthesizeAction({
+            type: "action",
+            timestamp: "2026-06-09T00:00:01.000Z",
+            emissions: [{ type: "ts", code: "f()" }],
+        });
+        expect(out.ts).toBe(Date.parse("2026-06-09T00:00:01.000Z"));
+    });
+
+    it("omits ts when the event has no timestamp", () => {
+        const out = synthesizeAction({
+            type: "action",
+            emissions: [{ type: "ts", code: "f()" }],
+        });
+        expect("ts" in out).toBe(false);
+    });
+});
 
 describe("spawn value helpers", () => {
     it("summarizeSpawnValue collapses whitespace and truncates", () => {
@@ -753,6 +791,7 @@ describe("serializeSpawnChips", () => {
         expect(chip.id).toBe("0");
         expect(chip.status).toBe("success");
         expect(chip.steps).toBe(1);
+        expect(chip.startedAt).toBe(Date.parse(t0));
         expect(chip.durationMs).toBe(2500);
         expect(chip.inputsSummary).toBe('{"query":"research X"}');
         expect(chip.inputs).toContain('"query": "research X"');

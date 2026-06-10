@@ -72,6 +72,7 @@ import {
     serializeChapterEvents,
     serializeSpawnChips,
 } from "./ts-event-translator.js";
+import { interleaveSpawnChips } from "./event-utils.js";
 import { normalizeChatResponse, chatResponseSchema } from "./ts-chat-response.js";
 
 /**
@@ -1545,9 +1546,12 @@ export async function loadHistory(branch) {
             // Reconstruct spawn chips from the terminal event's captured
             // clone timelines (`captureSpawnEvents` on createAgent) so
             // the turn's fan-out — and its drill-down detail — survives
-            // reload. Chips trail the turn's actions, matching the live
-            // path's ordering.
-            currentEvents.push(..._spawnChipsOf(e));
+            // reload. Interleaved at their spawn points (chip
+            // `startedAt` vs action `ts`), matching the live feed.
+            currentEvents = interleaveSpawnChips(
+                currentEvents,
+                _spawnChipsOf(e),
+            );
             // Normalizer routes structured returns (`["text", figure,
             // table]`, single figure / table, etc.) into the renderer's
             // expected shape. Bare strings still land as a simple text
@@ -1562,7 +1566,10 @@ export async function loadHistory(branch) {
             currentTaskName = null;
         } else if (t === "fail") {
             const message = /** @type {any} */ (e).message ?? "Task failed";
-            currentEvents.push(..._spawnChipsOf(e));
+            currentEvents = interleaveSpawnChips(
+                currentEvents,
+                _spawnChipsOf(e),
+            );
             messages.push({
                 role: "agent",
                 content: { type: "text", content: `Error: ${message}` },
@@ -1572,7 +1579,10 @@ export async function loadHistory(branch) {
             currentEvents = [];
             currentTaskName = null;
         } else if (t === "cancelled") {
-            currentEvents.push(..._spawnChipsOf(e));
+            currentEvents = interleaveSpawnChips(
+                currentEvents,
+                _spawnChipsOf(e),
+            );
             messages.push({
                 role: "agent",
                 content: { type: "text", content: "" },

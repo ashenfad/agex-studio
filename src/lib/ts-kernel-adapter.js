@@ -57,6 +57,7 @@ import {
     serializeSpawnActionEvent,
     summarizeSpawnValue,
     spawnValueText,
+    eventMs,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse } from "./ts-chat-response.js";
 
@@ -263,6 +264,11 @@ export function createTsAdapter() {
                                         id,
                                         inputsSummary: summarizeSpawnValue(ev.inputs),
                                         inputs: spawnValueText(ev.inputs),
+                                        // Event-log clock (same source as the
+                                        // `ts` stamps on parent actions) so the
+                                        // final message can interleave the chip
+                                        // after the action that spawned it.
+                                        startedAt: eventMs(ev.timestamp) ?? Date.now(),
                                     });
                                 } else if (et === "action") {
                                     const c = spawnChips.get(id);

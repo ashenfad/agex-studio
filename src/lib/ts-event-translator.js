@@ -26,6 +26,8 @@
  * for layout; only the highlighter dispatch differs.
  */
 
+import { interleaveSpawnChips } from "./event-utils.js";
+
 const _NL = "\n";
 const _NL2 = "\n\n";
 
@@ -129,6 +131,11 @@ export function synthesizeAction(actionEvent) {
         const ed = serializeEmission(em, idx);
         if (ed !== null) emissionDicts.push(ed);
     }
+    // `ts` (epoch ms from the source event's timestamp) anchors spawn
+    // chips between actions — see `interleaveSpawnChips` in
+    // event-utils.js. Omitted when the source has no timestamp; the
+    // renderer ignores it.
+    const ms = eventMs(actionEvent?.timestamp);
     return {
         type: "action",
         title: titles[0] || "",
@@ -136,6 +143,7 @@ export function synthesizeAction(actionEvent) {
         emissions: emissionDicts,
         input_tokens: actionEvent?.inputTokens,
         output_tokens: actionEvent?.outputTokens,
+        ...(ms !== null ? { ts: ms } : {}),
     };
 }
 
@@ -280,7 +288,7 @@ export function serializeSpawnActionEvent(actionEvent) {
 
 /** Epoch millis from an agex-ts event timestamp (Date or ISO string),
  *  or null when absent/unparseable. */
-function _eventMs(value) {
+export function eventMs(value) {
     if (value == null) return null;
     const d = value instanceof Date ? value : new Date(value);
     const t = d.getTime();
@@ -322,7 +330,7 @@ export function serializeSpawnChips(spawnEvents) {
             if (t === "taskStart") {
                 inputsSummary = summarizeSpawnValue(ev.inputs);
                 inputs = spawnValueText(ev.inputs);
-                startMs = _eventMs(ev.timestamp);
+                startMs = eventMs(ev.timestamp);
             } else if (t === "action") {
                 steps += 1;
                 const action = serializeSpawnActionEvent(ev);
@@ -334,14 +342,14 @@ export function serializeSpawnChips(spawnEvents) {
                 status = "success";
                 resultSummary = summarizeSpawnValue(ev.result);
                 result = spawnValueText(ev.result);
-                endMs = _eventMs(ev.timestamp);
+                endMs = eventMs(ev.timestamp);
             } else if (t === "fail") {
                 status = "fail";
                 error = ev.message;
-                endMs = _eventMs(ev.timestamp);
+                endMs = eventMs(ev.timestamp);
             } else if (t === "cancelled") {
                 status = "cancelled";
-                endMs = _eventMs(ev.timestamp);
+                endMs = eventMs(ev.timestamp);
             }
         }
         chips.push({
@@ -351,6 +359,9 @@ export function serializeSpawnChips(spawnEvents) {
             inputs,
             status,
             steps,
+            // Anchors the chip after the parent action that spawned it
+            // when merged via `interleaveSpawnChips`.
+            startedAt: startMs ?? undefined,
             durationMs:
                 startMs !== null && endMs !== null
                     ? Math.max(0, endMs - startMs)
@@ -488,11 +499,18 @@ async function _walkChapterEvents(eventsList, resolveByKey, normalizeResult) {
                 curTask = null;
             } else {
                 // Spawn chips ride the terminal event's captured
-                // `spawnEvents` — push them BEFORE the success entry so
-                // they group into the same activity block as the task's
-                // actions (groupEventsForChat flushes on success).
+                // `spawnEvents`. Interleave them among the walked
+                // entries (anchored after the action that spawned
+                // each, via the actions' `ts` stamps) before the
+                // success entry so they group into the same activity
+                // block (groupEventsForChat flushes on success).
                 if (Array.isArray(se.spawnEvents) && se.spawnEvents.length) {
-                    result.push(...serializeSpawnChips(se.spawnEvents));
+                    const merged = interleaveSpawnChips(
+                        result,
+                        serializeSpawnChips(se.spawnEvents),
+                    );
+                    result.length = 0;
+                    result.push(...merged);
                 }
                 result.push({
                     type: "success",

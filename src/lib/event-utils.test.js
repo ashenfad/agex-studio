@@ -7,6 +7,7 @@ import {
     segmentParts,
     groupEventsForChat,
     hasOutputEvents,
+    interleaveSpawnChips,
 } from "./event-utils.js";
 
 describe("trim", () => {
@@ -345,6 +346,66 @@ describe("groupEventsForChat", () => {
 
     it("returns empty array for empty events", () => {
         expect(groupEventsForChat([])).toEqual([]);
+    });
+});
+
+describe("interleaveSpawnChips", () => {
+    const action = (ts, title) => ({ type: "action", ts, title });
+    const output = (msg) => ({ type: "output", message: msg });
+    const chip = (id, startedAt) => ({ type: "spawn", id, startedAt });
+
+    it("slots a chip after the action that spawned it (and its output)", () => {
+        // Spawn started at t=15, during action@10's execution. Its
+        // output (no ts) flushes in input order; the chip lands before
+        // the next action@20.
+        const merged = interleaveSpawnChips(
+            [action(10, "a"), output("o1"), action(20, "b"), output("o2")],
+            [chip("0", 15)],
+        );
+        expect(merged.map((e) => e.type)).toEqual([
+            "action",
+            "output",
+            "spawn",
+            "action",
+            "output",
+        ]);
+    });
+
+    it("keeps concurrent chips in startedAt order at the same slot", () => {
+        const merged = interleaveSpawnChips(
+            [action(10, "a"), action(30, "b")],
+            [chip("1", 16), chip("0", 14)],
+        );
+        expect(merged.map((e) => e.id ?? e.title)).toEqual([
+            "a",
+            "0",
+            "1",
+            "b",
+        ]);
+    });
+
+    it("appends chips with no startedAt (and after ts-less events) at the end", () => {
+        const merged = interleaveSpawnChips(
+            [action(10, "a"), { type: "cancelled" }],
+            [chip("0", undefined)],
+        );
+        expect(merged.map((e) => e.type)).toEqual([
+            "action",
+            "cancelled",
+            "spawn",
+        ]);
+    });
+
+    it("appends chips that started after every event", () => {
+        const merged = interleaveSpawnChips([action(10, "a")], [chip("0", 99)]);
+        expect(merged.map((e) => e.type)).toEqual(["action", "spawn"]);
+    });
+
+    it("no chips → copy of events", () => {
+        const events = [action(10, "a")];
+        const merged = interleaveSpawnChips(events, []);
+        expect(merged).toEqual(events);
+        expect(merged).not.toBe(events);
     });
 });
 

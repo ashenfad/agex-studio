@@ -176,6 +176,33 @@ describe("SessionRuntime — spawn chips", () => {
         expect(rt.liveSpawnChips[0].events).toEqual([action, output]);
         expect(rt.liveSpawnChips[0].result).toBe("done");
     });
+
+    it("anchors a live chip after the snapshot that spawned it", () => {
+        const rt = new SessionRuntime("chat-test");
+        // First action commits, then its execution spawns a clone,
+        // then a second action streams and commits. The chip must
+        // render between the two snapshots, not at the end.
+        rt.handleToken({ type: "title", content: "first", emission_index: 0 });
+        rt.handleToken({ type: "ts", content: "spawn(...)", emission_index: 0 });
+        rt.handleToken({ type: "turn_complete" });
+        rt.handleToken({
+            type: "spawn",
+            phase: "start",
+            id: "0",
+            inputsSummary: "subtask",
+            startedAt: 1000,
+        });
+        rt.handleToken({ type: "title", content: "second", emission_index: 1 });
+        rt.handleToken({ type: "ts", content: "more()", emission_index: 1 });
+        rt.handleToken({ type: "turn_complete" });
+
+        const streaming = rt.messages.find((m) => m.streaming && !m.isReport);
+        expect(
+            streaming.events.map((e) =>
+                e.type === "spawn" ? "spawn" : e.title,
+            ),
+        ).toEqual(["first", "spawn", "second"]);
+    });
 });
 
 describe("SessionRuntime — rebuildStreamingMessages", () => {
