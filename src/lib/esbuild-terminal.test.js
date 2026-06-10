@@ -66,6 +66,12 @@ function mockFs(initial = {}) {
         async write(path, content) {
             files.set(path, content);
         },
+        /** Recorded mkdir calls — `runEsbuildCommand` mkdir-p's the
+         *  outfile's parent before writing. */
+        mkdirs: [],
+        async mkdir(path, opts) {
+            this.mkdirs.push({ path, opts });
+        },
     };
 }
 
@@ -376,6 +382,23 @@ describe("runEsbuildCommand", () => {
         expect(cap.text()).toBe(
             "esbuild: bundled app/index.jsx → app/bundle.js (13 bytes)\n",
         );
+    });
+
+    it("mkdir -p's the outfile's parent before writing (nested dirs)", async () => {
+        const fs = mockFs({ "app/index.jsx": "export default 1" });
+        const cap = captureStdout();
+        await runEsbuildCommand(
+            {
+                args: ["app/index.jsx", "--outfile=app/dist/bundle.js"],
+                stdout: cap.stdout,
+                fs,
+            },
+            async () => ({ contents: "x", errors: [], warnings: [] }),
+        );
+        expect(fs.mkdirs).toEqual([
+            { path: "app/dist", opts: { parents: true, existOk: true } },
+        ]);
+        expect(fs.files.has("app/dist/bundle.js")).toBe(true);
     });
 
     it("forwards --minify to the bridge", async () => {
