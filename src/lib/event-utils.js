@@ -135,6 +135,25 @@ export function deriveTitle(events) {
 }
 
 /**
+ * Whether an event list contains any output events — top-level or
+ * nested inside a spawn chip's drill-down timeline. Drives the
+ * modals' "stdout" toggle visibility; without the nested check, a
+ * turn whose only output came from clones would never offer the
+ * toggle. (Clones are depth-1, so one level of nesting suffices.)
+ *
+ * @param {Array} events
+ * @returns {boolean}
+ */
+export function hasOutputEvents(events) {
+    return events.some(
+        (e) =>
+            e.type === 'output' ||
+            (e.type === 'spawn' &&
+                (e.events || []).some((d) => d.type === 'output')),
+    )
+}
+
+/**
  * Split a rich response into segments: consecutive text parts merge, rich parts standalone.
  * @param {{ type: string, content?: string, parts?: Array }} content
  * @returns {Array<{ kind: string, content?: string, data?: object }>}

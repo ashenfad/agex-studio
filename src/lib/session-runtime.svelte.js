@@ -136,9 +136,11 @@ export class SessionRuntime {
     streamingEvents = $state([]);
     currentTurn = $state(null);
     /** Live spawn chips for the in-flight turn — one per concurrent
-     *  clone, keyed by its `spawnIndex`. Live-only: shown during the
-     *  turn and injected into the turn's in-memory final message, but
-     *  NOT persisted — gone on reload. */
+     *  clone, keyed by its `spawnIndex`. Each chip accumulates the
+     *  clone's translated events (`events`) for the drill-down view.
+     *  The live chips themselves are in-memory only — after a reload
+     *  they reconstruct from the terminal event's captured
+     *  `spawnEvents` (see loadHistory → serializeSpawnChips). */
     liveSpawnChips = $state([]);
     /** Report streaming accumulator — null when no TextEmission is
      *  currently building. Lifted out of `currentTurn` so the
@@ -357,7 +359,8 @@ export class SessionRuntime {
         if (token.type === "spawn") {
             // Live delegation chip for a spawned clone. `start` appends a
             // running chip (keyed by clone index); `progress` bumps its
-            // step count; `end` resolves it to success/fail/cancelled.
+            // step count and/or appends drill-down detail events;
+            // `end` resolves it to success/fail/cancelled.
             if (token.phase === "start") {
                 this.liveSpawnChips = [
                     ...this.liveSpawnChips,
@@ -365,22 +368,34 @@ export class SessionRuntime {
                         type: "spawn",
                         id: token.id,
                         inputsSummary: token.inputsSummary,
+                        inputs: token.inputs,
                         status: "running",
                         steps: 0,
+                        events: [],
                     },
                 ];
             } else {
+                const mergeEvents = (c) =>
+                    token.events?.length
+                        ? [...(c.events || []), ...token.events]
+                        : c.events || [];
                 this.liveSpawnChips = this.liveSpawnChips.map((c) =>
                     c.id === token.id
                         ? token.phase === "progress"
-                            ? { ...c, steps: token.steps }
+                            ? {
+                                  ...c,
+                                  steps: token.steps ?? c.steps,
+                                  events: mergeEvents(c),
+                              }
                             : {
                                   ...c,
                                   status: token.status,
                                   steps: token.steps ?? c.steps,
                                   durationMs: token.durationMs,
                                   resultSummary: token.resultSummary,
+                                  result: token.result,
                                   error: token.error,
+                                  events: mergeEvents(c),
                               }
                         : c,
                 );
@@ -831,8 +846,9 @@ export class SessionRuntime {
             );
 
             // Replace streaming message with final message. Spawn chips
-            // (live-only, never in response.events) ride along in-memory
-            // so the turn's fan-out stays visible until reload.
+            // (never in response.events) ride along from the live state;
+            // after a reload, loadHistory rebuilds equivalent chips from
+            // the terminal event's captured `spawnEvents`.
             const finalMessages = this.messages.filter((m) => !m.streaming);
             const finalEvents = [...response.events, ...this.liveSpawnChips];
             if (cancelled) {

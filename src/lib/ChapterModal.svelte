@@ -1,6 +1,6 @@
 <script>
     import { renderMarkdown } from './markdown.js'
-    import { groupEventsForChat, deriveTitle, segmentParts, truncateText } from './event-utils.js'
+    import { groupEventsForChat, deriveTitle, segmentParts, truncateText, hasOutputEvents } from './event-utils.js'
     import ActivityPanel from './ActivityPanel.svelte'
     import DataTable from './DataTable.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
@@ -50,7 +50,7 @@
     )
 
     let hasOutput = $derived(
-        current?.kind === 'activity' ? current.events.some(e => e.type === 'output') : false
+        current?.kind === 'activity' ? hasOutputEvents(current.events) : false
     )
 
     function pushChapter(ch) {

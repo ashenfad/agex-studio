@@ -70,6 +70,7 @@ import {
     serializeOutputParts,
     splitOutputEvents,
     serializeChapterEvents,
+    serializeSpawnChips,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse, chatResponseSchema } from "./ts-chat-response.js";
 
@@ -378,6 +379,13 @@ async function _createBranchAgent(branch) {
         // (via `agent.spawn`) for app-initiated calls — see
         // `spawnFromApp`. Default is 8; set explicitly for intent.
         maxSpawns: 8,
+        // Capture per-clone event timelines onto the task's terminal
+        // event (`spawnEvents` on success/fail/cancelled; agex-ts >=
+        // 0.4.0). Invisible to the parent LLM — it's the durable record
+        // `loadHistory` uses to rebuild spawn drill-down chips after a
+        // reload. Cost: wide fan-outs make terminal events (and so
+        // commits/bundles) proportionally larger.
+        captureSpawnEvents: true,
         // Open-mode imports: any bare specifier the agent writes that
         // isn't in the registered namespace map (the explicit
         // `agent.namespace(...)` calls below) falls through to here
@@ -1533,6 +1541,12 @@ export async function loadHistory(branch) {
                 currentTaskName = null;
                 continue;
             }
+            // Reconstruct spawn chips from the terminal event's captured
+            // clone timelines (`captureSpawnEvents` on createAgent) so
+            // the turn's fan-out — and its drill-down detail — survives
+            // reload. Chips trail the turn's actions, matching the live
+            // path's ordering.
+            currentEvents.push(..._spawnChipsOf(e));
             // Normalizer routes structured returns (`["text", figure,
             // table]`, single figure / table, etc.) into the renderer's
             // expected shape. Bare strings still land as a simple text
@@ -1547,6 +1561,7 @@ export async function loadHistory(branch) {
             currentTaskName = null;
         } else if (t === "fail") {
             const message = /** @type {any} */ (e).message ?? "Task failed";
+            currentEvents.push(..._spawnChipsOf(e));
             messages.push({
                 role: "agent",
                 content: { type: "text", content: `Error: ${message}` },
@@ -1556,6 +1571,7 @@ export async function loadHistory(branch) {
             currentEvents = [];
             currentTaskName = null;
         } else if (t === "cancelled") {
+            currentEvents.push(..._spawnChipsOf(e));
             messages.push({
                 role: "agent",
                 content: { type: "text", content: "" },
@@ -1584,6 +1600,13 @@ export async function loadHistory(branch) {
     }
 
     return messages;
+}
+
+/** Spawn chips for a terminal event's captured `spawnEvents`, or `[]`
+ *  when the field is absent (pre-capture sessions, no fan-out). */
+function _spawnChipsOf(terminalEvent) {
+    const se = /** @type {any} */ (terminalEvent)?.spawnEvents;
+    return Array.isArray(se) && se.length ? serializeSpawnChips(se) : [];
 }
 
 function _toDate(value) {

@@ -1,6 +1,6 @@
 <script>
     import { tick } from 'svelte'
-    import { deriveTitle } from './event-utils.js'
+    import { deriveTitle, hasOutputEvents } from './event-utils.js'
     import EventDetail from './EventDetail.svelte'
 
     /** @type {{ events: Array | null, streaming?: boolean, onClose: () => void }} */
@@ -11,9 +11,7 @@
 
     let title = $derived(events ? deriveTitle(events) : '')
 
-    let hasOutput = $derived(
-        events ? events.some(e => e.type === 'output') : false
-    )
+    let hasOutput = $derived(events ? hasOutputEvents(events) : false)
 
     function handleKeydown(e) {
         if (e.key === 'Escape') onClose()

@@ -54,6 +54,9 @@ import {
     serializeOutputParts,
     splitOutputEvents,
     makeLiveTokenTranslator,
+    serializeSpawnActionEvent,
+    summarizeSpawnValue,
+    spawnValueText,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse } from "./ts-chat-response.js";
 
@@ -99,20 +102,6 @@ function _dbg(...args) {
     } catch {
         // localStorage can throw in sandboxed contexts — ignore.
     }
-}
-
-/** Compact single-line summary of a spawn chip's inputs/result. Keeps a
- *  big payload from blowing out the chip. */
-function _summarizeSpawn(value, max = 60) {
-    let s;
-    try {
-        s = typeof value === "string" ? value : JSON.stringify(value);
-    } catch {
-        s = String(value);
-    }
-    if (s === undefined) s = "";
-    s = s.replace(/\s+/g, " ");
-    return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
 /**
@@ -254,10 +243,13 @@ export function createTsAdapter() {
                         // spawning task; agex-ts >= 0.3.1). They are NOT chat
                         // narrative — never render them as parent
                         // actions/output. Instead demux by the index into a
-                        // live "running → done" chip token. Live-only: not
-                        // pushed to `events`, so it never persists past the
-                        // turn (the shell injects it into the in-memory final
-                        // message; reload's loadHistory has no chips).
+                        // live "running → done" chip token whose `events`
+                        // payload carries the clone's translated
+                        // actions/outputs for the chip's drill-down view.
+                        // Live tokens are not pushed to `events` — on reload
+                        // the chips reconstruct from the terminal event's
+                        // captured `spawnEvents` instead (captureSpawnEvents
+                        // is on; see loadHistory → serializeSpawnChips).
                         const spawnIndex = /** @type {any} */ (e)?.spawnIndex;
                         if (typeof spawnIndex === "number") {
                             if (userOnToken) {
@@ -269,16 +261,31 @@ export function createTsAdapter() {
                                         type: "spawn",
                                         phase: "start",
                                         id,
-                                        inputsSummary: _summarizeSpawn(ev.inputs),
+                                        inputsSummary: summarizeSpawnValue(ev.inputs),
+                                        inputs: spawnValueText(ev.inputs),
                                     });
                                 } else if (et === "action") {
                                     const c = spawnChips.get(id);
                                     if (c) c.steps += 1;
+                                    const action = serializeSpawnActionEvent(ev);
                                     await userOnToken({
                                         type: "spawn",
                                         phase: "progress",
                                         id,
                                         steps: c ? c.steps : 1,
+                                        ...(action.emissions.length
+                                            ? { events: [action] }
+                                            : {}),
+                                    });
+                                } else if (et === "output") {
+                                    // Clone stdout/errors — drill-down detail
+                                    // only, no step bump (steps count actions).
+                                    const parts = serializeOutputParts(ev);
+                                    await userOnToken({
+                                        type: "spawn",
+                                        phase: "progress",
+                                        id,
+                                        events: splitOutputEvents(parts),
                                     });
                                 } else if (
                                     et === "success" ||
@@ -296,7 +303,11 @@ export function createTsAdapter() {
                                         durationMs: c ? Date.now() - c.startMs : undefined,
                                         resultSummary:
                                             et === "success"
-                                                ? _summarizeSpawn(ev.result)
+                                                ? summarizeSpawnValue(ev.result)
+                                                : undefined,
+                                        result:
+                                            et === "success"
+                                                ? spawnValueText(ev.result)
                                                 : undefined,
                                         error: et === "fail" ? ev.message : undefined,
                                     });

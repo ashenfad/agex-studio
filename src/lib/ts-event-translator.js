@@ -223,6 +223,148 @@ export function splitOutputEvents(parts) {
 }
 
 // ---------------------------------------------------------------------------
+// Spawn-clone serialization
+// ---------------------------------------------------------------------------
+
+/** Compact single-line summary of a spawn chip's inputs/result. Keeps a
+ *  big payload from blowing out the chip. */
+export function summarizeSpawnValue(value, max = 60) {
+    let s;
+    try {
+        s = typeof value === "string" ? value : JSON.stringify(value);
+    } catch {
+        s = String(value);
+    }
+    if (s === undefined) s = "";
+    s = s.replace(/\s+/g, " ");
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+/** Full-fidelity text of a spawn input/result value for the chip's
+ *  drill-down view — pretty-printed JSON for structured values, the
+ *  string itself otherwise. No truncation (the detail view scrolls). */
+export function spawnValueText(value) {
+    if (typeof value === "string") return value;
+    if (value === undefined) return "";
+    try {
+        return JSON.stringify(value, null, 2) ?? "";
+    } catch {
+        return String(value);
+    }
+}
+
+/**
+ * Translate a clone's `ActionEvent` into the shell's `'action'` shape
+ * for the spawn drill-down. Unlike `synthesizeAction` (parent chat
+ * turns), text emissions stay inline in the emissions list — a clone
+ * has no chat bubble to surface narration in, so the drill-down's
+ * action card renders it as a Report section instead of dropping it.
+ *
+ * @param {object} actionEvent - agex-ts ActionEvent (clone-tagged)
+ * @returns {object} `{ type: 'action', title, emissions }`
+ */
+export function serializeSpawnActionEvent(actionEvent) {
+    const emissions = actionEvent?.emissions || [];
+    const titles = [];
+    const emissionDicts = [];
+    for (let idx = 0; idx < emissions.length; idx++) {
+        const em = emissions[idx];
+        if (em && (em.type === "ts" || em.type === "terminal") && em.title) {
+            titles.push(em.title);
+        }
+        const ed = serializeEmission(em, idx);
+        if (ed !== null) emissionDicts.push(ed);
+    }
+    return { type: "action", title: titles[0] || "", emissions: emissionDicts };
+}
+
+/** Epoch millis from an agex-ts event timestamp (Date or ISO string),
+ *  or null when absent/unparseable. */
+function _eventMs(value) {
+    if (value == null) return null;
+    const d = value instanceof Date ? value : new Date(value);
+    const t = d.getTime();
+    return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * Reconstruct spawn chips (the shell's `'spawn'` event dicts, including
+ * the drill-down `events` timeline) from a terminal event's captured
+ * `spawnEvents` field (agex-ts >= 0.4.0 with `captureSpawnEvents` on).
+ *
+ * Mirrors what the live demux path in `ts-kernel-adapter.js` builds
+ * incrementally from streamed clone events, so a reloaded session shows
+ * the same chips the live turn did. A clone bucket with no terminal
+ * event (parent cancelled mid-spawn) reconstructs as `cancelled` —
+ * nothing is still running on reload.
+ *
+ * @param {ReadonlyArray<{spawnIndex: number, events: ReadonlyArray<object>}>} spawnEvents
+ * @returns {Array<object>} shell-shape `'spawn'` chip dicts
+ */
+export function serializeSpawnChips(spawnEvents) {
+    const chips = [];
+    for (const entry of spawnEvents || []) {
+        if (!entry || typeof entry !== "object") continue;
+        let inputsSummary = "";
+        let inputs;
+        let status = "cancelled";
+        let steps = 0;
+        let resultSummary;
+        let result;
+        let error;
+        let startMs = null;
+        let endMs = null;
+        /** @type {Array<object>} */
+        const detail = [];
+        for (const e of entry.events || []) {
+            const t = e && typeof e === "object" ? e.type : null;
+            const ev = /** @type {any} */ (e);
+            if (t === "taskStart") {
+                inputsSummary = summarizeSpawnValue(ev.inputs);
+                inputs = spawnValueText(ev.inputs);
+                startMs = _eventMs(ev.timestamp);
+            } else if (t === "action") {
+                steps += 1;
+                const action = serializeSpawnActionEvent(ev);
+                if (action.emissions.length) detail.push(action);
+            } else if (t === "output") {
+                const parts = serializeOutputParts(ev);
+                detail.push(...splitOutputEvents(parts));
+            } else if (t === "success") {
+                status = "success";
+                resultSummary = summarizeSpawnValue(ev.result);
+                result = spawnValueText(ev.result);
+                endMs = _eventMs(ev.timestamp);
+            } else if (t === "fail") {
+                status = "fail";
+                error = ev.message;
+                endMs = _eventMs(ev.timestamp);
+            } else if (t === "cancelled") {
+                status = "cancelled";
+                endMs = _eventMs(ev.timestamp);
+            }
+        }
+        chips.push({
+            type: "spawn",
+            id: String(entry.spawnIndex),
+            inputsSummary,
+            inputs,
+            status,
+            steps,
+            durationMs:
+                startMs !== null && endMs !== null
+                    ? Math.max(0, endMs - startMs)
+                    : undefined,
+            resultSummary,
+            result,
+            error,
+            events: detail,
+        });
+    }
+    return chips;
+}
+
+// ---------------------------------------------------------------------------
 // Chapter-event serialization
 // ---------------------------------------------------------------------------
 
@@ -345,6 +487,13 @@ async function _walkChapterEvents(eventsList, resolveByKey, normalizeResult) {
                 }
                 curTask = null;
             } else {
+                // Spawn chips ride the terminal event's captured
+                // `spawnEvents` — push them BEFORE the success entry so
+                // they group into the same activity block as the task's
+                // actions (groupEventsForChat flushes on success).
+                if (Array.isArray(se.spawnEvents) && se.spawnEvents.length) {
+                    result.push(...serializeSpawnChips(se.spawnEvents));
+                }
                 result.push({
                     type: "success",
                     result: normalizeResult(se.result),
