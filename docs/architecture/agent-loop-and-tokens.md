@@ -233,10 +233,19 @@ chat bubble for narration).
 
 `ChatShell` maintains a per-turn `liveSpawnChips` list keyed by `id`,
 each chip accumulating its clone's `events` timeline. `EventDetail`
-renders a "running → done/failed" chip under the action that spawned it,
-expandable (live or after the fact) into the clone's full event detail —
-inputs, per-step actions/outputs, and result — via a recursive
-`EventDetail`. Clone stdout follows the modal's existing "stdout" toggle
+renders a "running → done/failed" chip, expandable (live or after the
+fact) into the clone's full event detail — inputs, per-step
+actions/outputs, and result — via a recursive `EventDetail`.
+
+Chips are **interleaved at their spawn points**, not appended at the
+end of the activity. Two anchoring mechanisms: the live feed uses the
+chip's `anchor` (committed-snapshot count when the clone started — the
+chip renders right after the action snapshot that spawned it); the
+final message, reload, and chapter paths use `interleaveSpawnChips`
+(`event-utils.js`), merging by the chip's `startedAt` against the `ts`
+epoch-ms stamps `synthesizeAction` puts on action events — both come
+from the event-log clock. Output events carry no `ts`, so a chip lands
+after its parent action's output, before the next action. Clone stdout follows the modal's existing "stdout" toggle
 just like parent output (`hasOutputEvents` in `event-utils.js` looks one
 level into chips so the toggle appears even when only clones printed).
 

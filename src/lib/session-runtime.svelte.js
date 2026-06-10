@@ -24,6 +24,7 @@
 
 import { get } from "svelte/store";
 import { getActiveAdapter } from "./active-adapter.js";
+import { interleaveSpawnChips } from "./event-utils.js";
 import { loadHistoryChunked, persistSessionMeta, sessionStore } from "./sessions.js";
 import { cancelTask } from "./pyodide.js";
 import { notifyTurnComplete } from "./notify.js";
@@ -372,6 +373,13 @@ export class SessionRuntime {
                         status: "running",
                         steps: 0,
                         events: [],
+                        // Live anchor: number of committed snapshots when
+                        // the clone started — the chip renders right after
+                        // snapshot[anchor - 1], the action that spawned it.
+                        anchor: this.streamingEvents.length,
+                        // Event-log clock; anchors the chip among the
+                        // final message's `ts`-stamped actions.
+                        startedAt: token.startedAt,
                     },
                 ];
             } else {
@@ -546,16 +554,34 @@ export class SessionRuntime {
         this.rebuildStreamingMessages();
     };
 
-    rebuildStreamingMessages = () => {
+    /** Assemble the in-flight turn's event list: committed snapshots
+     *  with spawn chips interleaved at their anchors (right after the
+     *  action snapshot that spawned each clone), then the live
+     *  streaming snapshot, then any chips anchored past the committed
+     *  range (defensive — shouldn't occur, a spawn needs a completed
+     *  parent action). Used by both the streaming rebuild and the
+     *  error/cancel path so the partial feed keeps the same shape. */
+    assembleLiveEvents = () => {
         const liveSnapshot = this.snapshotTurn();
         // A pure-narration turn snapshots to an emission-less action now
         // that text bodies live only in the report bubble — don't fold
         // it into the activity feed (it would render as an empty
         // "Activity" card with a streaming dot).
         const hasLive = liveSnapshot && liveSnapshot.emissions.length;
-        const allEvents = hasLive
-            ? [...this.streamingEvents, liveSnapshot, ...this.liveSpawnChips]
-            : [...this.streamingEvents, ...this.liveSpawnChips];
+        const chips = this.liveSpawnChips;
+        const chipsAt = (i) => chips.filter((c) => (c.anchor ?? 0) === i);
+        const events = [...chipsAt(0)];
+        this.streamingEvents.forEach((e, i) =>
+            events.push(e, ...chipsAt(i + 1)),
+        );
+        if (hasLive) events.push(liveSnapshot);
+        const placed = new Set(events);
+        for (const c of chips) if (!placed.has(c)) events.push(c);
+        return events;
+    };
+
+    rebuildStreamingMessages = () => {
+        const allEvents = this.assembleLiveEvents();
 
         // Rebuild the tail of messages: strip all streaming messages,
         // then re-add current streaming state (optional report +
@@ -846,11 +872,16 @@ export class SessionRuntime {
             );
 
             // Replace streaming message with final message. Spawn chips
-            // (never in response.events) ride along from the live state;
-            // after a reload, loadHistory rebuilds equivalent chips from
-            // the terminal event's captured `spawnEvents`.
+            // (never in response.events) merge in from the live state,
+            // anchored after the action that spawned each (chip
+            // `startedAt` vs action `ts`, both event-log clock); after
+            // a reload, loadHistory rebuilds equivalent chips from the
+            // terminal event's captured `spawnEvents`.
             const finalMessages = this.messages.filter((m) => !m.streaming);
-            const finalEvents = [...response.events, ...this.liveSpawnChips];
+            const finalEvents = interleaveSpawnChips(
+                response.events,
+                this.liveSpawnChips,
+            );
             if (cancelled) {
                 this.messages = [
                     ...finalMessages,
@@ -901,18 +932,12 @@ export class SessionRuntime {
             // to the failure. Snapshot the active turn (if any) and pair
             // the partial events with the error message so the activity
             // card stays visible alongside the error.
+            // Same assembly as the live feed — committed snapshots with
+            // spawn chips interleaved at their anchors plus the partial
+            // live snapshot — so chips (e.g. clones still running when
+            // the turn errored/cancelled) stay visible in place.
             const finalMessages = this.messages.filter((m) => !m.streaming);
-            const eventsBeforeError = [...this.streamingEvents];
-            const liveSnapshot = this.snapshotTurn();
-            if (liveSnapshot && liveSnapshot.emissions.length) {
-                eventsBeforeError.push(liveSnapshot);
-            }
-            // Keep any spawn chips (e.g. clones still running when the
-            // turn errored/cancelled) so the activity card shows the
-            // delegation.
-            if (this.liveSpawnChips.length) {
-                eventsBeforeError.push(...this.liveSpawnChips);
-            }
+            const eventsBeforeError = this.assembleLiveEvents();
             // User-initiated cancel (cancel() set `cancelling` true
             // before the abort fired) lands here when the adapter throws
             // on signal abort instead of returning a response with a

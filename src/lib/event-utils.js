@@ -135,6 +135,42 @@ export function deriveTitle(events) {
 }
 
 /**
+ * Merge spawn chips into an event list at their spawn points instead
+ * of appending them at the end. Each chip slots in before the first
+ * event whose `ts` (epoch ms, stamped by `synthesizeAction` from the
+ * source event's timestamp) is later than the chip's `startedAt` —
+ * i.e. right after the action that spawned it (and that action's
+ * output, which carries no `ts` and so flushes first). Events without
+ * `ts` and chips without `startedAt` degrade gracefully: they keep
+ * input order / fall to the end, matching the old append behavior.
+ *
+ * @param {Array} events - canonical event dicts, in order
+ * @param {Array} chips - spawn chip dicts (with optional `startedAt`)
+ * @returns {Array} merged list
+ */
+export function interleaveSpawnChips(events, chips) {
+    if (!chips?.length) return [...events]
+    const sorted = [...chips].sort(
+        (a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity),
+    )
+    const out = []
+    let ci = 0
+    for (const e of events) {
+        while (
+            ci < sorted.length &&
+            sorted[ci].startedAt !== undefined &&
+            typeof e.ts === 'number' &&
+            sorted[ci].startedAt < e.ts
+        ) {
+            out.push(sorted[ci++])
+        }
+        out.push(e)
+    }
+    while (ci < sorted.length) out.push(sorted[ci++])
+    return out
+}
+
+/**
  * Whether an event list contains any output events — top-level or
  * nested inside a spawn chip's drill-down timeline. Drives the
  * modals' "stdout" toggle visibility; without the nested check, a
