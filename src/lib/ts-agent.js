@@ -607,7 +607,8 @@ async function _createBranchAgent(branch) {
             description: [
                 "(Pre-registered global — `await renderPdf(bytes)`, no import needed.)",
                 "Render PDF pages to PNG images. Signature: `renderPdf(bytes: Uint8Array, pages?: number[] | null, scale?: number): Promise<Uint8Array[]>` — `bytes` from `fs.read('doc.pdf')`; `pages` null = first 20 (0-based indices otherwise); `scale` default 2.",
-                "`console.log(page)` to view a page as an image observation; return via `taskSuccess(['caption', page])` to embed it in the chat response.",
+                "There is no PDF text-extraction API — you READ pages visually: `console.log('p3', pages[3])` surfaces the page as an image observation you'll see next turn. Log each page's `Uint8Array` as its own bare console.log argument — do NOT wrap the bytes in an object or array (the wrapper JSON-serializes instead of rendering).",
+                "Return a page via `taskSuccess(['caption', page])` to embed it in the chat response.",
             ].join("\n"),
         },
     );

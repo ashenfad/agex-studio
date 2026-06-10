@@ -38,6 +38,15 @@ a clickable download, write a `[label](vfs:path)` markdown link in your
 response — a renderer convention, **not** a fetchable URL (don't
 `fetch('vfs:...')`).
 
+## Seeing images
+
+`console.log` a PNG/JPEG/WebP `Uint8Array` as a **bare argument** and
+the image appears as a visual observation on your next turn — that's
+how you read visual content (rendered PDF pages via `renderPdf`,
+downloaded images, generated charts). Mixed args are fine
+(`console.log('page 3', bytes)` → label + image), but bytes wrapped
+inside an object or array JSON-serialize instead of rendering.
+
 ## Rich responses & dashboards
 
 Your reply can be plain markdown, or an **array of parts** mixing prose
