@@ -130,6 +130,52 @@ describe("SessionRuntime — spawn chips", () => {
         expect(rt.liveSpawnChips[0].status).toBe("success");
         expect(rt.liveSpawnChips[0].resultSummary).toBe("done");
     });
+
+    it("accumulates drill-down detail events across progress tokens", () => {
+        const rt = new SessionRuntime("chat-test");
+        rt.handleToken({
+            type: "spawn",
+            phase: "start",
+            id: "0",
+            inputsSummary: "research X",
+            inputs: '{\n  "query": "research X"\n}',
+        });
+        expect(rt.liveSpawnChips[0].events).toEqual([]);
+        expect(rt.liveSpawnChips[0].inputs).toContain("research X");
+
+        const action = { type: "action", title: "search", emissions: [] };
+        rt.handleToken({
+            type: "spawn",
+            phase: "progress",
+            id: "0",
+            steps: 1,
+            events: [action],
+        });
+        // Output-only progress: no steps field — step count must hold.
+        const output = { type: "output", message: "found", parts: [] };
+        rt.handleToken({
+            type: "spawn",
+            phase: "progress",
+            id: "0",
+            events: [output],
+        });
+        expect(rt.liveSpawnChips[0].steps).toBe(1);
+        expect(rt.liveSpawnChips[0].events).toEqual([action, output]);
+
+        rt.handleToken({
+            type: "spawn",
+            phase: "end",
+            id: "0",
+            status: "success",
+            steps: 1,
+            durationMs: 10,
+            resultSummary: "done",
+            result: "done",
+        });
+        // End keeps the accumulated timeline and adds the full result.
+        expect(rt.liveSpawnChips[0].events).toEqual([action, output]);
+        expect(rt.liveSpawnChips[0].result).toBe("done");
+    });
 });
 
 describe("SessionRuntime — rebuildStreamingMessages", () => {

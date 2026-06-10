@@ -220,16 +220,37 @@ if the parent emitted them. Instead it keys off `spawnIndex` and demuxes
 them into a synthetic `spawn` **token** (not an agex-ts `TokenChunk` —
 the adapter emits it directly):
 
-- clone `taskStart` → `{ type: 'spawn', phase: 'start', id, inputsSummary }`
-- clone `action` → `{ phase: 'progress', id, steps }`
-- clone `success`/`fail`/`cancelled` → `{ phase: 'end', id, status, steps, durationMs, resultSummary?/error? }`
+- clone `taskStart` → `{ type: 'spawn', phase: 'start', id, inputsSummary, inputs }`
+- clone `action` → `{ phase: 'progress', id, steps, events?: [action] }`
+- clone `output` → `{ phase: 'progress', id, events: [output/error...] }` (no step bump)
+- clone `success`/`fail`/`cancelled` → `{ phase: 'end', id, status, steps, durationMs, resultSummary?/result?/error? }`
+
+The `events` payloads are the clone's actions/outputs translated to the
+same shell-canonical shape parent events use (see
+`serializeSpawnActionEvent` in `ts-event-translator.js` — unlike
+`synthesizeAction` it keeps text emissions inline, since a clone has no
+chat bubble for narration).
 
 `ChatShell` maintains a per-turn `liveSpawnChips` list keyed by `id`,
-rendered by `EventDetail` as a "running → done/failed" chip under the
-action that spawned it. These are **live-only**: injected into the
-turn's in-memory final message but never written to `response.events` or
-the durable log, so they vanish on reload (a research fan-out's
-delegations stay visible in the parent's logged code, not as chips).
+each chip accumulating its clone's `events` timeline. `EventDetail`
+renders a "running → done/failed" chip under the action that spawned it,
+expandable (live or after the fact) into the clone's full event detail —
+inputs, per-step actions/outputs, and result — via a recursive
+`EventDetail`. Clone stdout follows the modal's existing "stdout" toggle
+just like parent output (`hasOutputEvents` in `event-utils.js` looks one
+level into chips so the toggle appears even when only clones printed).
+
+The live chips are in-memory only, but they are **not lost on reload**:
+`captureSpawnEvents: true` (set on `createAgent` in `ts-agent.js`;
+agex-ts ≥ 0.4.0) makes agex-ts attach each clone's event timeline to the
+parent task's terminal event (`spawnEvents` on
+`success`/`fail`/`cancelled`), which persists in the kvgit log and is
+invisible to the parent LLM. On reload, `loadHistory` (and the chapter
+walk in `serializeChapterEvents`) rebuilds equivalent chips from that
+field via `serializeSpawnChips`. A clone bucket with no terminal event
+(parent cancelled mid-spawn) reconstructs as `cancelled`. Cost note:
+wide fan-outs make terminal events — and therefore commits and exported
+gist bundles — proportionally larger.
 
 ## Activity panel collapse / expand
 

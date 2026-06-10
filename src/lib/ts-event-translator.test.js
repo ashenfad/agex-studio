@@ -17,6 +17,10 @@ import {
     splitOutputEvents,
     makeLiveTokenTranslator,
     serializeChapterEvents,
+    serializeSpawnActionEvent,
+    serializeSpawnChips,
+    summarizeSpawnValue,
+    spawnValueText,
 } from "./ts-event-translator.js";
 import { normalizeChatResponse } from "./ts-chat-response.js";
 
@@ -639,5 +643,180 @@ describe("serializeChapterEvents", () => {
         const band = out.find((x) => x.type === "chaptering");
         expect(band.chapters).toHaveLength(1);
         expect(band.chapters[0].name).toBe("only");
+    });
+
+    it("emits spawn chips before a success carrying spawnEvents", async () => {
+        const resolver = makeResolver({
+            ts: { type: "taskStart", taskName: "chat", inputs: "fan out" },
+            succ: {
+                type: "success",
+                result: "done",
+                spawnEvents: [
+                    {
+                        spawnIndex: 0,
+                        events: [
+                            { type: "taskStart", inputs: "subtask" },
+                            {
+                                type: "action",
+                                emissions: [
+                                    { type: "ts", code: "1+1", title: "t" },
+                                ],
+                            },
+                            { type: "success", result: "2" },
+                        ],
+                    },
+                ],
+            },
+        });
+        const out = await serializeChapterEvents(
+            ["ts", "succ"],
+            resolver,
+            normalizeChatResponse,
+        );
+        expect(out.map((x) => x.type)).toEqual([
+            "task_start",
+            "spawn",
+            "success",
+        ]);
+        expect(out[1].status).toBe("success");
+        expect(out[1].events).toHaveLength(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("spawn value helpers", () => {
+    it("summarizeSpawnValue collapses whitespace and truncates", () => {
+        expect(summarizeSpawnValue("a\n  b   c")).toBe("a b c");
+        const long = "x".repeat(100);
+        const out = summarizeSpawnValue(long);
+        expect(out).toHaveLength(60);
+        expect(out.endsWith("…")).toBe(true);
+        expect(summarizeSpawnValue({ q: "hi" })).toBe('{"q":"hi"}');
+        expect(summarizeSpawnValue(undefined)).toBe("");
+    });
+
+    it("spawnValueText keeps strings verbatim and pretty-prints objects", () => {
+        expect(spawnValueText("a\nb")).toBe("a\nb");
+        expect(spawnValueText({ q: "hi" })).toBe('{\n  "q": "hi"\n}');
+        expect(spawnValueText(undefined)).toBe("");
+    });
+});
+
+describe("serializeSpawnActionEvent", () => {
+    it("keeps text emissions inline (no report extraction)", () => {
+        const out = serializeSpawnActionEvent({
+            type: "action",
+            emissions: [
+                { type: "text", text: "narrating" },
+                { type: "ts", code: "f()", title: "call f" },
+            ],
+        });
+        expect(out.type).toBe("action");
+        expect(out.title).toBe("call f");
+        expect(out.emissions.map((e) => e.kind)).toEqual(["text", "ts"]);
+        expect(out.emissions[0].text).toBe("narrating");
+    });
+});
+
+describe("serializeSpawnChips", () => {
+    const t0 = "2026-06-09T00:00:00.000Z";
+    const t1 = "2026-06-09T00:00:02.500Z";
+
+    it("reconstructs a successful clone's chip with detail timeline", () => {
+        const chips = serializeSpawnChips([
+            {
+                spawnIndex: 0,
+                events: [
+                    {
+                        type: "taskStart",
+                        inputs: { query: "research X" },
+                        timestamp: t0,
+                    },
+                    {
+                        type: "action",
+                        emissions: [
+                            { type: "ts", code: "search()", title: "search" },
+                        ],
+                    },
+                    {
+                        type: "output",
+                        parts: [{ type: "text", text: "found it" }],
+                    },
+                    { type: "success", result: "the answer", timestamp: t1 },
+                ],
+            },
+        ]);
+        expect(chips).toHaveLength(1);
+        const chip = chips[0];
+        expect(chip.type).toBe("spawn");
+        expect(chip.id).toBe("0");
+        expect(chip.status).toBe("success");
+        expect(chip.steps).toBe(1);
+        expect(chip.durationMs).toBe(2500);
+        expect(chip.inputsSummary).toBe('{"query":"research X"}');
+        expect(chip.inputs).toContain('"query": "research X"');
+        expect(chip.resultSummary).toBe("the answer");
+        expect(chip.result).toBe("the answer");
+        expect(chip.events.map((e) => e.type)).toEqual(["action", "output"]);
+        expect(chip.events[0].emissions[0].code).toBe("search()");
+        expect(chip.events[1].parts[0].content).toBe("found it");
+    });
+
+    it("reconstructs fail and missing-terminal (→ cancelled) clones", () => {
+        const chips = serializeSpawnChips([
+            {
+                spawnIndex: 1,
+                events: [
+                    { type: "taskStart", inputs: "a", timestamp: t0 },
+                    { type: "fail", message: "boom", timestamp: t1 },
+                ],
+            },
+            {
+                // Parent cancelled mid-spawn — clone bucket has no
+                // terminal event. Nothing is running on reload, so the
+                // chip reconstructs as cancelled.
+                spawnIndex: 2,
+                events: [{ type: "taskStart", inputs: "b", timestamp: t0 }],
+            },
+        ]);
+        expect(chips[0].status).toBe("fail");
+        expect(chips[0].error).toBe("boom");
+        expect(chips[0].durationMs).toBe(2500);
+        expect(chips[1].status).toBe("cancelled");
+        expect(chips[1].durationMs).toBeUndefined();
+    });
+
+    it("splits mixed clone output into output + error detail events", () => {
+        const chips = serializeSpawnChips([
+            {
+                spawnIndex: 0,
+                events: [
+                    { type: "taskStart", inputs: "x" },
+                    {
+                        type: "output",
+                        parts: [
+                            { type: "text", text: "partial" },
+                            {
+                                type: "error",
+                                errorName: "TypeError",
+                                errorMessage: "nope",
+                            },
+                        ],
+                    },
+                    { type: "cancelled" },
+                ],
+            },
+        ]);
+        expect(chips[0].events.map((e) => e.type)).toEqual([
+            "output",
+            "error",
+        ]);
+        expect(chips[0].events[1].message).toBe("TypeError: nope");
+    });
+
+    it("returns [] for empty/absent input", () => {
+        expect(serializeSpawnChips([])).toEqual([]);
+        expect(serializeSpawnChips(undefined)).toEqual([]);
     });
 });

@@ -6,6 +6,7 @@ import {
     deriveTitle,
     segmentParts,
     groupEventsForChat,
+    hasOutputEvents,
 } from "./event-utils.js";
 
 describe("trim", () => {
@@ -344,5 +345,30 @@ describe("groupEventsForChat", () => {
 
     it("returns empty array for empty events", () => {
         expect(groupEventsForChat([])).toEqual([]);
+    });
+});
+
+describe("hasOutputEvents", () => {
+    it("finds top-level output events", () => {
+        expect(hasOutputEvents([{ type: "action" }, { type: "output" }])).toBe(
+            true,
+        );
+    });
+
+    it("finds output nested in a spawn chip's drill-down", () => {
+        const events = [
+            { type: "action" },
+            { type: "spawn", id: "0", events: [{ type: "output" }] },
+        ];
+        expect(hasOutputEvents(events)).toBe(true);
+    });
+
+    it("false when neither level has output (incl. eventless chips)", () => {
+        const events = [
+            { type: "action" },
+            { type: "spawn", id: "0", events: [{ type: "action" }] },
+            { type: "spawn", id: "1" },
+        ];
+        expect(hasOutputEvents(events)).toBe(false);
     });
 });

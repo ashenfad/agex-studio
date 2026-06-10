@@ -66,8 +66,9 @@ prefixes are conventions from upstream packages and considered stable
 contracts.
 
 (A legacy `__subtasks__` / `__subtask_invocations__` pair, from the
-pre-`spawn` sub-task design, is no longer written — `spawn` persists
-nothing. The keys survive only in `AGENT_MEMORY_EXACT_KEYS` so
+pre-`spawn` sub-task design, is no longer written — `spawn` writes no
+keys of its own (clone timelines ride the parent's terminal event in
+the event log). The keys survive only in `AGENT_MEMORY_EXACT_KEYS` so
 `wipeAgentMemory` still tombstones them in old sessions.)
 
 If you add a new persistent key, add it to this table.
@@ -83,7 +84,7 @@ When does state become durable on disk?
 | File delete via studio | yes | inline after `fs.remove_many` |
 | Branch meta edit (title, name, etc.) | yes | inline after `state.set(...)` |
 | Branch create / fork | yes | the createBranch op itself commits |
-| `spawn` (script- or app-initiated) | **no** | clones run on throwaway state; nothing is written |
+| `spawn` (script- or app-initiated) | indirectly | clones run on throwaway state, but `captureSpawnEvents` attaches their event timelines to the parent task's terminal event, which commits with the turn |
 | `runQuery` (py app preview bridge) | **no** | writes go to a scratch `Live`, discarded |
 | `testApp` | **no** | writes during the headless test discarded |
 | `liveApp` | reads only | sees last-committed `app/` |

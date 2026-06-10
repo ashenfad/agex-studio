@@ -1,4 +1,9 @@
 <script>
+    // Self-import for the spawn drill-down — a chip's detail timeline is
+    // ordinary action/output/error events, so it renders with this same
+    // component. Clones are depth-1 (no nested spawn), so the recursion
+    // bottoms out after one level.
+    import EventDetail from './EventDetail.svelte'
     import { highlightPython, highlightTypeScript, highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
     import { trim, computeDiff } from './event-utils.js'
@@ -9,6 +14,19 @@
     let visibleEvents = $derived(
         showOutput ? events : events.filter(e => e.type !== 'output')
     )
+
+    /** Spawn chips whose drill-down is open, by chip id. Chip objects
+     *  are replaced immutably as clone events stream in, so expansion
+     *  state lives here (keyed by the stable id) rather than on the
+     *  chip. */
+    let expandedSpawns = $state(new Set())
+
+    function toggleSpawn(id) {
+        const next = new Set(expandedSpawns)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        expandedSpawns = next
+    }
 
     function highlightTrimmed(code) {
         return highlightPython(trim(code))
@@ -144,31 +162,65 @@
             </div>
         </div>
     {:else if evt.type === 'spawn'}
-        <!-- Live spawn chip — one spawned clone. Shown while the turn
-             streams; live-only (not persisted past reload). -->
-        <div
-            class="spawn-chip"
-            class:spawn-running={evt.status === 'running'}
-            class:spawn-fail={evt.status === 'fail'}
-            class:spawn-cancelled={evt.status === 'cancelled'}
-        >
-            <span class="spawn-arrow">⤷</span>
-            <span class="spawn-label">spawn</span>{#if evt.inputsSummary}<span
-                    class="spawn-args">({evt.inputsSummary})</span
-                >{/if}
-            {#if evt.status === 'running'}
-                <span class="spawn-outcome">running… {evt.steps ? `(${evt.steps})` : ''}</span>
-            {:else}
-                <span class="spawn-meta"
-                    >[{evt.steps ?? 0} steps · {((evt.durationMs ?? 0) / 1000).toFixed(1)}s]</span
-                >
-                {#if evt.status === 'success'}
-                    {#if evt.resultSummary}<span class="spawn-result">→ {evt.resultSummary}</span>{/if}
-                {:else if evt.status === 'cancelled'}
-                    <span class="spawn-outcome">cancelled</span>
+        <!-- Spawn chip — one spawned clone. Updates live while the turn
+             streams and reconstructs from the terminal event's captured
+             `spawnEvents` on reload. Expandable when the clone's detail
+             timeline (its actions/outputs) is available. -->
+        {@const expandable = (evt.events?.length ?? 0) > 0 || !!evt.inputs || !!evt.result}
+        {@const expanded = expandable && expandedSpawns.has(evt.id)}
+        <div class="spawn-block">
+            <div
+                class="spawn-chip"
+                class:spawn-running={evt.status === 'running'}
+                class:spawn-fail={evt.status === 'fail'}
+                class:spawn-cancelled={evt.status === 'cancelled'}
+            >
+                <span class="spawn-arrow">⤷</span>
+                <span class="spawn-label">spawn</span>{#if evt.inputsSummary}<span
+                        class="spawn-args">({evt.inputsSummary})</span
+                    >{/if}
+                {#if evt.status === 'running'}
+                    <span class="spawn-outcome">running… {evt.steps ? `(${evt.steps})` : ''}</span>
                 {:else}
-                    <span class="spawn-outcome">failed{evt.error ? ` — ${evt.error}` : ''}</span>
+                    <span class="spawn-meta"
+                        >[{evt.steps ?? 0} steps · {((evt.durationMs ?? 0) / 1000).toFixed(1)}s]</span
+                    >
+                    {#if evt.status === 'success'}
+                        {#if evt.resultSummary}<span class="spawn-result">→ {evt.resultSummary}</span>{/if}
+                    {:else if evt.status === 'cancelled'}
+                        <span class="spawn-outcome">cancelled</span>
+                    {:else}
+                        <span class="spawn-outcome">failed{evt.error ? ` — ${evt.error}` : ''}</span>
+                    {/if}
                 {/if}
+                {#if expandable}
+                    <button class="spawn-toggle" onclick={() => toggleSpawn(evt.id)}>
+                        {expanded ? '▾ hide' : '▸ detail'}
+                    </button>
+                {/if}
+            </div>
+            {#if expanded}
+                <div class="spawn-detail">
+                    {#if evt.inputs}
+                        <div class="section">
+                            <div class="section-label">Inputs</div>
+                            <pre class="section-content"><code>{trim(evt.inputs)}</code></pre>
+                        </div>
+                    {/if}
+                    {#if evt.events?.length}
+                        <!-- Clone stdout follows the modal's toggle, same
+                             as parent output (hasOutputEvents in the
+                             modals looks inside chips so the toggle
+                             appears when only clones produced output). -->
+                        <EventDetail events={evt.events} {showOutput} />
+                    {/if}
+                    {#if evt.result}
+                        <div class="section">
+                            <div class="section-label">Result</div>
+                            <pre class="section-content"><code>{trim(evt.result)}</code></pre>
+                        </div>
+                    {/if}
+                </div>
             {/if}
         </div>
     {/if}
@@ -297,7 +349,38 @@
     .output-image { margin-top: 0.25rem; border-radius: 4px; overflow: hidden; }
     .output-image img { max-width: 100%; display: block; border-radius: 4px; }
 
-    /* Live spawn chip — one compact line per spawned clone, distinct
+    .spawn-block {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+    }
+
+    /* Drill-down timeline — indented under the chip with the same
+       purple accent so it reads as the clone's own activity. */
+    .spawn-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-left: 0.75rem;
+        padding-left: 0.6rem;
+        border-left: 2px solid var(--purple);
+    }
+
+    .spawn-toggle {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-family: inherit;
+        font-size: 0.7rem;
+        cursor: pointer;
+        padding: 0 0.1rem;
+        white-space: nowrap;
+    }
+
+    .spawn-toggle:hover { color: var(--accent); }
+
+    /* Spawn chip — one compact line per spawned clone, distinct
        from the event cards so a delegation reads as a side-call. */
     .spawn-chip {
         display: flex;
