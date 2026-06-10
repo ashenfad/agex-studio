@@ -208,6 +208,7 @@ const _encoder = new TextEncoder();
  *     isFile(path: string): Promise<boolean>,
  *     read(path: string): Promise<Uint8Array>,
  *     write(path: string, content: Uint8Array, mode?: 'w' | 'a'): Promise<void>,
+ *     mkdir(path: string, opts?: {parents?: boolean, existOk?: boolean}): Promise<void>,
  *   },
  * }} ctx - Subset of the agex-ts terminal handler context we use.
  * @param {(args: {files: object, entryPoint: string, minify?: boolean}) => Promise<{contents: string|null, errors: any[], warnings: any[]}>} runEsbuild - Bridge call (injected for testability).
@@ -259,6 +260,17 @@ export async function runEsbuildCommand(ctx, runEsbuild) {
     }
 
     try {
+        // mkdir -p the outfile's parent — termish `write` requires the
+        // directory to exist, but `file_write` emissions auto-create
+        // parents (agex-ts dispatcher), so agents reasonably expect
+        // `--outfile=app/dist/bundle.js` to just work.
+        const slash = outfile.lastIndexOf("/");
+        if (slash > 0) {
+            await ctx.fs.mkdir(outfile.slice(0, slash), {
+                parents: true,
+                existOk: true,
+            });
+        }
         await ctx.fs.write(outfile, _encoder.encode(contents));
     } catch (e) {
         throw new Error(
