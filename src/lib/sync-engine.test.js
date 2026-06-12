@@ -21,7 +21,9 @@ import {
     _resetSyncEngineForTesting,
     configureSyncEngine,
     isSyncEnabled,
+    lastSyncStamps,
     schedulePush,
+    seedPersistedStatuses,
     setSyncEnabled,
     sweep,
     syncNow,
@@ -743,5 +745,63 @@ describe("sweep", () => {
         const after = await remote.listRefs();
         const vk = await VersionedKV.open(local, { branch: "chat-back" });
         expect(after[0].head).not.toBe(vk.currentCommit); // not re-synced yet
+    });
+});
+
+describe("freshness stamps", () => {
+    it("persists last-synced-at and rehydrates a stale entry after reload", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "v");
+        await syncNow("chat-aa11");
+
+        const { syncedAt } = lastSyncStamps("chat-aa11");
+        expect(syncedAt).toBeGreaterThan(0);
+
+        // "Reload": module state gone, localStorage survives. Seeding
+        // brings back a synced entry carrying the ORIGINAL stamp (the
+        // UI dims it by age), not a fresh optimistic one.
+        _resetSyncEngineForTesting();
+        connect();
+        makeWorld({ branches: ["chat-aa11"] });
+        expect(statusOf("chat-aa11")).toBeUndefined();
+        seedPersistedStatuses(["chat-aa11"]);
+        expect(statusOf("chat-aa11")).toMatchObject({ state: "synced", at: syncedAt });
+
+        // Live entries are never clobbered by a later seed.
+        schedulePush("chat-aa11");
+        expect(statusOf("chat-aa11").state).toBe("pending");
+        seedPersistedStatuses(["chat-aa11"]);
+        expect(statusOf("chat-aa11").state).toBe("pending");
+    });
+
+    it("stamps appAt on app-state syncs without touching the session state", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "v");
+        await syncNow("chat-aa11");
+        expect(statusOf("chat-aa11").appAt).toBeUndefined();
+
+        world.appBags["chat-aa11"] = { score: "42" };
+        const { pushAppState } = await import("./sync-engine.js");
+        await pushAppState("chat-aa11");
+
+        const status = statusOf("chat-aa11");
+        expect(status.state).toBe("synced"); // unchanged by the app push
+        expect(status.appAt).toBeGreaterThan(0);
+        expect(lastSyncStamps("chat-aa11").appAt).toBe(status.appAt);
+    });
+
+    it("drops persisted stamps when a session opts out of sync", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "v");
+        await syncNow("chat-aa11");
+        expect(lastSyncStamps("chat-aa11").syncedAt).toBeGreaterThan(0);
+
+        setSyncEnabled("chat-aa11", false);
+        expect(lastSyncStamps("chat-aa11")).toEqual({ syncedAt: null, appAt: null });
+        seedPersistedStatuses(["chat-aa11"]);
+        expect(statusOf("chat-aa11")).toBeUndefined();
     });
 });

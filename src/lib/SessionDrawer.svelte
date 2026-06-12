@@ -44,6 +44,7 @@
         emptyTrashRemote,
         forkDivergedSession,
         isSyncEnabled,
+        lastSyncStamps,
         refreshRoster,
         resetSessionToRemote,
         repushSession,
@@ -79,11 +80,22 @@
         return '⚠'
     }
 
+    // A ✓ is a claim about NOW, but sweeps only re-verify every few
+    // minutes (and reload-seeded entries may be hours old). Past this
+    // age the glyph dims: "was synced, not recently checked".
+    const SYNC_STALE_MS = 15 * 60_000
+    function isSyncStale(status, now) {
+        return status.state === 'synced' && now - status.at > SYNC_STALE_MS
+    }
+
     function syncGlyphTitle(status, _now) {
-        const { state, at, detail } = status
-        if (state === 'synced') return `Synced to ${$settingsStore.syncRepo} · ${_relativeTime(at)}`
+        const { state, at, detail, appAt } = status
+        if (state === 'synced') {
+            const app = appAt ? ` · app data ${_relativeTime(appAt)}` : ''
+            return `Synced to ${$settingsStore.syncRepo} · checked ${_relativeTime(at)}${app}`
+        }
         if (state === 'syncing') return detail ? `Syncing — ${detail}` : 'Syncing…'
-        if (state === 'pending') return 'Sync queued'
+        if (state === 'pending') return detail ? `Sync queued — ${detail}` : 'Sync queued'
         return detail || `Session sync: ${state}`
     }
 
@@ -1085,6 +1097,7 @@
                             {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
                                 <span
                                     class="sync-glyph sync-{$syncStatusStore[s.branch].state}"
+                                    class:sync-stale={isSyncStale($syncStatusStore[s.branch], nowTick)}
                                     title={syncGlyphTitle($syncStatusStore[s.branch], nowTick)}
                                 >{syncGlyph($syncStatusStore[s.branch].state)}</span>
                             {/if}
@@ -1813,6 +1826,16 @@
                             Private and automatic, via {$settingsStore.syncRepo}.
                             Off keeps this session on this device only.
                         </div>
+                        {#if editSyncEnabled}
+                            {@const stamps = lastSyncStamps(editingSession.branch)}
+                            {#if stamps.syncedAt}
+                                <div class="field-hint sync-ledger">
+                                    Last synced {_relativeTime(stamps.syncedAt)}{stamps.appAt
+                                        ? ` · app data ${_relativeTime(stamps.appAt)}`
+                                        : ''}
+                                </div>
+                            {/if}
+                        {/if}
                     </label>
 
                 {/if}
@@ -2570,6 +2593,13 @@
     .sync-glyph.sync-synced {
         color: var(--accent);
         opacity: 0.7;
+    }
+
+    /* Was synced, but not re-checked recently (reload-seeded entries
+       or a tab that's been backgrounded a while) — fade the claim. */
+    .sync-glyph.sync-synced.sync-stale {
+        color: var(--text-muted);
+        opacity: 0.45;
     }
 
     .sync-glyph.sync-pending {
