@@ -567,10 +567,29 @@ async function getAppStateIndex(client, { maxAgeMs = 60_000 } = {}) {
             `contents/app-state?ref=${APP_STATE_BRANCH}`,
         );
         if (Array.isArray(listing)) {
-            set = new Set(listing.map((f) => String(f.name).replace(/\.json$/, "")));
+            set = new Set(
+                listing
+                    .filter((f) => String(f.name).endsWith(".json"))
+                    .map((f) => String(f.name).replace(/\.json$/, "")),
+            );
         }
     } catch (err) {
-        if (err?.kind !== "not-found") throw err; // absent dir = no app state yet
+        if (err?.kind !== "not-found") throw err;
+        // First contact: the directory doesn't exist yet, and browsers
+        // log the 404 once per sweep no matter how gracefully we
+        // handle it. Seed the branch + a .keep file so every future
+        // listing — on every device — is a clean 200. One-time,
+        // cosmetic-failure-tolerant.
+        try {
+            await ensureAppStateBranch(client);
+            await client.request("PUT", "contents/app-state/.keep", {
+                message: "app-state: seed directory",
+                content: "",
+                branch: APP_STATE_BRANCH,
+            });
+        } catch {
+            // Seeding is cosmetic; the next sweep retries.
+        }
     }
     appStateIndex = { at: Date.now(), set };
     return set;

@@ -557,6 +557,17 @@ describe("app-state sidecar", () => {
         expect(world.appBags["chat-aa11"]).toEqual({ fresh: "y" });
     });
 
+    it("seeds the app-state directory on first contact (no recurring 404s)", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        const { pullAppState } = await import("./sync-engine.js");
+        // No app state anywhere yet: the first pull's listing 404s and
+        // seeds the directory so future listings are clean 200s.
+        await pullAppState("chat-aa11");
+        expect(world.remote.client.files.has("app-state/.keep")).toBe(true);
+        expect(world.applied).toEqual([]); // nothing applied, just seeded
+    });
+
     it("skips pushing an unchanged bag", async () => {
         connect();
         const world = makeWorld({ branches: ["chat-aa11"] });
