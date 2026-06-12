@@ -542,6 +542,10 @@ describe("app-state sidecar", () => {
         // a second device shares nothing but the remote), same file.
         const pushedFile = world.remote.client.files.get("app-state/chat-aa11.json");
         _resetSyncEngineForTesting();
+        // A real second device has its own localStorage — drop device
+        // 1's per-branch stamps so they can't veto the inbound apply.
+        localStorage.removeItem("agex-appstate-localat-chat-aa11");
+        localStorage.removeItem("agex-appstate-pushed-chat-aa11");
         connect();
         const world2 = makeWorld({ branches: ["chat-aa11"] });
         world2.remote.client.files.set("app-state/chat-aa11.json", pushedFile);
