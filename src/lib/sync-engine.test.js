@@ -87,6 +87,16 @@ function makeRosterRemote(remoteStore) {
                 request: async (method, path, body) => {
                     const fp = path.replace(/\?.*$/, "").replace(/^contents\//, "");
                     if (method === "GET") {
+                        if (fp === "app-state") {
+                            // Directory listing.
+                            const names = [...files.keys()]
+                                .filter((k) => k.startsWith("app-state/"))
+                                .map((k) => ({ name: k.slice("app-state/".length) }));
+                            if (names.length === 0) {
+                                throw Object.assign(new Error("Not Found"), { kind: "not-found" });
+                            }
+                            return names;
+                        }
                         const f = files.get(fp);
                         if (!f) throw Object.assign(new Error("Not Found"), { kind: "not-found" });
                         return { content: btoa(f.json), encoding: "base64", sha: f.sha };
