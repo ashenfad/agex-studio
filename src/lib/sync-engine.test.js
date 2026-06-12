@@ -601,6 +601,56 @@ describe("app-state sidecar", () => {
         updateSettings({ syncAppState: true });
     });
 
+    it("heals an unpushed bag after a 'tab close' (persisted dirty hash)", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        const { scheduleAppStateSync, pushAppState, sweep: doSweep } = await import(
+            "./sync-engine.js"
+        );
+        world.appBags["chat-aa11"] = { v: "1" };
+        scheduleAppStateSync("chat-aa11");
+        await pushAppState("chat-aa11");
+
+        // App saves again; the tab dies inside the debounce window.
+        world.appBags["chat-aa11"] = { v: "2" };
+        scheduleAppStateSync("chat-aa11");
+        const bags = world.appBags;
+        _resetSyncEngineForTesting(); // "reload" — timers and memory gone
+        connect();
+        const world2 = makeWorld({ branches: ["chat-aa11"] });
+        world2.appBags = bags;
+        world2.remote.client.files.set(
+            "app-state/chat-aa11.json",
+            world.remote.client.files.get("app-state/chat-aa11.json"),
+        );
+        // localStorage survived: the persisted hash says dirty, the
+        // sweep pushes, and v:2 lands.
+        await doSweep({ force: true });
+        const file = world2.remote.client.files.get("app-state/chat-aa11.json");
+        expect(JSON.parse(file.json).entries).toEqual({ v: "2" });
+    });
+
+    it("flushPendingAppState fires debounced pushes immediately", async () => {
+        vi.useFakeTimers();
+        try {
+            connect();
+            const world = makeWorld({ branches: ["chat-aa11"] });
+            world.appBags["chat-aa11"] = { v: "now" };
+            const { scheduleAppStateSync, flushPendingAppState } = await import(
+                "./sync-engine.js"
+            );
+            scheduleAppStateSync("chat-aa11");
+            expect(world.remote.client.files.has("app-state/chat-aa11.json")).toBe(false);
+            flushPendingAppState();
+            vi.useRealTimers();
+            await vi.waitFor(() =>
+                expect(world.remote.client.files.has("app-state/chat-aa11.json")).toBe(true),
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("seeds the app-state directory on first contact (no recurring 404s)", async () => {
         connect();
         const world = makeWorld({ branches: ["chat-aa11"] });
