@@ -523,12 +523,13 @@ describe("app-state sidecar", () => {
         await pushAppState("chat-aa11");
         expect(world.remote.client.files.has("app-state/chat-aa11.json")).toBe(true);
 
-        // "Device 2": same remote, fresh local state.
+        // "Device 2": a genuinely fresh engine (reset module state —
+        // a second device shares nothing but the remote), same file.
+        const pushedFile = world.remote.client.files.get("app-state/chat-aa11.json");
+        _resetSyncEngineForTesting();
+        connect();
         const world2 = makeWorld({ branches: ["chat-aa11"] });
-        world2.remote.client.files.set(
-            "app-state/chat-aa11.json",
-            world.remote.client.files.get("app-state/chat-aa11.json"),
-        );
+        world2.remote.client.files.set("app-state/chat-aa11.json", pushedFile);
         await pullAppState("chat-aa11");
         expect(world2.appBags["chat-aa11"]).toEqual({ todos: "[1,2]" });
         expect(world2.applied).toEqual(["chat-aa11"]);

@@ -1037,9 +1037,11 @@
                             >&times;</button>
                         </div>
                     {/if}
-                    {#if syncConnected && s.kernel === 'ts' && ['diverged', 'error', 'remote-gone'].includes($syncStatusStore[s.branch]?.state)}
+                    {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
+                        {@const syncStatus = $syncStatusStore[s.branch]}
+                        {#if ['diverged', 'error', 'remote-gone'].includes(syncStatus.state)}
                         <div class="update-row" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-                            {#if $syncStatusStore[s.branch].state === 'diverged'}
+                            {#if syncStatus.state === 'diverged'}
                                 <span class="update-label">Diverged — changed on another device</span>
                                 <button
                                     class="update-btn"
@@ -1051,8 +1053,8 @@
                                     disabled={resolvingBranch === s.branch}
                                     onclick={() => handleResetToRemote(s.branch)}
                                 >{confirmResetBranch === s.branch ? 'Discard local turns?' : 'Take synced'}</button>
-                            {:else if $syncStatusStore[s.branch].state === 'error'}
-                                <span class="update-label" title={$syncStatusStore[s.branch].detail}>Sync error</span>
+                            {:else if syncStatus.state === 'error'}
+                                <span class="update-label" title={syncStatus.detail}>Sync error</span>
                                 <button
                                     class="update-btn"
                                     disabled={resolvingBranch === s.branch}
@@ -1072,6 +1074,7 @@
                                 >Keep local</button>
                             {/if}
                         </div>
+                        {/if}
                     {/if}
                     <div class="session-meta">
                         <span class="session-date">
