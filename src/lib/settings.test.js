@@ -42,6 +42,7 @@ describe("settingsStore", () => {
             syncRepo: "",
             syncPat: "",
             syncRepoIsPrivate: true,
+            syncAppState: true,
             keepAwake: false,
             notifyOnFinish: false,
         });

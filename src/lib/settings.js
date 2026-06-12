@@ -45,6 +45,10 @@ const DEFAULTS = {
     // (unknown — privacy lookup failed) is treated as private rather
     // than crying wolf. Reset to true on disconnect.
     syncRepoIsPrivate: true,
+    // Sync app save data (the iframe localStorage bag) alongside the
+    // session. Default on — repo growth is handled structurally by
+    // the engine's orphan-squash of app-state history.
+    syncAppState: true,
     // Hold a screen wake lock while any session has a turn in flight, so
     // the display doesn't dim during long agent turns. Surfaced in the
     // session drawer; auto-released when the tab is hidden (the browser
@@ -108,6 +112,8 @@ let subscribers = [];
  * @property {boolean} syncRepoIsPrivate — privacy of ``syncRepo`` as
  *     observed at connect time.  False renders a persistent
  *     world-readable warning next to the connected state.
+ * @property {boolean} syncAppState — replicate app save data across
+ *     devices as an app-state sidecar.  Toggle in the Sync section.
  * @property {boolean} keepAwake — hold a screen wake lock while a session
  *     has a turn in flight (display won't dim during long turns).
  * @property {boolean} notifyOnFinish — fire a desktop notification when a
