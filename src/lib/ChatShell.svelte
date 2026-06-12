@@ -54,6 +54,14 @@
     let sessionsOpen = $state(false)
     let filesOpen = $state(false)
     let agentReady = $state(false)
+    // Kernels that completed a full boot this page lifetime. The
+    // preview gate latches on this, not `agentReady`: a settings
+    // re-init rebuilds the LLM client in place (module catalog stays
+    // registered), and unmounting the iframe for it would reload the
+    // user's app on every settled settings edit. Only a kernel's
+    // FIRST boot must keep the iframe unmounted — mounting early
+    // would let app imports race module registration.
+    let bootedKernels = $state(new Set())
     let initStatus = $state('')
     let initError = $state('')
     /** @type {'py' | 'ts'} */
@@ -297,6 +305,9 @@
                 },
             })
             agentReady = true
+            if (!bootedKernels.has(activeKernel)) {
+                bootedKernels = new Set([...bootedKernels, activeKernel])
+            }
             initStatus = ''
         } catch (e) {
             console.error('Agent init failed:', e)
@@ -667,16 +678,19 @@
 {/snippet}
 
 <!--
-  Keep the preview pane collapsed until the agent is fully ready (Wave
-  3 + rich init). `hasAppFiles` flips at Wave 2, so without this guard
-  the iframe would mount and start making query() calls that hit the
-  sandtrap policy *before* initAgentRich has registered modules like
-  `random`, `pandas`, `plotly`. The agent catalog being empty there
-  means every `import X` call from the app fails with
-  "Import of 'X' is not allowed".
+  Keep the preview pane collapsed until the kernel's FIRST boot is
+  fully ready (Wave 3 + rich init). `hasAppFiles` flips at Wave 2, so
+  without this guard the iframe would mount and start making query()
+  calls that hit the sandtrap policy *before* initAgentRich has
+  registered modules like `random`, `pandas`, `plotly` — every
+  `import X` from the app would fail with "Import of 'X' is not
+  allowed". Gated on the bootedKernels latch rather than `agentReady`:
+  settings re-inits flip agentReady false→true while rebuilding the
+  LLM client in place, and the catalog stays registered through that —
+  unmounting would reload the user's app on every settled edit.
 -->
 <SplitPane
-    collapsed={!hasAppFiles || !agentReady}
+    collapsed={!hasAppFiles || !bootedKernels.has(activeKernel)}
     {mobileView}
     {viewMode}
     initialRatio={isExternalEntry ? 0.3 : 0.5}
