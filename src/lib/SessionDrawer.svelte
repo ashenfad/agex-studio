@@ -368,6 +368,9 @@
      *   { stage: 'error',     session, message }
      */
     let publishState = $state(null)
+    /** Options-stage "?" explainer; collapsed by default so the
+     *  shape list stays scannable. */
+    let publishHelpOpen = $state(false)
     /** Copy-flash state for the post-publish URL fields.  Tagged so
      *  the two URL rows (play, showcase) can independently flash
      *  "Copied!"; `null` means neither is flashing. */
@@ -671,6 +674,7 @@
         if (publishState?.stage === 'bundling' || publishState?.stage === 'uploading') return
         publishState = null
         copyFlash = null
+        publishHelpOpen = false
     }
 
     /** "· ~1.3 MB" suffix for a shape option; '' until estimates load
@@ -1538,35 +1542,44 @@
         {#if publishState.stage === 'options'}
             <div class="modal-body">
                 <div class="preview-field">
-                    <span class="field-label">What to include</span>
+                    <span class="field-label">
+                        What to include
+                        <button
+                            type="button"
+                            class="help-toggle"
+                            class:open={publishHelpOpen}
+                            aria-label="Explain the options"
+                            onclick={() => publishHelpOpen = !publishHelpOpen}
+                        >?</button>
+                    </span>
+                    {#if publishHelpOpen}
+                        <div class="publish-help">
+                            <strong>Everything</strong> keeps the full session
+                            history, so importers can undo into past turns.
+                            <strong>Current state</strong> drops that history —
+                            the app, files, and conversation stay intact.
+                            The image options also re-encode observed images
+                            (screenshots, rendered pages) smaller, or replace
+                            them with placeholders. Files you uploaded are
+                            never touched.
+                        </div>
+                    {/if}
                     <div class="destination-choice">
                         <label class="destination-option">
                             <input type="radio" name="publish-shape" value="full" bind:group={publishState.shape} />
-                            <span class="destination-option-body">
-                                <span class="destination-option-title">Everything{publishSizeHint('full')}</span>
-                                <span class="destination-detail">full session history — importers can undo into past turns</span>
-                            </span>
+                            <span class="destination-option-title">Everything{publishSizeHint('full')}</span>
                         </label>
                         <label class="destination-option">
                             <input type="radio" name="publish-shape" value="flat" bind:group={publishState.shape} />
-                            <span class="destination-option-body">
-                                <span class="destination-option-title">Current state{publishSizeHint('flat')}</span>
-                                <span class="destination-detail">drops edit history — the app, files, and conversation stay intact</span>
-                            </span>
+                            <span class="destination-option-title">Current state{publishSizeHint('flat')}</span>
                         </label>
                         <label class="destination-option">
                             <input type="radio" name="publish-shape" value="flat-downsample" bind:group={publishState.shape} />
-                            <span class="destination-option-body">
-                                <span class="destination-option-title">Current state, smaller images{publishSizeHint('flat-downsample')}</span>
-                                <span class="destination-detail">screenshots and other observed images re-encoded at reduced size</span>
-                            </span>
+                            <span class="destination-option-title">Current state, smaller images{publishSizeHint('flat-downsample')}</span>
                         </label>
                         <label class="destination-option">
                             <input type="radio" name="publish-shape" value="flat-strip" bind:group={publishState.shape} />
-                            <span class="destination-option-body">
-                                <span class="destination-option-title">Current state, no images{publishSizeHint('flat-strip')}</span>
-                                <span class="destination-detail">observed images become placeholders — your uploaded files are untouched</span>
-                            </span>
+                            <span class="destination-option-title">Current state, no images{publishSizeHint('flat-strip')}</span>
                         </label>
                     </div>
                     {#if !publishState.estimates}
@@ -2293,6 +2306,41 @@
     .destination-link {
         color: var(--text-muted);
         text-decoration: underline;
+    }
+
+    /* The publish options' "?" explainer — a tap target (tooltips
+       don't exist on touch) toggling one compact help block. */
+    .help-toggle {
+        width: 1.05rem;
+        height: 1.05rem;
+        padding: 0;
+        margin-left: 0.35rem;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        line-height: 1;
+        cursor: pointer;
+        vertical-align: middle;
+    }
+
+    .help-toggle.open,
+    .help-toggle:hover {
+        color: var(--text);
+        border-color: var(--text-muted);
+    }
+
+    .publish-help {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        line-height: 1.45;
+        margin: 0.25rem 0 0.4rem;
+    }
+
+    .publish-help strong {
+        color: var(--text);
+        font-weight: 500;
     }
 
     .destination-link:hover {
