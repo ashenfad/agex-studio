@@ -35,7 +35,7 @@
  * kvgit machinery.
  */
 
-import { VersionedKV, applyWire, clearSyncHead, syncBranch } from "@agex-ts/kvgit";
+import { VersionedKV, applyWire, clearSyncHead, getSyncHead, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, GithubRemote, base64ToBytes, bytesToBase64 } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
 
@@ -285,7 +285,8 @@ async function* counted(iter, onCount) {
  * directions. Commits ≈ turns, a unit users understand; totals would
  * need a kvgit API addition, so counts are indeterminate for now.
  */
-function instrumentedRemote(remote, branch) {
+function instrumentedRemote(remote, branch, pushTotal = null) {
+    const suffix = pushTotal !== null ? ` of ${pushTotal}` : "";
     return {
         listRefs: () => remote.listRefs(),
         fetch: (want, have) =>
@@ -303,11 +304,27 @@ function instrumentedRemote(remote, branch) {
                 counted(commits, (n) =>
                     setStatus(branch, {
                         state: "syncing",
-                        detail: `uploading · turn ${n}`,
+                        detail: `uploading · turn ${n}${suffix}`,
                     }),
                 ),
             ),
     };
+}
+
+/** Storage-v1 read-only probe — avoids VersionedKV.open, which would
+ *  CREATE the branch (poison for the download path). */
+async function localBranchExists(store, branch) {
+    return (await store.get(`__branch_head__${branch}`)) !== null;
+}
+
+/** Full local history count: the determinate total for a first-ever
+ *  push (no sync head ⇒ the delta IS the whole branch). Local reads
+ *  only — cheap even for long sessions. */
+async function countLocalCommits(store, branch) {
+    const vk = await VersionedKV.open(store, { branch });
+    let n = 0;
+    for await (const _ of vk.history(vk.currentCommit, { allParents: true })) n++;
+    return n;
 }
 
 /** Cross-tab exclusivity: one sync at a time across tabs. A busy lock
@@ -332,7 +349,18 @@ export async function syncNow(branch) {
         const outcome = await withSyncLock(async () => {
             const store = await deps.getStore();
             const remote = await getRemote();
-            return syncBranch(store, instrumentedRemote(remote, branch), branch);
+            // First-ever push of an existing local branch: the delta
+            // is the full history, countable locally — determinate
+            // progress for exactly the sync that takes minutes (each
+            // mutation is deliberately throttled ~750ms).
+            let pushTotal = null;
+            if (
+                (await getSyncHead(store, branch)) === null &&
+                (await localBranchExists(store, branch))
+            ) {
+                pushTotal = await countLocalCommits(store, branch);
+            }
+            return syncBranch(store, instrumentedRemote(remote, branch, pushTotal), branch);
         });
         if (outcome === "busy") {
             setStatus(branch, { state: "synced", detail: "another tab is syncing" });

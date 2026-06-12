@@ -1088,7 +1088,11 @@
                                     title={syncGlyphTitle($syncStatusStore[s.branch], nowTick)}
                                 >{syncGlyph($syncStatusStore[s.branch].state)}</span>
                             {/if}
-                            {formatDate(s.updated)}
+                            {#if $syncStatusStore[s.branch]?.state === 'syncing' && $syncStatusStore[s.branch].detail}
+                                <span class="sync-progress">{$syncStatusStore[s.branch].detail}</span>
+                            {:else}
+                                {formatDate(s.updated)}
+                            {/if}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
                             {/if}
@@ -2553,6 +2557,11 @@
     /* One status glyph married to the row's single timestamp.
        Color scale: quiet for healthy, amber for needs-a-look, red for
        broken — words live in the tooltip and the action rows. */
+    .sync-progress {
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+    }
+
     .sync-glyph {
         margin-right: 0.15rem;
         font-size: 0.7rem;
