@@ -196,6 +196,7 @@ export function _resetSyncEngineForTesting() {
     lastPushedAppJson = new Map();
     lastLocalAppWriteAt = new Map();
     lastAppliedAppAt = new Map();
+    appStateIndex = null;
 }
 
 export function isSyncConnected() {
@@ -546,6 +547,29 @@ let appStateTimers = new Map();
 let lastPushedAppJson = new Map();
 let lastLocalAppWriteAt = new Map();
 let lastAppliedAppAt = new Map();
+/** Which branches have remote app-state, from one directory listing —
+ *  avoids a 404-logging GET per app-less session on every sweep. */
+let appStateIndex = null;
+
+async function getAppStateIndex(client, { maxAgeMs = 60_000 } = {}) {
+    if (appStateIndex !== null && Date.now() - appStateIndex.at < maxAgeMs) {
+        return appStateIndex.set;
+    }
+    let set = new Set();
+    try {
+        const listing = await client.request(
+            "GET",
+            `contents/app-state?ref=${APP_STATE_BRANCH}`,
+        );
+        if (Array.isArray(listing)) {
+            set = new Set(listing.map((f) => String(f.name).replace(/\.json$/, "")));
+        }
+    } catch (err) {
+        if (err?.kind !== "not-found") throw err; // absent dir = no app state yet
+    }
+    appStateIndex = { at: Date.now(), set };
+    return set;
+}
 
 /** Debounced push of a session's app-storage bag (called from the
  *  app-preview write funnel). Long debounce: apps can save per
@@ -615,6 +639,7 @@ export async function pushAppState(branch) {
                     ...(existing !== null && { sha: existing.sha }),
                 });
                 lastPushedAppJson.set(branch, json);
+                appStateIndex?.set.add(branch);
                 return;
             } catch (err) {
                 // sha race (another tab/device wrote) — re-read once.
@@ -638,6 +663,10 @@ export async function pullAppState(branch) {
     if (!deps.applyAppState) return;
     try {
         const remote = await getRemote();
+        // One listing request answers "which sessions have app state"
+        // for the whole sweep — no per-branch 404 probes.
+        const index = await getAppStateIndex(remote.client);
+        if (!index.has(branch)) return;
         const existing = await readRemoteAppState(remote.client, branch);
         if (existing === null) return;
         const { payload } = existing;
@@ -654,6 +683,10 @@ export async function pullAppState(branch) {
 async function deleteAppStateFile(branch) {
     try {
         const remote = await getRemote();
+        // One listing request answers "which sessions have app state"
+        // for the whole sweep — no per-branch 404 probes.
+        const index = await getAppStateIndex(remote.client);
+        if (!index.has(branch)) return;
         const existing = await readRemoteAppState(remote.client, branch);
         if (existing === null) return;
         await remote.client.request("DELETE", `contents/${appStatePath(branch)}`, {
@@ -661,6 +694,7 @@ async function deleteAppStateFile(branch) {
             sha: existing.sha,
             branch: APP_STATE_BRANCH,
         });
+        appStateIndex?.set.delete(branch);
     } catch {
         // Orphaned app-state files are invisible junk, not corruption.
     }
