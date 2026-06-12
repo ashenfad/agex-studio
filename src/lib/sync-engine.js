@@ -685,11 +685,16 @@ export async function pushAppState(branch) {
         const entries = deps.readAppState(branch) ?? {};
         const json = JSON.stringify(entries);
         if (json === lastPushedAppJson.get(branch)) return; // unchanged
-        if (json.length > APP_STATE_MAX_BYTES) {
+        // Actual UTF-8 bytes, not UTF-16 code units — multibyte
+        // content (emoji, CJK) can be ~3x the .length count, and the
+        // cap protects the wire. Encode cost only hits changed bags
+        // (the skip-unchanged guard ran first).
+        const byteLength = _enc.encode(json).length;
+        if (byteLength > APP_STATE_MAX_BYTES) {
             if (!appStateSizeWarned.has(branch)) {
                 appStateSizeWarned.add(branch);
                 console.warn(
-                    `app-state for ${branch} is ${json.length} bytes — too large for background sync; skipping`,
+                    `app-state for ${branch} is ${byteLength} bytes — too large for background sync; skipping`,
                 );
             }
             return;
