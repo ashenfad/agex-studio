@@ -590,7 +590,16 @@ async function _removeLocalSession(branch) {
  *  The fork inherits the parent's kernel — sessions are
  *  kernel-bound. */
 export async function forkSession() {
-    return _forkSession({ filesOnly: false });
+    return _forkSession({ mode: "full" });
+}
+
+/** Fork the current session as a "compact copy": its tip state —
+ *  app, files, full conversation — in a single fresh commit, with
+ *  history and agent cache dropped. `images: 'downsample'` (the
+ *  default) also re-encodes observed images smaller; the agent
+ *  continues from the event log exactly as before. ts kernel only. */
+export async function forkSessionCompact({ images = "downsample" } = {}) {
+    return _forkSession({ mode: "compact", images });
 }
 
 /** Fork the current session, keeping the VFS workspace but
@@ -613,16 +622,22 @@ export async function forkSession() {
  *  Works across both kernels — uses only the public adapter
  *  surface (createBranch / listFiles / readFile / writeFiles). */
 export async function forkSessionFreshChat() {
-    return _forkSession({ filesOnly: true });
+    return _forkSession({ mode: "fresh" });
 }
 
-async function _forkSession({ filesOnly }) {
+async function _forkSession({ mode, images = "full" }) {
     const sourceBranch = state.currentBranch;
     const sourceKernel = _kernelFor(sourceBranch);
     const adapter = await resolveAdapter(sourceKernel);
     const sourceMeta = state.sessions.find((s) => s.branch === sourceBranch);
     const newBranch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
-    if (filesOnly) {
+    if (mode === "compact") {
+        // Tip-only snapshot into the new branch: same core as
+        // size-reduced publishing, kept as a real session. The
+        // session meta keys ride along in the snapshot; the title
+        // patch below renames it like any other fork.
+        await adapter.snapshotToBranch(sourceBranch, newBranch, { images });
+    } else if (mode === "fresh") {
         // Squash path. Read all VFS files from source up-front
         // (parallel — IndexedDB handles concurrent reads fine),
         // then create the new branch empty and atomic-write the
@@ -643,7 +658,7 @@ async function _forkSession({ filesOnly }) {
         // commit chain inherited).
         await adapter.createBranch(newBranch, { from: sourceBranch });
     }
-    const suffix = filesOnly ? "(fresh)" : "(fork)";
+    const suffix = { fresh: "(fresh)", compact: "(compact)", full: "(fork)" }[mode];
     const newTitle = `${sourceMeta?.title || "New Chat"} ${suffix}`;
     await adapter.writeBranchMeta(newBranch, { title: newTitle });
     appStorageCopy(sourceKernel, sourceBranch, newBranch);
@@ -651,15 +666,17 @@ async function _forkSession({ filesOnly }) {
     // Carry the source's publish identity to the fork so its next
     // publish *can* update the same gist. Full-fork inherits it outright
     // (its next publish updates the same gist — "one share URL per app").
-    // Fresh-fork carries it too, but tagged `inherited` so the publish
-    // modal defaults to a NEW gist instead of silently overwriting the
-    // parent's share URL — the user can still pick "update existing"
-    // there. See `SESSION_GIST_KEY_PREFIX` for the rationale.
+    // Fresh and compact forks carry it too, but tagged `inherited` so
+    // the publish modal defaults to a NEW gist instead of silently
+    // overwriting the parent's share URL — the user can still pick
+    // "update existing" there (for compact, that's the natural choice
+    // when the copy is REPLACING the original). See
+    // `SESSION_GIST_KEY_PREFIX` for the rationale.
     const sourceGistInfo = getSessionGistInfo(sourceBranch);
     if (sourceGistInfo) {
         setSessionGistInfo(
             newBranch,
-            filesOnly ? { ...sourceGistInfo, inherited: true } : sourceGistInfo,
+            mode === "full" ? sourceGistInfo : { ...sourceGistInfo, inherited: true },
         );
     }
 

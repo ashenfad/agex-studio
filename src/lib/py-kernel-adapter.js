@@ -533,6 +533,13 @@ _json.dumps(_stats)
             return null;
         },
 
+        /** Compact-copy forks are ts-only too — the fork modal
+         *  disables the option for py sessions before this could be
+         *  reached. */
+        async snapshotToBranch(_sourceBranch, _destBranch, _opts = {}) {
+            throw new Error("compact copy is not supported for py sessions");
+        },
+
         // --- History rendering ------------------------------------------
 
         async loadHistory(branch) {

@@ -535,6 +535,18 @@ export function createTsAdapter() {
             return { profile, estimates: estimatePublishSizes(profile) };
         },
 
+        /** Persistent snapshot: copy `sourceBranch`'s tip into a
+         *  single fresh commit on `destBranch` (the "compact copy"
+         *  fork). Same core as size-reduced publishing, minus the
+         *  ephemeral delete. */
+        async snapshotToBranch(sourceBranch, destBranch, { images = "full" } = {}) {
+            const versioned = await agentGetSharedVersioned();
+            return snapshotBranch(versioned, sourceBranch, destBranch, {
+                images,
+                transformImage: images === "downsample" ? downsampleImagePart : null,
+            });
+        },
+
         async importBundlePayload(payload) {
             const versioned = await agentGetSharedVersioned();
             const result = await bundleImport(versioned, payload);

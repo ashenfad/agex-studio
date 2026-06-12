@@ -1,42 +1,55 @@
 <script>
     /** Modal for choosing how to fork a session.
      *
-     *  Two modes today:
+     *  Three modes:
      *    - Full fork (default): clone everything — chat history,
      *      files, state, cache. Today's behavior.
      *    - Fresh chat, keep files: squash the source's VFS files
      *      onto a fresh empty branch — keeps the workspace, drops
      *      the conversation context (see `forkSessionFreshChat`).
+     *    - Compact copy (ts only): tip-only snapshot — app, files,
+     *      and the full conversation, with edit history and agent
+     *      cache dropped; optionally with observed images re-encoded
+     *      smaller (default ON — compact means compact).
      *
-     *  `freshDisabled` / `freshDisabledReason` let a host disable
-     *  the fresh option and explain why; not currently passed by
-     *  SessionDrawer (the squash path works on both kernels).
+     *  `freshDisabled` / `compactDisabled` (+ reasons) let a host
+     *  disable options and explain why. `compactEstimates`
+     *  ({full, flat, flatDownsampled} bytes, or null) renders the
+     *  size delta on the compact option once profiled.
      *
      *  Closes via Escape, clicking the overlay, the X button, or
      *  the Cancel button. Fork button fires onConfirm with the
-     *  selected mode and the caller is responsible for actually
-     *  performing the fork (so this component stays presentation-
-     *  only and testable).
+     *  selected mode (+ options) and the caller performs the fork
+     *  (the component stays presentation-only and testable).
      */
+    import { formatBytes } from './bytes.js'
 
     /** @type {{
      *   open: boolean,
      *   sourceTitle: string,
      *   freshDisabled?: boolean,
      *   freshDisabledReason?: string,
+     *   compactDisabled?: boolean,
+     *   compactDisabledReason?: string,
+     *   compactEstimates?: { full: number, flat: number, flatDownsampled: number } | null,
      *   onClose: () => void,
-     *   onConfirm: (mode: 'full' | 'fresh') => void | Promise<void>,
+     *   onConfirm: (mode: 'full' | 'fresh' | 'compact',
+     *               opts?: { images: 'downsample' | 'full' }) => void | Promise<void>,
      * }} */
     let {
         open,
         sourceTitle,
         freshDisabled = false,
         freshDisabledReason = '',
+        compactDisabled = false,
+        compactDisabledReason = '',
+        compactEstimates = null,
         onClose,
         onConfirm,
     } = $props()
 
     let mode = $state('full')
+    let compactSmallImages = $state(true)
     let working = $state(false)
 
     // Reset selection whenever the modal re-opens so a prior pick
@@ -45,8 +58,19 @@
     $effect(() => {
         if (open) {
             mode = 'full'
+            compactSmallImages = true
             working = false
         }
+    })
+
+    /** "8.4 MB → ~1.3 MB" for the compact option, tracking the
+     *  smaller-images checkbox; '' until estimates arrive. */
+    let compactSizeHint = $derived.by(() => {
+        if (!compactEstimates) return ''
+        const after = compactSmallImages
+            ? compactEstimates.flatDownsampled
+            : compactEstimates.flat
+        return `${formatBytes(compactEstimates.full)} → ~${formatBytes(Math.max(0, after))}`
     })
 
     function handleKeydown(e) {
@@ -56,9 +80,15 @@
     async function handleConfirm() {
         if (working) return
         if (mode === 'fresh' && freshDisabled) return
+        if (mode === 'compact' && compactDisabled) return
         working = true
         try {
-            await onConfirm(mode)
+            await onConfirm(
+                mode,
+                mode === 'compact'
+                    ? { images: compactSmallImages ? 'downsample' : 'full' }
+                    : undefined,
+            )
         } finally {
             working = false
         }
@@ -124,6 +154,46 @@
                         {/if}
                     </div>
                 </label>
+
+                <label
+                    class="option"
+                    class:checked={mode === 'compact'}
+                    class:disabled={compactDisabled}
+                >
+                    <input
+                        type="radio"
+                        name="fork-mode"
+                        value="compact"
+                        bind:group={mode}
+                        disabled={working || compactDisabled}
+                    />
+                    <div class="option-body">
+                        <div class="option-title">
+                            Compact copy
+                            {#if compactSizeHint}
+                                <span class="option-size">{compactSizeHint}</span>
+                            {/if}
+                        </div>
+                        <div class="option-desc">
+                            Everything as it is now — app, files, and the full
+                            conversation — without the edit history. The chat
+                            continues exactly where it left off.
+                        </div>
+                        {#if mode === 'compact'}
+                            <label class="option-sub" onclick={(e) => e.stopPropagation()}>
+                                <input
+                                    type="checkbox"
+                                    bind:checked={compactSmallImages}
+                                    disabled={working}
+                                />
+                                <span>Smaller images (screenshots re-encoded; uploads untouched)</span>
+                            </label>
+                        {/if}
+                        {#if compactDisabled && compactDisabledReason}
+                            <div class="option-disabled-note">{compactDisabledReason}</div>
+                        {/if}
+                    </div>
+                </label>
             </div>
 
             <div class="panel-footer">
@@ -131,7 +201,7 @@
                 <button
                     class="btn btn-primary"
                     onclick={handleConfirm}
-                    disabled={working || (mode === 'fresh' && freshDisabled)}
+                    disabled={working || (mode === 'fresh' && freshDisabled) || (mode === 'compact' && compactDisabled)}
                 >
                     {working ? 'Forking…' : 'Fork'}
                 </button>
@@ -278,6 +348,32 @@
         font-size: 0.7rem;
         color: var(--text-muted);
         font-style: italic;
+    }
+
+    /* Size delta beside the compact option title — muted and
+       tabular so the arrow reads as data, not prose. */
+    .option-size {
+        margin-left: 0.4rem;
+        font-size: 0.72rem;
+        font-weight: 400;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+    }
+
+    /* Nested checkbox revealed when compact is the selected mode. */
+    .option-sub {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-top: 0.45rem;
+        font-size: 0.75rem;
+        color: var(--text);
+        cursor: pointer;
+    }
+
+    .option-sub input[type="checkbox"] {
+        accent-color: var(--accent);
+        flex-shrink: 0;
     }
 
     .panel-footer {
