@@ -74,8 +74,21 @@ function makeRosterRemote(remoteStore) {
             const files = new Map();
             let seq = 0;
             let appStateRef = false;
+            const client_squash_marker = [];
+            const client_force_moves = [];
             return {
                 files,
+                squashes: client_squash_marker,
+                forceMoves: client_force_moves,
+                getCommit: async (sha) => ({ sha, tree: `tree-of-${sha}`, parents: [] }),
+                createCommit: async (opts) => {
+                    if (opts.parents.length === 0) client_squash_marker.push(opts);
+                    return `commit-${++seq}`;
+                },
+                updateRef: async (branch, sha, opts) => {
+                    if (opts?.force) client_force_moves.push([branch, sha]);
+                    return true;
+                },
                 getRef: async (b) => {
                     if (b === "app-state") return appStateRef ? "as-ref" : null;
                     return "main-ref";
@@ -557,6 +570,35 @@ describe("app-state sidecar", () => {
         await pullAppState("chat-aa11");
         expect(world.applied).toEqual([]); // local pending wins
         expect(world.appBags["chat-aa11"]).toEqual({ fresh: "y" });
+    });
+
+    it("squashes app-state history to an orphan every N pushes", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        const { scheduleAppStateSync, pushAppState } = await import("./sync-engine.js");
+        for (let i = 0; i < 25; i++) {
+            world.appBags["chat-aa11"] = { v: String(i) };
+            scheduleAppStateSync("chat-aa11");
+            await pushAppState("chat-aa11");
+        }
+        expect(world.remote.client.squashes.length).toBe(1);
+        expect(world.remote.client.squashes[0].parents).toEqual([]);
+        expect(world.remote.client.forceMoves[0][0]).toBe("app-state");
+    });
+
+    it("respects the syncAppState setting", async () => {
+        connect();
+        updateSettings({ syncAppState: false });
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        world.appBags["chat-aa11"] = { k: "v" };
+        const { scheduleAppStateSync, pushAppState, pullAppState } = await import(
+            "./sync-engine.js"
+        );
+        scheduleAppStateSync("chat-aa11");
+        await pushAppState("chat-aa11");
+        await pullAppState("chat-aa11");
+        expect(world.remote.client.files.size).toBe(0); // nothing pushed or seeded
+        updateSettings({ syncAppState: true });
     });
 
     it("seeds the app-state directory on first contact (no recurring 404s)", async () => {

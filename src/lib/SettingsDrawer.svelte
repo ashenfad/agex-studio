@@ -397,6 +397,19 @@
                                 will be world-readable.
                             </span>
                         {/if}
+                        <label class="sync-opt">
+                            <input
+                                type="checkbox"
+                                checked={$settingsStore.syncAppState !== false}
+                                onchange={(e) => updateSettings({ syncAppState: e.currentTarget.checked })}
+                            />
+                            Sync app save data
+                        </label>
+                        <span class="hint">
+                            Apps pick up where you left off on other devices.
+                            History is squashed periodically so save snapshots
+                            don't grow the repo.
+                        </span>
                         <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>
                             Disconnect
                         </button>
@@ -551,6 +564,17 @@
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
+    }
+
+    .sync-opt {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+    }
+
+    .sync-opt input[type='checkbox'] {
+        accent-color: var(--accent);
     }
 
     .sync-btn {

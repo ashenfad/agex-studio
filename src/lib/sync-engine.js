@@ -197,6 +197,8 @@ export function _resetSyncEngineForTesting() {
     lastLocalAppWriteAt = new Map();
     lastAppliedAppAt = new Map();
     appStateIndex = null;
+    appStatePushCount = 0;
+    appStateSizeWarned = new Set();
 }
 
 export function isSyncConnected() {
@@ -571,6 +573,17 @@ export async function emptyTrashRemote() {
 
 const APP_STATE_BRANCH = "app-state";
 const APP_STATE_DEBOUNCE_MS = 20_000;
+/** Squash app-state history to a parentless commit every N pushes —
+ *  snapshots need no history (LWW reads the tip only), and without
+ *  this, every save stays reachable forever. */
+const APP_STATE_SQUASH_EVERY = 25;
+/** Bags above this don't ride the background loop (also near the
+ *  5MB localStorage quota, where something else is wrong). */
+const APP_STATE_MAX_BYTES = 2_000_000;
+
+function appStateSyncEnabled() {
+    return getSettings().syncAppState !== false;
+}
 const appStatePath = (branch) => `app-state/${branch}.json`;
 
 const _enc = new TextEncoder();
@@ -583,6 +596,8 @@ let lastAppliedAppAt = new Map();
 /** Which branches have remote app-state, from one directory listing —
  *  avoids a 404-logging GET per app-less session on every sweep. */
 let appStateIndex = null;
+let appStatePushCount = 0;
+let appStateSizeWarned = new Set();
 
 async function getAppStateIndex(client, { maxAgeMs = 60_000 } = {}) {
     if (appStateIndex !== null && Date.now() - appStateIndex.at < maxAgeMs) {
@@ -629,7 +644,7 @@ async function getAppStateIndex(client, { maxAgeMs = 60_000 } = {}) {
  *  states harmless. */
 export function scheduleAppStateSync(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
-    if (!deps.readAppState) return;
+    if (!deps.readAppState || !appStateSyncEnabled()) return;
     lastLocalAppWriteAt.set(branch, Date.now());
     clearTimeout(appStateTimers.get(branch));
     appStateTimers.set(
@@ -665,11 +680,20 @@ async function readRemoteAppState(client, branch) {
 
 export async function pushAppState(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
-    if (!deps.readAppState) return;
+    if (!deps.readAppState || !appStateSyncEnabled()) return;
     try {
         const entries = deps.readAppState(branch) ?? {};
         const json = JSON.stringify(entries);
         if (json === lastPushedAppJson.get(branch)) return; // unchanged
+        if (json.length > APP_STATE_MAX_BYTES) {
+            if (!appStateSizeWarned.has(branch)) {
+                appStateSizeWarned.add(branch);
+                console.warn(
+                    `app-state for ${branch} is ${json.length} bytes — too large for background sync; skipping`,
+                );
+            }
+            return;
+        }
         const remote = await getRemote();
         const client = remote.client;
         await ensureAppStateBranch(client);
@@ -695,6 +719,10 @@ export async function pushAppState(branch) {
                 // next pull re-applies our own bag.
                 lastAppliedAppAt.set(branch, localAt);
                 appStateIndex?.set.add(branch);
+                if (++appStatePushCount >= APP_STATE_SQUASH_EVERY) {
+                    appStatePushCount = 0;
+                    await squashAppStateHistory(client);
+                }
                 return;
             } catch (err) {
                 // sha race (another tab/device wrote) — re-read once.
@@ -715,7 +743,7 @@ function applyRemoteAppState(branch, payload) {
 
 export async function pullAppState(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
-    if (!deps.applyAppState) return;
+    if (!deps.applyAppState || !appStateSyncEnabled()) return;
     try {
         const remote = await getRemote();
         // One listing request answers "which sessions have app state"
@@ -730,6 +758,37 @@ export async function pullAppState(branch) {
         applyRemoteAppState(branch, payload);
     } catch (err) {
         console.warn(`app-state pull failed for ${branch}:`, err);
+    }
+}
+
+/**
+ * Drop the app-state branch's history: a parentless commit carrying
+ * the CURRENT tree, force-moved into place. Identical content, zero
+ * ancestry — everything older becomes unreachable for GitHub's GC.
+ * Small race: a concurrent push from another device between our read
+ * and the force-move gets orphaned — one lost LWW snapshot that the
+ * next save re-writes; acceptable for save data, so no locking.
+ */
+async function squashAppStateHistory(client) {
+    try {
+        const tip = await client.getRef(APP_STATE_BRANCH);
+        if (tip === null) return;
+        const { tree } = await client.getCommit(tip);
+        const person = {
+            name: "agex-studio",
+            email: "sync@agex.studio",
+            date: new Date().toISOString(),
+        };
+        const orphan = await client.createCommit({
+            message: "app-state: squash history",
+            tree,
+            parents: [],
+            author: person,
+            committer: person,
+        });
+        await client.updateRef(APP_STATE_BRANCH, orphan, { force: true });
+    } catch (err) {
+        console.warn("app-state squash failed (history kept; will retry):", err);
     }
 }
 
