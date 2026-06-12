@@ -58,16 +58,32 @@
     let sessions = $derived($sessionStore.sessions)
     let syncConnected = $derived(Boolean($settingsStore.syncRepo && $settingsStore.syncPat))
 
-    function syncBadgeLabel(state) {
-        if (state === 'syncing') return 'syncing'
-        if (state === 'synced') return 'synced'
+    // Re-rendered each minute while the drawer is open so the
+    // relative "last synced" times don't go stale.
+    let nowTick = $state(Date.now())
+    $effect(() => {
+        if (!open) return
+        nowTick = Date.now()
+        const timer = setInterval(() => {
+            nowTick = Date.now()
+        }, 60_000)
+        return () => clearInterval(timer)
+    })
+
+    function syncBadgeLabel(status, _now) {
+        const { state, at } = status
+        if (state === 'syncing') return 'syncing…'
+        if (state === 'synced') {
+            const ago = _relativeTime(at)
+            return ago === 'just now' ? 'synced just now' : `synced ${ago}`
+        }
         if (state === 'diverged') return 'diverged'
         if (state === 'remote-gone') return 'unlinked'
         return 'sync err'
     }
 
-    function syncBadgeTitle(status) {
-        return status.detail || `Session sync: ${syncBadgeLabel(status.state)}`
+    function syncBadgeTitle(status, _now) {
+        return status.detail || `Session sync: ${syncBadgeLabel(status, _now)}`
     }
 
     // --- Roster / lifecycle actions ---
@@ -1009,8 +1025,8 @@
                             {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
                                 <span
                                     class="sync-badge sync-{$syncStatusStore[s.branch].state}"
-                                    title={syncBadgeTitle($syncStatusStore[s.branch])}
-                                >· {syncBadgeLabel($syncStatusStore[s.branch].state)}</span>
+                                    title={syncBadgeTitle($syncStatusStore[s.branch], nowTick)}
+                                >· {syncBadgeLabel($syncStatusStore[s.branch], nowTick)}</span>
                             {/if}
                         </span>
                         <span class="session-actions">

@@ -1,6 +1,18 @@
 <script>
+    import { syncStatusStore } from './sync-engine.js'
     /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean, hasUnseenSessions?: boolean }} */
     let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false, hasUnseenSessions = false } = $props()
+
+    // Sync activity / attention, self-subscribed (no prop threading):
+    // a pulsing dot while any session is actively syncing, a steady
+    // amber dot when any session needs a look (diverged / error /
+    // remote-gone). Syncing wins when both apply — activity is the
+    // fresher signal.
+    let syncStates = $derived(Object.values($syncStatusStore).map((s) => s.state))
+    let anySyncing = $derived(syncStates.includes('syncing'))
+    let anySyncAttention = $derived(
+        syncStates.some((st) => st === 'diverged' || st === 'remote-gone' || st === 'error'),
+    )
 
     // One green "something in Sessions wants a look" dot, fed by either a
     // newer gist revision (hasSessionUpdates) or a background session that
@@ -46,6 +58,11 @@
         </svg>
         {#if sessionsBadge}
             <span class="sessions-badge" aria-label={sessionsTitle}></span>
+        {/if}
+        {#if anySyncing}
+            <span class="sync-dot syncing" aria-label="Session sync in progress" title="Session sync in progress"></span>
+        {:else if anySyncAttention}
+            <span class="sync-dot attention" aria-label="A session needs attention (sync)" title="A session needs attention — open Sessions"></span>
         {/if}
     </button>
     <h1 class="brand">
@@ -233,6 +250,32 @@
         border-radius: 50%;
         background: var(--success);
         box-shadow: 0 0 0 2px var(--bg);
+    }
+
+    /* Sync activity (pulsing) / attention (steady amber) dot —
+       bottom-right so it never collides with .sessions-badge. */
+    .sync-dot {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px var(--bg);
+    }
+
+    .sync-dot.syncing {
+        background: var(--accent);
+        animation: sync-pulse 1.2s ease-in-out infinite;
+    }
+
+    .sync-dot.attention {
+        background: #d9822b;
+    }
+
+    @keyframes sync-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
     }
 
     .files-btn {
