@@ -6,6 +6,7 @@
         SYNC_REPO_CREATE_LINK,
         connectSyncRepo,
     } from './sync-settings.js'
+    import { kickoffSync } from './sync-engine.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -155,6 +156,9 @@
                 syncPatInput = ''
                 syncChoices = []
                 syncRepoChoice = ''
+                // First sync now: nothing else pushes pre-existing
+                // sessions (pushes are turn-driven, sweeps TTL-gated).
+                void kickoffSync()
             } else if (result.reason === 'choose') {
                 syncChoices = result.choices
                 syncRepoChoice = result.choices[0]?.fullName ?? ''

@@ -111,6 +111,9 @@ function setStatus(branch, patch) {
  *     from the trash); must NOT re-archive remotely
  * @property {() => Promise<void>} [onSessionListChanged] — a roster op
  *     created/removed local branches; rebuild the session list
+ * @property {(remote: any, branch: string) => Promise<string | null>} [fetchStubTitle]
+ *     — display title for a remote-only session (reads branch meta at
+ *     the tip); failures tolerated, null = fall back to generic copy
  * @property {(deps: { store: any }) => any} [makeRemote] — test seam
  */
 
@@ -153,6 +156,21 @@ export function startSyncEngine(d) {
     document.addEventListener("visibilitychange", onWake);
     // Initial sweep shortly after boot (let the session list settle).
     setTimeout(() => void sweep(), 2500);
+}
+
+/**
+ * Run once right after sync connects: nothing else pushes
+ * pre-existing sessions (schedulePush is turn-driven and the boot
+ * sweep predates the connection), so force an immediate sweep for the
+ * background sessions and queue the foreground one through the normal
+ * debounced path.
+ */
+export async function kickoffSync() {
+    if (deps === null || !isSyncConnected()) return;
+    const current = deps.currentBranch?.() ?? null;
+    if (current) schedulePush(current, { delayMs: 1000 });
+    lastSweepAt = 0;
+    await sweep({ force: true });
 }
 
 /** Test seam: clear all module state. */
@@ -360,10 +378,17 @@ export async function refreshRoster() {
         const refs = await remote.listRefs();
         const archived = await remote.listArchivedRefs();
         const local = new Set(deps.listSyncableBranches());
-        setRoster({
-            remoteOnly: refs.filter((r) => !local.has(r.branch)),
-            archived,
-        });
+        const remoteOnly = refs.filter((r) => !local.has(r.branch));
+        if (deps.fetchStubTitle) {
+            for (const r of remoteOnly) {
+                try {
+                    r.title = await deps.fetchStubTitle(remote, r.branch);
+                } catch {
+                    // Title is a nicety; the stub still renders.
+                }
+            }
+        }
+        setRoster({ remoteOnly, archived });
         const current = deps.currentBranch?.() ?? null;
         for (const a of archived) {
             // Never delete the foreground session out from under the

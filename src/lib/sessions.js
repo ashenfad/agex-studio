@@ -474,6 +474,18 @@ async function initSessions() {
         onSessionListChanged: async () => {
             await refreshSessionList(state.currentBranch);
         },
+        fetchStubTitle: async (remote, branch) => {
+            // Same precedence as the session list: user-curated name,
+            // else the agent-generated title.
+            const { BRANCH_META_KEYS, decodeStateValue } = await import("./ts-agent.js");
+            for (const key of [BRANCH_META_KEYS.name, BRANCH_META_KEYS.title]) {
+                const bytes = await remote.readKeyAtTip(branch, key);
+                if (bytes === null) continue;
+                const value = decodeStateValue(bytes);
+                if (typeof value === "string" && value.length > 0) return value;
+            }
+            return null;
+        },
     });
 }
 

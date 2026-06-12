@@ -102,6 +102,7 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
         onSessionListChanged: async () => {
             listChanges++;
         },
+        fetchStubTitle: async (_remote, branch) => world.stubTitles?.[branch] ?? null,
         makeRemote: () => remote,
     });
     return world;
@@ -418,6 +419,50 @@ describe("status lifecycle", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe("kickoffSync", () => {
+    it("pushes background sessions immediately and queues the foreground", async () => {
+        connect();
+        const world = makeWorld({
+            branches: ["chat-fore", "chat-back"],
+            currentBranch: "chat-fore",
+        });
+        await commitOn(world.local, "chat-fore", "k", "f");
+        await commitOn(world.local, "chat-back", "k", "b");
+
+        const { kickoffSync } = await import("./sync-engine.js");
+        await kickoffSync();
+
+        // Background branch is on the remote right away; the
+        // foreground rides the normal debounced path (pending now).
+        const refs = await world.remote.listRefs();
+        expect(refs.map((r) => r.branch)).toEqual(["chat-back"]);
+        expect(statusOf("chat-fore").state).toBe("pending");
+    });
+});
+
+describe("stub titles", () => {
+    it("enriches remote-only roster entries via fetchStubTitle", async () => {
+        connect();
+        const world = makeWorld({ branches: [] });
+        world.stubTitles = { "chat-bb22": "Sailboat routes" };
+
+        const other = new Memory();
+        const otherRemote = makeRosterRemote(world.remoteStore);
+        await commitOn(other, "chat-bb22", "k", "v");
+        await pushBranch(other, otherRemote, "chat-bb22");
+
+        const { refreshRoster, syncRosterStore: rosterStore } = await import("./sync-engine.js");
+        await refreshRoster();
+        let snap;
+        rosterStore.subscribe((r) => {
+            snap = r;
+        })();
+        expect(snap.remoteOnly).toEqual([
+            { branch: "chat-bb22", head: expect.any(String), title: "Sailboat routes" },
+        ]);
     });
 });
 
