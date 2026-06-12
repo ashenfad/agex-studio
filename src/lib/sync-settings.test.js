@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { SYNC_MARKER_PATH, connectSyncRepo, discoverSyncRepos } from "./sync-settings.js";
+import {
+    SYNC_MARKER_PATH,
+    connectSyncRepo,
+    discoverSyncRepos,
+    preferredSyncRepo,
+} from "./sync-settings.js";
 
 /** Sequence-scripted fetch recording method+url+body per call. */
 function makeFetch(script) {
@@ -47,6 +52,18 @@ describe("discoverSyncRepos", () => {
     it("translates 401 into actionable wording", async () => {
         const { fetchImpl } = makeFetch([{ status: 401, body: { message: "Bad credentials" } }]);
         await expect(discoverSyncRepos("bad", { fetchImpl })).rejects.toThrow(/rejected the token/);
+    });
+});
+
+describe("preferredSyncRepo", () => {
+    it("prefers the suggested name, then private, then first", () => {
+        const named = { fullName: "u/agex-sync", private: true };
+        const priv = { fullName: "u/secret", private: true };
+        const pub = { fullName: "u/website", private: false };
+        expect(preferredSyncRepo([pub, priv, named])).toBe(named);
+        expect(preferredSyncRepo([pub, priv])).toBe(priv);
+        expect(preferredSyncRepo([pub])).toBe(pub);
+        expect(preferredSyncRepo([])).toBeNull();
     });
 });
 

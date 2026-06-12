@@ -41,6 +41,27 @@ export const SYNC_PAT_CREATE_LINK = "https://github.com/settings/personal-access
  *  as an agex sync target (and gives empty-ish repos a sanity check). */
 export const SYNC_MARKER_PATH = "agex-sync.json";
 
+/** The repo name the wizard's create link prefills — also the
+ *  discovery preselection target. */
+export const SYNC_REPO_SUGGESTED_NAME = "agex-sync";
+
+/**
+ * Pick the default among multiple discovered repos: the wizard's
+ * suggested name wins (fine-grained tokens always carry read on the
+ * user's public repos, so the list is rarely length one even with a
+ * perfectly scoped token), then any private repo, then the first.
+ *
+ * @param {Array<{ fullName: string, private: boolean }>} choices
+ */
+export function preferredSyncRepo(choices) {
+    return (
+        choices.find((c) => c.fullName.split("/")[1] === SYNC_REPO_SUGGESTED_NAME) ??
+        choices.find((c) => c.private) ??
+        choices[0] ??
+        null
+    );
+}
+
 const API_BASE = "https://api.github.com";
 
 /**

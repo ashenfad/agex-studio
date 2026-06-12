@@ -6,6 +6,7 @@
         SYNC_PAT_CREATE_LINK,
         SYNC_REPO_CREATE_LINK,
         connectSyncRepo,
+        preferredSyncRepo,
     } from './sync-settings.js'
     import { kickoffSync } from './sync-engine.js'
 
@@ -171,8 +172,8 @@
                 void kickoffSync()
             } else if (result.reason === 'choose') {
                 syncChoices = result.choices
-                syncRepoChoice = result.choices[0]?.fullName ?? ''
-                syncError = 'The token can reach several repos — pick the sync repo and connect again.'
+                syncRepoChoice = preferredSyncRepo(result.choices)?.fullName ?? ''
+                syncError = 'The token can reach several repos — confirm the sync repo and connect again.'
             } else {
                 syncError = result.message
             }
@@ -630,11 +631,17 @@
         background: var(--bg);
     }
 
+    /* The card shares the button's old background — give in-card
+       buttons the page bg so they read as buttons again. */
+    .sync-section .sync-btn {
+        background: var(--bg);
+        border-color: var(--border);
+    }
+
     .opt-row {
         flex-direction: row;
         align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
+        gap: 0.6rem;
         font-size: 0.85rem;
     }
 
