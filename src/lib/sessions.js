@@ -803,11 +803,22 @@ export async function getBundleStats(branch) {
  *
  *  @param {string} branch
  *  @param {(p: { phase: string, done: number, total: number }) => void} [onProgress]
+ *  @param {{ shape?: 'full' | 'flat' | 'flat-downsample' | 'flat-strip' }} [opts]
+ *    — non-'full' shapes publish a tip-only snapshot (ts kernel only),
+ *    optionally with event-log images downsampled or stripped.
  *  @returns {Promise<{ bytes: Uint8Array, manifest: object }>}
  */
-export async function exportBundle(branch, onProgress) {
+export async function exportBundle(branch, onProgress, opts = {}) {
     const adapter = await resolveAdapter(_kernelFor(branch));
-    return adapter.exportBundlePayload(branch, { onProgress });
+    return adapter.exportBundlePayload(branch, { onProgress, ...opts });
+}
+
+/** Byte profile + per-shape size estimates for the publish modal.
+ *  Returns null for kernels without snapshot support (py). */
+export async function profilePublishSizes(branch) {
+    const adapter = await resolveAdapter(_kernelFor(branch));
+    if (typeof adapter.profilePublishSizes !== "function") return null;
+    return adapter.profilePublishSizes(branch);
 }
 
 /** Import a bundle (ZIP bytes) as a new session. The manifest's

@@ -11,6 +11,7 @@
         importBundle,
         inspectBundle,
         getBundleStats,
+        profilePublishSizes,
         CURRENT_BRANCH_KEY,
         hasSeenPyExperimentalWarning,
         markPyExperimentalWarningSeen,
@@ -587,16 +588,49 @@
         startPublish(target)
     }
 
-    /** Start the publish flow: bundle, then surface the preview. */
+    /** Start the publish flow. ts sessions get a shape-choice stage
+     *  first (full history vs tip snapshot, image treatment) with
+     *  approximate per-shape sizes; py goes straight to bundling. */
     async function startPublish(session) {
         if (publishState) return
+        if (session.kernel === 'ts') {
+            publishState = {
+                stage: 'options',
+                session,
+                estimates: null,
+                shape: $settingsStore.publishShape || 'full',
+            }
+            try {
+                const sized = await profilePublishSizes(session.branch)
+                if (publishState?.stage === 'options' && publishState.session === session) {
+                    publishState = { ...publishState, estimates: sized?.estimates ?? null }
+                }
+            } catch (err) {
+                // Estimates are a nicety — the options still work
+                // without numbers next to them.
+                console.warn('publish size profile failed:', err)
+            }
+            return
+        }
+        await bundleForPublish(session, 'full')
+    }
+
+    /** Options stage confirmed: remember the shape, then bundle. */
+    async function proceedPublish() {
+        if (publishState?.stage !== 'options') return
+        const { session, shape } = publishState
+        updateSettings({ publishShape: shape })
+        await bundleForPublish(session, shape)
+    }
+
+    async function bundleForPublish(session, shape) {
         publishState = { stage: 'bundling', session, phase: 'walking', done: 0, total: 0 }
         try {
             const { bytes, manifest } = await exportBundle(session.branch, (p) => {
                 if (publishState?.stage === 'bundling') {
                     publishState = { ...publishState, phase: p.phase, done: p.done, total: p.total }
                 }
-            })
+            }, { shape })
             // Look up any existing gist mapping for this branch. When
             // present, this publish will PATCH that gist (preserving
             // the share URL) instead of creating a new one.
@@ -637,6 +671,20 @@
         if (publishState?.stage === 'bundling' || publishState?.stage === 'uploading') return
         publishState = null
         copyFlash = null
+    }
+
+    /** "· ~1.3 MB" suffix for a shape option; '' until estimates load
+     *  (or when profiling failed — options work without numbers). */
+    function publishSizeHint(shape) {
+        const est = publishState?.estimates
+        if (!est) return ''
+        const v = {
+            full: est.full,
+            flat: est.flat,
+            'flat-downsample': est.flatDownsampled,
+            'flat-strip': est.flatStripped,
+        }[shape]
+        return v == null ? '' : ` · ~${formatBytes(Math.max(0, v))}`
     }
 
     /** Coarse "X ago" formatter for the publish destination's
@@ -1487,7 +1535,50 @@
             <h3>Publish to Gist</h3>
         </div>
 
-        {#if publishState.stage === 'bundling'}
+        {#if publishState.stage === 'options'}
+            <div class="modal-body">
+                <div class="preview-field">
+                    <span class="field-label">What to include</span>
+                    <div class="destination-choice">
+                        <label class="destination-option">
+                            <input type="radio" name="publish-shape" value="full" bind:group={publishState.shape} />
+                            <span class="destination-option-body">
+                                <span class="destination-option-title">Everything{publishSizeHint('full')}</span>
+                                <span class="destination-detail">full session history — importers can undo into past turns</span>
+                            </span>
+                        </label>
+                        <label class="destination-option">
+                            <input type="radio" name="publish-shape" value="flat" bind:group={publishState.shape} />
+                            <span class="destination-option-body">
+                                <span class="destination-option-title">Current state{publishSizeHint('flat')}</span>
+                                <span class="destination-detail">drops edit history — the app, files, and conversation stay intact</span>
+                            </span>
+                        </label>
+                        <label class="destination-option">
+                            <input type="radio" name="publish-shape" value="flat-downsample" bind:group={publishState.shape} />
+                            <span class="destination-option-body">
+                                <span class="destination-option-title">Current state, smaller images{publishSizeHint('flat-downsample')}</span>
+                                <span class="destination-detail">screenshots and other observed images re-encoded at reduced size</span>
+                            </span>
+                        </label>
+                        <label class="destination-option">
+                            <input type="radio" name="publish-shape" value="flat-strip" bind:group={publishState.shape} />
+                            <span class="destination-option-body">
+                                <span class="destination-option-title">Current state, no images{publishSizeHint('flat-strip')}</span>
+                                <span class="destination-detail">observed images become placeholders — your uploaded files are untouched</span>
+                            </span>
+                        </label>
+                    </div>
+                    {#if !publishState.estimates}
+                        <div class="destination-detail">estimating sizes…</div>
+                    {/if}
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" onclick={closePublish}>Cancel</button>
+                <button type="button" class="btn-save" onclick={proceedPublish}>Continue</button>
+            </div>
+        {:else if publishState.stage === 'bundling'}
             <div class="modal-body">
                 <div class="progress-label">{phaseLabel(publishState.phase)}</div>
                 <div class="progress-bar">
