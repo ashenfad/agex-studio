@@ -6,6 +6,7 @@
         deleteSession,
         forkSession,
         forkSessionFreshChat,
+        forkSessionCompact,
         setSessionMeta,
         exportBundle,
         importBundle,
@@ -467,21 +468,38 @@
     let forkModalOpen = $state(false)
     let forkSourceBranch = $state(null)
 
-    /** @type {{ title: string } | null} */
+    /** @type {{ title: string, kernel: string } | null} */
     let forkSourceInfo = $derived.by(() => {
         if (!forkSourceBranch) return null
         const s = $sessionStore.sessions.find((x) => x.branch === forkSourceBranch)
         if (!s) return null
-        return { title: s.title || 'New Chat' }
+        return { title: s.title || 'New Chat', kernel: s.kernel || 'py' }
     })
+
+    /** Size estimates for the compact-copy option; null while
+     *  loading (the option works without numbers). */
+    let forkEstimates = $state(null)
 
     async function handleFork(e, branch) {
         e.stopPropagation()
         forkSourceBranch = branch
+        forkEstimates = null
         forkModalOpen = true
+        const session = $sessionStore.sessions.find((x) => x.branch === branch)
+        if (session?.kernel !== 'ts') return
+        try {
+            const sized = await profilePublishSizes(branch)
+            // Guard against the modal having moved on to another
+            // session (or closed) while we profiled.
+            if (forkModalOpen && forkSourceBranch === branch) {
+                forkEstimates = sized?.estimates ?? null
+            }
+        } catch (err) {
+            console.warn('fork size profile failed:', err)
+        }
     }
 
-    async function handleForkConfirm(mode) {
+    async function handleForkConfirm(mode, opts) {
         const branch = forkSourceBranch
         if (!branch) return
         try {
@@ -490,6 +508,8 @@
             }
             if (mode === 'fresh') {
                 await forkSessionFreshChat()
+            } else if (mode === 'compact') {
+                await forkSessionCompact({ images: opts?.images ?? 'downsample' })
             } else {
                 await forkSession()
             }
@@ -2005,6 +2025,9 @@
 <ForkModal
     open={forkModalOpen}
     sourceTitle={forkSourceInfo?.title ?? ''}
+    compactDisabled={forkSourceInfo?.kernel !== 'ts'}
+    compactDisabledReason="Compact copies are available for TypeScript sessions."
+    compactEstimates={forkEstimates}
     onClose={() => { forkModalOpen = false; forkSourceBranch = null }}
     onConfirm={handleForkConfirm}
 />
