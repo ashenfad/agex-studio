@@ -100,29 +100,33 @@ export async function profileSession(versioned, branch) {
     const tipEntries = await keyset.materialize();
 
     const tip = { files: 0, chat: 0, cache: 0, meta: 0, images: 0, total: 0 };
-    const tipPointers = new Set();
     for (const [key, entry] of tipEntries) {
         tip[keyCategory(key)] += entry.meta.size;
         tip.total += entry.meta.size;
-        tipPointers.add(entry.blob);
     }
 
     // Embedded images: only the tip's event blobs are read + decoded.
-    for (const [key, entry] of tipEntries) {
-        if (!key.startsWith("evt/")) continue;
-        const bytes = await store.get(entry.blob);
-        if (bytes === null) continue;
-        let event;
-        try {
-            event = polymorphicDecoder(bytes);
-        } catch {
-            continue;
-        }
-        if (!event || !Array.isArray(event.parts)) continue;
-        for (const part of event.parts) {
-            if (_isImagePart(part)) tip.images += _base64Bytes(part.data);
-        }
-    }
+    // Reads fan out in parallel — this is the local store (possibly
+    // worker-bridged, where serial round-trips genuinely stall), not
+    // a rate-limited API.
+    const imageBytes = await Promise.all(
+        [...tipEntries]
+            .filter(([key]) => key.startsWith("evt/"))
+            .map(async ([, entry]) => {
+                try {
+                    const bytes = await store.get(entry.blob);
+                    if (bytes === null) return 0;
+                    const event = polymorphicDecoder(bytes);
+                    if (!event || !Array.isArray(event.parts)) return 0;
+                    return event.parts
+                        .filter(_isImagePart)
+                        .reduce((n, p) => n + _base64Bytes(p.data), 0);
+                } catch {
+                    return 0;
+                }
+            }),
+    );
+    tip.images = imageBytes.reduce((a, b) => a + b, 0);
 
     // Reachable-blob total across the full history — pointer sizes
     // only, deduped by blob pointer, with the shared-subtree skip

@@ -32,18 +32,25 @@ export async function downsampleImagePart(part, { maxDim = MAX_DIM, quality = JP
         const bitmap = await createImageBitmap(
             new Blob([bytes], { type: `image/${part.format}` }),
         );
-        const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-        const w = Math.max(1, Math.round(bitmap.width * scale));
-        const h = Math.max(1, Math.round(bitmap.height * scale));
-        const canvas = new OffscreenCanvas(w, h);
-        const ctx = canvas.getContext("2d");
-        if (ctx === null) return null;
-        // JPEG has no alpha channel — flatten transparency onto white
-        // rather than letting it default to black.
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(bitmap, 0, 0, w, h);
-        bitmap.close();
+        let canvas;
+        // The bitmap holds GPU-backed memory until close() — guarantee
+        // the release even when getContext fails or drawImage throws.
+        // drawImage is its last use; convertToBlob only needs the canvas.
+        try {
+            const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+            const w = Math.max(1, Math.round(bitmap.width * scale));
+            const h = Math.max(1, Math.round(bitmap.height * scale));
+            canvas = new OffscreenCanvas(w, h);
+            const ctx = canvas.getContext("2d");
+            if (ctx === null) return null;
+            // JPEG has no alpha channel — flatten transparency onto
+            // white rather than letting it default to black.
+            ctx.fillStyle = "#fff";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        } finally {
+            bitmap.close();
+        }
         const blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
         const out = new Uint8Array(await blob.arrayBuffer());
         // A tiny PNG can re-encode LARGER as JPEG — only swap on a win.

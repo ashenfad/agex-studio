@@ -155,10 +155,19 @@
                     </div>
                 </label>
 
-                <label
+                <!-- A <div>, not a <label> like its siblings: this card
+                     nests the smaller-images checkbox, and HTML forbids
+                     a label inside a label (and a label wrapping two
+                     labelable controls). The onclick keeps the
+                     whole-card click affordance; the radio itself stays
+                     keyboard-reachable as part of the group. -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
                     class="option"
                     class:checked={mode === 'compact'}
                     class:disabled={compactDisabled}
+                    onclick={() => { if (!working && !compactDisabled) mode = 'compact' }}
                 >
                     <input
                         type="radio"
@@ -193,7 +202,7 @@
                             <div class="option-disabled-note">{compactDisabledReason}</div>
                         {/if}
                     </div>
-                </label>
+                </div>
             </div>
 
             <div class="panel-footer">
