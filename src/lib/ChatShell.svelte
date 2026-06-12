@@ -11,6 +11,20 @@
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
     import { syncOnArrival } from './sync-engine.js'
+
+    // Hang insurance for arrival pulls: nothing in the fetch chain
+    // has a timeout, so a wedged connection (captive portal, dead
+    // cell link) would block the history paint indefinitely.
+    // Generous on purpose — a real pull over a slow link should WIN
+    // this race (the painted history being post-pull is the whole
+    // feature); only a hang loses and degrades to local history.
+    const ARRIVAL_SYNC_MAX_MS = 8000
+    function arrivalSyncWithGuard(branch) {
+        return Promise.race([
+            syncOnArrival(branch),
+            new Promise((resolve) => setTimeout(resolve, ARRIVAL_SYNC_MAX_MS)),
+        ])
+    }
     import TokenModal from './TokenModal.svelte'
     import { pyodideStore } from './pyodide.js'
     import { initSessionsFromUrl, loadHistoryChunked, switchSession, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
@@ -293,7 +307,7 @@
                         // BEFORE history paints — the active session is
                         // skipped by sweeps, so this is its one passive
                         // chance to catch up with other devices.
-                        await syncOnArrival(branch)
+                        await arrivalSyncWithGuard(branch)
                         const chunks = await loadHistoryChunked(branch)
                         const target = getSessionRuntime(branch)
                         target.historyChunks = chunks
@@ -406,7 +420,7 @@
                 // painted yet — the cheap moment to catch up with other
                 // devices. syncOnArrival never throws; sync problems
                 // land in the status glyph, not here.
-                syncOnArrival(branch).then(() => loadHistoryChunked(branch)).then(async (chunks) => {
+                arrivalSyncWithGuard(branch).then(() => loadHistoryChunked(branch)).then(async (chunks) => {
                     target.historyChunks = chunks
                     target.messages = chunks.messages
                     target.loaded = true
