@@ -51,6 +51,8 @@ const SWEEP_TTL_MS = 5 * 60_000;
 const BUSY_RETRY_MS = 15_000;
 
 const ENABLED_KEY = (branch) => `agex-sync-enabled-${branch}`;
+const SYNCED_AT_KEY = (branch) => `agex-sync-syncedat-${branch}`;
+const APP_SYNCED_AT_KEY = (branch) => `agex-sync-appat-${branch}`;
 
 // ---------------------------------------------------------------------------
 // Status store (sessions.js store pattern)
@@ -60,7 +62,10 @@ const ENABLED_KEY = (branch) => `agex-sync-enabled-${branch}`;
  * @typedef {Object} BranchSyncStatus
  * @property {"pending" | "syncing" | "synced" | "diverged" | "remote-gone" | "error"} state
  * @property {string} detail — human hint for warn/error states
- * @property {number} at — epoch ms of the last transition
+ * @property {number} at — epoch ms of the last transition; for
+ *     "synced" this is the last successful CHECK (sweeps re-stamp it)
+ * @property {number} [appAt] — epoch ms of the last app-state sync
+ *     (push, apply, or confirmed-current pull)
  */
 
 /** @type {Record<string, BranchSyncStatus>} */
@@ -78,6 +83,12 @@ export const syncStatusStore = {
 };
 
 function clearStatus(branch) {
+    // Opting out means "no sync story for this branch" — drop the
+    // persisted freshness stamps along with the live entry.
+    try {
+        localStorage.removeItem(SYNCED_AT_KEY(branch));
+        localStorage.removeItem(APP_SYNCED_AT_KEY(branch));
+    } catch {}
     if (!(branch in statuses)) return;
     const { [branch]: _gone, ...rest } = statuses;
     statuses = rest;
@@ -85,12 +96,68 @@ function clearStatus(branch) {
 }
 
 function setStatus(branch, patch) {
-    statuses = {
-        ...statuses,
-        // detail resets on every transition unless the new patch sets
-        // one — a recovered branch must not keep its old error tooltip.
-        [branch]: { ...statuses[branch], detail: "", ...patch, at: Date.now() },
+    // detail resets on every transition unless the new patch sets
+    // one — a recovered branch must not keep its old error tooltip.
+    // appAt rides along untouched (the spread keeps it).
+    const entry = { ...statuses[branch], detail: "", ...patch, at: Date.now() };
+    statuses = { ...statuses, [branch]: entry };
+    if (entry.state === "synced") {
+        try {
+            localStorage.setItem(SYNCED_AT_KEY(branch), String(entry.at));
+        } catch {}
+    }
+    for (const fn of subscribers) fn(statuses);
+}
+
+/** Epoch-ms localStorage stamp, or null when absent/garbage. */
+function readStamp(key) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (raw === null) return null;
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0) return n;
+    } catch {}
+    return null;
+}
+
+/** Last SUCCESSFUL sync times (session + app data), surviving reloads
+ *  and current error states — the session-settings ledger reads these
+ *  rather than the live entry's transition time. */
+export function lastSyncStamps(branch) {
+    return {
+        syncedAt: readStamp(SYNCED_AT_KEY(branch)),
+        appAt: readStamp(APP_SYNCED_AT_KEY(branch)),
     };
+}
+
+/** Rehydrate "synced as of …" entries after a reload so the drawer
+ *  shows a stale-but-synced glyph instead of nothing until the first
+ *  sweep reaches each branch. Live entries are never overwritten. */
+export function seedPersistedStatuses(branches) {
+    let changed = false;
+    for (const branch of branches) {
+        if (branch in statuses || !isSyncEnabled(branch)) continue;
+        const at = readStamp(SYNCED_AT_KEY(branch));
+        if (at === null) continue;
+        const appAt = readStamp(APP_SYNCED_AT_KEY(branch));
+        statuses = {
+            ...statuses,
+            [branch]: { state: "synced", detail: "", at, ...(appAt !== null && { appAt }) },
+        };
+        changed = true;
+    }
+    if (changed) for (const fn of subscribers) fn(statuses);
+}
+
+/** Stamp a successful app-state sync — updates the live entry (if
+ *  any) without touching its state/at, and persists for the ledger. */
+function markAppSynced(branch) {
+    const appAt = Date.now();
+    try {
+        localStorage.setItem(APP_SYNCED_AT_KEY(branch), String(appAt));
+    } catch {}
+    if (!(branch in statuses)) return;
+    statuses = { ...statuses, [branch]: { ...statuses[branch], appAt } };
     for (const fn of subscribers) fn(statuses);
 }
 
@@ -151,6 +218,9 @@ export function configureSyncEngine(d) {
 /** Wire deps and bind the focus/visibility sweep triggers (idempotent). */
 export function startSyncEngine(d) {
     configureSyncEngine(d);
+    // Paint last-known freshness immediately — the boot sweep is 2.5s
+    // out and skips the foreground branch entirely.
+    if (isSyncConnected()) seedPersistedStatuses(d.listSyncableBranches?.() ?? []);
     if (listenersBound || typeof window === "undefined") return;
     listenersBound = true;
     const onWake = () => {
@@ -367,7 +437,9 @@ export async function syncNow(branch) {
             return syncBranch(store, instrumentedRemote(remote, branch, pushTotal), branch);
         });
         if (outcome === "busy") {
-            setStatus(branch, { state: "synced", detail: "another tab is syncing" });
+            // Honest: nothing was verified — this tab is rescheduled,
+            // not synced. The other tab's outcome can't be claimed.
+            setStatus(branch, { state: "pending", detail: "another tab is syncing" });
             schedulePush(branch, { delayMs: BUSY_RETRY_MS });
             return "busy";
         }
@@ -413,6 +485,8 @@ function applyOutcome(branch, outcome) {
  */
 export async function sweep({ force = false } = {}) {
     if (deps === null || !isSyncConnected()) return;
+    // Cheap + idempotent — covers sessions that appeared after boot.
+    seedPersistedStatuses(deps.listSyncableBranches());
     const now = Date.now();
     if (!force && now - lastSweepAt < SWEEP_TTL_MS) return;
     lastSweepAt = now;
@@ -800,6 +874,7 @@ export async function pushAppState(branch, { keepalive = false } = {}) {
                 // What we pushed is what's applied — without this the
                 // next pull re-applies our own bag.
                 lastAppliedAppAt.set(branch, localAt);
+                markAppSynced(branch);
                 appStateIndex?.set.add(branch);
                 if (++appStatePushCount >= APP_STATE_SQUASH_EVERY) {
                     appStatePushCount = 0;
@@ -821,6 +896,7 @@ function applyRemoteAppState(branch, payload) {
     lastAppliedAppAt.set(branch, payload.updatedAt);
     // Don't bounce the applied state straight back as a push.
     rememberPushedBag(branch, JSON.stringify(payload.entries ?? {}));
+    markAppSynced(branch);
 }
 
 export async function pullAppState(branch) {
@@ -835,7 +911,12 @@ export async function pullAppState(branch) {
         const existing = await readRemoteAppState(remote.client, branch);
         if (existing === null) return;
         const { payload } = existing;
-        if (payload.updatedAt <= (lastAppliedAppAt.get(branch) ?? 0)) return;
+        if (payload.updatedAt <= (lastAppliedAppAt.get(branch) ?? 0)) {
+            // Confirmed current — a real remote read said so; that's
+            // a successful app-data check, worth a freshness stamp.
+            markAppSynced(branch);
+            return;
+        }
         if ((localWriteAt(branch) ?? 0) > payload.updatedAt && appStateDirty(branch)) return; // local pending wins
         applyRemoteAppState(branch, payload);
     } catch (err) {
