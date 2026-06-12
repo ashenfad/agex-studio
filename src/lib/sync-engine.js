@@ -35,7 +35,7 @@
  * kvgit machinery.
  */
 
-import { syncBranch } from "@agex-ts/kvgit";
+import { VersionedKV, applyWire, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, GithubRemote } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
 
@@ -99,6 +99,11 @@ function setStatus(branch, patch) {
  *     pull moved the branch's local ref; refresh lists / dispose pools
  * @property {() => string | null} [currentBranch] — foreground branch
  *     (sweeps skip it; its sync rides the post-turn push)
+ * @property {(branch: string) => Promise<void>} [onBranchArchivedRemotely]
+ *     — tombstone propagation: remove the local session (recoverable
+ *     from the trash); must NOT re-archive remotely
+ * @property {() => Promise<void>} [onSessionListChanged] — a roster op
+ *     created/removed local branches; rebuild the session list
  * @property {(deps: { store: any }) => any} [makeRemote] — test seam
  */
 
@@ -155,6 +160,8 @@ export function _resetSyncEngineForTesting() {
     lastSweepAt = 0;
     channel?.close();
     channel = null;
+    roster = { remoteOnly: [], archived: [] };
+    rosterSubscribers = [];
 }
 
 export function isSyncConnected() {
@@ -299,4 +306,170 @@ export async function sweep({ force = false } = {}) {
         if (branch === current || !isSyncEnabled(branch)) continue;
         await syncNow(branch);
     }
+    await refreshRoster();
+}
+
+// ---------------------------------------------------------------------------
+// Roster: remote-only sessions (cloud stubs) + trash (archived/*)
+// ---------------------------------------------------------------------------
+
+/** @type {{ remoteOnly: Array<{branch: string, head: string}>, archived: Array<{branch: string, head: string}> }} */
+let roster = { remoteOnly: [], archived: [] };
+let rosterSubscribers = [];
+
+export const syncRosterStore = {
+    subscribe(fn) {
+        rosterSubscribers.push(fn);
+        fn(roster);
+        return () => {
+            rosterSubscribers = rosterSubscribers.filter((s) => s !== fn);
+        };
+    },
+};
+
+function setRoster(next) {
+    roster = next;
+    for (const fn of rosterSubscribers) fn(roster);
+}
+
+/**
+ * Refresh the remote roster: sessions that exist only on the remote
+ * (cloud stubs, downloadable) and archived tombstones (the trash
+ * view). Also propagates tombstones — a branch archived on another
+ * device gets removed locally (it stays recoverable from the trash).
+ * Best-effort: roster failures never break sync proper.
+ */
+export async function refreshRoster() {
+    if (deps === null || !isSyncConnected()) {
+        setRoster({ remoteOnly: [], archived: [] });
+        return;
+    }
+    try {
+        const remote = await getRemote();
+        const refs = await remote.listRefs();
+        const archived = await remote.listArchivedRefs();
+        const local = new Set(deps.listSyncableBranches());
+        setRoster({
+            remoteOnly: refs.filter((r) => !local.has(r.branch)),
+            archived,
+        });
+        for (const a of archived) {
+            if (local.has(a.branch) && isSyncEnabled(a.branch) && deps.onBranchArchivedRemotely) {
+                await deps.onBranchArchivedRemotely(a.branch);
+            }
+        }
+    } catch {
+        // Roster is a convenience view; sync status carries errors.
+    }
+}
+
+/** Materialize a remote-only session locally (cloud-stub download). */
+export async function downloadRemoteSession(branch) {
+    const outcome = await syncNow(branch);
+    await deps?.onSessionListChanged?.();
+    await refreshRoster();
+    return outcome;
+}
+
+/** Archive the remote branch (deletion = archive, recoverable from
+ *  trash). Returns false when there was nothing live to archive. */
+export async function archiveSessionRemotely(branch) {
+    if (deps === null || !isSyncConnected()) return false;
+    try {
+        const remote = await getRemote();
+        const ok = await remote.archiveBranch(branch);
+        await refreshRoster();
+        return ok;
+    } catch (err) {
+        setStatus(branch, { state: "error", detail: err?.message ?? String(err) });
+        return false;
+    }
+}
+
+/** Restore an archived session and materialize it locally. Returns
+ *  the live branch name. */
+export async function restoreRemoteSession(branch) {
+    const remote = await getRemote();
+    const live = await remote.restoreBranch(branch);
+    await syncNow(live);
+    await deps?.onSessionListChanged?.();
+    await refreshRoster();
+    return live;
+}
+
+/** Hard-delete one archived session ("Delete forever"). */
+export async function deleteForeverRemote(branch) {
+    const remote = await getRemote();
+    const ok = await remote.deleteForever(branch);
+    await refreshRoster();
+    return ok;
+}
+
+/** Hard-delete every archived session ("Empty trash"). */
+export async function emptyTrashRemote() {
+    const remote = await getRemote();
+    const removed = await remote.emptyTrash();
+    await refreshRoster();
+    return removed;
+}
+
+// ---------------------------------------------------------------------------
+// Divergence resolution
+// ---------------------------------------------------------------------------
+
+/** Make sure the remote head's objects exist locally (a diverged pull
+ *  already fetched them; this covers the cold path). */
+async function ensureRemoteObjects(store, remote, branch, remoteHead) {
+    const probe = await VersionedKV.open(store, { branch });
+    if ((await probe.checkout(remoteHead)) !== null) return;
+    await applyWire(store, remote.fetch(remoteHead, [probe.currentCommit]));
+}
+
+async function remoteHeadOf(remote, branch) {
+    const refs = await remote.listRefs();
+    const head = refs.find((r) => r.branch === branch)?.head;
+    if (head === undefined) {
+        throw new Error(`No remote session found for '${branch}'.`);
+    }
+    return head;
+}
+
+/**
+ * "Keep both": fork the remote side of a diverged session into a new
+ * local-only branch (sync disabled — pushing it would mint a duplicate
+ * remote session). The original keeps its local turns and its
+ * diverged status. Returns the fork's branch name.
+ */
+export async function forkDivergedSession(branch) {
+    const store = await deps.getStore();
+    const remote = await getRemote();
+    const head = await remoteHeadOf(remote, branch);
+    await ensureRemoteObjects(store, remote, branch, head);
+    const suffix = [...crypto.getRandomValues(new Uint8Array(4))]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    const fork = `chat-${suffix}`;
+    const vk = await VersionedKV.open(store, { branch });
+    await vk.createBranch(fork, { at: head });
+    setSyncEnabled(fork, false);
+    await deps?.onSessionListChanged?.();
+    return fork;
+}
+
+/**
+ * "Take remote": discard this device's diverged turns and reset the
+ * local branch to the remote head. Destructive on purpose — the UI
+ * confirms first. The local commits stay in the store (unreferenced)
+ * until kvgit GC; this is a ref move, not an erasure.
+ */
+export async function resetSessionToRemote(branch) {
+    const store = await deps.getStore();
+    const remote = await getRemote();
+    const head = await remoteHeadOf(remote, branch);
+    await ensureRemoteObjects(store, remote, branch, head);
+    const vk = await VersionedKV.open(store, { branch });
+    await vk.resetTo(head);
+    if (deps.onBranchPulled) await deps.onBranchPulled(branch);
+    channel?.postMessage({ branch });
+    await syncNow(branch); // reconciles sync-head bookkeeping → synced
 }

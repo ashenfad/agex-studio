@@ -352,25 +352,37 @@
 
                 <div class="divider"></div>
 
-                <label>
-                    <span>GitHub Personal Access Token</span>
-                    <input
-                        type="password"
-                        bind:value={githubPat}
-                        placeholder="ghp_… or github_pat_…"
-                        autocomplete="off"
-                        spellcheck="false"
-                    />
+                <div class="sync-section">
+                    <span class="sync-title">GitHub</span>
                     <span class="hint">
-                        For publishing work as gists
-                        (<a href={PAT_DEEP_LINK} target="_blank" rel="noopener">create</a>)
+                        Two separate things, two separate tokens:
+                        <strong>Sync</strong> keeps your sessions on your
+                        devices (private repo, automatic);
+                        <strong>Share</strong> mints a link anyone can open
+                        (secret gist, on demand).
                     </span>
-                </label>
-
-                <div class="divider"></div>
+                </div>
 
                 <div class="sync-section">
-                    <span class="sync-title">Session sync</span>
+                    <span class="sync-title">Share with others</span>
+                    <label>
+                        <input
+                            type="password"
+                            bind:value={githubPat}
+                            placeholder="ghp_… or github_pat_…"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        <span class="hint">
+                            Classic token with the gist scope
+                            (<a href={PAT_DEEP_LINK} target="_blank" rel="noopener">create</a>).
+                            Used by each session's “Publish to gist”.
+                        </span>
+                    </label>
+                </div>
+
+                <div class="sync-section">
+                    <span class="sync-title">Sync across devices</span>
                     {#if syncConnectedRepo}
                         <div class="sync-connected">
                             Connected to <code>{syncConnectedRepo}</code>
