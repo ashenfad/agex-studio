@@ -32,6 +32,14 @@ const DEFAULTS = {
     // models.js for the gating rule.
     serviceTier: "standard",
     githubPat: "",
+    // Session sync (cross-device, via a dedicated GitHub repo). Both
+    // empty = not connected. `syncPat` is a fine-grained token scoped
+    // to ONLY `syncRepo` with Contents read/write — deliberately a
+    // separate credential from `githubPat` (classic, gist scope):
+    // different trust levels, independently revocable. Set by the
+    // connect wizard in SettingsDrawer via sync-settings.js.
+    syncRepo: "",
+    syncPat: "",
     // Hold a screen wake lock while any session has a turn in flight, so
     // the display doesn't dim during long agent turns. Surfaced in the
     // session drawer; auto-released when the tab is hidden (the browser
@@ -85,6 +93,13 @@ let subscribers = [];
  *     ``gist`` scope.  Used to publish artifact bundles as secret
  *     gists.  Stored locally; never sent anywhere except api.github.com.
  *     Empty string when the user hasn't connected GitHub yet.
+ * @property {string} syncRepo — ``owner/name`` of the dedicated session
+ *     sync repo, or empty when sync isn't connected.  Set by the
+ *     connect wizard after discovery + validation (sync-settings.js).
+ * @property {string} syncPat — fine-grained PAT scoped to ONLY
+ *     ``syncRepo`` with Contents read/write.  Deliberately separate
+ *     from ``githubPat`` (different trust level, independently
+ *     revocable).  Stored locally; sent only to api.github.com.
  * @property {boolean} keepAwake — hold a screen wake lock while a session
  *     has a turn in flight (display won't dim during long turns).
  * @property {boolean} notifyOnFinish — fire a desktop notification when a
