@@ -155,7 +155,9 @@ export function startSyncEngine(d) {
     listenersBound = true;
     const onWake = () => {
         if (document.visibilityState === "visible") void sweep();
+        else flushPendingAppState();
     };
+    window.addEventListener("pagehide", flushPendingAppState);
     window.addEventListener("focus", onWake);
     document.addEventListener("visibilitychange", onWake);
     // Initial sweep shortly after boot (let the session list settle).
@@ -418,9 +420,13 @@ export async function sweep({ force = false } = {}) {
     for (const branch of deps.listSyncableBranches()) {
         if (branch === current || !isSyncEnabled(branch)) continue;
         await syncNow(branch);
-        // App save data can change remotely without any session turns
-        // (the app was used, not the chat) — check it independently.
-        await pullAppState(branch);
+        // App save data moves independently of session turns, in both
+        // directions: a bag changed while this tab was closed (the
+        // persisted pushed-hash says so) pushes — and pushAppState's
+        // LWW guard turns into a pull if the remote saved later.
+        // Otherwise just check for inbound changes.
+        if (appStateDirty(branch)) await pushAppState(branch);
+        else await pullAppState(branch);
     }
     await refreshRoster();
 }
@@ -584,6 +590,56 @@ const APP_STATE_MAX_BYTES = 2_000_000;
 function appStateSyncEnabled() {
     return getSettings().syncAppState !== false;
 }
+
+/** Keepalive fetches may outlive the page but cap the body (~64KB);
+ *  bigger bags skip the close-time push and rely on reopen healing. */
+const APP_STATE_KEEPALIVE_MAX = 48_000;
+
+/** FNV-1a — change detection for the persisted pushed-bag hash. */
+function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16);
+}
+
+const PUSHED_HASH_KEY = (branch) => `agex-appstate-pushed-${branch}`;
+const LOCAL_WRITE_AT_KEY = (branch) => `agex-appstate-localat-${branch}`;
+
+/** The bag's last local write time, surviving reloads — without it, a
+ *  reopen-healing push would stamp Date.now() and could clobber a
+ *  NEWER save from another device (LWW needs the true write time). */
+function localWriteAt(branch) {
+    const inMemory = lastLocalAppWriteAt.get(branch);
+    if (inMemory !== undefined) return inMemory;
+    try {
+        const stored = Number(localStorage.getItem(LOCAL_WRITE_AT_KEY(branch)));
+        if (Number.isFinite(stored) && stored > 0) return stored;
+    } catch {}
+    return null;
+}
+
+function rememberPushedBag(branch, json) {
+    lastPushedAppJson.set(branch, json);
+    try {
+        localStorage.setItem(PUSHED_HASH_KEY(branch), fnv1a(json));
+    } catch {}
+}
+
+/** Has the local bag changed since the last successful push — across
+ *  reloads (persisted hash), not just this tab's memory? */
+function appStateDirty(branch) {
+    if (!deps?.readAppState) return false;
+    const json = JSON.stringify(deps.readAppState(branch) ?? {});
+    if (json === lastPushedAppJson.get(branch)) return false;
+    try {
+        return localStorage.getItem(PUSHED_HASH_KEY(branch)) !== fnv1a(json);
+    } catch {
+        return true;
+    }
+}
 const appStatePath = (branch) => `app-state/${branch}.json`;
 
 const _enc = new TextEncoder();
@@ -646,6 +702,9 @@ export function scheduleAppStateSync(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
     if (!deps.readAppState || !appStateSyncEnabled()) return;
     lastLocalAppWriteAt.set(branch, Date.now());
+    try {
+        localStorage.setItem(LOCAL_WRITE_AT_KEY(branch), String(Date.now()));
+    } catch {}
     clearTimeout(appStateTimers.get(branch));
     appStateTimers.set(
         branch,
@@ -678,7 +737,7 @@ async function readRemoteAppState(client, branch) {
     }
 }
 
-export async function pushAppState(branch) {
+export async function pushAppState(branch, { keepalive = false } = {}) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
     if (!deps.readAppState || !appStateSyncEnabled()) return;
     try {
@@ -700,12 +759,26 @@ export async function pushAppState(branch) {
             return;
         }
         const remote = await getRemote();
-        const client = remote.client;
+        // Close-time flushes ride keepalive fetches (they outlive the
+        // page); oversized bags skip — reopen healing covers them.
+        let client = remote.client;
+        // (An injected test remote skips the keepalive client — fakes
+        // have no page lifetime to outlive.)
+        if (keepalive && !deps.makeRemote) {
+            if (json.length > APP_STATE_KEEPALIVE_MAX) return;
+            const settings = getSettings();
+            client = new GithubClient({
+                token: settings.syncPat,
+                repo: settings.syncRepo,
+                maxRetries: 0,
+                fetchImpl: (url, init) => fetch(url, { ...init, keepalive: true }),
+            });
+        }
         await ensureAppStateBranch(client);
 
         for (let attempt = 0; attempt < 2; attempt++) {
             const existing = await readRemoteAppState(client, branch);
-            const localAt = lastLocalAppWriteAt.get(branch) ?? Date.now();
+            const localAt = localWriteAt(branch) ?? Date.now();
             if (existing !== null && existing.payload.updatedAt > localAt) {
                 // Another device saved more recently — inbound wins.
                 applyRemoteAppState(branch, existing.payload);
@@ -719,7 +792,7 @@ export async function pushAppState(branch) {
                     branch: APP_STATE_BRANCH,
                     ...(existing !== null && { sha: existing.sha }),
                 });
-                lastPushedAppJson.set(branch, json);
+                rememberPushedBag(branch, json);
                 // What we pushed is what's applied — without this the
                 // next pull re-applies our own bag.
                 lastAppliedAppAt.set(branch, localAt);
@@ -743,7 +816,7 @@ function applyRemoteAppState(branch, payload) {
     deps.applyAppState?.(branch, payload.entries ?? {});
     lastAppliedAppAt.set(branch, payload.updatedAt);
     // Don't bounce the applied state straight back as a push.
-    lastPushedAppJson.set(branch, JSON.stringify(payload.entries ?? {}));
+    rememberPushedBag(branch, JSON.stringify(payload.entries ?? {}));
 }
 
 export async function pullAppState(branch) {
@@ -759,10 +832,21 @@ export async function pullAppState(branch) {
         if (existing === null) return;
         const { payload } = existing;
         if (payload.updatedAt <= (lastAppliedAppAt.get(branch) ?? 0)) return;
-        if ((lastLocalAppWriteAt.get(branch) ?? 0) > payload.updatedAt) return; // local pending wins
+        if ((localWriteAt(branch) ?? 0) > payload.updatedAt && appStateDirty(branch)) return; // local pending wins
         applyRemoteAppState(branch, payload);
     } catch (err) {
         console.warn(`app-state pull failed for ${branch}:`, err);
+    }
+}
+
+/** Fire any debounced app-state pushes NOW (tab is going away):
+ *  cancel the timers and push via keepalive. Best-effort by nature —
+ *  the persisted pushed-hash heals anything the browser cuts off. */
+export function flushPendingAppState() {
+    for (const [branch, timer] of appStateTimers) {
+        clearTimeout(timer);
+        appStateTimers.delete(branch);
+        void pushAppState(branch, { keepalive: true });
     }
 }
 
