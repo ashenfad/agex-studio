@@ -1,4 +1,5 @@
 <script>
+    import { untrack } from 'svelte'
     import { settingsStore, updateSettings } from './settings.js'
     import { presetsFor, supportsServiceTier } from './models.js'
     import {
@@ -22,6 +23,7 @@
     let reasoningEffort = $state('medium')
     let serviceTier = $state('standard')
     let githubPat = $state('')
+    let activeTab = $state('model')
 
     // The tier picker is only meaningful for OpenAI / Google models;
     // hide it elsewhere so the form doesn't sprout an inert knob.
@@ -40,7 +42,10 @@
     // ``$settingsStore``.
     $effect(() => {
         if (open) {
-            const s = $settingsStore
+            // untrack: this loads ONCE per open. Tracking the store
+            // here would re-fire on every auto-applied commit and
+            // revert inputs under the cursor.
+            const s = untrack(() => $settingsStore)
             const mode = s.accessMode ?? 'openrouter'
             const prov = s.provider ?? 'openai'
             apiKey = s.apiKey ?? ''
@@ -91,8 +96,16 @@
         }
     }
 
-    function handleSave() {
-        updateSettings({
+    // Auto-apply: no Save button. Every tracked local feeds a single
+    // debounced commit (300ms of quiet) carrying the same mapping the
+    // old Save applied — including the load-bearing baseUrl zeroing on
+    // OpenRouter (resolveBaseUrl lets a stored baseUrl win regardless
+    // of mode) while the LOCAL keeps the typed URL so flipping back
+    // restores it. Tier persists even when unsupported — preserves
+    // intent across model switches.
+    $effect(() => {
+        if (!open) return
+        const patch = {
             apiKey: apiKey.trim(),
             model: model.trim(),
             accessMode,
@@ -101,15 +114,12 @@
             chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
             toolUseWireFormat,
             reasoningEffort,
-            // Persist tier always, even when the current model doesn't
-            // support it — preserves user intent across model switches
-            // (Anthropic → Claude → OpenAI restores the previous
-            // selection without making them re-pick).
             serviceTier,
             githubPat: githubPat.trim(),
-        })
-        onClose()
-    }
+        }
+        const timer = setTimeout(() => updateSettings(patch), 300)
+        return () => clearTimeout(timer)
+    })
 
     // Deep link to GitHub's classic-PAT creation page with the
     // ``gist`` scope prefilled.  Fine-grained PATs work too but
@@ -187,12 +197,26 @@
     <div class="drawer">
         <h2>Settings</h2>
 
-        <form onsubmit={(e) => { e.preventDefault(); handleSave() }}>
+        <div class="segmented tabs">
+            <button
+                type="button"
+                class:active={activeTab === 'model'}
+                onclick={() => (activeTab = 'model')}
+            >Model</button>
+            <button
+                type="button"
+                class:active={activeTab === 'share'}
+                onclick={() => (activeTab = 'share')}
+            >Sync &amp; Share</button>
+        </div>
+
+        <form onsubmit={(e) => { e.preventDefault(); onClose() }}>
             <!-- Scrollable body — every field lives here so the form
                  grows / scrolls cleanly when Advanced is expanded.
                  ``Save`` and ``Cancel`` are pinned below in `.actions`
                  so they stay reachable regardless of content height. -->
             <div class="form-body">
+                {#if activeTab === 'model'}
                 <div class="field">
                     <span class="field-label">Provider</span>
                     <div class="segmented">
@@ -354,39 +378,15 @@
                     />
                 </label>
 
-                <div class="divider"></div>
+                {/if}
 
-                <div class="sync-section">
-                    <span class="sync-title">GitHub</span>
-                    <span class="hint">
-                        Two separate things, two separate tokens:
-                        <strong>Sync</strong> keeps your sessions on your
-                        devices (private repo, automatic);
-                        <strong>Share</strong> mints a link anyone can open
-                        (secret gist, on demand).
-                    </span>
-                </div>
-
-                <div class="sync-section">
-                    <span class="sync-title">Share with others</span>
-                    <label>
-                        <input
-                            type="password"
-                            bind:value={githubPat}
-                            placeholder="ghp_… or github_pat_…"
-                            autocomplete="off"
-                            spellcheck="false"
-                        />
-                        <span class="hint">
-                            Classic token with the gist scope
-                            (<a href={PAT_DEEP_LINK} target="_blank" rel="noopener">create</a>).
-                            Used by each session's “Publish to gist”.
-                        </span>
-                    </label>
-                </div>
-
+                {#if activeTab === 'share'}
                 <div class="sync-section">
                     <span class="sync-title">Sync across devices</span>
+                    <span class="hint card-sub">
+                        Your sessions follow you — private and automatic,
+                        via a GitHub repo you own.
+                    </span>
                     {#if syncConnectedRepo}
                         <div class="sync-connected">
                             Connected to <code>{syncConnectedRepo}</code>
@@ -462,11 +462,35 @@
                     {/if}
                 </div>
 
+                <div class="divider"></div>
+
+                <div class="sync-section">
+                    <span class="sync-title">Share with others</span>
+                    <span class="hint card-sub">
+                        Snapshot a session as a link anyone can open
+                        (secret gist, on demand).
+                    </span>
+                    <label>
+                        <input
+                            type="password"
+                            bind:value={githubPat}
+                            placeholder="ghp_… or github_pat_…"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        <span class="hint">
+                            Classic token with the gist scope
+                            (<a href={PAT_DEEP_LINK} target="_blank" rel="noopener">create</a>).
+                            Used by each session's “Publish to gist”.
+                        </span>
+                    </label>
+                </div>
+                {/if}
+
             </div>
 
             <div class="actions">
-                <button class="save" type="submit">Save</button>
-                <button class="cancel" type="button" onclick={onClose}>Cancel</button>
+                <button class="save" type="button" onclick={onClose}>Done</button>
             </div>
         </form>
     </div>
@@ -513,6 +537,23 @@
         min-height: 0;  /* required for the inner overflow:auto to work */
     }
 
+    .tabs {
+        margin: 0 1.5rem 0.5rem;
+        flex-shrink: 0;
+    }
+
+    /* Links were invisible against the surface — accent + underline
+       so they pass the squint test inside hint text. */
+    .form-body a {
+        color: var(--accent);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+
+    .form-body a:hover {
+        opacity: 0.85;
+    }
+
     .form-body {
         flex: 1;
         overflow-y: auto;
@@ -550,9 +591,13 @@
     }
 
     .sync-title {
-        font-size: 0.8rem;
-        color: var(--text-muted);
-        font-weight: 500;
+        font-size: 0.95rem;
+        color: var(--text);
+        font-weight: 600;
+    }
+
+    .card-sub {
+        margin-top: -0.2rem;
     }
 
     .sync-steps {
