@@ -104,9 +104,8 @@
     // of mode) while the LOCAL keeps the typed URL so flipping back
     // restores it. Tier persists even when unsupported — preserves
     // intent across model switches.
-    $effect(() => {
-        if (!open) return
-        const patch = {
+    function buildPatch() {
+        return {
             apiKey: apiKey.trim(),
             model: model.trim(),
             accessMode,
@@ -118,9 +117,22 @@
             serviceTier,
             githubPat: githubPat.trim(),
         }
+    }
+
+    $effect(() => {
+        if (!open) return
+        const patch = buildPatch()
         const timer = setTimeout(() => updateSettings(patch), 300)
         return () => clearTimeout(timer)
     })
+
+    // Closing inside the debounce window would otherwise DROP the last
+    // edit — the effect's cleanup clears the pending timer when `open`
+    // flips. Flush on the way out; a no-edit commit is idempotent.
+    function handleClose() {
+        updateSettings(buildPatch())
+        onClose()
+    }
 
     // Deep link to GitHub's classic-PAT creation page with the
     // ``gist`` scope prefilled.  Fine-grained PATs work too but
@@ -194,7 +206,7 @@
 
 {#if open}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="overlay" onclick={onClose} onkeydown={(e) => e.key === 'Escape' && onClose()}></div>
+    <div class="overlay" onclick={handleClose} onkeydown={(e) => e.key === 'Escape' && handleClose()}></div>
     <div class="drawer">
         <h2>Settings</h2>
 
@@ -211,7 +223,7 @@
             >Sync &amp; Share</button>
         </div>
 
-        <form onsubmit={(e) => { e.preventDefault(); onClose() }}>
+        <form onsubmit={(e) => { e.preventDefault(); handleClose() }}>
             <!-- Scrollable body — every field lives here so the form
                  grows / scrolls cleanly when Advanced is expanded.
                  ``Save`` and ``Cancel`` are pinned below in `.actions`
@@ -489,7 +501,7 @@
             </div>
 
             <div class="actions">
-                <button class="save" type="button" onclick={onClose}>Done</button>
+                <button class="save" type="button" onclick={handleClose}>Done</button>
             </div>
         </form>
     </div>
