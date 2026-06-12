@@ -461,6 +461,22 @@ export async function syncNow(branch) {
     }
 }
 
+/**
+ * Arrival pull: boot and session-switch call this right before a
+ * session's history loads — the one moment a foreground sync is both
+ * safe (no turn can be in flight at arrival) and free (nothing is
+ * painted yet, so there's no open conversation to hot-reload). This
+ * is the foreground counterpart of the sweep, which deliberately
+ * skips the current branch.
+ */
+export async function syncOnArrival(branch) {
+    if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
+    // Self-guard against non-syncable arrivals (py kernel, non-chat
+    // branches) — the roster owns that filter, not the callers.
+    if (!deps.listSyncableBranches().includes(branch)) return;
+    await syncNow(branch);
+}
+
 function applyOutcome(branch, outcome) {
     if (outcome.status === "diverged") {
         setStatus(branch, {
