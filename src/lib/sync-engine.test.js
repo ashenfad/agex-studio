@@ -494,7 +494,9 @@ describe("progress instrumentation", () => {
             if (st?.detail) seen.push(st.detail);
         });
         await syncNow("chat-aa11"); // initial push: 4 commits (init + 3)
-        expect(seen).toContain("uploading · turn 4");
+        // First-ever push is determinate: the full local history was
+        // precounted.
+        expect(seen).toContain("uploading · turn 4 of 4");
 
         // Fresh device pulls the same session: download counts.
         const dev2 = new Memory();
