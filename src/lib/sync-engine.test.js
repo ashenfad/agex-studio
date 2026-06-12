@@ -397,6 +397,30 @@ describe("schedulePush", () => {
     });
 });
 
+describe("status lifecycle", () => {
+    it("marks queued pushes pending, and clears status on opt-out", async () => {
+        vi.useFakeTimers();
+        try {
+            connect();
+            const { local } = makeWorld({ branches: ["chat-aa11"] });
+            await commitOn(local, "chat-aa11", "k", "v");
+
+            schedulePush("chat-aa11");
+            // Honest indicator: queued, not synced, during the debounce.
+            expect(statusOf("chat-aa11").state).toBe("pending");
+
+            // Opting out cancels the pending push and removes the
+            // status entry entirely (no glyph for local-only sessions).
+            setSyncEnabled("chat-aa11", false);
+            expect(statusOf("chat-aa11")).toBeUndefined();
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(statusOf("chat-aa11")).toBeUndefined(); // timer was cancelled
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
 describe("sweep", () => {
     it("syncs background branches, skips the foreground one, and honors the TTL", async () => {
         connect();

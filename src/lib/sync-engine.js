@@ -35,7 +35,7 @@
  * kvgit machinery.
  */
 
-import { VersionedKV, applyWire, syncBranch } from "@agex-ts/kvgit";
+import { VersionedKV, applyWire, clearSyncHead, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, GithubRemote } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
 
@@ -58,7 +58,7 @@ const ENABLED_KEY = (branch) => `agex-sync-enabled-${branch}`;
 
 /**
  * @typedef {Object} BranchSyncStatus
- * @property {"syncing" | "synced" | "diverged" | "remote-gone" | "error"} state
+ * @property {"pending" | "syncing" | "synced" | "diverged" | "remote-gone" | "error"} state
  * @property {string} detail — human hint for warn/error states
  * @property {number} at — epoch ms of the last transition
  */
@@ -76,6 +76,13 @@ export const syncStatusStore = {
         };
     },
 };
+
+function clearStatus(branch) {
+    if (!(branch in statuses)) return;
+    const { [branch]: _gone, ...rest } = statuses;
+    statuses = rest;
+    for (const fn of subscribers) fn(statuses);
+}
 
 function setStatus(branch, patch) {
     statuses = {
@@ -184,6 +191,7 @@ export function setSyncEnabled(branch, enabled) {
     if (!enabled) {
         clearTimeout(pendingPushes.get(branch));
         pendingPushes.delete(branch);
+        clearStatus(branch);
     } else if (isSyncConnected()) {
         schedulePush(branch, { delayMs: 100 });
     }
@@ -212,6 +220,9 @@ async function getRemote() {
 export function schedulePush(branch, { kernel = "ts", delayMs = PUSH_DEBOUNCE_MS } = {}) {
     if (kernel !== "ts" || deps === null) return;
     if (!isSyncConnected() || !isSyncEnabled(branch)) return;
+    // Honest indicator: between the turn ending and the debounce
+    // firing, the session is queued, not synced.
+    setStatus(branch, { state: "pending" });
     clearTimeout(pendingPushes.get(branch));
     pendingPushes.set(
         branch,
@@ -444,6 +455,17 @@ async function remoteHeadOf(remote, branch) {
         throw new Error(`No remote session found for '${branch}'.`);
     }
     return head;
+}
+
+/**
+ * Recovery for `remote-gone`: forget the remote-tracking bookkeeping
+ * and sync again — the branch re-creates on the remote as a fresh
+ * push (the prior remote lineage stays recoverable from the trash).
+ */
+export async function repushSession(branch) {
+    const store = await deps.getStore();
+    await clearSyncHead(store, branch);
+    return syncNow(branch);
 }
 
 /**
