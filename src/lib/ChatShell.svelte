@@ -10,6 +10,7 @@
     import SessionDrawer from './SessionDrawer.svelte'
     import FileDrawer from './FileDrawer.svelte'
     import { settingsStore } from './settings.js'
+    import { syncOnArrival } from './sync-engine.js'
     import TokenModal from './TokenModal.svelte'
     import { pyodideStore } from './pyodide.js'
     import { initSessionsFromUrl, loadHistoryChunked, switchSession, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
@@ -288,6 +289,11 @@
                         await initSessionsFromUrl()
                         initStatus = 'Loading history...'
                         const { adapter, branch } = await getActiveAdapter()
+                        // Arrival pull: fetch the session's remote turns
+                        // BEFORE history paints — the active session is
+                        // skipped by sweeps, so this is its one passive
+                        // chance to catch up with other devices.
+                        await syncOnArrival(branch)
                         const chunks = await loadHistoryChunked(branch)
                         const target = getSessionRuntime(branch)
                         target.historyChunks = chunks
@@ -394,7 +400,13 @@
                 // before this async hydration resolves, it must still
                 // load `branch` (the session this effect fired for), not
                 // whatever's foreground by then.
-                loadHistoryChunked(branch).then(async (chunks) => {
+                //
+                // Arrival pull first: this session is about to become
+                // foreground (where sweeps don't reach) and nothing is
+                // painted yet — the cheap moment to catch up with other
+                // devices. syncOnArrival never throws; sync problems
+                // land in the status glyph, not here.
+                syncOnArrival(branch).then(() => loadHistoryChunked(branch)).then(async (chunks) => {
                     target.historyChunks = chunks
                     target.messages = chunks.messages
                     target.loaded = true

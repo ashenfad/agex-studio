@@ -805,3 +805,33 @@ describe("freshness stamps", () => {
         expect(statusOf("chat-aa11")).toBeUndefined();
     });
 });
+
+describe("syncOnArrival", () => {
+    it("pulls remote turns for a syncable branch and skips non-roster arrivals", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "seed", "0");
+        await syncNow("chat-aa11");
+
+        // Another device extends the branch.
+        const other = new Memory();
+        const otherRemote = new MemoryRemote(world.remoteStore);
+        const { applyWire } = await import("@agex-ts/kvgit");
+        const tip = (await otherRemote.listRefs())[0].head;
+        await applyWire(other, otherRemote.fetch(tip, []), { createBranch: "chat-aa11" });
+        await commitOn(other, "chat-aa11", "from-b", "phone-turn");
+        expect((await pushBranch(other, otherRemote, "chat-aa11")).status).toBe("pushed");
+
+        const { syncOnArrival } = await import("./sync-engine.js");
+        await syncOnArrival("chat-aa11");
+        expect(world.pulled).toEqual(["chat-aa11"]);
+        const vk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await vk.get("from-b"))).toBe("phone-turn");
+
+        // A branch outside the syncable roster (py kernel, non-chat)
+        // is ignored — no status entry, no remote traffic.
+        await syncOnArrival("py-zz99");
+        expect(statusOf("py-zz99")).toBeUndefined();
+        expect((await world.remote.listRefs()).map((r) => r.branch)).toEqual(["chat-aa11"]);
+    });
+});
