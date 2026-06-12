@@ -353,9 +353,21 @@ export async function refreshRoster() {
             remoteOnly: refs.filter((r) => !local.has(r.branch)),
             archived,
         });
+        const current = deps.currentBranch?.() ?? null;
         for (const a of archived) {
+            // Never delete the foreground session out from under the
+            // user (mid-turn writes to a deleted branch); consistent
+            // with the sweep's foreground-skip. The tombstone applies
+            // on a later refresh once they've switched away.
+            if (a.branch === current) continue;
             if (local.has(a.branch) && isSyncEnabled(a.branch) && deps.onBranchArchivedRemotely) {
-                await deps.onBranchArchivedRemotely(a.branch);
+                try {
+                    await deps.onBranchArchivedRemotely(a.branch);
+                } catch (err) {
+                    // One branch's local-removal failure must not
+                    // block the rest of the batch.
+                    console.error(`Tombstone propagation failed for ${a.branch}:`, err);
+                }
             }
         }
     } catch {
