@@ -197,7 +197,7 @@
     <div class="drawer">
         <h2>Settings</h2>
 
-        <div class="segmented tabs">
+        <div class="tab-bar">
             <button
                 type="button"
                 class:active={activeTab === 'model'}
@@ -397,26 +397,27 @@
                                 will be world-readable.
                             </span>
                         {/if}
-                        <label class="sync-opt">
+                        <label class="opt-row">
+                            <span>Sync app save data</span>
                             <input
                                 type="checkbox"
                                 checked={$settingsStore.syncAppState !== false}
                                 onchange={(e) => updateSettings({ syncAppState: e.currentTarget.checked })}
                             />
-                            Sync app save data
                         </label>
                         <span class="hint">
                             Apps pick up where you left off on other devices.
-                            History is squashed periodically so save snapshots
-                            don't grow the repo.
+                            Save history is squashed so it can't grow the repo.
                         </span>
-                        <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>
-                            Disconnect
-                        </button>
-                        <span class="hint">
-                            Disconnecting only forgets the connection on this
-                            device — the repo and its sessions are untouched.
-                        </span>
+                        <div class="card-footer">
+                            <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>
+                                Disconnect
+                            </button>
+                            <span class="hint footer-hint">
+                                Forgets this device only — the repo and its
+                                sessions are untouched.
+                            </span>
+                        </div>
                     {:else}
                         <ol class="sync-steps">
                             <li>
@@ -461,8 +462,6 @@
                         {/if}
                     {/if}
                 </div>
-
-                <div class="divider"></div>
 
                 <div class="sync-section">
                     <span class="sync-title">Share with others</span>
@@ -537,9 +536,32 @@
         min-height: 0;  /* required for the inner overflow:auto to work */
     }
 
-    .tabs {
-        margin: 0 1.5rem 0.5rem;
+    /* Underline tabs: navigation must not look like the segmented
+       CHOICE controls inside the form (the double-pill stack read as
+       two competing toggles). */
+    .tab-bar {
+        display: flex;
+        gap: 1.25rem;
+        margin: 0 1.5rem;
+        border-bottom: 1px solid var(--border);
         flex-shrink: 0;
+    }
+
+    .tab-bar button {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        padding: 0.4rem 0.1rem 0.55rem;
+        color: var(--text-muted);
+        font-family: inherit;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+
+    .tab-bar button.active {
+        color: var(--text);
+        border-bottom-color: var(--accent);
     }
 
     /* Links were invisible against the surface — accent + underline
@@ -584,10 +606,51 @@
         font-weight: 500;
     }
 
+    /* Sync & Share sections render as cards: grouped, raised, with
+       internal hierarchy (title / subtitle / controls / hints). */
     .sync-section {
         display: flex;
         flex-direction: column;
+        gap: 0.55rem;
+        background: var(--input-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.9rem 1rem 1rem;
+        margin-top: 0.75rem;
+    }
+
+    .sync-section .hint {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        line-height: 1.45;
+    }
+
+    .sync-section input,
+    .sync-section select {
+        background: var(--bg);
+    }
+
+    .opt-row {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
         gap: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .opt-row input[type='checkbox'] {
+        accent-color: var(--accent);
+    }
+
+    .card-footer {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.25rem;
+    }
+
+    .card-footer .footer-hint {
+        flex: 1;
     }
 
     .sync-title {
@@ -609,17 +672,6 @@
         display: flex;
         flex-direction: column;
         gap: 0.35rem;
-    }
-
-    .sync-opt {
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-        font-size: 0.85rem;
-    }
-
-    .sync-opt input[type='checkbox'] {
-        accent-color: var(--accent);
     }
 
     .sync-btn {
