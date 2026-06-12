@@ -701,9 +701,13 @@ async function getAppStateIndex(client, { maxAgeMs = 60_000 } = {}) {
 export function scheduleAppStateSync(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
     if (!deps.readAppState || !appStateSyncEnabled()) return;
-    lastLocalAppWriteAt.set(branch, Date.now());
+    // One stamp for both stores — a second Date.now() can tick a ms
+    // later, leaving storage "newer" than the pushed updatedAt and
+    // wrongly vetoing inbound applies after a reload.
+    const at = Date.now();
+    lastLocalAppWriteAt.set(branch, at);
     try {
-        localStorage.setItem(LOCAL_WRITE_AT_KEY(branch), String(Date.now()));
+        localStorage.setItem(LOCAL_WRITE_AT_KEY(branch), String(at));
     } catch {}
     clearTimeout(appStateTimers.get(branch));
     appStateTimers.set(
