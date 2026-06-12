@@ -30,6 +30,7 @@ import {
 import { kernelRegistry } from "./kernel-registry.js";
 import { resolveAdapter } from "./active-adapter.js";
 import { getSettings } from "./settings.js";
+import { schedulePush, startSyncEngine } from "./sync-engine.js";
 import {
     makeImportInfo,
     setImportInfo,
@@ -435,6 +436,30 @@ async function initSessions() {
     // without opening the drawer. Non-blocking — never gates startup.
     // Uses the configured PAT (if any) for the higher rate limit.
     void checkImportedUpdates(getSettings().githubPat);
+
+    // Session sync engine (no-ops everywhere until settings connect a
+    // sync repo). Deps keep ts-agent lazily imported — the engine must
+    // not drag the ts kernel into cold start.
+    startSyncEngine({
+        getStore: async () => {
+            const { getSharedVersioned } = await import("./ts-agent.js");
+            return (await getSharedVersioned()).store;
+        },
+        listSyncableBranches: () =>
+            state.sessions
+                .filter((s) => s.kernel === "ts" && s.branch.startsWith(CHAT_BRANCH_PREFIX))
+                .map((s) => s.branch),
+        currentBranch: () => state.currentBranch,
+        onBranchPulled: async (branch) => {
+            // The branch's local ref moved: any pooled agent is stale
+            // (its VersionedKV caches the old HEAD) — dispose so the
+            // next interaction reopens at the pulled state, and
+            // refresh the drawer so titles/timestamps update.
+            const { disposeBranchAgent } = await import("./ts-agent.js");
+            await disposeBranchAgent(branch);
+            await refreshSessionList(state.currentBranch);
+        },
+    });
 }
 
 /** Create a new chat session and switch to it.
@@ -1038,6 +1063,9 @@ export async function persistSessionMeta(title, branch = state.currentBranch) {
     if (title) patch.title = title;
     await adapter.writeBranchMeta(branch, patch);
     await refreshSessionList(state.currentBranch);
+    // The turn's commits (and this meta write) are durable — let the
+    // sync engine push them after its debounce.
+    schedulePush(branch, { kernel: _kernelFor(branch) });
 }
 
 /** Set the user-curated name + description for a session branch. */
@@ -1048,6 +1076,7 @@ export async function setSessionMeta(branch, name, description) {
         description: description || "",
     });
     await refreshSessionList(state.currentBranch);
+    schedulePush(branch, { kernel: _kernelFor(branch) });
 }
 
 // ---------------------------------------------------------------------------
