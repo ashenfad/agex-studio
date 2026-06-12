@@ -99,18 +99,36 @@
         }
     }
 
+    let trashBusy = $state(false)
+
     async function handleDeleteForever(branch) {
-        await deleteForeverRemote(branch)
+        if (trashBusy) return
+        trashBusy = true
+        try {
+            await deleteForeverRemote(branch)
+        } catch (err) {
+            console.error('Delete forever failed:', err)
+        } finally {
+            trashBusy = false
+        }
     }
 
     async function handleEmptyTrash() {
+        if (trashBusy) return
         if (!emptyTrashConfirm) {
             emptyTrashConfirm = true
             setTimeout(() => { emptyTrashConfirm = false }, 4000)
             return
         }
         emptyTrashConfirm = false
-        await emptyTrashRemote()
+        trashBusy = true
+        try {
+            await emptyTrashRemote()
+        } catch (err) {
+            console.error('Empty trash failed:', err)
+        } finally {
+            trashBusy = false
+        }
     }
 
     async function handleForkDiverged() {
@@ -1174,16 +1192,16 @@
                     <div class="trash-row">
                         <code>{a.branch}</code>
                         <span class="trash-actions">
-                            <button class="action-btn" onclick={() => handleRestore(a.branch)}>
+                            <button class="action-btn" disabled={trashBusy} onclick={() => handleRestore(a.branch)}>
                                 Restore
                             </button>
-                            <button class="action-btn destructive" onclick={() => handleDeleteForever(a.branch)}>
+                            <button class="action-btn destructive" disabled={trashBusy} onclick={() => handleDeleteForever(a.branch)}>
                                 Delete forever
                             </button>
                         </span>
                     </div>
                 {/each}
-                <button class="action-btn destructive trash-empty" onclick={handleEmptyTrash}>
+                <button class="action-btn destructive trash-empty" disabled={trashBusy} onclick={handleEmptyTrash}>
                     {emptyTrashConfirm ? 'Confirm: delete all forever?' : 'Empty trash'}
                 </button>
                 <div class="field-hint">

@@ -250,16 +250,24 @@ describe("roster and lifecycle", () => {
         expect(rosterOf().archived).toEqual([]);
     });
 
-    it("propagates remote tombstones to local removal", async () => {
+    it("propagates remote tombstones to local removal, sparing the foreground", async () => {
         connect();
-        const world = makeWorld({ branches: ["chat-aa11"] });
+        const world = makeWorld({
+            branches: ["chat-aa11", "chat-fore"],
+            currentBranch: "chat-fore",
+        });
         await commitOn(world.local, "chat-aa11", "k", "v");
+        await commitOn(world.local, "chat-fore", "k", "f");
         await syncNow("chat-aa11");
+        await syncNow("chat-fore");
 
-        // Another device archives the branch we hold locally.
+        // Another device archives BOTH branches we hold locally.
         await world.remote.archiveBranch("chat-aa11");
+        await world.remote.archiveBranch("chat-fore");
         const { refreshRoster } = await import("./sync-engine.js");
         await refreshRoster();
+        // Background branch removed; the foreground session is never
+        // deleted out from under the user.
         expect(world.archivedLocally).toEqual(["chat-aa11"]);
     });
 
