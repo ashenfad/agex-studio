@@ -35,24 +35,76 @@ function connect() {
     updateSettings({ syncRepo: "u/agex-sync", syncPat: "tok" });
 }
 
-/** Local ts store + a MemoryRemote standing in for GitHub, wired into
- *  the engine via the deps seam — the full engine path over real
- *  kvgit machinery, no network. */
+/** MemoryRemote + the GithubRemote roster surface (archive/restore/
+ *  trash) so the engine's lifecycle ops run over real kvgit transfer
+ *  machinery. Archived branches hide from listRefs, like the real
+ *  ref-rename does. */
+function makeRosterRemote(remoteStore) {
+    const inner = new MemoryRemote(remoteStore);
+    const archived = new Map();
+    return {
+        listRefs: async () => (await inner.listRefs()).filter((r) => !archived.has(r.branch)),
+        fetch: (want, have) => inner.fetch(want, have),
+        push: (b, e, n, c) => inner.push(b, e, n, c),
+        listArchivedRefs: async () =>
+            [...archived].map(([branch, head]) => ({ branch, head })),
+        archiveBranch: async (branch) => {
+            const live = (await inner.listRefs()).find(
+                (r) => r.branch === branch && !archived.has(branch),
+            );
+            if (!live) return false;
+            archived.set(branch, live.head);
+            return true;
+        },
+        restoreBranch: async (branch) => {
+            if (!archived.has(branch)) throw new Error(`nothing archived under '${branch}'`);
+            archived.delete(branch);
+            return branch;
+        },
+        deleteForever: async (branch) => archived.delete(branch),
+        emptyTrash: async () => {
+            const n = archived.size;
+            archived.clear();
+            return n;
+        },
+    };
+}
+
+/** Local ts store + a roster-capable fake remote, wired into the
+ *  engine via the deps seam — the full engine path over real kvgit
+ *  machinery, no network. */
 function makeWorld({ branches = [], currentBranch = null } = {}) {
     const local = new Memory();
     const remoteStore = new Memory();
-    const remote = new MemoryRemote(remoteStore);
+    const remote = makeRosterRemote(remoteStore);
     const pulled = [];
+    const archivedLocally = [];
+    let listChanges = 0;
+    const world = {
+        local,
+        remote,
+        remoteStore,
+        pulled,
+        archivedLocally,
+        branches,
+        listChanges: () => listChanges,
+    };
     configureSyncEngine({
         getStore: async () => local,
-        listSyncableBranches: () => branches,
+        listSyncableBranches: () => world.branches,
         currentBranch: () => currentBranch,
         onBranchPulled: async (branch) => {
             pulled.push(branch);
         },
+        onBranchArchivedRemotely: async (branch) => {
+            archivedLocally.push(branch);
+        },
+        onSessionListChanged: async () => {
+            listChanges++;
+        },
         makeRemote: () => remote,
     });
-    return { local, remote, remoteStore, pulled };
+    return world;
 }
 
 async function commitOn(kvStore, branch, key, value) {
@@ -144,6 +196,110 @@ describe("syncNow", () => {
         setSyncEnabled("chat-aa11", false);
         expect(isSyncEnabled("chat-aa11")).toBe(false);
         expect(await syncNow("chat-aa11")).toBeNull(); // opted out
+    });
+});
+
+describe("roster and lifecycle", () => {
+    it("surfaces remote-only sessions, downloads them, archives, restores, empties", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "local");
+        await syncNow("chat-aa11");
+
+        // A second device pushes a branch this device doesn't have.
+        const other = new Memory();
+        const otherRemote = makeRosterRemote(world.remoteStore);
+        await commitOn(other, "chat-bb22", "k", "elsewhere");
+        await pushBranch(other, otherRemote, "chat-bb22");
+
+        const { refreshRoster, downloadRemoteSession, archiveSessionRemotely } = await import(
+            "./sync-engine.js"
+        );
+        const { restoreRemoteSession, emptyTrashRemote, syncRosterStore: rosterStore } =
+            await import("./sync-engine.js");
+        const rosterOf = () => {
+            let snap;
+            rosterStore.subscribe((r) => {
+                snap = r;
+            })();
+            return snap;
+        };
+
+        await refreshRoster();
+        expect(rosterOf().remoteOnly.map((r) => r.branch)).toEqual(["chat-bb22"]);
+
+        // Cloud-stub download: branch materializes locally.
+        await downloadRemoteSession("chat-bb22");
+        world.branches.push("chat-bb22");
+        const vk = await VersionedKV.open(world.local, { branch: "chat-bb22" });
+        expect(new TextDecoder().decode(await vk.get("k"))).toBe("elsewhere");
+        expect(world.listChanges()).toBeGreaterThan(0);
+        await refreshRoster();
+        expect(rosterOf().remoteOnly).toEqual([]);
+
+        // Archive → trash; restore → live again; empty → gone.
+        expect(await archiveSessionRemotely("chat-bb22")).toBe(true);
+        world.branches = world.branches.filter((b) => b !== "chat-bb22");
+        await refreshRoster();
+        expect(rosterOf().archived.map((r) => r.branch)).toEqual(["chat-bb22"]);
+        expect(await restoreRemoteSession("chat-bb22")).toBe("chat-bb22");
+        world.branches.push("chat-bb22");
+        expect(await archiveSessionRemotely("chat-bb22")).toBe(true);
+        world.branches = world.branches.filter((b) => b !== "chat-bb22");
+        expect(await emptyTrashRemote()).toBe(1);
+        expect(rosterOf().archived).toEqual([]);
+    });
+
+    it("propagates remote tombstones to local removal", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "v");
+        await syncNow("chat-aa11");
+
+        // Another device archives the branch we hold locally.
+        await world.remote.archiveBranch("chat-aa11");
+        const { refreshRoster } = await import("./sync-engine.js");
+        await refreshRoster();
+        expect(world.archivedLocally).toEqual(["chat-aa11"]);
+    });
+
+    it("fork keeps both sides of a divergence; reset takes the remote", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "seed", "0");
+        await syncNow("chat-aa11");
+
+        const other = new Memory();
+        const otherRemote = makeRosterRemote(world.remoteStore);
+        const { applyWire: apply } = await import("@agex-ts/kvgit");
+        const tip = (await otherRemote.listRefs())[0].head;
+        await apply(other, otherRemote.fetch(tip, []), { createBranch: "chat-aa11" });
+        await commitOn(other, "chat-aa11", "from-b", "b");
+        await pushBranch(other, otherRemote, "chat-aa11");
+        const localHead = await commitOn(world.local, "chat-aa11", "from-a", "a");
+        expect((await syncNow("chat-aa11")).status).toBe("diverged");
+
+        const { forkDivergedSession, resetSessionToRemote, isSyncEnabled: enabled } =
+            await import("./sync-engine.js");
+
+        // Fork: remote side lands on a new sync-disabled branch; the
+        // original keeps its local turn.
+        const fork = await forkDivergedSession("chat-aa11");
+        expect(fork).toMatch(/^chat-[0-9a-f]{8}$/);
+        expect(enabled(fork)).toBe(false);
+        const forkVk = await VersionedKV.open(world.local, { branch: fork });
+        expect(new TextDecoder().decode(await forkVk.get("from-b"))).toBe("b");
+        expect(await forkVk.get("from-a")).toBeNull();
+        const origVk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(origVk.currentCommit).toBe(localHead);
+
+        // Reset: original adopts the remote head and reports synced.
+        await resetSessionToRemote("chat-aa11");
+        const after = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await after.get("from-b"))).toBe("b");
+        expect(await after.get("from-a")).toBeNull();
+        expect(statusOf("chat-aa11").state).toBe("synced");
+        expect(world.pulled).toContain("chat-aa11");
     });
 });
 

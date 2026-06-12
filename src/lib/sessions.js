@@ -30,7 +30,13 @@ import {
 import { kernelRegistry } from "./kernel-registry.js";
 import { resolveAdapter } from "./active-adapter.js";
 import { getSettings } from "./settings.js";
-import { schedulePush, startSyncEngine } from "./sync-engine.js";
+import {
+    archiveSessionRemotely,
+    isSyncConnected,
+    isSyncEnabled,
+    schedulePush,
+    startSyncEngine,
+} from "./sync-engine.js";
 import {
     makeImportInfo,
     setImportInfo,
@@ -459,6 +465,15 @@ async function initSessions() {
             await disposeBranchAgent(branch);
             await refreshSessionList(state.currentBranch);
         },
+        onBranchArchivedRemotely: async (branch) => {
+            // Tombstone propagation: another device archived this
+            // session. Remove locally WITHOUT re-archiving (it's
+            // already in the trash; restore brings it back anywhere).
+            await _removeLocalSession(branch);
+        },
+        onSessionListChanged: async () => {
+            await refreshSessionList(state.currentBranch);
+        },
     });
 }
 
@@ -500,8 +515,22 @@ export async function switchSession(branch) {
 }
 
 /** Delete a session. Switches to another only if deleting the
- *  current one. */
+ *  current one. For synced ts sessions, deletion = ARCHIVE: the
+ *  remote branch moves to the trash (recoverable, propagates to other
+ *  devices) before the local copy is removed. Archive failures
+ *  (offline, token expired) don't block local deletion — the next
+ *  device's sweep would just re-expose the session as a cloud stub,
+ *  which is the honest outcome of an unacknowledged delete. */
 export async function deleteSession(branch) {
+    if (_kernelFor(branch) === "ts" && isSyncConnected() && isSyncEnabled(branch)) {
+        await archiveSessionRemotely(branch);
+    }
+    await _removeLocalSession(branch);
+}
+
+/** Local-only removal — also the tombstone-propagation path (another
+ *  device archived the branch; do NOT touch the remote here). */
+async function _removeLocalSession(branch) {
     const targetKernel = _kernelFor(branch);
     const adapter = await resolveAdapter(targetKernel);
     await adapter.deleteBranch(branch);

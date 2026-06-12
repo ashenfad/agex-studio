@@ -38,7 +38,19 @@
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
     import ForkModal from './ForkModal.svelte'
-    import { isSyncEnabled, setSyncEnabled, syncStatusStore } from './sync-engine.js'
+    import {
+        downloadRemoteSession,
+        deleteForeverRemote,
+        emptyTrashRemote,
+        forkDivergedSession,
+        isSyncEnabled,
+        refreshRoster,
+        resetSessionToRemote,
+        restoreRemoteSession,
+        setSyncEnabled,
+        syncRosterStore,
+        syncStatusStore,
+    } from './sync-engine.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -56,6 +68,81 @@
 
     function syncBadgeTitle(status) {
         return status.detail || `Session sync: ${syncBadgeLabel(status.state)}`
+    }
+
+    // --- Roster / lifecycle actions ---
+    let downloadingStub = $state('')
+    let emptyTrashConfirm = $state(false)
+    let divergedBusy = $state(false)
+    let resetConfirm = $state(false)
+
+    // Refresh the remote roster whenever the drawer opens (cheap:
+    // a couple of GETs; engine no-ops when sync isn't connected).
+    $effect(() => {
+        if (open) void refreshRoster()
+    })
+
+    async function handleStubDownload(branch) {
+        downloadingStub = branch
+        try {
+            await downloadRemoteSession(branch)
+        } finally {
+            downloadingStub = ''
+        }
+    }
+
+    async function handleRestore(branch) {
+        try {
+            await restoreRemoteSession(branch)
+        } catch (err) {
+            console.error('Restore failed:', err)
+        }
+    }
+
+    async function handleDeleteForever(branch) {
+        await deleteForeverRemote(branch)
+    }
+
+    async function handleEmptyTrash() {
+        if (!emptyTrashConfirm) {
+            emptyTrashConfirm = true
+            setTimeout(() => { emptyTrashConfirm = false }, 4000)
+            return
+        }
+        emptyTrashConfirm = false
+        await emptyTrashRemote()
+    }
+
+    async function handleForkDiverged() {
+        if (!editingSession) return
+        divergedBusy = true
+        try {
+            await forkDivergedSession(editingSession.branch)
+            closeEdit()
+        } catch (err) {
+            console.error('Fork diverged failed:', err)
+        } finally {
+            divergedBusy = false
+        }
+    }
+
+    async function handleResetToRemote() {
+        if (!editingSession) return
+        if (!resetConfirm) {
+            resetConfirm = true
+            setTimeout(() => { resetConfirm = false }, 4000)
+            return
+        }
+        resetConfirm = false
+        divergedBusy = true
+        try {
+            await resetSessionToRemote(editingSession.branch)
+            closeEdit()
+        } catch (err) {
+            console.error('Reset to remote failed:', err)
+        } finally {
+            divergedBusy = false
+        }
     }
     let currentBranch = $derived($sessionStore.currentBranch)
 
@@ -1058,7 +1145,53 @@
                     </div>
                 </div>
             {/each}
+
+            <!-- Cloud stubs: sessions that exist in the sync repo but
+                 not on this device. Download materializes them. -->
+            {#if syncConnected}
+                {#each $syncRosterStore.remoteOnly as r (r.branch)}
+                    <div class="session-item cloud-stub">
+                        <div class="stub-title">☁ Cloud session</div>
+                        <div class="session-meta">
+                            <span class="session-date"><code>{r.branch}</code></span>
+                            <button
+                                class="action-btn stub-download"
+                                disabled={downloadingStub === r.branch}
+                                onclick={() => handleStubDownload(r.branch)}
+                            >
+                                {downloadingStub === r.branch ? 'Downloading…' : 'Download'}
+                            </button>
+                        </div>
+                    </div>
+                {/each}
+            {/if}
         </div>
+
+        {#if syncConnected && $syncRosterStore.archived.length > 0}
+            <details class="trash-section">
+                <summary>Trash ({$syncRosterStore.archived.length})</summary>
+                {#each $syncRosterStore.archived as a (a.branch)}
+                    <div class="trash-row">
+                        <code>{a.branch}</code>
+                        <span class="trash-actions">
+                            <button class="action-btn" onclick={() => handleRestore(a.branch)}>
+                                Restore
+                            </button>
+                            <button class="action-btn destructive" onclick={() => handleDeleteForever(a.branch)}>
+                                Delete forever
+                            </button>
+                        </span>
+                    </div>
+                {/each}
+                <button class="action-btn destructive trash-empty" onclick={handleEmptyTrash}>
+                    {emptyTrashConfirm ? 'Confirm: delete all forever?' : 'Empty trash'}
+                </button>
+                <div class="field-hint">
+                    Deleted synced sessions stay recoverable here until the
+                    trash is emptied. Emptying lets GitHub reclaim the data.
+                </div>
+            </details>
+        {/if}
 
         <!-- Gallery entry — sits below the session list. Opens the
              static `/gallery/` page in the same tab; users return to
@@ -1557,9 +1690,9 @@
                     <div class="field-hint">Shown when sharing this session as an artifact.</div>
                 </label>
 
+                <div class="section-divider"></div>
+                <div class="section-label">Sync &amp; Share</div>
                 {#if syncConnected && editingSession.kernel === 'ts'}
-                    <div class="section-divider"></div>
-                    <div class="section-label">Sync</div>
                     <label class="field sync-toggle">
                         <span>
                             <input
@@ -1570,18 +1703,38 @@
                                     setSyncEnabled(editingSession.branch, editSyncEnabled)
                                 }}
                             />
-                            Sync this session
+                            Sync across your devices
                         </span>
                         <div class="field-hint">
-                            Push turns to {$settingsStore.syncRepo} and pull
-                            changes from other devices. Off keeps this
-                            session local to this device.
+                            Private and automatic, via {$settingsStore.syncRepo}.
+                            Off keeps this session on this device only.
                         </div>
                     </label>
+                    {#if $syncStatusStore[editingSession.branch]?.state === 'diverged'}
+                        <div class="diverged-box">
+                            <div class="field-hint sync-warn">
+                                This session changed here and on another
+                                device. Keep both copies, or replace this
+                                device's version with the synced one.
+                            </div>
+                            <div class="action-row">
+                                <button
+                                    type="button"
+                                    class="btn-action"
+                                    disabled={divergedBusy}
+                                    onclick={handleForkDiverged}
+                                >Keep both (fork)</button>
+                                <button
+                                    type="button"
+                                    class="btn-action destructive"
+                                    class:confirm={resetConfirm}
+                                    disabled={divergedBusy}
+                                    onclick={handleResetToRemote}
+                                >{resetConfirm ? 'Confirm: discard local turns?' : 'Take synced version'}</button>
+                            </div>
+                        </div>
+                    {/if}
                 {/if}
-
-                <div class="section-divider"></div>
-                <div class="section-label">Actions</div>
                 <div class="action-row">
                     <button
                         type="button"
@@ -1606,7 +1759,11 @@
                         {#if !$settingsStore.githubPat}
                             Add a GitHub token in Settings first (gist scope only).
                         {:else}
-                            Upload as a secret gist and get a shareable URL.
+                            Snapshot a shareable link for others.
+                            {#if !syncConnected && editingSession.kernel === 'ts'}
+                                Just moving between your own devices? Connect
+                                Sync in Settings instead — it's automatic.
+                            {/if}
                         {/if}
                     </div>
                 </div>
@@ -2340,6 +2497,55 @@
     .sync-toggle input[type='checkbox'] {
         margin-right: 0.4rem;
         accent-color: var(--accent);
+    }
+
+    .cloud-stub {
+        opacity: 0.75;
+        border-style: dashed;
+    }
+
+    .stub-title {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+    }
+
+    .stub-download {
+        font-size: 0.75rem;
+    }
+
+    .trash-section {
+        margin: 0.5rem 1rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .trash-section summary {
+        cursor: pointer;
+        padding: 0.25rem 0;
+    }
+
+    .trash-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0;
+    }
+
+    .trash-actions {
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .trash-empty {
+        margin-top: 0.4rem;
+    }
+
+    .diverged-box {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        margin-top: 0.25rem;
     }
 
     .kernel-badge {
