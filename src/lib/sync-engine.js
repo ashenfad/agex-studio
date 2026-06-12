@@ -437,13 +437,18 @@ export async function refreshRoster() {
         const local = new Set(deps.listSyncableBranches());
         const remoteOnly = refs.filter((r) => !local.has(r.branch));
         if (deps.fetchStubTitle) {
-            for (const r of remoteOnly) {
-                try {
-                    r.title = await deps.fetchStubTitle(remote, r.branch);
-                } catch {
-                    // Title is a nicety; the stub still renders.
-                }
-            }
+            // Independent GETs, small bounded N — parallel, with
+            // per-item tolerance (a title is a nicety, not a gate).
+            await Promise.all(
+                remoteOnly.map((r) =>
+                    deps
+                        .fetchStubTitle(remote, r.branch)
+                        .then((title) => {
+                            r.title = title;
+                        })
+                        .catch(() => {}),
+                ),
+            );
         }
         setRoster({ remoteOnly, archived });
         const current = deps.currentBranch?.() ?? null;
@@ -639,6 +644,9 @@ export async function pushAppState(branch) {
                     ...(existing !== null && { sha: existing.sha }),
                 });
                 lastPushedAppJson.set(branch, json);
+                // What we pushed is what's applied — without this the
+                // next pull re-applies our own bag.
+                lastAppliedAppAt.set(branch, localAt);
                 appStateIndex?.set.add(branch);
                 return;
             } catch (err) {
