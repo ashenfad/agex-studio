@@ -38,11 +38,25 @@
     import { publishGistBundle, GistPublishError } from './gist-publish.js'
     import { formatBytes } from './bytes.js'
     import ForkModal from './ForkModal.svelte'
+    import { isSyncEnabled, setSyncEnabled, syncStatusStore } from './sync-engine.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
 
     let sessions = $derived($sessionStore.sessions)
+    let syncConnected = $derived(Boolean($settingsStore.syncRepo && $settingsStore.syncPat))
+
+    function syncBadgeLabel(state) {
+        if (state === 'syncing') return 'syncing'
+        if (state === 'synced') return 'synced'
+        if (state === 'diverged') return 'diverged'
+        if (state === 'remote-gone') return 'unlinked'
+        return 'sync err'
+    }
+
+    function syncBadgeTitle(status) {
+        return status.detail || `Session sync: ${syncBadgeLabel(status.state)}`
+    }
     let currentBranch = $derived($sessionStore.currentBranch)
 
     // On open: mark available updates as seen (clears the Header badge),
@@ -159,6 +173,9 @@
     let editName = $state('')
     let editDescription = $state('')
     let savingMeta = $state(false)
+    /** Sync toggle draft (applies immediately via setSyncEnabled, not
+     *  on Save — it's device-local state, not session meta). */
+    let editSyncEnabled = $state(true)
 
     /** Bundle being previewed before import, or null when no file loaded. */
     let importPreview = $state(null)  // { bytes, manifest }
@@ -621,6 +638,7 @@
         editingSession = session
         editName = session.name || ''
         editDescription = session.description || ''
+        editSyncEnabled = isSyncEnabled(session.branch)
     }
 
     function closeEdit() {
@@ -882,6 +900,12 @@
                             {formatDate(s.updated)}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
+                            {/if}
+                            {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
+                                <span
+                                    class="sync-badge sync-{$syncStatusStore[s.branch].state}"
+                                    title={syncBadgeTitle($syncStatusStore[s.branch])}
+                                >· {syncBadgeLabel($syncStatusStore[s.branch].state)}</span>
                             {/if}
                         </span>
                         <span class="session-actions">
@@ -1532,6 +1556,29 @@
                     ></textarea>
                     <div class="field-hint">Shown when sharing this session as an artifact.</div>
                 </label>
+
+                {#if syncConnected && editingSession.kernel === 'ts'}
+                    <div class="section-divider"></div>
+                    <div class="section-label">Sync</div>
+                    <label class="field sync-toggle">
+                        <span>
+                            <input
+                                type="checkbox"
+                                checked={editSyncEnabled}
+                                onchange={(e) => {
+                                    editSyncEnabled = e.currentTarget.checked
+                                    setSyncEnabled(editingSession.branch, editSyncEnabled)
+                                }}
+                            />
+                            Sync this session
+                        </span>
+                        <div class="field-hint">
+                            Push turns to {$settingsStore.syncRepo} and pull
+                            changes from other devices. Off keeps this
+                            session local to this device.
+                        </div>
+                    </label>
+                {/if}
 
                 <div class="section-divider"></div>
                 <div class="section-label">Actions</div>
@@ -2266,6 +2313,33 @@
         color: var(--accent);
         opacity: 0.6;
         margin-left: 0.15rem;
+    }
+
+    .sync-badge {
+        margin-left: 0.15rem;
+        opacity: 0.75;
+    }
+
+    .sync-badge.sync-synced {
+        color: var(--accent);
+    }
+
+    .sync-badge.sync-syncing {
+        color: var(--text-muted);
+    }
+
+    .sync-badge.sync-diverged,
+    .sync-badge.sync-remote-gone {
+        color: #d9822b;
+    }
+
+    .sync-badge.sync-error {
+        color: #c0392b;
+    }
+
+    .sync-toggle input[type='checkbox'] {
+        margin-right: 0.4rem;
+        accent-color: var(--accent);
     }
 
     .kernel-badge {
