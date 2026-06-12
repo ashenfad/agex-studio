@@ -408,7 +408,6 @@
                         </label>
                         <span class="hint">
                             Apps pick up where you left off on other devices.
-                            Save history is squashed so it can't grow the repo.
                         </span>
                         <div class="card-footer">
                             <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>

@@ -1292,7 +1292,7 @@
                 </button>
                 <div class="field-hint">
                     Deleted synced sessions stay recoverable here until the
-                    trash is emptied. Emptying lets GitHub reclaim the data.
+                    trash is emptied.
                 </div>
             </details>
         {/if}
