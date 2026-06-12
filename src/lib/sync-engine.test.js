@@ -147,6 +147,70 @@ describe("syncNow", () => {
     });
 });
 
+describe("status transitions", () => {
+    it("clears stale detail when recovering from an error state", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k", "v");
+
+        // First sync fails (store accessor throws) → error with detail.
+        let broken = true;
+        configureSyncEngine({
+            getStore: async () => {
+                if (broken) throw new Error("boom-detail");
+                return world.local;
+            },
+            listSyncableBranches: () => ["chat-aa11"],
+            makeRemote: () => world.remote,
+        });
+        await syncNow("chat-aa11");
+        expect(statusOf("chat-aa11").state).toBe("error");
+        expect(statusOf("chat-aa11").detail).toBe("boom-detail");
+
+        // Recovery: the synced status must not keep the old tooltip.
+        broken = false;
+        await syncNow("chat-aa11");
+        expect(statusOf("chat-aa11").state).toBe("synced");
+        expect(statusOf("chat-aa11").detail).toBe("");
+    });
+});
+
+describe("cross-tab broadcast", () => {
+    it("notifies sibling tabs after a pull, and disposes on their notifications", async () => {
+        connect();
+        const { local, remoteStore, pulled } = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(local, "chat-aa11", "greeting", "hello");
+        await syncNow("chat-aa11");
+
+        // Another device pushes a turn so our next sync pulls.
+        const other = new Memory();
+        const otherRemote = new MemoryRemote(remoteStore);
+        const { applyWire } = await import("@agex-ts/kvgit");
+        const tip = (await otherRemote.listRefs())[0].head;
+        await applyWire(other, otherRemote.fetch(tip, []), { createBranch: "chat-aa11" });
+        await commitOn(other, "chat-aa11", "from-b", "b");
+        await pushBranch(other, otherRemote, "chat-aa11");
+
+        // A "sibling tab" listens on the channel: the pulling tab must
+        // broadcast the branch.
+        const sibling = new BroadcastChannel("agex-session-sync");
+        const heard = new Promise((resolve) => {
+            sibling.onmessage = (e) => resolve(e.data.branch);
+        });
+        try {
+            await syncNow("chat-aa11");
+            expect(await heard).toBe("chat-aa11");
+
+            // Inverse: a sibling's broadcast triggers OUR dispose path.
+            pulled.length = 0;
+            sibling.postMessage({ branch: "chat-zz99" });
+            await vi.waitFor(() => expect(pulled).toEqual(["chat-zz99"]));
+        } finally {
+            sibling.close();
+        }
+    });
+});
+
 describe("schedulePush", () => {
     it("debounces bursts into one sync and ignores py sessions", async () => {
         vi.useFakeTimers();

@@ -80,7 +80,9 @@ export const syncStatusStore = {
 function setStatus(branch, patch) {
     statuses = {
         ...statuses,
-        [branch]: { detail: "", ...statuses[branch], ...patch, at: Date.now() },
+        // detail resets on every transition unless the new patch sets
+        // one — a recovered branch must not keep its old error tooltip.
+        [branch]: { ...statuses[branch], detail: "", ...patch, at: Date.now() },
     };
     for (const fn of subscribers) fn(statuses);
 }
@@ -107,9 +109,24 @@ let cachedRemoteKey = "";
 let pendingPushes = new Map();
 let lastSweepAt = 0;
 let listenersBound = false;
+/** @type {BroadcastChannel | null} */
+let channel = null;
 
 export function configureSyncEngine(d) {
     deps = d;
+    // Cross-tab pull notifications: the tab that performs a pull is
+    // the only one whose syncBranch reports movement — sibling tabs
+    // would otherwise keep stale pooled agents for the branch (their
+    // own retry sees 'up-to-date'). kvgit's CAS makes that loud (a
+    // stale commit throws), not corrupting, but loud is still worth
+    // preventing: broadcast the branch so every tab disposes.
+    if (channel === null && typeof BroadcastChannel !== "undefined") {
+        channel = new BroadcastChannel("agex-session-sync");
+        channel.onmessage = (e) => {
+            const branch = e?.data?.branch;
+            if (branch && deps?.onBranchPulled) void deps.onBranchPulled(branch);
+        };
+    }
 }
 
 /** Wire deps and bind the focus/visibility sweep triggers (idempotent). */
@@ -136,6 +153,8 @@ export function _resetSyncEngineForTesting() {
     statuses = {};
     subscribers = [];
     lastSweepAt = 0;
+    channel?.close();
+    channel = null;
 }
 
 export function isSyncConnected() {
@@ -235,8 +254,11 @@ export async function syncNow(branch) {
         }
         applyOutcome(branch, outcome);
         const pulled = outcome.pull.status;
-        if ((pulled === "fast-forwarded" || pulled === "created") && deps.onBranchPulled) {
-            await deps.onBranchPulled(branch);
+        if (pulled === "fast-forwarded" || pulled === "created") {
+            if (deps.onBranchPulled) await deps.onBranchPulled(branch);
+            // Sibling tabs share the IndexedDB store but not this
+            // outcome — tell them to drop stale pooled agents too.
+            channel?.postMessage({ branch });
         }
         return outcome;
     } catch (err) {
