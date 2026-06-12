@@ -124,16 +124,20 @@
     let syncPatInput = $state('')
     let syncBusy = $state(false)
     let syncError = $state('')
-    let syncNotice = $state('')
     /** @type {Array<{ fullName: string, private: boolean }>} */
     let syncChoices = $state([])
     let syncRepoChoice = $state('')
     let syncConnectedRepo = $derived($settingsStore.syncRepo ?? '')
+    // Persistent (settings-backed) so the world-readable warning
+    // survives drawer close/reopen — the one warning that shouldn't
+    // quietly disappear.
+    let syncRepoPublic = $derived(
+        Boolean($settingsStore.syncRepo) && $settingsStore.syncRepoIsPrivate === false,
+    )
 
     async function handleSyncConnect() {
         syncBusy = true
         syncError = ''
-        syncNotice = ''
         try {
             const pat = syncPatInput.trim()
             const result = await connectSyncRepo(
@@ -141,13 +145,16 @@
                 syncRepoChoice ? { repo: syncRepoChoice } : {},
             )
             if (result.ok) {
-                updateSettings({ syncRepo: result.repo, syncPat: pat })
+                updateSettings({
+                    syncRepo: result.repo,
+                    syncPat: pat,
+                    // null (privacy lookup failed) counts as private —
+                    // don't cry wolf on unknowns.
+                    syncRepoIsPrivate: result.isPrivate !== false,
+                })
                 syncPatInput = ''
                 syncChoices = []
                 syncRepoChoice = ''
-                if (result.isPrivate === false) {
-                    syncNotice = `Heads up: ${result.repo} is public — synced sessions will be world-readable.`
-                }
             } else if (result.reason === 'choose') {
                 syncChoices = result.choices
                 syncRepoChoice = result.choices[0]?.fullName ?? ''
@@ -165,8 +172,7 @@
     /** Forget the connection on this device only — the repo and its
      *  sessions are untouched. */
     function handleSyncDisconnect() {
-        updateSettings({ syncRepo: '', syncPat: '' })
-        syncNotice = ''
+        updateSettings({ syncRepo: '', syncPat: '', syncRepoIsPrivate: true })
         syncError = ''
     }
 </script>
@@ -369,8 +375,11 @@
                         <div class="sync-connected">
                             Connected to <code>{syncConnectedRepo}</code>
                         </div>
-                        {#if syncNotice}
-                            <span class="hint sync-warn">{syncNotice}</span>
+                        {#if syncRepoPublic}
+                            <span class="hint sync-warn">
+                                {syncConnectedRepo} is public — synced sessions
+                                will be world-readable.
+                            </span>
                         {/if}
                         <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>
                             Disconnect

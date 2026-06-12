@@ -41,6 +41,7 @@ describe("settingsStore", () => {
             githubPat: "",
             syncRepo: "",
             syncPat: "",
+            syncRepoIsPrivate: true,
             keepAwake: false,
             notifyOnFinish: false,
         });

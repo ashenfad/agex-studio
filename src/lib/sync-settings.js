@@ -57,11 +57,7 @@ export async function discoverSyncRepos(pat, opts = {}) {
     const out = [];
     for (let page = 1; page <= 3; page++) {
         const resp = await fetchImpl(`${API_BASE}/user/repos?per_page=100&page=${page}`, {
-            headers: {
-                Accept: "application/vnd.github+json",
-                Authorization: `Bearer ${pat}`,
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers: authHeaders(pat),
         });
         if (!resp.ok) {
             if (resp.status === 401) {
@@ -114,6 +110,14 @@ export async function connectSyncRepo(pat, opts = {}) {
             }
             repo = candidates[0].fullName;
             isPrivate = candidates[0].private;
+        } else {
+            // Privacy backs the world-readable warning — a guardrail
+            // this function owns rather than outsourcing to caller
+            // diligence (the explicit-repo path is exactly the
+            // broad-token flow where a public pick is most plausible).
+            // Tolerant: a failed lookup yields null (unknown), never a
+            // blocked connect.
+            isPrivate = await fetchRepoPrivacy(pat, repo, opts);
         }
 
         const client = new GithubClient({
@@ -138,6 +142,31 @@ export async function connectSyncRepo(pat, opts = {}) {
             return { ok: false, reason: err.kind, message: friendlyGithubMessage(err) };
         }
         return { ok: false, reason: "error", message: err?.message ?? String(err) };
+    }
+}
+
+/** @param {string} pat */
+function authHeaders(pat) {
+    return {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${pat}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+    };
+}
+
+/** The repo's `private` flag, or null when it can't be determined.
+ *  @returns {Promise<boolean | null>} */
+async function fetchRepoPrivacy(pat, repo, opts = {}) {
+    const fetchImpl = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
+    try {
+        const resp = await fetchImpl(`${API_BASE}/repos/${repo}`, {
+            headers: authHeaders(pat),
+        });
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return typeof data?.private === "boolean" ? data.private : null;
+    } catch {
+        return null;
     }
 }
 

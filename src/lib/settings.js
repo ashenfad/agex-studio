@@ -40,6 +40,11 @@ const DEFAULTS = {
     // connect wizard in SettingsDrawer via sync-settings.js.
     syncRepo: "",
     syncPat: "",
+    // Whether syncRepo is private, captured at connect time. False
+    // drives a persistent world-readable warning in the drawer; null
+    // (unknown — privacy lookup failed) is treated as private rather
+    // than crying wolf. Reset to true on disconnect.
+    syncRepoIsPrivate: true,
     // Hold a screen wake lock while any session has a turn in flight, so
     // the display doesn't dim during long agent turns. Surfaced in the
     // session drawer; auto-released when the tab is hidden (the browser
@@ -100,6 +105,9 @@ let subscribers = [];
  *     ``syncRepo`` with Contents read/write.  Deliberately separate
  *     from ``githubPat`` (different trust level, independently
  *     revocable).  Stored locally; sent only to api.github.com.
+ * @property {boolean} syncRepoIsPrivate — privacy of ``syncRepo`` as
+ *     observed at connect time.  False renders a persistent
+ *     world-readable warning next to the connected state.
  * @property {boolean} keepAwake — hold a screen wake lock while a session
  *     has a turn in flight (display won't dim during long turns).
  * @property {boolean} notifyOnFinish — fire a desktop notification when a

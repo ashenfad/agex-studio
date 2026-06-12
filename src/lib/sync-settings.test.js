@@ -96,8 +96,10 @@ describe("connectSyncRepo", () => {
         expect(first.reason).toBe("choose");
         expect(first.choices.map((c) => c.fullName)).toEqual(["u/agex-sync", "u/other"]);
 
-        // Explicit repo skips discovery entirely.
+        // Explicit repo skips discovery but still resolves privacy
+        // itself (the guardrail isn't outsourced to caller diligence).
         const second = makeFetch([
+            { status: 200, body: { private: true } }, // GET /repos/u/agex-sync
             { status: 200, body: { object: { sha: "m1" } } },
             { status: 404, body: { message: "Not Found" } },
             { status: 201, body: {} },
@@ -107,7 +109,33 @@ describe("connectSyncRepo", () => {
             fetchImpl: second.fetchImpl,
         });
         expect(result.ok).toBe(true);
+        expect(result.isPrivate).toBe(true);
         expect(second.calls.every((c) => !c.url.includes("/user/repos"))).toBe(true);
+        expect(second.calls[0].url).toContain("/repos/u/agex-sync");
+    });
+
+    it("flags a PUBLIC explicit repo so the warning can fire", async () => {
+        const { fetchImpl } = makeFetch([
+            { status: 200, body: { private: false } }, // privacy lookup
+            { status: 200, body: { object: { sha: "m1" } } },
+            { status: 404, body: { message: "Not Found" } },
+            { status: 201, body: {} },
+        ]);
+        const result = await connectSyncRepo("tok", { repo: "u/open-book", fetchImpl });
+        expect(result.ok).toBe(true);
+        expect(result.isPrivate).toBe(false);
+    });
+
+    it("tolerates a failed privacy lookup (unknown, never a blocked connect)", async () => {
+        const { fetchImpl } = makeFetch([
+            { status: 500, body: { message: "boom" } }, // privacy lookup fails
+            { status: 200, body: { object: { sha: "m1" } } },
+            { status: 404, body: { message: "Not Found" } },
+            { status: 201, body: {} },
+        ]);
+        const result = await connectSyncRepo("tok", { repo: "u/agex-sync", fetchImpl });
+        expect(result.ok).toBe(true);
+        expect(result.isPrivate).toBeNull();
     });
 
     it("reports an empty grant with wizard-step guidance", async () => {
