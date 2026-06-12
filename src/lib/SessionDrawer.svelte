@@ -73,30 +73,31 @@
         return () => clearInterval(timer)
     })
 
+    // No glyph for the steady state: a synced session is the norm, so
+    // a standing ✓ is noise. The glyph only appears while something is
+    // happening (queued / syncing) or wrong (attention states); synced
+    // freshness lives in the timestamp's hover instead.
     function syncGlyph(state) {
-        if (state === 'synced') return '✓'
         if (state === 'syncing') return '↻'
         if (state === 'pending') return '↑'
         return '⚠'
     }
 
-    // A ✓ is a claim about NOW, but sweeps only re-verify every few
-    // minutes (and reload-seeded entries may be hours old). Past this
-    // age the glyph dims: "was synced, not recently checked".
-    const SYNC_STALE_MS = 15 * 60_000
-    function isSyncStale(status, now) {
-        return status.state === 'synced' && now - status.at > SYNC_STALE_MS
-    }
-
     function syncGlyphTitle(status, _now) {
-        const { state, at, detail, appAt } = status
-        if (state === 'synced') {
-            const app = appAt ? ` · app data ${_relativeTime(appAt)}` : ''
-            return `Checked ${_relativeTime(at)}${app}`
-        }
+        const { state, detail } = status
         if (state === 'syncing') return detail ? `Syncing — ${detail}` : 'Syncing…'
         if (state === 'pending') return detail ? `Sync queued — ${detail}` : 'Sync queued'
         return detail || `Session sync: ${state}`
+    }
+
+    /** Hover ledger on the row's timestamp: when the session last
+     *  changed, and (when synced) when that was last verified. The
+     *  times themselves carry staleness — no glyph semantics needed. */
+    function dateTitle(session, status, _now) {
+        const updated = `Updated ${_relativeTime(session.updated)}`
+        if (status?.state !== 'synced') return updated
+        const app = status.appAt ? ` · app data ${_relativeTime(status.appAt)}` : ''
+        return `${updated} · synced ${_relativeTime(status.at)}${app}`
     }
 
     // Per-branch resolution state for the inline attention rows.
@@ -1094,17 +1095,16 @@
                                 class="kernel-badge kernel-{s.kernel || 'py'}"
                                 title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental, larger sandbox surface'}"
                             >{s.kernel || 'py'}{(s.kernel || 'py') === 'py' ? ' · exp' : ''}</span>
-                            {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
+                            {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch] && $syncStatusStore[s.branch].state !== 'synced'}
                                 <span
                                     class="sync-glyph sync-{$syncStatusStore[s.branch].state}"
-                                    class:sync-stale={isSyncStale($syncStatusStore[s.branch], nowTick)}
                                     title={syncGlyphTitle($syncStatusStore[s.branch], nowTick)}
                                 >{syncGlyph($syncStatusStore[s.branch].state)}</span>
                             {/if}
                             {#if $syncStatusStore[s.branch]?.state === 'syncing' && $syncStatusStore[s.branch].detail}
                                 <span class="sync-progress">{$syncStatusStore[s.branch].detail}</span>
                             {:else}
-                                {formatDate(s.updated)}
+                                <span title={dateTitle(s, $syncStatusStore[s.branch], nowTick)}>{formatDate(s.updated)}</span>
                             {/if}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
@@ -2577,9 +2577,10 @@
         margin-left: 0.15rem;
     }
 
-    /* One status glyph married to the row's single timestamp.
-       Color scale: quiet for healthy, amber for needs-a-look, red for
-       broken — words live in the tooltip and the action rows. */
+    /* Status glyph appears only while sync is active or unhappy —
+       healthy rows show nothing (freshness rides the timestamp hover).
+       Color scale: muted for in-flight, amber for needs-a-look, red
+       for broken — words live in the tooltip and the action rows. */
     .sync-progress {
         color: var(--text-muted);
         font-variant-numeric: tabular-nums;
@@ -2588,18 +2589,6 @@
     .sync-glyph {
         margin-right: 0.15rem;
         font-size: 0.7rem;
-    }
-
-    .sync-glyph.sync-synced {
-        color: var(--accent);
-        opacity: 0.7;
-    }
-
-    /* Was synced, but not re-checked recently (reload-seeded entries
-       or a tab that's been backgrounded a while) — fade the claim. */
-    .sync-glyph.sync-synced.sync-stale {
-        color: var(--text-muted);
-        opacity: 0.45;
     }
 
     .sync-glyph.sync-pending {
