@@ -45,6 +45,7 @@ describe("settingsStore", () => {
             syncAppState: true,
             keepAwake: false,
             notifyOnFinish: false,
+            publishShape: "full",
         });
         unsub();
     });

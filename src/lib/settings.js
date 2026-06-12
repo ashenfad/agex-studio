@@ -59,6 +59,10 @@ const DEFAULTS = {
     // hidden). Surfaced in the session drawer; gated on the browser
     // notification permission grant in addition to this flag.
     notifyOnFinish: false,
+    // Last-used publish shape ('full' | 'flat' | 'flat-downsample' |
+    // 'flat-strip') — remembered across publishes so an image-heavy
+    // workflow isn't re-choosing every time.
+    publishShape: "full",
 };
 
 /** @type {((s: Settings) => void)[]} */

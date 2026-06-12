@@ -527,6 +527,12 @@ _json.dumps(_stats)
             return JSON.parse(json);
         },
 
+        /** Snapshot-shaped publishing is a ts-kernel capability; null
+         *  tells the publish flow to skip the shape-options stage. */
+        async profilePublishSizes(_branch) {
+            return null;
+        },
+
         // --- History rendering ------------------------------------------
 
         async loadHistory(branch) {

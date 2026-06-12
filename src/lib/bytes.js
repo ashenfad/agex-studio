@@ -36,3 +36,11 @@ export function bytesToBase64(bytes) {
     }
     return btoa(binary);
 }
+
+/** Decode canonical base64 back to raw bytes. */
+export function base64ToBytes(b64) {
+    const binary = atob(b64);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+}

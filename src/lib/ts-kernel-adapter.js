@@ -50,6 +50,12 @@ import {
     bundleStats as bundleGetStats,
 } from "./ts-bundle.js";
 import {
+    estimatePublishSizes,
+    profileSession,
+    snapshotBranch,
+} from "./session-snapshot.js";
+import { downsampleImagePart } from "./image-downsample.js";
+import {
     synthesizeAction,
     serializeOutputParts,
     splitOutputEvents,
@@ -484,13 +490,49 @@ export function createTsAdapter() {
         async exportBundlePayload(branch, /** @type {ExportBundleOptions} */ opts = {}) {
             const versioned = await agentGetSharedVersioned();
             const meta = await agentReadBranchMeta(branch);
-            const { bytes, manifest } = await bundleExport(versioned, branch, {
-                kernel: "ts",
-                name: meta.name || meta.title,
-                description: meta.description,
-                progress: opts.onProgress,
-            });
-            return { bytes, manifest };
+            // Size-reduced shapes bundle an EPHEMERAL snapshot branch:
+            // tip-only copy (honest fresh hashes — blob surgery on an
+            // existing history would break applyWire verification),
+            // optionally with image treatment, deleted right after.
+            // The temp name avoids the chat- prefix so the sync
+            // engine's roster never sees it.
+            const shape = opts.shape ?? "full";
+            let exportBranch = branch;
+            if (shape !== "full") {
+                exportBranch = `snap-pub-${Math.random().toString(16).slice(2, 10)}`;
+                const images =
+                    shape === "flat-downsample"
+                        ? "downsample"
+                        : shape === "flat-strip"
+                          ? "strip"
+                          : "full";
+                await snapshotBranch(versioned, branch, exportBranch, {
+                    images,
+                    transformImage: images === "downsample" ? downsampleImagePart : null,
+                });
+            }
+            try {
+                const { bytes, manifest } = await bundleExport(versioned, exportBranch, {
+                    kernel: "ts",
+                    name: meta.name || meta.title,
+                    description: meta.description,
+                    progress: opts.onProgress,
+                });
+                return { bytes, manifest };
+            } finally {
+                // deleteBranch also sweeps the snapshot's orphaned
+                // blobs (cleanOrphans), so the temp copy doesn't
+                // linger in IndexedDB.
+                if (exportBranch !== branch) await agentDeleteBranch(exportBranch);
+            }
+        },
+
+        /** Per-category byte profile + approximate bundle sizes for
+         *  each publish shape — drives the publish modal's options. */
+        async profilePublishSizes(branch) {
+            const versioned = await agentGetSharedVersioned();
+            const profile = await profileSession(versioned, branch);
+            return { profile, estimates: estimatePublishSizes(profile) };
         },
 
         async importBundlePayload(payload) {

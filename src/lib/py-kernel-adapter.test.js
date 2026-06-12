@@ -44,6 +44,7 @@ const EXPECTED_METHODS = [
     "exportBundlePayload",
     "importBundlePayload",
     "getBundleStats",
+    "profilePublishSizes",
     // History rendering
     "loadHistory",
     // Query bridge
