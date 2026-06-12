@@ -92,7 +92,7 @@
         const { state, at, detail, appAt } = status
         if (state === 'synced') {
             const app = appAt ? ` · app data ${_relativeTime(appAt)}` : ''
-            return `Synced to ${$settingsStore.syncRepo} · checked ${_relativeTime(at)}${app}`
+            return `Checked ${_relativeTime(at)}${app}`
         }
         if (state === 'syncing') return detail ? `Syncing — ${detail}` : 'Syncing…'
         if (state === 'pending') return detail ? `Sync queued — ${detail}` : 'Sync queued'
