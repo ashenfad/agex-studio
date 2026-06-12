@@ -67,6 +67,46 @@ function makeRosterRemote(remoteStore) {
             archived.clear();
             return n;
         },
+        // Minimal contents-API fake for the app-state sidecar: a flat
+        // path → {json, sha} map plus refs, with the same sha-CAS and
+        // not-found shapes the engine duck-types on.
+        client: (() => {
+            const files = new Map();
+            let seq = 0;
+            let appStateRef = false;
+            return {
+                files,
+                getRef: async (b) => {
+                    if (b === "app-state") return appStateRef ? "as-ref" : null;
+                    return "main-ref";
+                },
+                createRef: async (b) => {
+                    if (b === "app-state") appStateRef = true;
+                    return true;
+                },
+                request: async (method, path, body) => {
+                    const fp = path.replace(/\?.*$/, "").replace(/^contents\//, "");
+                    if (method === "GET") {
+                        const f = files.get(fp);
+                        if (!f) throw Object.assign(new Error("Not Found"), { kind: "not-found" });
+                        return { content: btoa(f.json), encoding: "base64", sha: f.sha };
+                    }
+                    if (method === "PUT") {
+                        const existing = files.get(fp);
+                        if (existing && body.sha !== existing.sha) {
+                            throw Object.assign(new Error("sha mismatch"), { kind: "validation" });
+                        }
+                        files.set(fp, { json: atob(body.content), sha: `s${++seq}` });
+                        return { content: { sha: `s${seq}` } };
+                    }
+                    if (method === "DELETE") {
+                        files.delete(fp);
+                        return {};
+                    }
+                    throw new Error(`fake client: ${method} ${path}`);
+                },
+            };
+        })(),
     };
 }
 
@@ -79,6 +119,7 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
     const remote = makeRosterRemote(remoteStore);
     const pulled = [];
     const archivedLocally = [];
+    const applied = [];
     let listChanges = 0;
     const world = {
         local,
@@ -86,6 +127,8 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
         remoteStore,
         pulled,
         archivedLocally,
+        applied,
+        appBags: {},
         branches,
         listChanges: () => listChanges,
     };
@@ -103,6 +146,11 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
             listChanges++;
         },
         fetchStubTitle: async (_remote, branch) => world.stubTitles?.[branch] ?? null,
+        readAppState: (branch) => world.appBags?.[branch] ?? {},
+        applyAppState: (branch, entries) => {
+            world.appBags = { ...world.appBags, [branch]: entries };
+            world.applied.push(branch);
+        },
         makeRemote: () => remote,
     });
     return world;
@@ -449,6 +497,65 @@ describe("progress instrumentation", () => {
         await syncNow("chat-aa11");
         expect(seen).toContain("downloading · turn 4");
         unsub();
+    });
+});
+
+describe("app-state sidecar", () => {
+    it("round-trips a bag between devices with LWW semantics", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        world.appBags["chat-aa11"] = { todos: "[1,2]" };
+
+        const { scheduleAppStateSync, pushAppState, pullAppState } = await import(
+            "./sync-engine.js"
+        );
+        scheduleAppStateSync("chat-aa11"); // stamps lastLocalWriteAt
+        await pushAppState("chat-aa11");
+        expect(world.remote.client.files.has("app-state/chat-aa11.json")).toBe(true);
+
+        // "Device 2": same remote, fresh local state.
+        const world2 = makeWorld({ branches: ["chat-aa11"] });
+        world2.remote.client.files.set(
+            "app-state/chat-aa11.json",
+            world.remote.client.files.get("app-state/chat-aa11.json"),
+        );
+        await pullAppState("chat-aa11");
+        expect(world2.appBags["chat-aa11"]).toEqual({ todos: "[1,2]" });
+        expect(world2.applied).toEqual(["chat-aa11"]);
+
+        // Re-pull: already applied, no double-apply.
+        await pullAppState("chat-aa11");
+        expect(world2.applied).toEqual(["chat-aa11"]);
+    });
+
+    it("skips inbound apply while local writes are newer", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        const { scheduleAppStateSync, pullAppState } = await import("./sync-engine.js");
+
+        // A stale remote bag exists; then the local app saves.
+        world.remote.client.files.set("app-state/chat-aa11.json", {
+            json: JSON.stringify({ format: 1, kernel: "ts", updatedAt: 1, entries: { old: "x" } }),
+            sha: "s0",
+        });
+        world.appBags["chat-aa11"] = { fresh: "y" };
+        scheduleAppStateSync("chat-aa11"); // local write timestamp = now ≫ 1
+
+        await pullAppState("chat-aa11");
+        expect(world.applied).toEqual([]); // local pending wins
+        expect(world.appBags["chat-aa11"]).toEqual({ fresh: "y" });
+    });
+
+    it("skips pushing an unchanged bag", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        world.appBags["chat-aa11"] = { k: "v" };
+        const { scheduleAppStateSync, pushAppState } = await import("./sync-engine.js");
+        scheduleAppStateSync("chat-aa11");
+        await pushAppState("chat-aa11");
+        const shaAfterFirst = world.remote.client.files.get("app-state/chat-aa11.json").sha;
+        await pushAppState("chat-aa11"); // unchanged
+        expect(world.remote.client.files.get("app-state/chat-aa11.json").sha).toBe(shaAfterFirst);
     });
 });
 

@@ -21,7 +21,9 @@
 import {
     size as appStorageSize,
     copy as appStorageCopy,
+    read as appStorageRead,
     remove as appStorageRemove,
+    write as appStorageWrite,
 } from "./app-storage.js";
 import {
     replaceCache as replaceSessionCache,
@@ -473,6 +475,10 @@ async function initSessions() {
         },
         onSessionListChanged: async () => {
             await refreshSessionList(state.currentBranch);
+        },
+        readAppState: (branch) => appStorageRead("ts", branch),
+        applyAppState: (branch, entries) => {
+            appStorageWrite("ts", branch, entries);
         },
         fetchStubTitle: async (remote, branch) => {
             // Same precedence as the session list: user-curated name,

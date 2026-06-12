@@ -36,7 +36,7 @@
  */
 
 import { VersionedKV, applyWire, clearSyncHead, syncBranch } from "@agex-ts/kvgit";
-import { GithubClient, GithubRemote } from "@agex-ts/kvgit/github";
+import { GithubClient, GithubRemote, base64ToBytes, bytesToBase64 } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
 
 /** Debounce for push-after-turn: long enough to coalesce a turn's
@@ -114,6 +114,10 @@ function setStatus(branch, patch) {
  * @property {(remote: any, branch: string) => Promise<string | null>} [fetchStubTitle]
  *     — display title for a remote-only session (reads branch meta at
  *     the tip); failures tolerated, null = fall back to generic copy
+ * @property {(branch: string) => Record<string, string>} [readAppState]
+ *     — the session's app-storage bag (localStorage shim contents)
+ * @property {(branch: string, entries: Record<string, string>) => void} [applyAppState]
+ *     — replace the local bag with synced entries
  * @property {(deps: { store: any }) => any} [makeRemote] — test seam
  */
 
@@ -187,6 +191,11 @@ export function _resetSyncEngineForTesting() {
     channel = null;
     roster = { remoteOnly: [], archived: [] };
     rosterSubscribers = [];
+    for (const t of appStateTimers.values()) clearTimeout(t);
+    appStateTimers = new Map();
+    lastPushedAppJson = new Map();
+    lastLocalAppWriteAt = new Map();
+    lastAppliedAppAt = new Map();
 }
 
 export function isSyncConnected() {
@@ -336,6 +345,9 @@ export async function syncNow(branch) {
             // Sibling tabs share the IndexedDB store but not this
             // outcome — tell them to drop stale pooled agents too.
             channel?.postMessage({ branch });
+            // The session (and its app) reloads after a pull — fetch
+            // the app's save data alongside.
+            await pullAppState(branch);
         }
         return outcome;
     } catch (err) {
@@ -375,6 +387,9 @@ export async function sweep({ force = false } = {}) {
     for (const branch of deps.listSyncableBranches()) {
         if (branch === current || !isSyncEnabled(branch)) continue;
         await syncNow(branch);
+        // App save data can change remotely without any session turns
+        // (the app was used, not the chat) — check it independently.
+        await pullAppState(branch);
     }
     await refreshRoster();
 }
@@ -490,6 +505,7 @@ export async function restoreRemoteSession(branch) {
 export async function deleteForeverRemote(branch) {
     const remote = await getRemote();
     const ok = await remote.deleteForever(branch);
+    await deleteAppStateFile(branch);
     await refreshRoster();
     return ok;
 }
@@ -497,9 +513,157 @@ export async function deleteForeverRemote(branch) {
 /** Hard-delete every archived session ("Empty trash"). */
 export async function emptyTrashRemote() {
     const remote = await getRemote();
+    const archived = await remote.listArchivedRefs();
     const removed = await remote.emptyTrash();
+    for (const a of archived) await deleteAppStateFile(a.branch);
     await refreshRoster();
     return removed;
+}
+
+// ---------------------------------------------------------------------------
+// App-state sidecar
+//
+// Apps' save data (the localStorage shim bag) is runtime state, not
+// history — deliberately NOT in kvgit (see app-storage.js's history
+// note), so it syncs as a sidecar: one JSON file per session at
+// `app-state/<branch>.json` on a dedicated `app-state` branch in the
+// sync repo (keeps main's history clean of save-noise). Last-writer-
+// wins by `updatedAt`, with the contents API's sha requirement as the
+// optimistic CAS. Pulls happen where the app reloads anyway (stub
+// download, branch pulled, sweep), so a running app is never mutated
+// underneath — at worst a pull is skipped because local writes are
+// newer, and the next push reconciles.
+// ---------------------------------------------------------------------------
+
+const APP_STATE_BRANCH = "app-state";
+const APP_STATE_DEBOUNCE_MS = 20_000;
+const appStatePath = (branch) => `app-state/${branch}.json`;
+
+const _enc = new TextEncoder();
+const _dec = new TextDecoder();
+
+let appStateTimers = new Map();
+let lastPushedAppJson = new Map();
+let lastLocalAppWriteAt = new Map();
+let lastAppliedAppAt = new Map();
+
+/** Debounced push of a session's app-storage bag (called from the
+ *  app-preview write funnel). Long debounce: apps can save per
+ *  interaction; the bag is tiny and LWW makes missed intermediate
+ *  states harmless. */
+export function scheduleAppStateSync(branch) {
+    if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
+    if (!deps.readAppState) return;
+    lastLocalAppWriteAt.set(branch, Date.now());
+    clearTimeout(appStateTimers.get(branch));
+    appStateTimers.set(
+        branch,
+        setTimeout(() => {
+            appStateTimers.delete(branch);
+            void pushAppState(branch);
+        }, APP_STATE_DEBOUNCE_MS),
+    );
+}
+
+async function ensureAppStateBranch(client) {
+    if ((await client.getRef(APP_STATE_BRANCH)) !== null) return;
+    const main = await client.getRef("main");
+    if (main === null) throw new Error("sync repo has no main branch");
+    await client.createRef(APP_STATE_BRANCH, main);
+}
+
+/** Read the remote app-state file: { payload, sha } or null. */
+async function readRemoteAppState(client, branch) {
+    try {
+        const data = await client.request(
+            "GET",
+            `contents/${appStatePath(branch)}?ref=${APP_STATE_BRANCH}`,
+        );
+        const payload = JSON.parse(_dec.decode(base64ToBytes(data.content)));
+        return { payload, sha: data.sha };
+    } catch (err) {
+        if (err?.kind === "not-found") return null;
+        throw err;
+    }
+}
+
+export async function pushAppState(branch) {
+    if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
+    if (!deps.readAppState) return;
+    try {
+        const entries = deps.readAppState(branch) ?? {};
+        const json = JSON.stringify(entries);
+        if (json === lastPushedAppJson.get(branch)) return; // unchanged
+        const remote = await getRemote();
+        const client = remote.client;
+        await ensureAppStateBranch(client);
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const existing = await readRemoteAppState(client, branch);
+            const localAt = lastLocalAppWriteAt.get(branch) ?? Date.now();
+            if (existing !== null && existing.payload.updatedAt > localAt) {
+                // Another device saved more recently — inbound wins.
+                applyRemoteAppState(branch, existing.payload);
+                return;
+            }
+            const payload = { format: 1, kernel: "ts", updatedAt: localAt, entries };
+            try {
+                await client.request("PUT", `contents/${appStatePath(branch)}`, {
+                    message: `app-state: ${branch}`,
+                    content: bytesToBase64(_enc.encode(JSON.stringify(payload))),
+                    branch: APP_STATE_BRANCH,
+                    ...(existing !== null && { sha: existing.sha }),
+                });
+                lastPushedAppJson.set(branch, json);
+                return;
+            } catch (err) {
+                // sha race (another tab/device wrote) — re-read once.
+                if (err?.kind !== "validation" || attempt === 1) throw err;
+            }
+        }
+    } catch (err) {
+        console.warn(`app-state push failed for ${branch}:`, err);
+    }
+}
+
+function applyRemoteAppState(branch, payload) {
+    deps.applyAppState?.(branch, payload.entries ?? {});
+    lastAppliedAppAt.set(branch, payload.updatedAt);
+    // Don't bounce the applied state straight back as a push.
+    lastPushedAppJson.set(branch, JSON.stringify(payload.entries ?? {}));
+}
+
+export async function pullAppState(branch) {
+    if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return;
+    if (!deps.applyAppState) return;
+    try {
+        const remote = await getRemote();
+        const existing = await readRemoteAppState(remote.client, branch);
+        if (existing === null) return;
+        const { payload } = existing;
+        if (payload.updatedAt <= (lastAppliedAppAt.get(branch) ?? 0)) return;
+        if ((lastLocalAppWriteAt.get(branch) ?? 0) > payload.updatedAt) return; // local pending wins
+        applyRemoteAppState(branch, payload);
+    } catch (err) {
+        console.warn(`app-state pull failed for ${branch}:`, err);
+    }
+}
+
+/** Best-effort removal of a session's app-state file (delete-forever
+ *  and empty-trash paths). */
+async function deleteAppStateFile(branch) {
+    try {
+        const remote = await getRemote();
+        const existing = await readRemoteAppState(remote.client, branch);
+        if (existing === null) return;
+        await remote.client.request("DELETE", `contents/${appStatePath(branch)}`, {
+            message: `app-state: remove ${branch}`,
+            sha: existing.sha,
+            branch: APP_STATE_BRANCH,
+        });
+    } catch {
+        // Orphaned app-state files are invisible junk, not corruption.
+    }
 }
 
 // ---------------------------------------------------------------------------

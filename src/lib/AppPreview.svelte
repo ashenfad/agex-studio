@@ -4,6 +4,7 @@
     import { setLiveIframe } from './pyodide.js'
     import { sessionStore } from './sessions.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
+    import { scheduleAppStateSync } from './sync-engine.js'
     import { getActiveAdapter } from './active-adapter.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import {
@@ -61,6 +62,9 @@
             storageFlushTimer = null
             try {
                 writeAppStorage(kernel, branch, toWrite)
+                // App save data syncs as a sidecar (long debounce in
+                // the engine; no-op when sync isn't connected).
+                if (kernel === 'ts') scheduleAppStateSync(branch)
             } catch (err) {
                 console.warn('[agex] app storage flush failed:', err)
             }
