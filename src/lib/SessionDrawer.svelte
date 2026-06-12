@@ -1246,7 +1246,7 @@
             {#if syncConnected}
                 {#each $syncRosterStore.remoteOnly as r (r.branch)}
                     <div class="session-item cloud-stub">
-                        <div class="stub-title">☁ Cloud session</div>
+                        <div class="stub-title">☁ {r.title || 'Cloud session'}</div>
                         <div class="session-meta">
                             <span class="session-date"><code>{r.branch}</code></span>
                             <button

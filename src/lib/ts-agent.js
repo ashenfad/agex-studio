@@ -113,6 +113,15 @@ const META_KEYS = /** @type {const} */ ({
     external: "__session_external__",
 });
 
+/** Branch-meta storage keys + the state-value decoder, exported for
+ *  the sync roster's cloud-stub titles (read one key at a remote tip
+ *  via readKeyAtTip, decode it the way readBranchMeta would). */
+export const BRANCH_META_KEYS = META_KEYS;
+
+export function decodeStateValue(bytes) {
+    return polymorphicDecoder(bytes);
+}
+
 // --- Per-branch agent pool (Phase 2) ---------------------------------
 //
 // Each studio session is its own single-session agex-ts Agent — its own
