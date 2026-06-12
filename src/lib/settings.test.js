@@ -39,6 +39,8 @@ describe("settingsStore", () => {
             reasoningEffort: "medium",
             serviceTier: "standard",
             githubPat: "",
+            syncRepo: "",
+            syncPat: "",
             keepAwake: false,
             notifyOnFinish: false,
         });

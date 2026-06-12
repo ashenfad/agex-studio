@@ -1,6 +1,11 @@
 <script>
     import { settingsStore, updateSettings } from './settings.js'
     import { presetsFor, supportsServiceTier } from './models.js'
+    import {
+        SYNC_PAT_CREATE_LINK,
+        SYNC_REPO_CREATE_LINK,
+        connectSyncRepo,
+    } from './sync-settings.js'
 
     /** @type {{ open: boolean, onClose: () => void }} */
     let { open, onClose } = $props()
@@ -110,6 +115,60 @@
     // GitHub doesn't accept prefilled scopes on that page; user
     // selects "Gists: read and write" manually if they prefer FG.
     const PAT_DEEP_LINK = 'https://github.com/settings/tokens/new?description=agex-studio&scopes=gist'
+
+    // --- Session sync (connect wizard; engine wiring is a later slice) ---
+    //
+    // Connect runs immediately (network flow with its own success /
+    // error states) rather than riding the form's Save — Save/Cancel
+    // never touch syncRepo/syncPat.
+    let syncPatInput = $state('')
+    let syncBusy = $state(false)
+    let syncError = $state('')
+    let syncNotice = $state('')
+    /** @type {Array<{ fullName: string, private: boolean }>} */
+    let syncChoices = $state([])
+    let syncRepoChoice = $state('')
+    let syncConnectedRepo = $derived($settingsStore.syncRepo ?? '')
+
+    async function handleSyncConnect() {
+        syncBusy = true
+        syncError = ''
+        syncNotice = ''
+        try {
+            const pat = syncPatInput.trim()
+            const result = await connectSyncRepo(
+                pat,
+                syncRepoChoice ? { repo: syncRepoChoice } : {},
+            )
+            if (result.ok) {
+                updateSettings({ syncRepo: result.repo, syncPat: pat })
+                syncPatInput = ''
+                syncChoices = []
+                syncRepoChoice = ''
+                if (result.isPrivate === false) {
+                    syncNotice = `Heads up: ${result.repo} is public — synced sessions will be world-readable.`
+                }
+            } else if (result.reason === 'choose') {
+                syncChoices = result.choices
+                syncRepoChoice = result.choices[0]?.fullName ?? ''
+                syncError = 'The token can reach several repos — pick the sync repo and connect again.'
+            } else {
+                syncError = result.message
+            }
+        } catch (err) {
+            syncError = err?.message ?? String(err)
+        } finally {
+            syncBusy = false
+        }
+    }
+
+    /** Forget the connection on this device only — the repo and its
+     *  sessions are untouched. */
+    function handleSyncDisconnect() {
+        updateSettings({ syncRepo: '', syncPat: '' })
+        syncNotice = ''
+        syncError = ''
+    }
 </script>
 
 {#if open}
@@ -302,6 +361,69 @@
                     </span>
                 </label>
 
+                <div class="divider"></div>
+
+                <div class="sync-section">
+                    <span class="sync-title">Session sync</span>
+                    {#if syncConnectedRepo}
+                        <div class="sync-connected">
+                            Connected to <code>{syncConnectedRepo}</code>
+                        </div>
+                        {#if syncNotice}
+                            <span class="hint sync-warn">{syncNotice}</span>
+                        {/if}
+                        <button type="button" class="sync-btn" onclick={handleSyncDisconnect}>
+                            Disconnect
+                        </button>
+                        <span class="hint">
+                            Disconnecting only forgets the connection on this
+                            device — the repo and its sessions are untouched.
+                        </span>
+                    {:else}
+                        <ol class="sync-steps">
+                            <li>
+                                <a href={SYNC_REPO_CREATE_LINK} target="_blank" rel="noopener">
+                                    Create a private sync repo</a>
+                                — tick “Add a README”.
+                            </li>
+                            <li>
+                                <a href={SYNC_PAT_CREATE_LINK} target="_blank" rel="noopener">
+                                    Create a fine-grained token</a>
+                                — Only select repositories → your sync repo;
+                                Permissions → Contents: Read and write.
+                            </li>
+                            <li>Paste the token and connect.</li>
+                        </ol>
+                        <input
+                            type="password"
+                            bind:value={syncPatInput}
+                            placeholder="github_pat_…"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                        {#if syncChoices.length > 1}
+                            <select bind:value={syncRepoChoice}>
+                                {#each syncChoices as choice (choice.fullName)}
+                                    <option value={choice.fullName}>
+                                        {choice.fullName}{choice.private ? '' : ' (public)'}
+                                    </option>
+                                {/each}
+                            </select>
+                        {/if}
+                        <button
+                            type="button"
+                            class="sync-btn"
+                            onclick={handleSyncConnect}
+                            disabled={syncBusy || !syncPatInput.trim()}
+                        >
+                            {syncBusy ? 'Connecting…' : 'Connect'}
+                        </button>
+                        {#if syncError}
+                            <span class="hint sync-warn">{syncError}</span>
+                        {/if}
+                    {/if}
+                </div>
+
             </div>
 
             <div class="actions">
@@ -381,6 +503,66 @@
         font-size: 0.8rem;
         color: var(--text-muted);
         font-weight: 500;
+    }
+
+    .sync-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .sync-title {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        font-weight: 500;
+    }
+
+    .sync-steps {
+        margin: 0;
+        padding-left: 1.1rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        line-height: 1.45;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .sync-btn {
+        background: var(--input-bg);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.75rem;
+        font-family: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+        align-self: flex-start;
+    }
+
+    .sync-btn:hover:not(:disabled) {
+        border-color: var(--accent);
+    }
+
+    .sync-btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .sync-connected {
+        font-size: 0.85rem;
+    }
+
+    .sync-connected code {
+        background: var(--input-bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.1rem 0.35rem;
+        font-size: 0.8rem;
+    }
+
+    .sync-warn {
+        color: #d9822b;
     }
 
     .field {
