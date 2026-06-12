@@ -422,6 +422,36 @@ describe("status lifecycle", () => {
     });
 });
 
+describe("progress instrumentation", () => {
+    it("live-counts turns through push and pull", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "k1", "a");
+        await commitOn(world.local, "chat-aa11", "k2", "b");
+        await commitOn(world.local, "chat-aa11", "k3", "c");
+
+        const seen = [];
+        const unsub = syncStatusStore.subscribe((statuses) => {
+            const st = statuses["chat-aa11"];
+            if (st?.detail) seen.push(st.detail);
+        });
+        await syncNow("chat-aa11"); // initial push: 4 commits (init + 3)
+        expect(seen).toContain("uploading · turn 4");
+
+        // Fresh device pulls the same session: download counts.
+        const dev2 = new Memory();
+        configureSyncEngine({
+            getStore: async () => dev2,
+            listSyncableBranches: () => ["chat-aa11"],
+            makeRemote: () => world.remote,
+        });
+        seen.length = 0;
+        await syncNow("chat-aa11");
+        expect(seen).toContain("downloading · turn 4");
+        unsub();
+    });
+});
+
 describe("kickoffSync", () => {
     it("pushes background sessions immediately and queues the foreground", async () => {
         connect();

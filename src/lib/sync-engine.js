@@ -259,6 +259,47 @@ export function _lastScheduledSyncForTesting() {
     return lastScheduledSync;
 }
 
+/** Count an (a)sync iterable's items as they flow through. */
+async function* counted(iter, onCount) {
+    let n = 0;
+    for await (const item of iter) {
+        n++;
+        onCount(n);
+        yield item;
+    }
+}
+
+/**
+ * Per-sync progress instrumentation: a delegating wrapper (class
+ * privates forbid spreading) that live-counts wire commits in both
+ * directions. Commits ≈ turns, a unit users understand; totals would
+ * need a kvgit API addition, so counts are indeterminate for now.
+ */
+function instrumentedRemote(remote, branch) {
+    return {
+        listRefs: () => remote.listRefs(),
+        fetch: (want, have) =>
+            counted(remote.fetch(want, have), (n) =>
+                setStatus(branch, {
+                    state: "syncing",
+                    detail: `downloading · turn ${n}`,
+                }),
+            ),
+        push: (b, expectedOld, newHead, commits) =>
+            remote.push(
+                b,
+                expectedOld,
+                newHead,
+                counted(commits, (n) =>
+                    setStatus(branch, {
+                        state: "syncing",
+                        detail: `uploading · turn ${n}`,
+                    }),
+                ),
+            ),
+    };
+}
+
 /** Cross-tab exclusivity: one sync at a time across tabs. A busy lock
  *  returns "busy" (callers reschedule) instead of queueing — a queued
  *  duplicate sync behind another tab's run is pure waste. */
@@ -281,7 +322,7 @@ export async function syncNow(branch) {
         const outcome = await withSyncLock(async () => {
             const store = await deps.getStore();
             const remote = await getRemote();
-            return syncBranch(store, remote, branch);
+            return syncBranch(store, instrumentedRemote(remote, branch), branch);
         });
         if (outcome === "busy") {
             setStatus(branch, { state: "synced", detail: "another tab is syncing" });
