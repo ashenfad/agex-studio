@@ -769,7 +769,7 @@ export async function pushAppState(branch, { keepalive = false } = {}) {
         // (An injected test remote skips the keepalive client — fakes
         // have no page lifetime to outlive.)
         if (keepalive && !deps.makeRemote) {
-            if (json.length > APP_STATE_KEEPALIVE_MAX) return;
+            if (byteLength > APP_STATE_KEEPALIVE_MAX) return;
             const settings = getSettings();
             client = new GithubClient({
                 token: settings.syncPat,
