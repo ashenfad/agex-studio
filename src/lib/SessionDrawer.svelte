@@ -82,7 +82,7 @@
     function syncGlyphTitle(status, _now) {
         const { state, at, detail } = status
         if (state === 'synced') return `Synced to ${$settingsStore.syncRepo} · ${_relativeTime(at)}`
-        if (state === 'syncing') return 'Syncing…'
+        if (state === 'syncing') return detail ? `Syncing — ${detail}` : 'Syncing…'
         if (state === 'pending') return 'Sync queued'
         return detail || `Session sync: ${state}`
     }
@@ -1254,7 +1254,9 @@
                                 disabled={downloadingStub === r.branch}
                                 onclick={() => handleStubDownload(r.branch)}
                             >
-                                {downloadingStub === r.branch ? 'Downloading…' : 'Download'}
+                                {downloadingStub === r.branch
+                                    ? $syncStatusStore[r.branch]?.detail || 'Downloading…'
+                                    : 'Download'}
                             </button>
                         </div>
                     </div>
