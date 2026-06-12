@@ -46,8 +46,10 @@
         isSyncEnabled,
         refreshRoster,
         resetSessionToRemote,
+        repushSession,
         restoreRemoteSession,
         setSyncEnabled,
+        syncNow,
         syncRosterStore,
         syncStatusStore,
     } from './sync-engine.js'
@@ -70,27 +72,52 @@
         return () => clearInterval(timer)
     })
 
-    function syncBadgeLabel(status, _now) {
-        const { state, at } = status
-        if (state === 'syncing') return 'syncing…'
-        if (state === 'synced') {
-            const ago = _relativeTime(at)
-            return ago === 'just now' ? 'synced just now' : `synced ${ago}`
-        }
-        if (state === 'diverged') return 'diverged'
-        if (state === 'remote-gone') return 'unlinked'
-        return 'sync err'
+    function syncGlyph(state) {
+        if (state === 'synced') return '✓'
+        if (state === 'syncing') return '↻'
+        if (state === 'pending') return '↑'
+        return '⚠'
     }
 
-    function syncBadgeTitle(status, _now) {
-        return status.detail || `Session sync: ${syncBadgeLabel(status, _now)}`
+    function syncGlyphTitle(status, _now) {
+        const { state, at, detail } = status
+        if (state === 'synced') return `Synced to ${$settingsStore.syncRepo} · ${_relativeTime(at)}`
+        if (state === 'syncing') return 'Syncing…'
+        if (state === 'pending') return 'Sync queued'
+        return detail || `Session sync: ${state}`
+    }
+
+    // Per-branch resolution state for the inline attention rows.
+    let resolvingBranch = $state('')
+    let confirmResetBranch = $state('')
+
+    async function handleRetrySync(branch) {
+        resolvingBranch = branch
+        try {
+            await syncNow(branch)
+        } finally {
+            resolvingBranch = ''
+        }
+    }
+
+    async function handleRepush(branch) {
+        resolvingBranch = branch
+        try {
+            await repushSession(branch)
+        } catch (err) {
+            console.error('Re-push failed:', err)
+        } finally {
+            resolvingBranch = ''
+        }
+    }
+
+    function handleKeepLocal(branch) {
+        setSyncEnabled(branch, false)
     }
 
     // --- Roster / lifecycle actions ---
     let downloadingStub = $state('')
     let emptyTrashConfirm = $state(false)
-    let divergedBusy = $state(false)
-    let resetConfirm = $state(false)
 
     // Refresh the remote roster whenever the drawer opens (cheap:
     // a couple of GETs; engine no-ops when sync isn't connected).
@@ -147,35 +174,33 @@
         }
     }
 
-    async function handleForkDiverged() {
-        if (!editingSession) return
-        divergedBusy = true
+    async function handleForkDiverged(branch) {
+        resolvingBranch = branch
         try {
-            await forkDivergedSession(editingSession.branch)
-            closeEdit()
+            await forkDivergedSession(branch)
         } catch (err) {
             console.error('Fork diverged failed:', err)
         } finally {
-            divergedBusy = false
+            resolvingBranch = ''
         }
     }
 
-    async function handleResetToRemote() {
-        if (!editingSession) return
-        if (!resetConfirm) {
-            resetConfirm = true
-            setTimeout(() => { resetConfirm = false }, 4000)
+    async function handleResetToRemote(branch) {
+        if (confirmResetBranch !== branch) {
+            confirmResetBranch = branch
+            setTimeout(() => {
+                if (confirmResetBranch === branch) confirmResetBranch = ''
+            }, 4000)
             return
         }
-        resetConfirm = false
-        divergedBusy = true
+        confirmResetBranch = ''
+        resolvingBranch = branch
         try {
-            await resetSessionToRemote(editingSession.branch)
-            closeEdit()
+            await resetSessionToRemote(branch)
         } catch (err) {
             console.error('Reset to remote failed:', err)
         } finally {
-            divergedBusy = false
+            resolvingBranch = ''
         }
     }
     let currentBranch = $derived($sessionStore.currentBranch)
@@ -1012,21 +1037,57 @@
                             >&times;</button>
                         </div>
                     {/if}
+                    {#if syncConnected && s.kernel === 'ts' && ['diverged', 'error', 'remote-gone'].includes($syncStatusStore[s.branch]?.state)}
+                        <div class="update-row" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+                            {#if $syncStatusStore[s.branch].state === 'diverged'}
+                                <span class="update-label">Diverged — changed on another device</span>
+                                <button
+                                    class="update-btn"
+                                    disabled={resolvingBranch === s.branch}
+                                    onclick={() => handleForkDiverged(s.branch)}
+                                >Keep both</button>
+                                <button
+                                    class="update-btn"
+                                    disabled={resolvingBranch === s.branch}
+                                    onclick={() => handleResetToRemote(s.branch)}
+                                >{confirmResetBranch === s.branch ? 'Discard local turns?' : 'Take synced'}</button>
+                            {:else if $syncStatusStore[s.branch].state === 'error'}
+                                <span class="update-label" title={$syncStatusStore[s.branch].detail}>Sync error</span>
+                                <button
+                                    class="update-btn"
+                                    disabled={resolvingBranch === s.branch}
+                                    onclick={() => handleRetrySync(s.branch)}
+                                >Retry</button>
+                            {:else}
+                                <span class="update-label">Removed from sync repo elsewhere</span>
+                                <button
+                                    class="update-btn"
+                                    disabled={resolvingBranch === s.branch}
+                                    onclick={() => handleRepush(s.branch)}
+                                >Sync again</button>
+                                <button
+                                    class="update-btn"
+                                    disabled={resolvingBranch === s.branch}
+                                    onclick={() => handleKeepLocal(s.branch)}
+                                >Keep local</button>
+                            {/if}
+                        </div>
+                    {/if}
                     <div class="session-meta">
                         <span class="session-date">
                             <span
                                 class="kernel-badge kernel-{s.kernel || 'py'}"
                                 title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental, larger sandbox surface'}"
                             >{s.kernel || 'py'}{(s.kernel || 'py') === 'py' ? ' · exp' : ''}</span>
+                            {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
+                                <span
+                                    class="sync-glyph sync-{$syncStatusStore[s.branch].state}"
+                                    title={syncGlyphTitle($syncStatusStore[s.branch], nowTick)}
+                                >{syncGlyph($syncStatusStore[s.branch].state)}</span>
+                            {/if}
                             {formatDate(s.updated)}
                             {#if s.app_storage_bytes > 0}
                                 <span class="app-storage-badge" title="App save data: {formatBytes(s.app_storage_bytes)}">· app</span>
-                            {/if}
-                            {#if syncConnected && s.kernel === 'ts' && $syncStatusStore[s.branch]}
-                                <span
-                                    class="sync-badge sync-{$syncStatusStore[s.branch].state}"
-                                    title={syncBadgeTitle($syncStatusStore[s.branch], nowTick)}
-                                >· {syncBadgeLabel($syncStatusStore[s.branch], nowTick)}</span>
                             {/if}
                         </span>
                         <span class="session-actions">
@@ -1744,30 +1805,7 @@
                             Off keeps this session on this device only.
                         </div>
                     </label>
-                    {#if $syncStatusStore[editingSession.branch]?.state === 'diverged'}
-                        <div class="diverged-box">
-                            <div class="field-hint sync-warn">
-                                This session changed here and on another
-                                device. Keep both copies, or replace this
-                                device's version with the synced one.
-                            </div>
-                            <div class="action-row">
-                                <button
-                                    type="button"
-                                    class="btn-action"
-                                    disabled={divergedBusy}
-                                    onclick={handleForkDiverged}
-                                >Keep both (fork)</button>
-                                <button
-                                    type="button"
-                                    class="btn-action destructive"
-                                    class:confirm={resetConfirm}
-                                    disabled={divergedBusy}
-                                    onclick={handleResetToRemote}
-                                >{resetConfirm ? 'Confirm: discard local turns?' : 'Take synced version'}</button>
-                            </div>
-                        </div>
-                    {/if}
+
                 {/if}
                 <div class="action-row">
                     <button
@@ -2501,31 +2539,49 @@
     }
 
     .app-storage-badge {
-        color: var(--accent);
-        opacity: 0.6;
+        /* Identity fact, not status — neutral, not accent. */
+        color: var(--text-muted);
+        opacity: 0.8;
         margin-left: 0.15rem;
     }
 
-    .sync-badge {
-        margin-left: 0.15rem;
-        opacity: 0.75;
+    /* One status glyph married to the row's single timestamp.
+       Color scale: quiet for healthy, amber for needs-a-look, red for
+       broken — words live in the tooltip and the action rows. */
+    .sync-glyph {
+        margin-right: 0.15rem;
+        font-size: 0.7rem;
     }
 
-    .sync-badge.sync-synced {
+    .sync-glyph.sync-synced {
         color: var(--accent);
+        opacity: 0.7;
     }
 
-    .sync-badge.sync-syncing {
+    .sync-glyph.sync-pending {
         color: var(--text-muted);
     }
 
-    .sync-badge.sync-diverged,
-    .sync-badge.sync-remote-gone {
-        color: #d9822b;
+    .sync-glyph.sync-syncing {
+        color: var(--text-muted);
+        display: inline-block;
+        animation: sync-spin 1.2s linear infinite;
     }
 
-    .sync-badge.sync-error {
+    .sync-glyph.sync-diverged,
+    .sync-glyph.sync-remote-gone {
+        color: #d9822b;
+        opacity: 1;
+    }
+
+    .sync-glyph.sync-error {
         color: #c0392b;
+        opacity: 1;
+    }
+
+    @keyframes sync-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
     }
 
     .sync-toggle input[type='checkbox'] {
