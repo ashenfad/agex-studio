@@ -13,6 +13,7 @@
  *       - `{ type: 'text', content: '<markdown>' }`
  *       - `{ type: 'dataframe', columns: [...], rows: [[...]] }`
  *       - `{ type: 'plotly', figure: { data, layout, config? } }`
+ *       - `{ type: 'image', data: '<data: URL>', alt? }`
  *
  * Agents on the TS side construct values naturally — `taskSuccess(["text",
  * plot])` rather than the verbose tagged shape — and this module sniffs
@@ -27,6 +28,25 @@
  * to know about agex-ts's freeform return values. This file is the
  * single chokepoint where the two sides meet.
  */
+
+import { bytesToBase64 } from "./bytes.js";
+
+/** Sniff an image format from a byte array's magic header, mirroring
+ *  agex-ts's console.log image detection. Null when unrecognized. */
+function _detectImageFormat(b) {
+    if (!(b instanceof Uint8Array) || b.length < 4) return null;
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpeg";
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return "gif";
+    if (
+        b.length >= 12 &&
+        b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+        b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
+    ) {
+        return "webp";
+    }
+    return null;
+}
 
 /**
  * Translate one agent-returned value into the renderer's per-part shape.
@@ -60,6 +80,10 @@ const isCallout = (o) =>
     o.type === "callout" &&
     (typeof o.title === "string" || typeof o.body === "string");
 const isCards = (o) => o.type === "cards" && Array.isArray(o.items);
+const isImage = (o) =>
+    o.type === "image" &&
+    (o.data instanceof Uint8Array ||
+        (typeof o.data === "string" && o.data.length > 0));
 const isPlotly = (o) =>
     Array.isArray(o.data) && o.layout != null && typeof o.layout === "object";
 const isDataframe = (o) => Array.isArray(o.columns) && Array.isArray(o.rows);
@@ -99,6 +123,18 @@ export function normalizePart(p) {
     if (typeof p === "string") {
         return { type: "text", content: p };
     }
+    // Bare image bytes — `taskSuccess(['caption', page])` with a
+    // renderPdf/fs.read Uint8Array, mirroring how a bare console.log
+    // Uint8Array becomes an image observation. Recognized magic →
+    // image part; unrecognized bytes → a short note rather than the
+    // "[object Object]" / byte-index-table trap.
+    if (p instanceof Uint8Array) {
+        const fmt = _detectImageFormat(p);
+        if (fmt) {
+            return { type: "image", data: `data:image/${fmt};base64,${bytesToBase64(p)}` };
+        }
+        return { type: "text", content: `[${p.length} bytes — not a recognized image]` };
+    }
     if (p && typeof p === "object" && !Array.isArray(p)) {
         const o = /** @type {Record<string, unknown>} */ (p);
         // Tagged dashboard primitives — stat / callout / cards row.
@@ -130,6 +166,25 @@ export function normalizePart(p) {
                 .map((it) => normalizePart(it))
                 .filter((it) => it.type === "stat" || it.type === "callout");
             return { type: "cards", items };
+        }
+        // Image: raw bytes (Uint8Array) or an already-encoded base64 /
+        // data: URL string. Normalize to a self-contained data: URL so
+        // the committed event is render-ready and reload-stable (and
+        // re-normalizing it is idempotent). Mirrors the console.log
+        // image path, but targets the user-facing response instead of
+        // the agent's next-turn observations.
+        if (isImage(o)) {
+            const alt = typeof o.alt === "string" ? o.alt : "";
+            let data;
+            if (o.data instanceof Uint8Array) {
+                const fmt = _detectImageFormat(o.data) || "png";
+                data = `data:image/${fmt};base64,${bytesToBase64(o.data)}`;
+            } else {
+                data = o.data.startsWith("data:")
+                    ? o.data
+                    : `data:image/png;base64,${o.data}`;
+            }
+            return { type: "image", data, ...(alt ? { alt } : {}) };
         }
         // Plotly figure: { data: [...], layout: {...} }
         if (isPlotly(o)) {
@@ -193,6 +248,7 @@ export function normalizeChatResponse(value) {
  */
 function validateChatPart(p, path, issues) {
     if (p === null || p === undefined) return; // empty → empty text
+    if (p instanceof Uint8Array) return; // bytes → image (or a short note)
     const t = typeof p;
     if (t === "string" || t === "number" || t === "boolean") return; // → text
     if (Array.isArray(p)) {
@@ -205,7 +261,7 @@ function validateChatPart(p, path, issues) {
     }
     if (t === "object") {
         const o = /** @type {Record<string, unknown>} */ (p);
-        if (isStat(o) || isCallout(o) || isCards(o) || isPlotly(o) || isDataframe(o)) {
+        if (isStat(o) || isCallout(o) || isCards(o) || isPlotly(o) || isDataframe(o) || isImage(o)) {
             return;
         }
         const keys = Object.keys(o).slice(0, 8).join(", ");
@@ -214,7 +270,8 @@ function validateChatPart(p, path, issues) {
             message:
                 `Response part is an object with no renderable shape (keys: ${keys}). ` +
                 "Return a string (markdown), a { columns, rows } table, a { data, layout } " +
-                "Plotly figure, or a tagged { type: 'stat' | 'callout' | 'cards' } card. " +
+                "Plotly figure, a tagged { type: 'stat' | 'callout' | 'cards' } card, or a " +
+                "{ type: 'image', data: <Uint8Array> } image. " +
                 "To present structured data like this, format it as markdown prose or a " +
                 "{ columns, rows } table.",
         });
