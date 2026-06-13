@@ -271,7 +271,7 @@ function validateChatPart(p, path, issues) {
                 `Response part is an object with no renderable shape (keys: ${keys}). ` +
                 "Return a string (markdown), a { columns, rows } table, a { data, layout } " +
                 "Plotly figure, a tagged { type: 'stat' | 'callout' | 'cards' } card, or a " +
-                "{ type: 'image', data: <Uint8Array> } image. " +
+                "{ type: 'image', data: Uint8Array | string } image. " +
                 "To present structured data like this, format it as markdown prose or a " +
                 "{ columns, rows } table.",
         });
