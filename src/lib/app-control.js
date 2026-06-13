@@ -474,7 +474,7 @@ export async function runTestApp(opts) {
         // Read-only: test_app shouldn't write speculative state back
         // to the user's session — keeps tests isolated and
         // deterministic.
-        const html = buildAppHtml(appFiles, {
+        const html = await buildAppHtml(appFiles, {
             appBinaries,
             appStorage: { seed: appStorageSeed, writeable: false },
         });

@@ -390,6 +390,44 @@ CSS `<link>` tags and `<script src>` references to local files are
 inlined automatically. ES module imports between `app/` files work
 via the import map — no build step needed.
 
+## Web Workers (off-thread compute)
+
+For heavy work that would freeze the UI — big loops, parsing,
+simulations, audio/image crunching, a WASM module — put it in a
+worker. Name the file `*.worker.js` anywhere under `app/`; the studio
+bundles it into a self-contained module worker and exposes a
+`appWorker(name)` launcher. Pair it with Comlink so you call worker
+functions like normal async functions instead of hand-rolling
+`postMessage`:
+
+```js
+// app/sim.worker.js
+import * as Comlink from 'comlink'        // resolved for you, same as any import
+Comlink.expose({
+  step(state, n) { /* heavy loop */ return next },   // sync or async
+})
+
+// app/index.js
+import * as Comlink from 'comlink'
+const sim = Comlink.wrap(appWorker('sim.worker.js'))
+const next = await sim.step(state, 1000)   // off the UI thread; returns a Promise
+```
+
+Constraints:
+
+- **Compute only — no agent capabilities inside a worker.** `query()`,
+  registered globals, and persisted UI state live on the main thread; a
+  worker can't see them. Compute in the worker, return the result, and
+  let the main thread call `query()` etc.
+- Args/returns must be **structured-cloneable** (objects, arrays, typed
+  arrays, `ArrayBuffer` — not functions or DOM nodes). Big buffers can
+  transfer zero-copy via `Comlink.transfer(buf, [buf])`.
+- The worker is a **persistent context** — module-level state survives
+  across calls (load a dataset/model once, call it many times).
+- Every call is async, even for a synchronous worker function.
+- **No `SharedArrayBuffer` / threaded WASM** — the app isn't
+  cross-origin-isolated, so only plain workers + message-passing.
+
 ## The query() Bridge
 
 `query()` is a **global function** auto-injected into the iframe — just call

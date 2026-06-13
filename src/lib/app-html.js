@@ -730,20 +730,89 @@ function _buildImportMapTag(appImports) {
     return `<script type="importmap">${JSON.stringify({ imports })}<\/script>`;
 }
 
+/** A file is a worker entry if it ends in `.worker.js`. */
+const WORKER_FILE_RE = /\.worker\.js$/;
+
+/**
+ * Bundle each `*.worker.js` app file into a self-contained ES module
+ * suitable for `new Worker(url, { type: 'module' })`. Bare imports are
+ * rewritten to absolute `https://esm.sh/...` URLs because a worker
+ * never sees the page's import map (so the bare-specifier resolution
+ * the main app relies on wouldn't work there); relative sibling files
+ * bundle inline.
+ *
+ * Returns `{ '<path without app/ prefix>': '<bundled source>' }` —
+ * an empty object (and NO esbuild load) when there are no worker
+ * files, so the common worker-free app pays nothing. Throws with a
+ * worker-scoped message on a build error so the agent sees which
+ * worker failed and why.
+ *
+ * @param {Record<string, string>} appFiles
+ * @returns {Promise<Record<string, string>>}
+ */
+export async function bundleAppWorkers(appFiles) {
+    const entries = Object.keys(appFiles || {}).filter((k) => WORKER_FILE_RE.test(k));
+    if (entries.length === 0) return {};
+    const { runEsbuild } = await import('./esbuild-bridge.js');
+    const out = {};
+    for (const key of entries) {
+        const result = await runEsbuild({
+            files: appFiles,
+            entryPoint: key,
+            format: 'esm',
+            bareImports: 'esm-url',
+        });
+        if (result.errors && result.errors.length > 0) {
+            const msg = result.errors.map((e) => e.text || String(e)).join('; ');
+            throw new Error(`worker build failed for ${key}: ${msg}`);
+        }
+        out[key.replace(/^app\//, '')] = result.contents ?? '';
+    }
+    return out;
+}
+
+/**
+ * Classic <script> that exposes the bundled worker sources and a
+ * `window.appWorker(name)` launcher. Runs during parse (before the
+ * deferred app module scripts), so `appWorker` is defined by the time
+ * app code runs. The blob URL is minted inside the frame, so the
+ * worker is same-origin to the app. '' when there are no workers.
+ */
+function _workerRegistryScript(workerSources) {
+    if (!workerSources || Object.keys(workerSources).length === 0) return '';
+    // Escape `<` so an embedded `</script>` in bundled source can't
+    // terminate this tag; `<` is a valid JS string escape.
+    const json = JSON.stringify(workerSources).replace(/</g, '\\u003c');
+    return (
+        `<script>(function(){var S=${json};window.__agexWorkerSrc=S;` +
+        `window.appWorker=function(n){var s=S[n];` +
+        `if(s==null)throw new Error('appWorker: no worker named "'+n+'\" (expected an app/*.worker.js file)');` +
+        `return new Worker(URL.createObjectURL(new Blob([s],{type:"text/javascript"})),{type:"module"});};})();<\/script>`
+    );
+}
+
 /**
  * Build the full HTML string for an app preview or test iframe.
  * Injects console interceptor, query bridge, CDN scripts, and resolves
  * multi-file app projects (JS via import map with data URIs, CSS inlined).
  *
+ * Async because any `*.worker.js` files are bundled (esbuild) into
+ * self-contained module sources and exposed via `window.appWorker`.
+ * Callers can pass `opts.workerSources` to supply pre-bundled sources
+ * (and skip the esbuild load) — used by tests.
+ *
  * @param {Record<string, string>} appFiles - map of filename → content
  * @param {{
  *   appBinaries?: Record<string, Uint8Array>,
- *   appStorage?: { seed?: Record<string,string>, writeable?: boolean }
+ *   appStorage?: { seed?: Record<string,string>, writeable?: boolean },
+ *   workerSources?: Record<string, string>,
  * }} [opts]
- * @returns {string} complete HTML document
+ * @returns {Promise<string>} complete HTML document
  */
-export function buildAppHtml(appFiles, opts = {}) {
+export async function buildAppHtml(appFiles, opts = {}) {
     const storageShim = buildAppStorageShim(opts.appStorage || {});
+    const workerSources = opts.workerSources ?? (await bundleAppWorkers(appFiles));
+    const workerScript = _workerRegistryScript(workerSources);
     // Build the binary-asset URL map up-front so it can flow into
     // both the module resolver (which rewrites HTML / inlined CSS
     // refs) and the injected script that exposes
@@ -766,7 +835,7 @@ export function buildAppHtml(appFiles, opts = {}) {
             // one day use). Keep it right after the console interceptor.
             // `assetsScript` goes early too so the fetch monkey-patch
             // is in place before any agent JS runs.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
@@ -775,7 +844,7 @@ export function buildAppHtml(appFiles, opts = {}) {
             // HTML already includes the query bridge (pre-built bundle);
             // still inject the console interceptor, storage shim, and
             // control bridge so test_app / live_app work.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + AGENT_CONTROL_BRIDGE_SCRIPT;
+            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + AGENT_CONTROL_BRIDGE_SCRIPT;
             html = html.replace('<head>', '<head>' + injected);
             if (!html.includes('<head>')) {
                 html = injected + html;
@@ -789,6 +858,7 @@ export function buildAppHtml(appFiles, opts = {}) {
 ${CONSOLE_INTERCEPTOR}
 ${storageShim}
 ${assetsScript}
+${workerScript}
 ${QUERY_BRIDGE_SCRIPT}
 ${AGENT_CONTROL_BRIDGE_SCRIPT}
 ${importMapTag}

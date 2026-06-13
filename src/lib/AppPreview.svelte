@@ -222,7 +222,7 @@
             }
 
             const seed = branch ? readAppStorage(kernel, branch) : {}
-            const html = buildAppHtml(appFiles, {
+            const html = await buildAppHtml(appFiles, {
                 appBinaries,
                 appStorage: { seed, writeable: true },
             })

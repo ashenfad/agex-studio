@@ -106,11 +106,16 @@ async function getEsbuild() {
  *
  * Relative imports (`./foo.jsx`) are resolved relative to the
  * importer's directory, looked up in `files`.  Bare imports
- * (`react`, `@scope/pkg`) are marked external — they stay as ESM
- * imports in the output and are resolved at runtime via the
- * iframe's import map.
+ * (`react`, `@scope/pkg`) are handled per `bareImports`:
+ *   - "external" (default): left as external ESM imports, resolved at
+ *     runtime via the iframe's import map. Correct for main-thread
+ *     app code.
+ *   - "esm-url": rewritten to absolute `https://esm.sh/<spec>` external
+ *     imports. Required for WORKER bundles — a worker doesn't get the
+ *     page's import map, so a bare specifier would never resolve;
+ *     an absolute URL import works in a module worker without one.
  */
-function virtualFsPlugin(files) {
+function virtualFsPlugin(files, bareImports = "external") {
     return {
         name: "agex-vfs",
         setup(build) {
@@ -133,9 +138,15 @@ function virtualFsPlugin(files) {
                 }
 
                 // Bare specifier (`react`, `@scope/pkg`, `lodash/fp`):
-                // doesn't start with . or /.  Stays external; the
-                // iframe's import map resolves it at runtime.
+                // doesn't start with . or /.  Either left external for
+                // the import map (main-thread app code) or rewritten to
+                // an absolute esm.sh URL (worker bundles — no import map
+                // reaches a worker). esm.sh accepts the full specifier
+                // including scopes and subpaths verbatim.
                 if (!path.startsWith(".") && !path.startsWith("/")) {
+                    if (bareImports === "esm-url") {
+                        return { path: `https://esm.sh/${path}`, external: true };
+                    }
                     return { path, external: true };
                 }
 
@@ -262,6 +273,7 @@ export async function runEsbuild(args) {
         jsxImportSource = "react",
         minify = false,
         sourcemap = "inline",
+        bareImports = "external",
     } = args;
 
     const esbuild = await getEsbuild();
@@ -280,7 +292,7 @@ export async function runEsbuild(args) {
             // sourcemap: false (or "external" / "linked") to override.
             sourcemap,
             write: false,
-            plugins: [virtualFsPlugin(files)],
+            plugins: [virtualFsPlugin(files, bareImports)],
             // Without this, esbuild logs warnings to console for some
             // cases.  We want all diagnostics in the result object.
             logLevel: "silent",

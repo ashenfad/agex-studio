@@ -455,7 +455,7 @@ describe("_rewriteLocalImports", () => {
 describe("buildAppHtml multi-file", () => {
     it("inlines CSS link tags", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head><link rel="stylesheet" href="./style.css"></head><body></body></html>',
             'app/style.css': 'body { color: red; }',
         });
@@ -469,7 +469,7 @@ describe("buildAppHtml multi-file", () => {
         // inlining regex required `./` and silently let the no-prefix
         // form 404 against the iframe's blob: URL.
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head><link rel="stylesheet" href="style.css"></head><body></body></html>',
             'app/style.css': 'body { color: red; }',
         });
@@ -483,7 +483,7 @@ describe("buildAppHtml multi-file", () => {
         // as-is for the browser to fetch. This is what made the
         // CSP `style-src https:` change useful.
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html':
                 '<html><head>' +
                 '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">' +
@@ -494,7 +494,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("adds JS files to import map as data URIs", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module">import { App } from \'./App.js\';</script></body></html>',
             'app/App.js': 'export function App() { return "hello"; }',
         });
@@ -506,7 +506,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("replaces module script src with import map reference", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
             'app/App.js': 'console.log("hello");',
         });
@@ -516,7 +516,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("inlines non-module script src directly", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script src="./legacy.js"></script></body></html>',
             'app/legacy.js': 'var x = 1;',
         });
@@ -525,7 +525,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("rewrites nested imports between app files", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
             'app/App.js': 'import { utils } from \'./utils.js\';\nconsole.log(utils);',
             'app/utils.js': 'export const utils = 42;',
@@ -544,7 +544,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("preserves CDN imports in the merged import map", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body></body></html>',
             'app/App.js': 'export const x = 1;',
         });
@@ -557,7 +557,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("works with single-file apps (no extra files)", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><h1>Hello</h1></body></html>',
         });
         expect(result).toContain('<h1>Hello</h1>');
@@ -570,7 +570,7 @@ describe("buildAppHtml multi-file", () => {
 
     it("handles self-closing link tags", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head><link rel="stylesheet" href="./style.css" /></head><body></body></html>',
             'app/style.css': '.app { margin: 0; }',
         });
@@ -588,7 +588,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("auto-resolves a bare unscoped specifier to esm.sh", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': 'import { Bar } from "recharts";\nconsole.log(Bar);',
         });
@@ -599,7 +599,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("auto-resolves a scoped specifier to esm.sh", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "import * as Dialog from '@radix-ui/react-dialog';",
         });
@@ -610,7 +610,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("collapses sub-path imports to the package root", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "import { Cell } from 'recharts/lib/component/Cell';",
         });
@@ -625,7 +625,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("does not duplicate CDN_IMPORTS entries (preact alias wins)", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "import { useState } from 'react';\nimport { h } from 'preact';",
         });
@@ -640,7 +640,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("ignores relative imports", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./App.js"></script></body></html>',
             'app/App.js': "import { utils } from './utils.js';",
             'app/utils.js': 'export const utils = 42;',
@@ -653,7 +653,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("ignores absolute URL imports", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "import { z } from 'https://esm.sh/zod@3.22';",
         });
@@ -664,7 +664,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("picks up imports from inline module scripts", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module">import dayjs from "dayjs";\nimport { Bar } from "recharts";</script></body></html>',
         });
         const map = importMap(result);
@@ -675,7 +675,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("supports versioned bare specifiers (esm.sh URL fragment)", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "import { z } from 'zod@3.22.4';",
         });
@@ -685,7 +685,7 @@ describe("buildAppHtml dynamic import-map (bare npm specifiers)", () => {
 
     it("handles dynamic import()", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body><script type="module" src="./index.js"></script></body></html>',
             'app/index.js': "const mod = await import('lodash-es');",
         });
@@ -748,7 +748,7 @@ describe("buildAppStorageShim", () => {
 describe("buildAppHtml with appStorage", () => {
     it("injects the shim before the query bridge", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml(
+        const result = await buildAppHtml(
             { 'app/index.html': '<html><head></head><body></body></html>' },
             { appStorage: { seed: { k: "v" } } },
         );
@@ -764,7 +764,7 @@ describe("buildAppHtml with appStorage", () => {
 
     it("still injects a shim (empty seed) when no appStorage option provided", async () => {
         const { buildAppHtml } = await loadPyodide();
-        const result = buildAppHtml({
+        const result = await buildAppHtml({
             'app/index.html': '<html><head></head><body></body></html>',
         });
         expect(result).toContain("__writeable");
