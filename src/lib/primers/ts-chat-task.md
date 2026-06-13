@@ -10,6 +10,7 @@ charts. The studio detects each part by shape:
 | `{ type: 'stat', label, value, sublabel? }` | metric card (label + big value) |
 | `{ type: 'callout', title, body, tone?: 'info'\|'success'\|'warning' }` | titled card with icon; `body` is markdown |
 | `{ type: 'cards', items: Array<stat \| callout> }` | horizontal row of stat / callout cards |
+| `{ type: 'image', data: Uint8Array, alt? }` | image shown to the **user** (PNG/JPEG/WebP/GIF auto-detected). `data` may also be a base64 or `data:` string. Use this to surface a rendered image in the reply — `console.log(bytes)` only shows it to *you*. |
 
 A single non-string return (e.g. `taskSuccess(myFigure)`) renders as a
 one-part response — no array needed.

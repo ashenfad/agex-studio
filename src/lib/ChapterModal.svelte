@@ -146,6 +146,10 @@
                                     <div class="rich-block chart-block">
                                         <PlotlyChart figure={seg.data.figure} />
                                     </div>
+                                {:else if seg.kind === 'image'}
+                                    <div class="rich-block image-block">
+                                        <img src={seg.data.data} alt={seg.data.alt || ''} />
+                                    </div>
                                 {/if}
                             {/each}
                         {:else if group.kind === 'report'}
@@ -355,6 +359,17 @@
 
     .rich-block.chart-block {
         width: min(700px, 95%);
+    }
+
+    .rich-block.image-block {
+        background: transparent;
+    }
+
+    .rich-block.image-block img {
+        display: block;
+        max-width: min(700px, 100%);
+        height: auto;
+        border-radius: 8px;
     }
 
     .activity-row {

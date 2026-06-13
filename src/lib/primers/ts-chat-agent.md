@@ -47,6 +47,11 @@ downloaded images, generated charts). Mixed args are fine
 (`console.log('page 3', bytes)` → label + image), but bytes wrapped
 inside an object or array JSON-serialize instead of rendering.
 
+These render to **your** next-turn context, not the user-facing reply.
+To show an image to the *user*, return an image part —
+`{ type: 'image', data: bytes }` — from `taskSuccess` (see "Rich
+responses" below), not a `console.log`.
+
 ## Rich responses & dashboards
 
 Your reply can be plain markdown, or an **array of parts** mixing prose

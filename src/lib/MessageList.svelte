@@ -184,6 +184,10 @@
                         <CardRow items={[seg.data]} />
                     {:else if seg.kind === 'cards'}
                         <CardRow items={seg.data.items} />
+                    {:else if seg.kind === 'image'}
+                        <div class="rich-block image-block">
+                            <img src={seg.data.data} alt={seg.data.alt || ''} />
+                        </div>
                     {/if}
                 {/each}
             </div>
@@ -355,6 +359,17 @@
     .rich-block.table-block {
         width: min(700px, 95%);
         background: transparent;
+    }
+
+    .rich-block.image-block {
+        background: transparent;
+    }
+
+    .rich-block.image-block img {
+        display: block;
+        max-width: min(700px, 100%);
+        height: auto;
+        border-radius: 8px;
     }
 
     .load-more {

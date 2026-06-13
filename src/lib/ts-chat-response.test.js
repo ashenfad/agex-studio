@@ -387,3 +387,60 @@ describe("chatResponseSchema (output validation)", () => {
         expect(r.issues[0].message).toContain("Nested arrays");
     });
 });
+
+describe("image parts", () => {
+    // Minimal valid PNG header bytes (magic + a little body).
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+
+    it("normalizes a tagged image part from raw bytes to a data: URL", () => {
+        const out = normalizePart({ type: "image", data: png, alt: "map" });
+        expect(out.type).toBe("image");
+        expect(out.alt).toBe("map");
+        expect(out.data).toMatch(/^data:image\/png;base64,/);
+    });
+
+    it("detects jpeg vs png from magic bytes", () => {
+        expect(normalizePart({ type: "image", data: jpeg }).data).toMatch(
+            /^data:image\/jpeg;base64,/,
+        );
+    });
+
+    it("passes through an already-encoded data: URL untouched", () => {
+        const url = "data:image/webp;base64,AAAA";
+        expect(normalizePart({ type: "image", data: url })).toEqual({
+            type: "image",
+            data: url,
+        });
+    });
+
+    it("wraps a bare base64 string as a png data: URL", () => {
+        expect(normalizePart({ type: "image", data: "AAAA" }).data).toBe(
+            "data:image/png;base64,AAAA",
+        );
+    });
+
+    it("treats bare image bytes as an image (taskSuccess(['cap', page]))", () => {
+        const out = normalizePart(png);
+        expect(out.type).toBe("image");
+        expect(out.data).toMatch(/^data:image\/png;base64,/);
+    });
+
+    it("renders non-image bytes as a short note, not a byte table", () => {
+        const out = normalizePart(new Uint8Array([1, 2, 3, 4]));
+        expect(out.type).toBe("text");
+        expect(out.content).toMatch(/bytes/);
+    });
+
+    it("validates image parts and bare image bytes (no retry bounce)", () => {
+        expect(validate({ type: "image", data: png }).issues).toBeUndefined();
+        expect(validate([png, "caption"]).issues).toBeUndefined();
+        expect(validate(png).issues).toBeUndefined();
+    });
+
+    it("round-trips an image inside a mixed parts array", () => {
+        const r = normalizeChatResponse(["see the map", { type: "image", data: png }]);
+        expect(r.type).toBe("response");
+        expect(r.parts.map((p) => p.type)).toEqual(["text", "image"]);
+    });
+});
