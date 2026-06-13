@@ -594,7 +594,7 @@ functions like normal async functions instead of hand-rolling
 // app/sim.worker.js
 import * as Comlink from 'comlink'        // resolved for you, same as anywhere else
 Comlink.expose({
-  step(state, n) { /* heavy loop */ return next },   // sync or async
+  step(state, n) { /* heavy loop over n */ return state },   // sync or async
 })
 
 // app/index.js
