@@ -531,20 +531,39 @@
         }
     }
 
+    /** Delete-mode modal for synced sessions: { branch, title, mode }
+     *  where mode is 'device' (remove locally, keep shared) or
+     *  'everywhere' (archive to trash, propagate). null = closed. */
+    let deleteModal = $state(null)
+
     async function handleDelete(e, branch) {
         e.stopPropagation()
+        const s = sessions.find((x) => x.branch === branch)
+        // Synced ts sessions carry two delete meanings (this device vs
+        // everywhere) — open the chooser. Local-only sessions have a
+        // single meaning, so keep the lightweight two-tap inline confirm.
+        if (s && syncConnected && s.kernel === 'ts' && isSyncEnabled(branch)) {
+            deleteConfirmBranch = null
+            closeActionsMenu()
+            deleteModal = { branch, title: s.title || s.name || 'this session', mode: 'device' }
+            return
+        }
         if (deleteConfirmBranch !== branch) {
             deleteConfirmBranch = branch
             return
         }
         deleteConfirmBranch = null
-        // Surface a spinner on the row while the delete (which now
-        // includes the kvgit orphan sweep — see ts-agent.js's
-        // deleteBranch) is in flight. Without this the button just
-        // sits silent for the duration of a multi-MB sweep.
+        await runDelete(branch)
+    }
+
+    /** Shared delete execution + row spinner. The delete includes the
+     *  kvgit orphan sweep (see ts-agent.js deleteBranch), which can run
+     *  for a multi-MB session — without the spinner the row just sits
+     *  silent. */
+    async function runDelete(branch, opts) {
         deletingBranch = branch
         try {
-            await deleteSession(branch)
+            await deleteSession(branch, opts)
             // Reclaimed storage shows up in `navigator.storage.estimate()`
             // after the underlying IDB write commits. Re-fetch so the
             // "used" line below the session list updates without
@@ -555,6 +574,13 @@
         } finally {
             deletingBranch = null
         }
+    }
+
+    async function confirmDeleteModal() {
+        if (!deleteModal) return
+        const { branch, mode } = deleteModal
+        deleteModal = null
+        await runDelete(branch, { mode })
     }
 
     /** Toggle the mobile "⋯" overflow menu for a given session row.
@@ -2032,6 +2058,50 @@
     onConfirm={handleForkConfirm}
 />
 
+{#if deleteModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="modal-overlay"
+        onclick={() => deleteModal = null}
+        onkeydown={(e) => e.key === 'Escape' && (deleteModal = null)}
+    ></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+            <h3>Delete session</h3>
+        </div>
+        <div class="modal-body">
+            <p class="delete-prompt">Delete <strong>{deleteModal.title}</strong>?</p>
+            <div class="destination-choice">
+                <label class="destination-option">
+                    <input type="radio" name="delete-mode" value="device" bind:group={deleteModal.mode} />
+                    <span class="destination-option-body">
+                        <span class="destination-option-title">Remove from this device</span>
+                        <span class="destination-detail">
+                            Keeps it in the sync repo — reappears here as a
+                            cloud session you can re-open. Untouched on your
+                            other devices.
+                        </span>
+                    </span>
+                </label>
+                <label class="destination-option">
+                    <input type="radio" name="delete-mode" value="everywhere" bind:group={deleteModal.mode} />
+                    <span class="destination-option-body">
+                        <span class="destination-option-title">Delete everywhere</span>
+                        <span class="destination-detail">
+                            Moves to Trash on all your devices. Recoverable
+                            until you empty the trash.
+                        </span>
+                    </span>
+                </label>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="btn-cancel" onclick={() => deleteModal = null}>Cancel</button>
+            <button type="button" class="btn-save btn-danger" onclick={confirmDeleteModal}>Delete</button>
+        </div>
+    </div>
+{/if}
+
 <style>
     .overlay {
         position: fixed;
@@ -3327,6 +3397,19 @@
     .btn-cancel:hover:not(:disabled),
     .btn-save:hover:not(:disabled) {
         filter: brightness(1.1);
+    }
+
+    /* Destructive confirm button (delete-mode modal). */
+    .btn-save.btn-danger {
+        background: #c0392b;
+        border-color: #c0392b;
+        color: #fff;
+    }
+
+    .delete-prompt {
+        margin: 0 0 0.75rem;
+        font-size: 0.9rem;
+        color: var(--text);
     }
     /* Small in-row spinner used during a session delete — the
        kvgit orphan sweep can take a non-trivial moment, and the

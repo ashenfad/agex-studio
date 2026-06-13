@@ -533,14 +533,26 @@ export async function switchSession(branch) {
 }
 
 /** Delete a session. Switches to another only if deleting the
- *  current one. For synced ts sessions, deletion = ARCHIVE: the
- *  remote branch moves to the trash (recoverable, propagates to other
- *  devices) before the local copy is removed. Archive failures
- *  (offline, token expired) don't block local deletion — the next
- *  device's sweep would just re-expose the session as a cloud stub,
- *  which is the honest outcome of an unacknowledged delete. */
-export async function deleteSession(branch) {
-    if (_kernelFor(branch) === "ts" && isSyncConnected() && isSyncEnabled(branch)) {
+ *  current one.
+ *
+ *  For synced ts sessions the delete has two meanings, chosen by
+ *  `mode`:
+ *    - "everywhere" (default): ARCHIVE — the remote branch moves to
+ *      the trash (recoverable, propagates the removal to other
+ *      devices) before the local copy goes. Archive failures
+ *      (offline, token expired) don't block local removal — another
+ *      device's sweep would just re-expose it as a cloud stub, the
+ *      honest outcome of an unacknowledged delete.
+ *    - "device": remove the local copy only. The remote ref stays
+ *      live, so the session reappears here as a cloud stub and is
+ *      untouched on other devices.
+ *
+ *  For local-only / non-ts sessions both modes collapse to a plain
+ *  local removal (there's no remote to act on). */
+export async function deleteSession(branch, { mode = "everywhere" } = {}) {
+    const synced =
+        _kernelFor(branch) === "ts" && isSyncConnected() && isSyncEnabled(branch);
+    if (synced && mode === "everywhere") {
         await archiveSessionRemotely(branch);
     }
     await _removeLocalSession(branch);
