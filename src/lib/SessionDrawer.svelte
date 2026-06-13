@@ -545,7 +545,9 @@
         if (s && syncConnected && s.kernel === 'ts' && isSyncEnabled(branch)) {
             deleteConfirmBranch = null
             closeActionsMenu()
-            deleteModal = { branch, title: s.title || s.name || 'this session', mode: 'device' }
+            // Same precedence as the session list: user-curated name
+            // wins over the agent-generated title.
+            deleteModal = { branch, title: s.name || s.title || 'this session', mode: 'device' }
             return
         }
         if (deleteConfirmBranch !== branch) {
@@ -2060,12 +2062,17 @@
 
 {#if deleteModal}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-overlay" onclick={() => deleteModal = null}></div>
+    <!-- Escape lives on the dialog (not the sibling overlay): a keydown
+         while focus is on a radio/button inside bubbles through the
+         modal's ancestors, never the overlay. -->
     <div
-        class="modal-overlay"
-        onclick={() => deleteModal = null}
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        tabindex="-1"
         onkeydown={(e) => e.key === 'Escape' && (deleteModal = null)}
-    ></div>
-    <div class="modal" role="dialog" aria-modal="true">
+    >
         <div class="modal-header">
             <h3>Delete session</h3>
         </div>
