@@ -580,11 +580,55 @@ Beyond the single-file case, organize as:
   later turns. Lives outside `app/`; not bundled into the preview.
   Use for code your TS emissions reuse, not for the iframe's runtime.
 
+## Web Workers (off-thread compute)
+
+For heavy work that would otherwise freeze the UI — big loops,
+parsing, simulations, audio/image crunching, a WASM module — put it
+in a worker. Name the file `*.worker.js` anywhere under `app/`; the
+studio bundles it into a self-contained module worker and exposes a
+`appWorker(name)` launcher. Pair it with Comlink so you call worker
+functions like normal async functions instead of hand-rolling
+`postMessage`:
+
+```js
+// app/sim.worker.js
+import * as Comlink from 'comlink'        // resolved for you, same as anywhere else
+Comlink.expose({
+  step(state, n) { /* heavy loop */ return next },   // sync or async
+})
+
+// app/index.js
+import * as Comlink from 'comlink'
+const sim = Comlink.wrap(appWorker('sim.worker.js'))
+const next = await sim.step(state, 1000)   // runs off the UI thread; returns a Promise
+```
+
+Notes:
+
+- **Compute only — no agent capabilities inside a worker.** `query()`,
+  `getCacheValue()`, `spawn()`, `notify()`, and the storage shim live on
+  the main thread. A worker can't see them. Do the compute in the
+  worker, return the result, and let the main thread call those.
+- Args and return values must be **structured-cloneable** (objects,
+  arrays, typed arrays, `ArrayBuffer` — not functions or DOM nodes).
+  Large `ArrayBuffer`s can be transferred zero-copy via
+  `Comlink.transfer(buf, [buf])`.
+- The worker is a **persistent context** — module-level state survives
+  across calls, so load a dataset/model once and call it many times.
+- Every call is async (it's another thread), even if the worker
+  function is synchronous.
+
 ## Things that don't work
 
 - **JSX / TSX without a build step** — run `esbuild` (see the
   "JSX path" section above) to bundle to a runnable `.js`, or use
   HTM for the no-build path.
+- **Agent calls (`query`/`getCacheValue`/`spawn`/`notify`) or storage
+  inside a Web Worker** — those are main-thread only. Return compute
+  results to the main thread and call them from there.
+- **`SharedArrayBuffer` / threaded WASM in workers** — the app isn't
+  cross-origin-isolated, so `SharedArrayBuffer` and shared-memory
+  threads are unavailable. Plain workers and message-passing only.
 - **`npm install` / `node_modules`** — there's no install step or
   bundler manifest. Bare specifiers resolve via esm.sh at runtime, so
   pure-ESM browser packages just work (`import _ from 'lodash'`), but
