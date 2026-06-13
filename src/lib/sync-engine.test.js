@@ -471,6 +471,33 @@ describe("schedulePush", () => {
     });
 });
 
+describe("empty-session guard", () => {
+    it("does not mint a remote branch for an untouched session", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-empty"] });
+        // Only session-meta written — no turns have happened yet.
+        await commitOn(world.local, "chat-empty", "__session_title__", "New Chat");
+
+        const outcome = await syncNow("chat-empty");
+        expect(outcome).toBeNull();
+        expect((await world.remote.listRefs()).length).toBe(0);
+        expect(statusOf("chat-empty")).toBeUndefined(); // no glyph
+    });
+
+    it("syncs once the session has real content", async () => {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        await commitOn(world.local, "chat-aa11", "__session_title__", "New Chat");
+        // First turn writes an event log → no longer empty.
+        await commitOn(world.local, "chat-aa11", "__event_log__", "[]");
+
+        const outcome = await syncNow("chat-aa11");
+        expect(outcome).not.toBeNull();
+        expect((await world.remote.listRefs()).length).toBe(1);
+        expect(statusOf("chat-aa11").state).toBe("synced");
+    });
+});
+
 describe("status lifecycle", () => {
     it("marks queued pushes pending, and clears status on opt-out", async () => {
         vi.useFakeTimers();

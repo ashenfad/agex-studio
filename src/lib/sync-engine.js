@@ -391,6 +391,28 @@ async function localBranchExists(store, branch) {
     return (await store.get(`__branch_head__${branch}`)) !== null;
 }
 
+/** True only for a locally-present chat that carries nothing but
+ *  session-meta keys — a freshly created session before its first
+ *  turn writes an event log / files. Such "nothing happened yet"
+ *  branches shouldn't mint a remote branch (it would surface an
+ *  empty "New Chat" as a cloud stub on every other device).
+ *
+ *  An ABSENT local branch returns false on purpose: that's the
+ *  fresh-device pull case (the branch lives remotely, not here), and
+ *  it must be allowed to sync down — only a real local-but-untouched
+ *  session gets skipped. Branch names are random hex, so a
+ *  local-untouched branch never collides with a content-bearing
+ *  remote of the same name. */
+const SESSION_META_PREFIX = "__session_";
+async function isUntouchedLocalSession(store, branch) {
+    if (!(await localBranchExists(store, branch))) return false;
+    const vk = await VersionedKV.open(store, { branch });
+    for await (const key of vk.keys()) {
+        if (!key.startsWith(SESSION_META_PREFIX)) return false;
+    }
+    return true;
+}
+
 /** Full local history count: the determinate total for a first-ever
  *  push (no sync head ⇒ the delta IS the whole branch). Local reads
  *  only — cheap even for long sessions. */
@@ -418,10 +440,23 @@ async function withSyncLock(fn) {
  */
 export async function syncNow(branch) {
     if (deps === null || !isSyncConnected() || !isSyncEnabled(branch)) return null;
-    setStatus(branch, { state: "syncing" });
     try {
+        const store = await deps.getStore();
+        // Never-synced + no real content yet → don't create a remote
+        // branch for an untouched session. Checked before the 'syncing'
+        // status so sweeps over empty sessions don't flash a glyph; the
+        // first turn (which writes an event log) makes it non-empty and
+        // the next push goes through. getSyncHead != null means it has
+        // synced before, so we never skip an established session.
+        if (
+            (await getSyncHead(store, branch)) === null &&
+            (await isUntouchedLocalSession(store, branch))
+        ) {
+            clearStatus(branch);
+            return null;
+        }
+        setStatus(branch, { state: "syncing" });
         const outcome = await withSyncLock(async () => {
-            const store = await deps.getStore();
             const remote = await getRemote();
             // First-ever push of an existing local branch: the delta
             // is the full history, countable locally — determinate
