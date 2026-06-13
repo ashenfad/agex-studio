@@ -142,9 +142,16 @@ function virtualFsPlugin(files, bareImports = "external") {
                 // the import map (main-thread app code) or rewritten to
                 // an absolute esm.sh URL (worker bundles — no import map
                 // reaches a worker). esm.sh accepts the full specifier
-                // including scopes and subpaths verbatim.
+                // including scopes and subpaths verbatim. Only TRUE bare
+                // specifiers get rewritten: an already-absolute import
+                // (`https://esm.sh/...`) or a data: URL is left as-is,
+                // or it would be double-prefixed into nonsense.
                 if (!path.startsWith(".") && !path.startsWith("/")) {
-                    if (bareImports === "esm-url") {
+                    if (
+                        bareImports === "esm-url" &&
+                        !path.includes("://") &&
+                        !path.startsWith("data:")
+                    ) {
                         return { path: `https://esm.sh/${path}`, external: true };
                     }
                     return { path, external: true };

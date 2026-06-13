@@ -751,7 +751,7 @@ const WORKER_FILE_RE = /\.worker\.js$/;
  * @returns {Promise<Record<string, string>>}
  */
 export async function bundleAppWorkers(appFiles) {
-    const entries = Object.keys(appFiles || {}).filter((k) => WORKER_FILE_RE.test(k));
+    const entries = Object.keys(appFiles).filter((k) => WORKER_FILE_RE.test(k));
     if (entries.length === 0) return {};
     const { runEsbuild } = await import('./esbuild-bridge.js');
     const out = {};
@@ -779,15 +779,19 @@ export async function bundleAppWorkers(appFiles) {
  * worker is same-origin to the app. '' when there are no workers.
  */
 function _workerRegistryScript(workerSources) {
-    if (!workerSources || Object.keys(workerSources).length === 0) return '';
+    if (Object.keys(workerSources).length === 0) return '';
     // Escape `<` so an embedded `</script>` in bundled source can't
     // terminate this tag; `<` is a valid JS string escape.
     const json = JSON.stringify(workerSources).replace(/</g, '\\u003c');
+    // One Object URL per worker name, cached in the closure — repeated
+    // appWorker(name) calls (apps that recreate workers) reuse it
+    // rather than leaking a fresh un-revoked blob URL each time.
     return (
-        `<script>(function(){var S=${json};window.__agexWorkerSrc=S;` +
+        `<script>(function(){var S=${json};var U={};window.__agexWorkerSrc=S;` +
         `window.appWorker=function(n){var s=S[n];` +
         `if(s==null)throw new Error('appWorker: no worker named "'+n+'\" (expected an app/*.worker.js file)');` +
-        `return new Worker(URL.createObjectURL(new Blob([s],{type:"text/javascript"})),{type:"module"});};})();<\/script>`
+        `if(!U[n])U[n]=URL.createObjectURL(new Blob([s],{type:"text/javascript"}));` +
+        `return new Worker(U[n],{type:"module"});};})();<\/script>`
     );
 }
 
