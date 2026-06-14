@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@agex-ts/anthropic": "^3.0.0",
-    "@agex-ts/kvgit": "^0.1.0",
+    "@agex-ts/kvgit": "^0.1.2",
     "@agex-ts/openai": "^3.0.0",
     "@agex-ts/runtime-worker": "^3.0.0",
     "@agex-ts/termish": "^0.1.0",
