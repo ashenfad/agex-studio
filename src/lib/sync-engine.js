@@ -358,6 +358,14 @@ async function* counted(iter, onCount) {
  * privates forbid spreading) that live-counts wire commits in both
  * directions. Commits ≈ turns, a unit users understand; totals would
  * need a kvgit API addition, so counts are indeterminate for now.
+ *
+ * Since @agex-ts/kvgit 0.1.2 the GitHub fetch batches into windows, so
+ * the download count advances in bursts (a window's commits land in
+ * rapid succession) with brief network-wave pauses between — the
+ * spinning sync glyph carries liveness through those pauses. Making
+ * download progress smooth/determinate would need a fetch-side
+ * progress callback from kvgit (same API-addition the totals note
+ * above anticipates).
  */
 function instrumentedRemote(remote, branch, pushTotal = null) {
     const suffix = pushTotal !== null ? ` of ${pushTotal}` : "";
