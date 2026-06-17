@@ -398,6 +398,37 @@ Skip when:
   the failure messages are more precise than "looks wrong in this
   screenshot."
 
+#### ⚠ A screenshot's `data` is a base64 string, NOT raw bytes
+
+The `{ type: 'screenshot', data }` entry carries `data` as a **base64
+PNG string** (no `data:` prefix) — plain text, not a `Uint8Array`.
+That matters because `fs`, `renderPdf`, and the image response part's
+`Uint8Array` path all speak **raw bytes**. Mixing the two silently
+corrupts the image.
+
+To embed a captured shot in your `taskSuccess` response, pass the
+base64 string straight through — the image part wraps a bare base64
+string for you:
+
+```ts
+const r = await testApp([{ screenshot: true }]);
+const shot = r.find(x => x.type === 'screenshot')?.data;   // base64 string
+taskSuccess(['Here it is:', { type: 'image', data: shot, alt: '...' }]);
+```
+
+**Don't `fs.write` the base64 string to a `.png`** — that stores the
+*text* of the base64 (bytes `i`, `V`, `B`, `O`, `R`…), not a PNG. The
+file viewer can't preview it, and reading it back as `Uint8Array` and
+embedding it double-encodes into a broken image. If you want the shot
+on disk, `atob`-decode to bytes first:
+
+```ts
+const bytes = Uint8Array.from(atob(shot), c => c.charCodeAt(0));
+await fs.write('/scratch/shot.png', bytes);          // real PNG on disk
+const back = await fs.read('/scratch/shot.png');     // Uint8Array, PNG magic
+taskSuccess([{ type: 'image', data: back }]);        // renders fine
+```
+
 #### Responsive testing — viewport sizes
 
 You can verify a responsive layout at desktop, tablet, and mobile
