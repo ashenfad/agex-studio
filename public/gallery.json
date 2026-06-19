@@ -11,7 +11,7 @@
   {
     "name": "AgexCraft",
     "description": "MineCraft inspired via Fable/Opus",
-    "gistShorthand": "ashenfad/16101ac6cdfa180163368bad839abdd3/806bb2e75f7f9fc484d2e8a277e18c36c690fd3e/agexcraft",
+    "gistShorthand": "ashenfad/16101ac6cdfa180163368bad839abdd3/57c8165aa78e129540e1668899c049ce8241963b/agexcraft",
     "kernel": "ts",
     "hasApp": true,
     "tags": ["game", "voxel"],
@@ -23,7 +23,7 @@
     "gistShorthand": "ashenfad/79eaa86d4349e8986fde67070b0355f7/e6ac234a5664d3c1bafcb2386843f504ed06f2a8/mathematical-circus-v0-3",
     "kernel": "ts",
     "hasApp": true,
-    "tags": ["game", "education", "kids"],
+    "tags": ["education", "kids"],
     "thumbnail": "mathematical-circus.png"
   },
   {
