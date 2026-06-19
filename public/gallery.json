@@ -11,7 +11,7 @@
   {
     "name": "AgexCraft",
     "description": "MineCraft inspired via Fable/Opus",
-    "gistShorthand": "ashenfad/16101ac6cdfa180163368bad839abdd3/57c8165aa78e129540e1668899c049ce8241963b/agexcraft",
+    "gistShorthand": "ashenfad/16101ac6cdfa180163368bad839abdd3/3a4ae40b018b3411309953e08d8b02c3fdc8f979/agexcraft",
     "kernel": "ts",
     "hasApp": true,
     "tags": ["game", "voxel"],
