@@ -1,5 +1,23 @@
 [
   {
+    "name": "Kerbalite",
+    "description": "Rocket science for all",
+    "gistShorthand": "ashenfad/85c4052d561255777cbcf0dad17be390/3968b2f17020d42893cad0f4bb9932e64979fd7b/kerbalite",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["game", "physics"],
+    "thumbnail": "kerbalite.png"
+  },
+  {
+    "name": "AgexCraft",
+    "description": "MineCraft inspired via Fable/Opus",
+    "gistShorthand": "ashenfad/16101ac6cdfa180163368bad839abdd3/a2c1db58b38212dbe41ca3343ef991f53563541a/agexcraft",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["game", "voxel"],
+    "thumbnail": "agexcraft.png"
+  },
+  {
     "name": "Mathematical Circus",
     "description": "Math w/ Digital Circus *(nerdy 6th grader review: Jax is a cool math coach! 10/10!)*",
     "gistShorthand": "ashenfad/79eaa86d4349e8986fde67070b0355f7/e6ac234a5664d3c1bafcb2386843f504ed06f2a8/mathematical-circus-v0-3",
@@ -16,15 +34,6 @@
     "hasApp": true,
     "tags": ["game", "puzzle"],
     "thumbnail": "2048.png"
-  },
-  {
-    "name": "TMNT Calendar",
-    "description": "Exploring TMNT themed ICAL files.",
-    "gistShorthand": "ashenfad/2f3ceb5b2599381588b5503b2e3afc23/18a79a16e7fd8c506cedd39426d452fa4d27b228/tmnt-calendar",
-    "kernel": "ts",
-    "hasApp": true,
-    "tags": ["calendar", "utility"],
-    "thumbnail": "tmnt-calendar.png"
   },
   {
     "name": "Photo Booth",
