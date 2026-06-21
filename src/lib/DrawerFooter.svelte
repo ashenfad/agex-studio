@@ -80,15 +80,22 @@
 
             // Delete all IndexedDB databases (kvgit-py session data for
             // now; @agex-ts/kvgit when Phase 5 lands).
-            const dbs = await indexedDB.databases()
-            await Promise.all(dbs.map(db =>
-                new Promise((resolve) => {
-                    const req = indexedDB.deleteDatabase(db.name)
-                    req.onsuccess = resolve
-                    req.onerror = resolve
-                    req.onblocked = resolve  // worker holds connection
-                })
-            ))
+            // `indexedDB.databases()` is unsupported in Firefox <126 and
+            // older Safari / some WebViews. Feature-detect so a missing
+            // method doesn't throw past the reload below — better to skip
+            // the IDB sweep than to leave localStorage half-wiped and the
+            // page un-reloaded.
+            if (indexedDB.databases) {
+                const dbs = await indexedDB.databases()
+                await Promise.all(dbs.map(db =>
+                    new Promise((resolve) => {
+                        const req = indexedDB.deleteDatabase(db.name)
+                        req.onsuccess = resolve
+                        req.onerror = resolve
+                        req.onblocked = resolve  // worker holds connection
+                    })
+                ))
+            }
             // Reload to re-initialize with clean state.
             window.location.reload()
         } catch {
