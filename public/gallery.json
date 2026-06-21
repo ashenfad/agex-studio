@@ -2,7 +2,7 @@
   {
     "name": "Tetrinet",
     "description": "A P2P variant of the classic Tetrinet",
-    "gistShorthand": "ashenfad/bb24928bf85018257d1d68ff2d6670ff/dec367a842e9d37fdafb56a432b7c853c95ad9a4/tetrinet",
+    "gistShorthand": "ashenfad/bb24928bf85018257d1d68ff2d6670ff/d7d45dcd4eaa2b9c29d86c32f872a0c538cb6f9e/tetrinet",
     "kernel": "ts",
     "hasApp": true,
     "tags": ["multiplayer", "p2p", "tetris", "game"],
