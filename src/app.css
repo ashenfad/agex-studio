@@ -126,6 +126,298 @@ code, kbd, samp, pre {
 }
 
 /* ---------------------------------------------------------------------------
+ * Modal content
+ *
+ * Shared design-system classes for the body and footer of dialogs built
+ * on Modal.svelte (the session export / publish / import / settings /
+ * delete-mode modals, and any future ones). Modal.svelte owns the chrome
+ * (overlay + box + header) as scoped styles; these live global because
+ * snippet content carries the *caller's* scope, so a scoped rule inside
+ * Modal can't reach them. Components with their own scoped copies of any
+ * of these names (SettingsDrawer's .field-*, ChatShell's .progress-*)
+ * keep their look — a scoped selector outranks these by specificity.
+ * --------------------------------------------------------------------------- */
+
+.modal-body {
+    padding: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.9rem 1.1rem;
+    border-top: 1px solid var(--border);
+}
+
+.btn-cancel,
+.btn-save {
+    padding: 0.45rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.btn-save {
+    background: var(--accent, var(--text));
+    color: var(--bg);
+    border-color: var(--accent, var(--text));
+}
+
+.btn-save:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btn-cancel:hover:not(:disabled),
+.btn-save:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+/* Destructive confirm button (delete-mode modal). */
+.btn-save.btn-danger {
+    background: #c0392b;
+    border-color: #c0392b;
+    color: #fff;
+}
+
+.delete-prompt {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+/* Labeled text/textarea field inside a modal body. */
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.field-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.field input,
+.field textarea {
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+}
+
+/* Hint line under a label. Resets the label's all-caps treatment so the
+   "LABEL — context" structure reads naturally. */
+.field-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+/* Read-only "preview" fields (export / publish / import inventories). */
+.preview-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.preview-value {
+    font-size: 0.85rem;
+    color: var(--text);
+}
+
+.preview-description {
+    white-space: pre-wrap;
+    line-height: 1.4;
+}
+
+.preview-stats {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.preview-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.preview-hint code {
+    background: var(--input-bg, var(--surface));
+    padding: 0.05rem 0.25rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+}
+
+/* New-vs-existing / device-vs-everywhere radio choices. */
+.destination-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.1rem;
+}
+
+.destination-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.destination-option input[type="radio"] {
+    margin-top: 0.15rem;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.destination-option-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.destination-option-title {
+    font-size: 0.85rem;
+    color: var(--text);
+}
+
+.destination-detail {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
+    line-height: 1.35;
+}
+
+.destination-option .destination-detail {
+    margin-top: 0.1rem;
+}
+
+.destination-link {
+    color: var(--text-muted);
+    text-decoration: underline;
+}
+
+.destination-link:hover {
+    color: var(--text);
+}
+
+/* Section divider + label inside the settings modal. The divider's
+   negative horizontal margins bleed it to the modal-body edges. */
+.section-label {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 0.15rem;
+}
+
+.section-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.3rem -1.1rem 0.8rem -1.1rem;
+}
+
+/* Export / publish stage views. */
+.stage-loading {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    padding: 0.5rem 0;
+}
+
+.stage-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0;
+}
+
+.done-check {
+    font-size: 2rem;
+    color: var(--accent);
+    line-height: 1;
+}
+
+.done-message {
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+/* Error / trust-warning notices inside modal bodies. */
+.import-error {
+    margin: 0 0 0.5rem 0;
+    padding: 0.4rem 0.6rem;
+    background: color-mix(in srgb, var(--error) 15%, transparent);
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    color: var(--error);
+    font-size: 0.72rem;
+}
+
+.import-py-warning {
+    margin: 0.5rem 0 0 0;
+    padding: 0.45rem 0.6rem;
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+    border-radius: 4px;
+    color: var(--warning);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.py-warning-text {
+    color: var(--text);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    margin: 0 0 0.75rem;
+}
+
+.py-warning-text:last-child {
+    margin-bottom: 0;
+}
+
+/* Runtime-kernel badge (session rows + import preview). */
+.kernel-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.3rem;
+    border-radius: 3px;
+    margin-right: 0.35rem;
+    line-height: 1.4;
+    vertical-align: 0.05em;
+}
+
+.kernel-badge.kernel-py {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+}
+
+.kernel-badge.kernel-ts {
+    background: color-mix(in srgb, #3b82f6 18%, transparent);
+    color: #3b82f6;
+}
+
+/* ---------------------------------------------------------------------------
  * Shared markdown styling
  *
  * Canonical rule set for any element containing markdown rendered via
