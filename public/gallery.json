@@ -1,5 +1,14 @@
 [
   {
+    "name": "Tetrinet",
+    "description": "A P2P variant of the classic Tetrinet",
+    "gistShorthand": "ashenfad/bb24928bf85018257d1d68ff2d6670ff/dec367a842e9d37fdafb56a432b7c853c95ad9a4/tetrinet",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["multiplayer", "p2p", "tetris", "game"],
+    "thumbnail": "tetrinet.png"
+  },
+  {
     "name": "Kerbalite",
     "description": "Rocket science for all",
     "gistShorthand": "ashenfad/85c4052d561255777cbcf0dad17be390/3968b2f17020d42893cad0f4bb9932e64979fd7b/kerbalite",
