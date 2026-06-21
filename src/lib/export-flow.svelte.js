@@ -66,7 +66,9 @@ export function createExportFlow() {
         document.body.appendChild(a)
         a.click()
         a.remove()
-        URL.revokeObjectURL(url)
+        // Defer revocation: Safari processes the download asynchronously
+        // and a synchronous revoke can drop the blob before it's fetched.
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
     }
 
     return {
