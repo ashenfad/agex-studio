@@ -1,5 +1,14 @@
 [
   {
+    "name": "Weather",
+    "description": "Forecasts via Open-Meteo",
+    "gistShorthand": "ashenfad/8212892d9a097dd33e2299d9a0337a75/62718d098ba9fe39d8706892f744f6344e52ae13/weather",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["weather", "mobile"],
+    "thumbnail": "weather.png"
+  },
+  {
     "name": "Tetrinet",
     "description": "A P2P variant of the classic Tetrinet",
     "gistShorthand": "ashenfad/bb24928bf85018257d1d68ff2d6670ff/d7d45dcd4eaa2b9c29d86c32f872a0c538cb6f9e/tetrinet",
