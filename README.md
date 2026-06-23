@@ -1,7 +1,7 @@
 # Agex Studio
 
 **[agex.studio](https://agex.studio)** — AI agents in the browser. No
-server, no backend — your workspace lives in your browser, not on our
+server, no backend. Your workspace lives in your browser, not on our
 servers.
 
 A browser-based AI assistant that pairs a chat interface with a live app
