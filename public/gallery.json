@@ -2,7 +2,7 @@
   {
     "name": "Weather",
     "description": "Forecasts via Open-Meteo",
-    "gistShorthand": "ashenfad/8212892d9a097dd33e2299d9a0337a75/62718d098ba9fe39d8706892f744f6344e52ae13/weather",
+    "gistShorthand": "ashenfad/8212892d9a097dd33e2299d9a0337a75/103feff1e11d9c9ec0a5da1b93af911ce744b5b2/weather",
     "kernel": "ts",
     "hasApp": true,
     "tags": ["weather", "mobile"],
