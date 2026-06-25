@@ -1,5 +1,14 @@
 [
   {
+    "name": "Absorbed",
+    "description": "An Osmos tribute",
+    "gistShorthand": "ashenfad/42516b0358378571f2bb5f3a6ccd812f/65bfc5486254918d8f27691c45f946d6a1340a88/absorbed",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["game", "physics", "mobile"],
+    "thumbnail": "absorbed.png"
+  },
+  {
     "name": "Weather",
     "description": "Forecasts via Open-Meteo",
     "gistShorthand": "ashenfad/8212892d9a097dd33e2299d9a0337a75/103feff1e11d9c9ec0a5da1b93af911ce744b5b2/weather",
