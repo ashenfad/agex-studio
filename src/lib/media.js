@@ -2,9 +2,10 @@
  * Generative-media helpers backing the TS-side `createImage` agent.fn
  * (and, later, `createMusic` / `createSpeech`).
  *
- * All route through OpenRouter's OpenAI-compatible chat-completions
- * endpoint with the user's `apiKey` — same key, same egress as `search`
- * (see search.js). Each generator follows one shape:
+ * All route through OpenRouter with the user's `apiKey` — same key, same
+ * egress as `search` (see search.js). Image and music use the chat-
+ * completions endpoint; speech uses the dedicated `/audio/speech` endpoint.
+ * Each generator follows one shape:
  *
  *   run<Media>({ ...inputs, settings, fetchImpl }) -> Promise<Uint8Array>
  *
@@ -21,6 +22,10 @@ import { bytesToBase64, base64ToBytes } from "./bytes.js";
  *  the media models the generators target are OpenRouter-routed. */
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+/** OpenRouter's dedicated text-to-speech endpoint — returns raw audio
+ *  bytes (not JSON / not SSE), unlike the chat-completions generators. */
+const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
+
 /** Image models. `quality: 'high'` escalates to Nano Banana Pro for
  *  slower/better output (mirrors search's shallow/deep). */
 const IMAGE_MODELS = {
@@ -35,13 +40,17 @@ const MUSIC_MODELS = {
     full: "google/lyria-3-pro-preview",
 };
 
+/** Speech model — Gemini Flash TTS: prompt-steerable (inline emotion tags
+ *  in the text), ~30 prebuilt voices. */
+const SPEECH_MODEL = "google/gemini-3.1-flash-tts-preview";
+
 /**
  * POST a chat-completions body to OpenRouter and return the parsed JSON.
  * The shared auth + error-surfacing boilerplate for every generator (the
  * search.js pattern, factored). `label` namespaces thrown errors per
  * modality so the agent's next-turn observation says which call failed.
  */
-async function _post({ label, body, settings, fetchImpl = fetch }) {
+async function _post({ label, url = OPENROUTER_CHAT_URL, body, settings, fetchImpl = fetch }) {
     if (!settings?.apiKey) {
         throw new Error(
             `${label}: no API key configured — set one in the settings drawer`,
@@ -49,7 +58,7 @@ async function _post({ label, body, settings, fetchImpl = fetch }) {
     }
     let response;
     try {
-        response = await fetchImpl(OPENROUTER_CHAT_URL, {
+        response = await fetchImpl(url, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -303,4 +312,62 @@ export async function runCreateMusic(opts) {
  */
 export function createMusic(prompt, opts = {}) {
     return runCreateMusic({ prompt, ...opts, settings: getSettings() });
+}
+
+// ---------------------------------------------------------------------------
+// Speech (Gemini Flash TTS) — dedicated /audio/speech endpoint
+// ---------------------------------------------------------------------------
+//
+// Unlike image/music, TTS uses OpenRouter's `/audio/speech` endpoint and
+// returns RAW audio bytes (not JSON, not SSE). Emotion / delivery is authored
+// INLINE in the text via Gemini's tags ("[whispers] ... [angry] ..."); `voice`
+// picks one of ~30 prebuilt voices. mp3 only for v1.
+
+/**
+ * Generate spoken audio from text (Gemini Flash TTS). `voice` is one of the
+ * prebuilt voices (default Kore); direct emotion/pacing with inline tags in
+ * the text. Returns MP3 bytes.
+ *
+ * @param {{
+ *   text: string,
+ *   voice?: string,
+ *   settings: { apiKey: string },
+ *   fetchImpl?: typeof fetch,
+ * }} opts
+ * @returns {Promise<Uint8Array>}
+ */
+export async function runCreateSpeech(opts) {
+    const { text, voice = "Kore", settings, fetchImpl = fetch } = opts;
+    if (!text || typeof text !== "string") {
+        throw new Error("createSpeech: text must be a non-empty string");
+    }
+    const response = await _post({
+        label: "createSpeech",
+        url: OPENROUTER_SPEECH_URL,
+        body: {
+            model: SPEECH_MODEL,
+            input: text,
+            voice,
+            response_format: "mp3",
+        },
+        settings,
+        fetchImpl,
+    });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length === 0) {
+        throw new Error("createSpeech: response contained no audio");
+    }
+    return bytes;
+}
+
+/**
+ * Convenience wrapper for the `agent.fn` registration — pulls settings from
+ * the store and uses global `fetch`. Tests exercise `runCreateSpeech` directly.
+ *
+ * @param {string} text
+ * @param {{ voice?: string }} [opts]
+ * @returns {Promise<Uint8Array>}
+ */
+export function createSpeech(text, opts = {}) {
+    return runCreateSpeech({ text, ...opts, settings: getSettings() });
 }
