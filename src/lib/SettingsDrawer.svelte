@@ -2,6 +2,7 @@
     import { untrack } from 'svelte'
     import { settingsStore, updateSettings } from './settings.js'
     import { presetsFor, supportsServiceTier } from './models.js'
+    import { listModelEndpoints } from './openrouter.js'
     import {
         SYNC_PAT_CREATE_LINK,
         SYNC_REPO_CREATE_LINK,
@@ -25,6 +26,15 @@
     let serviceTier = $state('standard')
     let githubPat = $state('')
     let activeTab = $state('model')
+
+    // OpenRouter provider pin for the selected model. `providerPin` is the
+    // chosen provider slug ('' = auto / let OpenRouter route);
+    // `providerOptions` are the upstream endpoints for `model`, fetched on
+    // demand. Per-model: switching `model` re-syncs the pin + re-fetches.
+    let providerPin = $state('')
+    let providerOptions = $state([])
+    let providerLoading = $state(false)
+    let providerError = $state('')
 
     // The tier picker is only meaningful for OpenAI / Google models;
     // hide it elsewhere so the form doesn't sprout an inert knob.
@@ -67,6 +77,36 @@
         }
     })
 
+    // Provider pin + endpoint list for the selected model (OpenRouter
+    // only). Re-runs when `model` / `accessMode` change (the picker, the
+    // mode toggle) but NOT on apiKey keystrokes — the endpoints list works
+    // without a key, so read it untracked. The pin syncs from the store
+    // for the current model (untracked, so a commit doesn't snap it back).
+    $effect(() => {
+        void open; void model; void accessMode
+        if (!open || accessMode !== 'openrouter' || !model) {
+            providerOptions = []
+            providerError = ''
+            return
+        }
+        const id = model
+        providerPin = untrack(() => $settingsStore.providerPins?.[id] ?? '')
+        const key = untrack(() => apiKey)
+        providerLoading = true
+        providerError = ''
+        let cancelled = false
+        listModelEndpoints(id, key.trim())
+            .then((eps) => { if (!cancelled) providerOptions = eps })
+            .catch((e) => {
+                if (!cancelled) {
+                    providerOptions = []
+                    providerError = e?.message || 'Could not load providers'
+                }
+            })
+            .finally(() => { if (!cancelled) providerLoading = false })
+        return () => { cancelled = true }
+    })
+
     /** Switch access mode.  Snaps the model to the first preset of
      * the target mode+provider since model IDs aren't portable across
      * shapes — ``openai/gpt-5.4`` is OpenRouter-only, ``gpt-5.4`` is
@@ -105,6 +145,15 @@
     // restores it. Tier persists even when unsupported — preserves
     // intent across model switches.
     function buildPatch() {
+        // Merge the current model's pin into the stored map (read untracked
+        // so this doesn't re-fire the commit effect on every save). An empty
+        // pin clears the entry — back to auto routing.
+        const pins = { ...(untrack(() => $settingsStore.providerPins) ?? {}) }
+        if (accessMode === 'openrouter' && model && providerPin) {
+            pins[model.trim()] = providerPin
+        } else if (model) {
+            delete pins[model.trim()]
+        }
         return {
             apiKey: apiKey.trim(),
             model: model.trim(),
@@ -115,6 +164,7 @@
             toolUseWireFormat,
             reasoningEffort,
             serviceTier,
+            providerPins: pins,
             githubPat: githubPat.trim(),
         }
     }
@@ -321,6 +371,29 @@
                         </button>
                     {/if}
                 </label>
+
+                {#if accessMode === 'openrouter'}
+                    <!-- Provider pin — choose a specific upstream provider
+                         for this model. A hard pin (only this provider, no
+                         fallback). Endpoints are fetched from OpenRouter;
+                         'Auto' clears the pin and lets OpenRouter route. -->
+                    <label>
+                        <span>Provider</span>
+                        <select bind:value={providerPin}>
+                            <option value="">Auto — OpenRouter routes</option>
+                            {#each providerOptions as ep}
+                                <option value={ep.slug}>{ep.label}{ep.supportsTools === false ? ' — no tool calls' : ''}</option>
+                            {/each}
+                        </select>
+                        {#if providerLoading}
+                            <span class="provider-hint">Loading providers…</span>
+                        {:else if providerError}
+                            <span class="provider-hint error">{providerError}</span>
+                        {:else if providerPin}
+                            <span class="provider-hint">Pinned — only this provider, no fallback.</span>
+                        {/if}
+                    </label>
+                {/if}
 
                 {#if tierSupported}
                     <!-- Service tier — OpenRouter's request-body
@@ -616,6 +689,16 @@
         font-size: 0.8rem;
         color: var(--text-muted);
         font-weight: 500;
+    }
+
+    .provider-hint {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-top: 0.2rem;
+    }
+
+    .provider-hint.error {
+        color: var(--error);
     }
 
     /* Sync & Share sections render as cards: grouped, raised, with

@@ -31,6 +31,11 @@ const DEFAULTS = {
     // OpenAI and Google models — see `supportsServiceTier` in
     // models.js for the gating rule.
     serviceTier: "standard",
+    // OpenRouter provider pins, keyed by model id ("author/slug"). When
+    // set, the user has chosen a specific upstream provider for that model;
+    // `_buildLlmClient` hard-pins it (`provider.order` + no fallbacks). A
+    // model absent from the map (or in custom mode) routes normally.
+    providerPins: {},
     githubPat: "",
     // Session sync (cross-device, via a dedicated GitHub repo). Both
     // empty = not connected. `syncPat` is a fine-grained token scoped

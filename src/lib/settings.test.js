@@ -38,6 +38,7 @@ describe("settingsStore", () => {
             toolUseWireFormat: true,
             reasoningEffort: "medium",
             serviceTier: "standard",
+            providerPins: {},
             githubPat: "",
             syncRepo: "",
             syncPat: "",
