@@ -57,7 +57,7 @@ import { buildAppHtml } from "./app-html.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
-import { createImage as createImageHelper } from "./media.js";
+import { createImage as createImageHelper, createMusic as createMusicHelper } from "./media.js";
 import {
     renderPdfPagesToBytes,
     getPdfPageCount,
@@ -632,6 +632,21 @@ async function _createBranchAgent(branch) {
             "Generate an app asset: `const bytes = await createImage('pixel-art castle, transparent bg'); await fs.write('app/assets/castle.png', bytes)` — then reference `assets/castle.png` in your app code. Edit one: `await createImage('recolor to blue', { image: await fs.read('app/assets/logo.png') })`.",
             "To show the user, return `{ type: 'image', data: bytes }` from `taskSuccess`. To inspect it yourself, `console.log(bytes)` (only useful if your model has vision).",
             "Fan out with `Promise.all([createImage(a), createImage(b), ...])` — each is an independent request.",
+        ].join("\n"),
+    });
+
+    // `createMusic` host-bound fn — music generation via OpenRouter (Google
+    // Lyria). Streams MP3 (Lyria requires streaming); the helper collects the
+    // audio chunks and returns the bytes. Same OpenRouter-key + bridge as the
+    // others, so `Promise.all` fans out.
+    agent.fn(createMusicHelper, {
+        name: "createMusic",
+        description: [
+            "(Pre-registered global — `await createMusic(prompt)`, no import needed.)",
+            "Generate music from a text prompt (Google Lyria). Returns an MP3 `Uint8Array`.",
+            "Signature: `createMusic(prompt: string, opts?: { length?: 'clip' | 'full' }): Promise<Uint8Array>`. `length: 'clip'` (default) is a ~30-second clip; `'full'` is a longer structured song (slower, costlier). Put ALL musical control in the prompt — genre, instruments, tempo/BPM, key, mood, and structure tags like [Verse]/[Chorus]. There is NO duration, seed, or loop parameter.",
+            "Use it as an app asset: `const bg = await createMusic('lo-fi hip hop, mellow, 80 BPM'); await fs.write('app/assets/bg.mp3', bg)` — then `<audio src=\"assets/bg.mp3\" loop>` in your app. There's no seamless-loop or exact-length control; for background loops, prompt for ambient material with no hard downbeats and rely on `<audio loop>`.",
+            "Fan out with `Promise.all([createMusic(a), createMusic(b)])`.",
         ].join("\n"),
     });
 

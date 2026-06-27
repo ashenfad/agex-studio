@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runCreateImage } from "./media.js";
+import { runCreateImage, runCreateMusic } from "./media.js";
 import { bytesToBase64 } from "./bytes.js";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
@@ -77,5 +77,98 @@ describe("runCreateImage", () => {
         await expect(
             runCreateImage({ prompt: "x", settings: {}, fetchImpl: vi.fn() }),
         ).rejects.toThrow(/no API key/);
+    });
+});
+
+const AUDIO = new Uint8Array([0x49, 0x44, 0x33, 1, 2, 3]); // ID3-ish mp3 bytes
+const AUDIO_B64 = bytesToBase64(AUDIO);
+
+/** A streamed (SSE) Response stub. `events` become `data: {json}\n\n` lines
+ *  followed by `data: [DONE]`. `splitAt` cuts the byte stream into two
+ *  reads to exercise cross-read line buffering. */
+function streamResponse(events, { splitAt } = {}) {
+    const text =
+        events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("") +
+        "data: [DONE]\n\n";
+    const bytes = new TextEncoder().encode(text);
+    const pieces = splitAt
+        ? [bytes.slice(0, splitAt), bytes.slice(splitAt)]
+        : [bytes];
+    let i = 0;
+    return {
+        ok: true,
+        body: {
+            getReader: () => ({
+                read: async () =>
+                    i < pieces.length
+                        ? { done: false, value: pieces[i++] }
+                        : { done: true },
+            }),
+        },
+    };
+}
+
+describe("runCreateMusic", () => {
+    const settings = { apiKey: "sk-test" };
+
+    it("streams, collects delta.audio.data, returns the decoded bytes", async () => {
+        const fetchImpl = vi.fn(async () =>
+            streamResponse([
+                { choices: [{ delta: { content: "<instrumental>" } }] },
+                { choices: [{ delta: { audio: { data: AUDIO_B64 } } }] },
+                { choices: [{ delta: { content: "" }, finish_reason: "stop" }] },
+            ]),
+        );
+        const out = await runCreateMusic({ prompt: "lofi", settings, fetchImpl });
+        expect(out).toEqual(AUDIO);
+        const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
+        expect(body.stream).toBe(true);
+        expect(body.modalities).toEqual(["text", "audio"]);
+        expect(body.model).toBe("google/lyria-3-clip-preview");
+        expect(body.messages[0].content).toBe("lofi");
+    });
+
+    it("escalates to the full (Pro) model on length:'full'", async () => {
+        const fetchImpl = vi.fn(async () =>
+            streamResponse([{ choices: [{ delta: { audio: { data: AUDIO_B64 } } }] }]),
+        );
+        await runCreateMusic({ prompt: "x", length: "full", settings, fetchImpl });
+        expect(JSON.parse(fetchImpl.mock.calls[0][1].body).model).toBe(
+            "google/lyria-3-pro-preview",
+        );
+    });
+
+    it("concatenates audio across multiple chunks", async () => {
+        const fetchImpl = vi.fn(async () =>
+            streamResponse([
+                { choices: [{ delta: { audio: { data: AUDIO_B64.slice(0, 4) } } }] },
+                { choices: [{ delta: { audio: { data: AUDIO_B64.slice(4) } } }] },
+            ]),
+        );
+        expect(await runCreateMusic({ prompt: "x", settings, fetchImpl })).toEqual(AUDIO);
+    });
+
+    it("survives a data: line split across two reads", async () => {
+        const events = [{ choices: [{ delta: { audio: { data: AUDIO_B64 } } }] }];
+        const fetchImpl = vi.fn(async () => streamResponse(events, { splitAt: 20 }));
+        expect(await runCreateMusic({ prompt: "x", settings, fetchImpl })).toEqual(AUDIO);
+    });
+
+    it("throws on a stream error event", async () => {
+        const fetchImpl = vi.fn(async () =>
+            streamResponse([{ error: { message: "model overloaded" } }]),
+        );
+        await expect(
+            runCreateMusic({ prompt: "x", settings, fetchImpl }),
+        ).rejects.toThrow(/createMusic: model overloaded/);
+    });
+
+    it("throws when the stream carries no audio", async () => {
+        const fetchImpl = vi.fn(async () =>
+            streamResponse([{ choices: [{ delta: { content: "hi" } }] }]),
+        );
+        await expect(
+            runCreateMusic({ prompt: "x", settings, fetchImpl }),
+        ).rejects.toThrow(/no audio/);
     });
 });

@@ -219,6 +219,17 @@ Pass `{ image: bytes }` to edit/recolor an existing asset, or fan out with
 `Promise.all([...])` for a set. Full signature is in the `createImage`
 description.
 
+Music too — `createMusic(prompt)` returns MP3 bytes:
+
+```ts
+const bg = await createMusic('lo-fi hip hop, mellow, 80 BPM')
+await fs.write('app/assets/bg.mp3', bg)
+// then in app code:  <audio src="assets/bg.mp3" loop>
+```
+
+There's no exact-length or seamless-loop control — for a background loop,
+prompt for ambient material (no hard downbeats) and rely on `<audio loop>`.
+
 ## Passing data from agent → app
 
 Don't try to fetch the agent's data over HTTP — there's no server.

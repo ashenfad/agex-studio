@@ -28,13 +28,20 @@ const IMAGE_MODELS = {
     high: "google/gemini-3-pro-image-preview",
 };
 
+/** Music models (Lyria). `length: 'clip'` = a 30s clip; `'full'` = a
+ *  longer structured song (slower, costlier). Both stream MP3. */
+const MUSIC_MODELS = {
+    clip: "google/lyria-3-clip-preview",
+    full: "google/lyria-3-pro-preview",
+};
+
 /**
  * POST a chat-completions body to OpenRouter and return the parsed JSON.
  * The shared auth + error-surfacing boilerplate for every generator (the
  * search.js pattern, factored). `label` namespaces thrown errors per
  * modality so the agent's next-turn observation says which call failed.
  */
-async function _postChat({ label, body, settings, fetchImpl = fetch }) {
+async function _post({ label, body, settings, fetchImpl = fetch }) {
     if (!settings?.apiKey) {
         throw new Error(
             `${label}: no API key configured — set one in the settings drawer`,
@@ -72,11 +79,20 @@ async function _postChat({ label, body, settings, fetchImpl = fetch }) {
                 (trimmed ? ` — ${trimmed}` : ""),
         );
     }
+    // On success the body is unread, so the caller decodes it however it
+    // needs — `.json()` (image), an SSE stream (music), or `.arrayBuffer()`
+    // (speech, future).
+    return response;
+}
+
+/** `_post` + JSON decode — the non-streaming path (image). */
+async function _postChat(args) {
+    const response = await _post(args);
     try {
         return await response.json();
     } catch (e) {
         throw new Error(
-            `${label}: response was not valid JSON — ${e?.message || String(e)}`,
+            `${args.label}: response was not valid JSON — ${e?.message || String(e)}`,
         );
     }
 }
@@ -185,4 +201,106 @@ export async function runCreateImage(opts) {
  */
 export function createImage(prompt, opts = {}) {
     return runCreateImage({ prompt, ...opts, settings: getSettings() });
+}
+
+// ---------------------------------------------------------------------------
+// Music (Lyria) — streaming
+// ---------------------------------------------------------------------------
+//
+// Unlike image, Lyria REQUIRES `stream: true` ("Audio output requires stream:
+// true"). The generated audio arrives as base64 on `choices[].delta.audio.data`
+// — a single chunk for clips, but we concatenate across chunks defensively
+// for longer songs. We accumulate the base64 string and decode once (the
+// chunks form one continuous base64 stream).
+
+/** Read an OpenRouter SSE stream and concatenate the audio deltas into one
+ *  base64 string. Throws on an error event or an audio-less stream. */
+async function _collectAudioStream(response, label) {
+    if (!response.body || typeof response.body.getReader !== "function") {
+        throw new Error(`${label}: streaming response has no readable body`);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let audio = "";
+    let streamErr = null;
+    const handleLine = (line) => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) return;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") return;
+        let json;
+        try {
+            json = JSON.parse(data);
+        } catch {
+            return; // keepalive / partial — ignore
+        }
+        if (json?.error) {
+            streamErr = json.error?.message || JSON.stringify(json.error);
+            return;
+        }
+        const part = json?.choices?.[0]?.delta?.audio?.data;
+        if (typeof part === "string") audio += part;
+    };
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+            handleLine(buffer.slice(0, nl));
+            buffer = buffer.slice(nl + 1);
+        }
+    }
+    if (buffer) handleLine(buffer); // trailing line without a newline
+    if (streamErr) throw new Error(`${label}: ${streamErr}`);
+    if (!audio) throw new Error(`${label}: response contained no audio`);
+    return audio;
+}
+
+/**
+ * Generate music from a text prompt (Lyria). `length: 'clip'` (default) is a
+ * 30-second clip; `'full'` is a longer structured song. All musical control
+ * — genre, tempo, key, structure — lives in the prompt; there's no duration
+ * or seed parameter. Returns MP3 bytes.
+ *
+ * @param {{
+ *   prompt: string,
+ *   length?: 'clip' | 'full',
+ *   settings: { apiKey: string },
+ *   fetchImpl?: typeof fetch,
+ * }} opts
+ * @returns {Promise<Uint8Array>}
+ */
+export async function runCreateMusic(opts) {
+    const { prompt, length = "clip", settings, fetchImpl = fetch } = opts;
+    if (!prompt || typeof prompt !== "string") {
+        throw new Error("createMusic: prompt must be a non-empty string");
+    }
+    const model = length === "full" ? MUSIC_MODELS.full : MUSIC_MODELS.clip;
+    const response = await _post({
+        label: "createMusic",
+        body: {
+            model,
+            messages: [{ role: "user", content: prompt }],
+            modalities: ["text", "audio"],
+            stream: true,
+        },
+        settings,
+        fetchImpl,
+    });
+    const b64 = await _collectAudioStream(response, "createMusic");
+    return base64ToBytes(b64);
+}
+
+/**
+ * Convenience wrapper for the `agent.fn` registration — pulls settings from
+ * the store and uses global `fetch`. Tests exercise `runCreateMusic` directly.
+ *
+ * @param {string} prompt
+ * @param {{ length?: 'clip' | 'full' }} [opts]
+ * @returns {Promise<Uint8Array>}
+ */
+export function createMusic(prompt, opts = {}) {
+    return runCreateMusic({ prompt, ...opts, settings: getSettings() });
 }
