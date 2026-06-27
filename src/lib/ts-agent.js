@@ -57,7 +57,11 @@ import { buildAppHtml } from "./app-html.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
-import { createImage as createImageHelper, createMusic as createMusicHelper } from "./media.js";
+import {
+    createImage as createImageHelper,
+    createMusic as createMusicHelper,
+    createSpeech as createSpeechHelper,
+} from "./media.js";
 import {
     renderPdfPagesToBytes,
     getPdfPageCount,
@@ -648,6 +652,21 @@ async function _createBranchAgent(branch) {
             "Use it as an app asset: `const bg = await createMusic('lo-fi hip hop, mellow, 80 BPM'); await fs.write('app/assets/bg.mp3', bg)` — then `<audio src=\"assets/bg.mp3\" loop>` in your app. There's no seamless-loop or exact-length control; for background loops, prompt for ambient material with no hard downbeats and rely on `<audio loop>`.",
             "To play it inline in the chat reply instead, return it: `taskSuccess({ type: 'audio', data: track, title: 'lo-fi loop' })`. Prefer `fs.write` for real app assets — a chat audio part is committed into the session, so reserve it for short clips / listening.",
             "Fan out with `Promise.all([createMusic(a), createMusic(b)])`.",
+        ].join("\n"),
+    });
+
+    // `createSpeech` host-bound fn — text-to-speech via OpenRouter (Google
+    // Gemini Flash TTS). Uses the dedicated /audio/speech endpoint (raw MP3
+    // bytes). Emotion is authored inline in the text via Gemini's tags.
+    agent.fn(createSpeechHelper, {
+        name: "createSpeech",
+        description: [
+            "(Pre-registered global — `await createSpeech(text)`, no import needed.)",
+            "Generate spoken audio from text (Google Gemini Flash TTS). Returns an MP3 `Uint8Array`.",
+            "Signature: `createSpeech(text: string, opts?: { voice?: string }): Promise<Uint8Array>`. `voice` is one of ~30 prebuilt voices (e.g. Kore, Charon, Puck, Fenril, Zephyr, Leda, Aoede, Orus — default Kore); give each character a distinct voice.",
+            "Direct emotion and delivery with inline tags written INTO the text: `'[whispers] I have been waiting... [suddenly angry] Why did you leave?'`. Tags like [laughs], [sighs], [nervous], [shouting], [excited] steer the performance mid-line.",
+            "Use it as character VO: `const vo = await createSpeech('[weary] What do you want?', { voice: 'Charon' }); await fs.write('app/assets/vo/innkeeper_01.mp3', vo)` — play on the dialog event. Or return `taskSuccess({ type: 'audio', data: vo, title: 'Innkeeper' })` to play it in the chat.",
+            "Fan out lines with `Promise.all([createSpeech(a), createSpeech(b)])`.",
         ].join("\n"),
     });
 

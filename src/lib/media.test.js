@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runCreateImage, runCreateMusic } from "./media.js";
+import { runCreateImage, runCreateMusic, runCreateSpeech } from "./media.js";
 import { bytesToBase64 } from "./bytes.js";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
@@ -170,5 +170,53 @@ describe("runCreateMusic", () => {
         await expect(
             runCreateMusic({ prompt: "x", settings, fetchImpl }),
         ).rejects.toThrow(/no audio/);
+    });
+});
+
+const speechResponse = (bytes = AUDIO) => ({
+    ok: true,
+    arrayBuffer: async () => bytes.buffer,
+});
+
+describe("runCreateSpeech", () => {
+    const settings = { apiKey: "sk-test" };
+
+    it("posts to /audio/speech and returns the raw bytes", async () => {
+        const fetchImpl = vi.fn(async () => speechResponse());
+        const out = await runCreateSpeech({
+            text: "[whispers] hi",
+            settings,
+            fetchImpl,
+        });
+        expect(out).toEqual(AUDIO);
+        const [url, init] = fetchImpl.mock.calls[0];
+        expect(url).toBe("https://openrouter.ai/api/v1/audio/speech");
+        const body = JSON.parse(init.body);
+        expect(body.model).toBe("google/gemini-3.1-flash-tts-preview");
+        expect(body.input).toBe("[whispers] hi");
+        expect(body.voice).toBe("Kore");
+        expect(body.response_format).toBe("mp3");
+    });
+
+    it("passes a custom voice", async () => {
+        const fetchImpl = vi.fn(async () => speechResponse());
+        await runCreateSpeech({ text: "hi", voice: "Charon", settings, fetchImpl });
+        expect(JSON.parse(fetchImpl.mock.calls[0][1].body).voice).toBe("Charon");
+    });
+
+    it("throws on empty audio", async () => {
+        const fetchImpl = vi.fn(async () => speechResponse(new Uint8Array(0)));
+        await expect(
+            runCreateSpeech({ text: "hi", settings, fetchImpl }),
+        ).rejects.toThrow(/no audio/);
+    });
+
+    it("requires text and an api key", async () => {
+        await expect(
+            runCreateSpeech({ text: "", settings, fetchImpl: vi.fn() }),
+        ).rejects.toThrow(/non-empty string/);
+        await expect(
+            runCreateSpeech({ text: "hi", settings: {}, fetchImpl: vi.fn() }),
+        ).rejects.toThrow(/no API key/);
     });
 });
