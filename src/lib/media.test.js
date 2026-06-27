@@ -181,21 +181,25 @@ const speechResponse = (bytes = AUDIO) => ({
 describe("runCreateSpeech", () => {
     const settings = { apiKey: "sk-test" };
 
-    it("posts to /audio/speech and returns the raw bytes", async () => {
+    it("requests pcm from /audio/speech and wraps it as a WAV", async () => {
         const fetchImpl = vi.fn(async () => speechResponse());
         const out = await runCreateSpeech({
             text: "[whispers] hi",
             settings,
             fetchImpl,
         });
-        expect(out).toEqual(AUDIO);
         const [url, init] = fetchImpl.mock.calls[0];
         expect(url).toBe("https://openrouter.ai/api/v1/audio/speech");
         const body = JSON.parse(init.body);
         expect(body.model).toBe("google/gemini-3.1-flash-tts-preview");
         expect(body.input).toBe("[whispers] hi");
         expect(body.voice).toBe("Kore");
-        expect(body.response_format).toBe("mp3");
+        expect(body.response_format).toBe("pcm");
+        // 44-byte RIFF/WAVE header wrapping the original PCM payload.
+        expect(out.length).toBe(44 + AUDIO.length);
+        expect(String.fromCharCode(...out.slice(0, 4))).toBe("RIFF");
+        expect(String.fromCharCode(...out.slice(8, 12))).toBe("WAVE");
+        expect(out.slice(44)).toEqual(AUDIO);
     });
 
     it("passes a custom voice", async () => {

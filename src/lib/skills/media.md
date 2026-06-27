@@ -8,7 +8,7 @@ fan any of them out with `Promise.all`.
 |---|---|---|
 | `createImage(prompt, { image?, quality? })` | PNG | `quality: 'standard' \| 'high'` (Nano Banana → Pro); `image` = edit / compose reference(s) |
 | `createMusic(prompt, { length? })` | MP3 | `length: 'clip'` (30s) \| `'full'` (song) |
-| `createSpeech(text, { voice? })` | MP3 | `voice` (one per character) |
+| `createSpeech(text, { voice? })` | WAV (24 kHz mono) | `voice` (one per character) |
 
 ## Two ways to use the bytes
 
@@ -63,8 +63,13 @@ Two levers: the **voice** (timbre, picked per character) and **inline tags**
 const vo = await createSpeech(
   '[weary] Another traveler... [suddenly sharp] you should not be here.',
   { voice: 'Charon' })
-await fs.write('app/assets/vo/innkeeper_01.mp3', vo)
+await fs.write('app/assets/vo/innkeeper_01.wav', vo)
 ```
+
+Output is **WAV** (Gemini emits PCM; it's wrapped into a playable .wav).
+WAV is uncompressed (~48 KB/sec), so a line or two is fine but long
+narration gets big — a clip past ~20s exceeds the app-inline 1 MB budget.
+Keep VO to lines / short takes; split long narration.
 
 ### Voices — assign one per character (default `Kore`)
 
@@ -106,7 +111,7 @@ const lines = [
 ]
 const clips = await Promise.all(
   lines.map((l) => createSpeech(l.text, { voice: cast[l.who] })))
-await Promise.all(clips.map((b, i) => fs.write(`app/assets/vo/line_${i}.mp3`, b)))
+await Promise.all(clips.map((b, i) => fs.write(`app/assets/vo/line_${i}.wav`, b)))
 ```
 
 ## Cost & latency

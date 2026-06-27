@@ -669,10 +669,10 @@ async function _createBranchAgent(branch) {
         name: "createSpeech",
         description: [
             "(Pre-registered global — `await createSpeech(text)`, no import needed.)",
-            "Generate spoken audio from text (Google Gemini Flash TTS). Returns an MP3 `Uint8Array`.",
+            "Generate spoken audio from text (Google Gemini Flash TTS). Returns a WAV `Uint8Array` (24 kHz mono).",
             "Signature: `createSpeech(text: string, opts?: { voice?: string }): Promise<Uint8Array>`. `voice` is one of ~30 prebuilt voices (e.g. Kore, Charon, Puck, Fenrir, Zephyr, Leda, Aoede, Orus — default Kore); give each character a distinct voice.",
             "Direct emotion and delivery with inline tags written INTO the text: `'[whispers] I have been waiting... [suddenly angry] Why did you leave?'`. Tags like [laughs], [sighs], [nervous], [shouting], [excited] steer the performance mid-line.",
-            "Use it as character VO: `const vo = await createSpeech('[weary] What do you want?', { voice: 'Charon' }); await fs.write('app/assets/vo/innkeeper_01.mp3', vo)` — play on the dialog event. Or return `taskSuccess({ type: 'audio', data: vo, title: 'Innkeeper' })` to play it in the chat.",
+            "Use it as character VO: `const vo = await createSpeech('[weary] What do you want?', { voice: 'Charon' }); await fs.write('app/assets/vo/innkeeper_01.wav', vo)` — play on the dialog event. Or return `taskSuccess({ type: 'audio', data: vo, title: 'Innkeeper' })` to play it in the chat.",
             "Fan out lines with `Promise.all([createSpeech(a), createSpeech(b)])`.",
             "See the `media` skill for the full voice catalog, the emotion-tag vocabulary, and dialog workflows.",
         ].join("\n"),
