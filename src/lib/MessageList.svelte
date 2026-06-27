@@ -193,6 +193,17 @@
                         <div class="rich-block image-block">
                             <img src={seg.data.data} alt={seg.data.alt || ''} />
                         </div>
+                    {:else if seg.kind === 'audio'}
+                        <!-- Native controls, NO autoplay — browsers block
+                             sound-on autoplay after an async response, and
+                             unsolicited audio is poor UX. The user presses
+                             play; the control also offers download. -->
+                        <div class="rich-block audio-block">
+                            {#if seg.data.title}
+                                <div class="audio-title">{seg.data.title}</div>
+                            {/if}
+                            <audio controls preload="metadata" src={seg.data.data}></audio>
+                        </div>
                     {/if}
                 {/each}
             </div>
@@ -375,6 +386,24 @@
         max-width: min(700px, 100%);
         height: auto;
         border-radius: 8px;
+    }
+
+    .rich-block.audio-block {
+        background: transparent;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        width: min(420px, 100%);
+    }
+
+    .audio-title {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .rich-block.audio-block audio {
+        width: 100%;
+        height: 36px;
     }
 
     .load-more {

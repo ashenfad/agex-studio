@@ -48,6 +48,27 @@ function _detectImageFormat(b) {
     return null;
 }
 
+/** Sniff an audio MIME subtype from a byte array's magic header. Defaults
+ *  to `mpeg` (mp3) — what `createMusic` / `createSpeech` return — when the
+ *  header is unrecognized. */
+function _detectAudioFormat(b) {
+    if (!(b instanceof Uint8Array) || b.length < 4) return "mpeg";
+    // ID3 tag, or an MPEG frame sync (0xFF Ex/Fx) → mp3.
+    if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return "mpeg";
+    if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return "mpeg";
+    // RIFF....WAVE → wav.
+    if (
+        b.length >= 12 &&
+        b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+        b[8] === 0x57 && b[9] === 0x41 && b[10] === 0x56 && b[11] === 0x45
+    ) {
+        return "wav";
+    }
+    // OggS → ogg (opus / vorbis).
+    if (b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53) return "ogg";
+    return "mpeg";
+}
+
 /**
  * Translate one agent-returned value into the renderer's per-part shape.
  *
@@ -82,6 +103,10 @@ const isCallout = (o) =>
 const isCards = (o) => o.type === "cards" && Array.isArray(o.items);
 const isImage = (o) =>
     o.type === "image" &&
+    (o.data instanceof Uint8Array ||
+        (typeof o.data === "string" && o.data.length > 0));
+const isAudio = (o) =>
+    o.type === "audio" &&
     (o.data instanceof Uint8Array ||
         (typeof o.data === "string" && o.data.length > 0));
 const isPlotly = (o) =>
@@ -186,6 +211,22 @@ export function normalizePart(p) {
             }
             return { type: "image", data, ...(alt ? { alt } : {}) };
         }
+        // Audio: raw bytes (Uint8Array, e.g. from `createMusic`) or an
+        // already-encoded base64 / data: URL string. Normalized to a
+        // self-contained data: URL so the committed event renders without
+        // the original bytes. An optional `title` labels the player.
+        if (isAudio(o)) {
+            const title = typeof o.title === "string" ? o.title : "";
+            let data;
+            if (o.data instanceof Uint8Array) {
+                data = `data:audio/${_detectAudioFormat(o.data)};base64,${bytesToBase64(o.data)}`;
+            } else {
+                data = o.data.startsWith("data:")
+                    ? o.data
+                    : `data:audio/mpeg;base64,${o.data}`;
+            }
+            return { type: "audio", data, ...(title ? { title } : {}) };
+        }
         // Plotly figure: { data: [...], layout: {...} }
         if (isPlotly(o)) {
             return { type: "plotly", figure: o };
@@ -261,7 +302,7 @@ function validateChatPart(p, path, issues) {
     }
     if (t === "object") {
         const o = /** @type {Record<string, unknown>} */ (p);
-        if (isStat(o) || isCallout(o) || isCards(o) || isPlotly(o) || isDataframe(o) || isImage(o)) {
+        if (isStat(o) || isCallout(o) || isCards(o) || isPlotly(o) || isDataframe(o) || isImage(o) || isAudio(o)) {
             return;
         }
         const keys = Object.keys(o).slice(0, 8).join(", ");
