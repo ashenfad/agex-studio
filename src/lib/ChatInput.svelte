@@ -33,6 +33,7 @@
     } from './pending-attachments.js'
     import { settingsStore, updateSettings } from './settings.js'
     import { presetsFor, labelFor } from './models.js'
+    import { listModelEndpoints } from './openrouter.js'
     import { formatBytes } from './bytes.js'
 
     /** Models available in the toolbar picker depend on the user's
@@ -60,6 +61,45 @@
         // settings effect in ChatShell auto re-runs runStartup, which
         // calls _agent.reconfigure for the TS kernel (or restarts the
         // py kernel). No additional plumbing here.
+    }
+
+    // Provider quick-pick (OpenRouter only) — pin a specific upstream
+    // provider for the current model. Endpoints load lazily when the menu
+    // opens. The pin lives per-model in `settings.providerPins`.
+    const isOpenRouter = $derived(($settingsStore.accessMode || 'openrouter') === 'openrouter')
+    const currentPin = $derived($settingsStore.providerPins?.[$settingsStore.model] || '')
+    const currentProviderLabel = $derived.by(() => {
+        if (!currentPin) return 'Auto'
+        const hit = providerOptions.find((e) => e.slug === currentPin)
+        return hit ? hit.label : currentPin
+    })
+
+    let providerMenuOpen = $state(false)
+    let providerOptions = $state([])
+    let providerLoading = $state(false)
+
+    async function toggleProviderMenu() {
+        providerMenuOpen = !providerMenuOpen
+        if (!providerMenuOpen) return
+        const id = $settingsStore.model
+        if (!id) return
+        providerLoading = true
+        try {
+            providerOptions = await listModelEndpoints(id, ($settingsStore.apiKey || '').trim())
+        } catch {
+            providerOptions = []
+        } finally {
+            providerLoading = false
+        }
+    }
+
+    function pickProvider(slug) {
+        providerMenuOpen = false
+        const model = $settingsStore.model
+        const pins = { ...($settingsStore.providerPins || {}) }
+        if (slug) pins[model] = slug
+        else delete pins[model]
+        updateSettings({ providerPins: pins })
     }
 
     let text = $state('')
@@ -265,6 +305,60 @@
                         </div>
                     {/if}
                 </div>
+
+                {#if isOpenRouter}
+                    <div class="model-wrap">
+                        <button
+                            class="model-btn"
+                            onclick={toggleProviderMenu}
+                            title="Upstream provider for this model (OpenRouter). Auto lets OpenRouter route."
+                            aria-label="Choose provider"
+                            aria-expanded={providerMenuOpen}
+                            disabled={busy}
+                        >
+                            <span class="model-label">{currentProviderLabel}</span>
+                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <polyline points="3 5 6 8 9 5"></polyline>
+                            </svg>
+                        </button>
+                        {#if providerMenuOpen}
+                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                            <div
+                                class="menu-backdrop"
+                                onclick={() => (providerMenuOpen = false)}
+                                onkeydown={(e) => e.key === 'Escape' && (providerMenuOpen = false)}
+                            ></div>
+                            <div class="model-menu" role="menu">
+                                <button
+                                    class="menu-item"
+                                    class:selected={!currentPin}
+                                    role="menuitem"
+                                    onclick={() => pickProvider('')}
+                                >
+                                    Auto — OpenRouter routes
+                                </button>
+                                {#if providerLoading}
+                                    <div class="model-menu-footnote">Loading providers…</div>
+                                {:else}
+                                    {#each providerOptions as ep (ep.slug)}
+                                        <button
+                                            class="menu-item"
+                                            class:selected={ep.slug === currentPin}
+                                            role="menuitem"
+                                            onclick={() => pickProvider(ep.slug)}
+                                            title={ep.slug}
+                                        >
+                                            {ep.label}{ep.supportsTools === false ? ' (no tools)' : ''}
+                                        </button>
+                                    {/each}
+                                    {#if providerOptions.length === 0}
+                                        <div class="model-menu-footnote">No providers found.</div>
+                                    {/if}
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
 
                 {#if busy}
                     <button class="action-btn stop" onclick={onCancel} disabled={cancelling}>

@@ -37,6 +37,7 @@ export const OPENROUTER_MODELS = [
     { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
     { id: "google/gemini-3.5-flash", label: "Gemini 3.5 Flash" },
     { id: "google/gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite" },
+    { id: "z-ai/glm-5.2", label: "GLM 5.2" },
 ];
 
 /** @type {ReadonlyArray<ModelPreset>} */

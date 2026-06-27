@@ -812,6 +812,16 @@ function _buildLlmClient(settings) {
     ) {
         modelExtras.service_tier = settings.serviceTier;
     }
+    // User's provider pin for this model — a HARD pin (only this provider,
+    // no fallbacks). Wins over any preset `extras.provider` (overwrites,
+    // doesn't merge). OpenRouter-only; ignored in custom / direct modes.
+    const providerPin = isOpenRouter ? settings.providerPins?.[model] : null;
+    if (providerPin) {
+        modelExtras.provider = {
+            order: [providerPin],
+            allow_fallbacks: false,
+        };
+    }
     return new OpenAI({
         apiKey,
         model,
