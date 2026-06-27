@@ -45,6 +45,7 @@ import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import _spawnSkill from "./skills/spawn.md?raw";
+import _mediaSkill from "./skills/media.md?raw";
 import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import { extrasFor, supportsServiceTier, hasVision } from "./models.js";
@@ -467,6 +468,10 @@ async function _createBranchAgent(branch) {
     // not relevant.
     agent.skill(_numericalSkill, { name: "numerical" });
     agent.skill(_interactiveAppSkill, { name: "interactive-app" });
+    // Generative media — depth for createImage / createMusic / createSpeech:
+    // prompt-craft, the speech voice catalog + emotion-tag vocabulary, and
+    // game-asset workflows. The fn descriptions point here.
+    agent.skill(_mediaSkill, { name: "media" });
     // Spawn skill — when/how to reach for `spawn` (script-side fan-out
     // and app-embedded callbacks). A clone inherits the agent's skills,
     // but is depth-1 (no nested `spawn`) so it can't recurse.
@@ -636,6 +641,7 @@ async function _createBranchAgent(branch) {
             "Generate an app asset: `const bytes = await createImage('pixel-art castle, transparent bg'); await fs.write('app/assets/castle.png', bytes)` — then reference `assets/castle.png` in your app code. Edit one: `await createImage('recolor to blue', { image: await fs.read('app/assets/logo.png') })`.",
             "To show the user, return `{ type: 'image', data: bytes }` from `taskSuccess`. To inspect it yourself, `console.log(bytes)` (only useful if your model has vision).",
             "Fan out with `Promise.all([createImage(a), createImage(b), ...])` — each is an independent request.",
+            "See the `media` skill for prompt-craft and asset workflows.",
         ].join("\n"),
     });
 
@@ -652,6 +658,7 @@ async function _createBranchAgent(branch) {
             "Use it as an app asset: `const bg = await createMusic('lo-fi hip hop, mellow, 80 BPM'); await fs.write('app/assets/bg.mp3', bg)` — then `<audio src=\"assets/bg.mp3\" loop>` in your app. There's no seamless-loop or exact-length control; for background loops, prompt for ambient material with no hard downbeats and rely on `<audio loop>`.",
             "To play it inline in the chat reply instead, return it: `taskSuccess({ type: 'audio', data: track, title: 'lo-fi loop' })`. Prefer `fs.write` for real app assets — a chat audio part is committed into the session, so reserve it for short clips / listening.",
             "Fan out with `Promise.all([createMusic(a), createMusic(b)])`.",
+            "See the `media` skill for prompt-craft (genre/tempo/key/structure) and workflows.",
         ].join("\n"),
     });
 
@@ -663,10 +670,11 @@ async function _createBranchAgent(branch) {
         description: [
             "(Pre-registered global — `await createSpeech(text)`, no import needed.)",
             "Generate spoken audio from text (Google Gemini Flash TTS). Returns an MP3 `Uint8Array`.",
-            "Signature: `createSpeech(text: string, opts?: { voice?: string }): Promise<Uint8Array>`. `voice` is one of ~30 prebuilt voices (e.g. Kore, Charon, Puck, Fenril, Zephyr, Leda, Aoede, Orus — default Kore); give each character a distinct voice.",
+            "Signature: `createSpeech(text: string, opts?: { voice?: string }): Promise<Uint8Array>`. `voice` is one of ~30 prebuilt voices (e.g. Kore, Charon, Puck, Fenrir, Zephyr, Leda, Aoede, Orus — default Kore); give each character a distinct voice.",
             "Direct emotion and delivery with inline tags written INTO the text: `'[whispers] I have been waiting... [suddenly angry] Why did you leave?'`. Tags like [laughs], [sighs], [nervous], [shouting], [excited] steer the performance mid-line.",
             "Use it as character VO: `const vo = await createSpeech('[weary] What do you want?', { voice: 'Charon' }); await fs.write('app/assets/vo/innkeeper_01.mp3', vo)` — play on the dialog event. Or return `taskSuccess({ type: 'audio', data: vo, title: 'Innkeeper' })` to play it in the chat.",
             "Fan out lines with `Promise.all([createSpeech(a), createSpeech(b)])`.",
+            "See the `media` skill for the full voice catalog, the emotion-tag vocabulary, and dialog workflows.",
         ].join("\n"),
     });
 

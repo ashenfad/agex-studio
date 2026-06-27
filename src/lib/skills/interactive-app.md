@@ -230,6 +230,11 @@ await fs.write('app/assets/bg.mp3', bg)
 There's no exact-length or seamless-loop control — for a background loop,
 prompt for ambient material (no hard downbeats) and rely on `<audio loop>`.
 
+And `createSpeech(text, { voice })` for character dialog / narration (MP3) —
+per-character voices with inline emotion tags. For prompt-craft, the full
+voice catalog, the emotion-tag vocabulary, and dialog workflows, see the
+`media` skill (`cat /skills/media/SKILL.md`).
+
 ## Passing data from agent → app
 
 Don't try to fetch the agent's data over HTTP — there's no server.
