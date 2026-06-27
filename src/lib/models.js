@@ -135,3 +135,32 @@ export function supportsServiceTier(mode, provider, modelId) {
     // on endpoints that don't, so allow the user to set it.
     return provider !== "anthropic";
 }
+
+/**
+ * Models that CANNOT see images — text-only. Drives the no-vision note in
+ * the agent primer (the agent stops reaching for screenshots / image
+ * observations it can't read). Keyed by model id; list both the OpenRouter
+ * (`author/slug`) and bare (custom-mode) forms when both are plausible.
+ *
+ * A static list is deliberate — reliable and offline. (OpenRouter's
+ * `architecture.input_modalities` could augment this later, but a model's
+ * vision support doesn't change underneath a fixed id.)
+ *
+ * @type {ReadonlySet<string>}
+ */
+const NO_VISION = new Set([
+    "z-ai/glm-5.2",
+    "glm-5.2",
+]);
+
+/**
+ * Does this model accept image input? Unknown / unlisted models default to
+ * `true` (most modern models are multimodal) — only models KNOWN to be
+ * text-only are gated, so we never wrongly strip vision from a capable one.
+ *
+ * @param {string} modelId
+ * @returns {boolean}
+ */
+export function hasVision(modelId) {
+    return !NO_VISION.has(modelId);
+}
