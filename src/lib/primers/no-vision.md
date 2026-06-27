@@ -10,3 +10,8 @@ returns, and `console.log` of values / DOM state from inside your app code.
 Assert against those instead of eyeballing a screenshot. Where the
 interactive-app skill talks about screenshots, that part doesn't apply to
 you — substitute text-log checks.
+
+You can still **generate** images — `createImage` runs on a separate model,
+so producing app assets works fine. You just can't inspect the result, so
+place it (`fs.write('app/assets/…')`) and rely on the live preview and the
+user to judge it.

@@ -203,6 +203,22 @@ to take effect.
 
 `esbuild --help` for the full flag list.
 
+## Generating assets
+
+Need an image, icon, or sprite? Generate one with `createImage(prompt)`
+(returns PNG bytes) and write it under `app/` so it's inlined for the
+sandbox:
+
+```ts
+const sprite = await createImage('pixel-art castle, transparent background')
+await fs.write('app/assets/castle.png', sprite)
+// then in app code:  <img src="assets/castle.png">
+```
+
+Pass `{ image: bytes }` to edit/recolor an existing asset, or fan out with
+`Promise.all([...])` for a set. Full signature is in the `createImage`
+description.
+
 ## Passing data from agent → app
 
 Don't try to fetch the agent's data over HTTP — there's no server.

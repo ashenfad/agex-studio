@@ -57,6 +57,7 @@ import { buildAppHtml } from "./app-html.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { search as runSearchHelper } from "./search.js";
+import { createImage as createImageHelper } from "./media.js";
 import {
     renderPdfPagesToBytes,
     getPdfPageCount,
@@ -614,6 +615,23 @@ async function _createBranchAgent(branch) {
             "Web search via perplexity; returns a text summary with cited source URLs.",
             "Signature: `search(query: string, deep?: boolean): Promise<string>` — `deep: true` uses the multi-step research model (slower, for complex questions); default is single-shot.",
             "Gather distinct topics concurrently with `Promise.all([search(a), search(b), ...])` — each is an independent fetch.",
+        ].join("\n"),
+    });
+
+    // `createImage` host-bound fn — image generation / editing via
+    // OpenRouter (Google Nano Banana). Same OpenRouter-key + bridge as
+    // `search`, so `Promise.all([createImage(a), createImage(b)])` fans out
+    // concurrently. Returns PNG bytes; the agent decides what to do with
+    // them (write an app asset, return a part, inspect).
+    agent.fn(createImageHelper, {
+        name: "createImage",
+        description: [
+            "(Pre-registered global — `await createImage(prompt)`, no import needed.)",
+            "Generate an image from a text prompt (Google Nano Banana). Returns a PNG `Uint8Array`.",
+            "Signature: `createImage(prompt: string, opts?: { image?: Uint8Array | Uint8Array[], quality?: 'standard' | 'high' }): Promise<Uint8Array>`. Pass `image` to EDIT / compose the reference image(s) per the prompt (multiple images compose). `quality: 'high'` is slower and higher-fidelity.",
+            "Generate an app asset: `const bytes = await createImage('pixel-art castle, transparent bg'); await fs.write('app/assets/castle.png', bytes)` — then reference `assets/castle.png` in your app code. Edit one: `await createImage('recolor to blue', { image: await fs.read('app/assets/logo.png') })`.",
+            "To show the user, return `{ type: 'image', data: bytes }` from `taskSuccess`. To inspect it yourself, `console.log(bytes)` (only useful if your model has vision).",
+            "Fan out with `Promise.all([createImage(a), createImage(b), ...])` — each is an independent request.",
         ].join("\n"),
     });
 
