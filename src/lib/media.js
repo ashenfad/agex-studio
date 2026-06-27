@@ -321,12 +321,42 @@ export function createMusic(prompt, opts = {}) {
 // Unlike image/music, TTS uses OpenRouter's `/audio/speech` endpoint and
 // returns RAW audio bytes (not JSON, not SSE). Emotion / delivery is authored
 // INLINE in the text via Gemini's tags ("[whispers] ... [angry] ..."); `voice`
-// picks one of ~30 prebuilt voices. mp3 only for v1.
+// picks one of ~30 prebuilt voices. Gemini TTS only emits headerless PCM
+// (24 kHz / 16-bit / mono), so we wrap it in a WAV container — the returned
+// bytes are a playable .wav.
+
+/** Wrap raw little-endian 16-bit PCM in a 44-byte WAV header so the bytes are
+ *  a self-contained, playable file. Defaults match Gemini TTS's PCM output
+ *  (24 kHz / 16-bit / mono). */
+function _pcmToWav(pcm, { sampleRate = 24000, channels = 1, bitDepth = 16 } = {}) {
+    const blockAlign = (channels * bitDepth) / 8;
+    const header = new DataView(new ArrayBuffer(44));
+    const ascii = (off, s) => {
+        for (let i = 0; i < s.length; i++) header.setUint8(off + i, s.charCodeAt(i));
+    };
+    ascii(0, "RIFF");
+    header.setUint32(4, 36 + pcm.length, true);
+    ascii(8, "WAVE");
+    ascii(12, "fmt ");
+    header.setUint32(16, 16, true); // fmt chunk size
+    header.setUint16(20, 1, true); // PCM
+    header.setUint16(22, channels, true);
+    header.setUint32(24, sampleRate, true);
+    header.setUint32(28, sampleRate * blockAlign, true); // byte rate
+    header.setUint16(32, blockAlign, true);
+    header.setUint16(34, bitDepth, true);
+    ascii(36, "data");
+    header.setUint32(40, pcm.length, true);
+    const out = new Uint8Array(44 + pcm.length);
+    out.set(new Uint8Array(header.buffer), 0);
+    out.set(pcm, 44);
+    return out;
+}
 
 /**
  * Generate spoken audio from text (Gemini Flash TTS). `voice` is one of the
  * prebuilt voices (default Kore); direct emotion/pacing with inline tags in
- * the text. Returns MP3 bytes.
+ * the text. Returns WAV bytes (24 kHz mono — Gemini emits PCM, wrapped here).
  *
  * @param {{
  *   text: string,
@@ -348,16 +378,16 @@ export async function runCreateSpeech(opts) {
             model: SPEECH_MODEL,
             input: text,
             voice,
-            response_format: "mp3",
+            response_format: "pcm", // Gemini TTS only supports pcm
         },
         settings,
         fetchImpl,
     });
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.length === 0) {
+    const pcm = new Uint8Array(await response.arrayBuffer());
+    if (pcm.length === 0) {
         throw new Error("createSpeech: response contained no audio");
     }
-    return bytes;
+    return _pcmToWav(pcm);
 }
 
 /**
