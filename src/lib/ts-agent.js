@@ -40,13 +40,14 @@ import { workerRuntime } from "@agex-ts/runtime-worker";
 // because vite's dev server resolves bare specifiers on the fly.
 import _agexWorkerUrl from "@agex-ts/runtime-worker/worker?worker&url";
 import _chatAgentPrimer from "./primers/ts-chat-agent.md?raw";
+import _noVisionNote from "./primers/no-vision.md?raw";
 import _chatPrimer from "./primers/ts-chat-task.md?raw";
 import _numericalSkill from "./skills/numerical.md?raw";
 import _interactiveAppSkill from "./skills/interactive-app.md?raw";
 import _spawnSkill from "./skills/spawn.md?raw";
 import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
-import { extrasFor, supportsServiceTier } from "./models.js";
+import { extrasFor, supportsServiceTier, hasVision } from "./models.js";
 import {
     runTestApp as appControlRunTestApp,
     runLiveApp as appControlRunLiveApp,
@@ -302,6 +303,17 @@ async function _evictIdle(keep) {
     }
 }
 
+/** Agent-level primer for `model`: the base studio primer, plus a no-vision
+ *  capability note when the model can't see images — so it stops reaching
+ *  for screenshots / image observations it can't read. Reconfigurable (the
+ *  agent primer hot-swaps via `reconfigure`), so it updates on a mid-session
+ *  model switch. */
+function agentPrimerFor(model) {
+    return hasVision(model)
+        ? _chatAgentPrimer
+        : `${_chatAgentPrimer}\n\n${_noVisionNote}`;
+}
+
 /**
  * Construct (or reuse) the agex-ts Agent for the studio.  Idempotent
  * for the lifetime of the page — the second caller's settings are
@@ -324,6 +336,9 @@ export async function initAgent(settings) {
         for (const entry of _pool.values()) {
             entry.agent.reconfigure({
                 llm: _llm,
+                // Hot-swap the agent primer too — the no-vision note must
+                // track the active model on a mid-session switch.
+                primer: agentPrimerFor(settings.model),
                 chapteringTrigger: _chapteringTrigger(settings),
                 maxIterations: MAX_ITERATIONS,
             });
@@ -376,8 +391,9 @@ async function _createBranchAgent(branch) {
         // evergreen studio environment and "active" capabilities (rich
         // responses / dashboards). Per-task output contract lives on the
         // task instead (see `_chatTask`), so it's scoped to this task
-        // and not the agent. See primers/ts-chat-agent.md.
-        primer: _chatAgentPrimer,
+        // and not the agent. See primers/ts-chat-agent.md. A no-vision note
+        // is appended for text-only models (see `agentPrimerFor`).
+        primer: agentPrimerFor(settings.model),
         llm,
         runtime,
         state: { type: "resolver", resolver: _branchResolver(branch) },
