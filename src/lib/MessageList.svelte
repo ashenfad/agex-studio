@@ -1,7 +1,7 @@
 <script>
     import { tick, onDestroy } from 'svelte'
     import { renderMarkdown, renderMermaidBlocks } from './markdown.js'
-    import { segmentParts, truncateText } from './event-utils.js'
+    import { segmentParts, truncateText, isEmptyAgentContent } from './event-utils.js'
     import ActivityPanel from './ActivityPanel.svelte'
     import DataTable from './DataTable.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
@@ -157,6 +157,11 @@
                  standard-branch one for the same content. -->
         {:else if msg.cancelled}
             <div class="cancelled-band">Stopped</div>
+        {:else if msg.role === 'agent' && !msg.isReport && isEmptyAgentContent(msg.content)}
+            <!-- Empty agent result — e.g. `taskSuccess('')` to end the
+                 task after the answer was already delivered as prose (the
+                 report bubble above). The activity card renders
+                 independently, so showing no bubble doesn't hide the turn. -->
         {:else if msg.role === 'agent' && typeof msg.content === 'object'}
             {@const segments = segmentParts(msg.content)}
             <div class="rich-response">

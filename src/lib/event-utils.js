@@ -191,18 +191,24 @@ export function hasOutputEvents(events) {
 
 /**
  * Split a rich response into segments: consecutive text parts merge, rich parts standalone.
+ * Whitespace-only text yields no segment — an empty/blank result (e.g.
+ * `taskSuccess('')` used to end a task after the answer was already
+ * delivered as prose) produces an empty list, so the renderer shows no
+ * bubble for it.
  * @param {{ type: string, content?: string, parts?: Array }} content
  * @returns {Array<{ kind: string, content?: string, data?: object }>}
  */
 export function segmentParts(content) {
     if (!content || content.type !== 'response') {
-        return [{ kind: 'text', content: content?.content || '' }]
+        const text = content?.content || ''
+        return text.trim() ? [{ kind: 'text', content: text }] : []
     }
     const segments = []
     let textBuf = []
     function flushText() {
         if (textBuf.length) {
-            segments.push({ kind: 'text', content: textBuf.join('\n\n') })
+            const joined = textBuf.join('\n\n')
+            if (joined.trim()) segments.push({ kind: 'text', content: joined })
             textBuf = []
         }
     }
@@ -216,6 +222,22 @@ export function segmentParts(content) {
     }
     flushText()
     return segments
+}
+
+/**
+ * True when a normalized agent response has nothing to render — an
+ * empty/whitespace-only string, or a result that produces no segments.
+ * This is the signal an agent uses to end a task after delivering its
+ * answer as prose (the report bubble): `taskSuccess('')` finishes the
+ * task without a duplicate result bubble. The activity card renders
+ * independently of content, so suppressing the empty bubble never hides
+ * the turn.
+ * @param {unknown} content
+ * @returns {boolean}
+ */
+export function isEmptyAgentContent(content) {
+    if (typeof content === 'string') return !content.trim()
+    return segmentParts(content).length === 0
 }
 
 /**

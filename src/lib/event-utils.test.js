@@ -5,6 +5,7 @@ import {
     truncateText,
     deriveTitle,
     segmentParts,
+    isEmptyAgentContent,
     groupEventsForChat,
     hasOutputEvents,
     interleaveSpawnChips,
@@ -216,8 +217,17 @@ describe("segmentParts", () => {
         expect(result).toEqual([{ kind: "text", content: "hello" }]);
     });
 
-    it("handles null content", () => {
-        expect(segmentParts(null)).toEqual([{ kind: "text", content: "" }]);
+    it("yields no segment for empty / whitespace content", () => {
+        expect(segmentParts(null)).toEqual([]);
+        expect(segmentParts({ type: "text", content: "" })).toEqual([]);
+        expect(segmentParts({ type: "text", content: "   \n" })).toEqual([]);
+        expect(segmentParts({ type: "response", parts: [] })).toEqual([]);
+        expect(
+            segmentParts({
+                type: "response",
+                parts: [{ type: "text", content: "  " }],
+            }),
+        ).toEqual([]);
     });
 
     it("merges consecutive text parts", () => {
@@ -257,6 +267,27 @@ describe("segmentParts", () => {
         const result = segmentParts(content);
         expect(result).toHaveLength(1);
         expect(result[0].kind).toBe("plotly");
+    });
+});
+
+describe("isEmptyAgentContent", () => {
+    it("is true for empty / whitespace results", () => {
+        expect(isEmptyAgentContent("")).toBe(true);
+        expect(isEmptyAgentContent("   ")).toBe(true);
+        expect(isEmptyAgentContent({ type: "text", content: "" })).toBe(true);
+        expect(isEmptyAgentContent({ type: "response", parts: [] })).toBe(true);
+        expect(isEmptyAgentContent(null)).toBe(true);
+    });
+
+    it("is false when there is something to render", () => {
+        expect(isEmptyAgentContent("hi")).toBe(false);
+        expect(isEmptyAgentContent({ type: "text", content: "hi" })).toBe(false);
+        expect(
+            isEmptyAgentContent({
+                type: "response",
+                parts: [{ type: "plotly", figure: {} }],
+            }),
+        ).toBe(false);
     });
 });
 

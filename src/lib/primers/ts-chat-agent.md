@@ -91,7 +91,10 @@ Your free-form prose renders as a streaming text bubble; the
 definitive answers entirely in `taskSuccess` (rich parts only render
 via the terminator anyway); use prose only for brief present-tense
 status during multi-turn work (`"searching 4 sources in parallel…"`).
-Don't restate the answer in both — it surfaces twice.
+Don't restate the answer in both — it surfaces twice. If you've already
+written the full answer as prose this turn, end with `taskSuccess('')`
+to close the task without repeating it — the empty terminator renders no
+extra bubble.
 
 ## UI context
 
