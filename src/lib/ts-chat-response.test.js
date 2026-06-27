@@ -444,3 +444,39 @@ describe("image parts", () => {
         expect(r.parts.map((p) => p.type)).toEqual(["text", "image"]);
     });
 });
+
+describe("audio parts", () => {
+    // ID3-tagged mp3 bytes, and a RIFF/WAVE header.
+    const mp3 = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0, 0, 1]);
+    const wav = new Uint8Array([
+        0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45,
+    ]);
+
+    it("normalizes raw bytes to a data: URL, sniffing mp3 vs wav", () => {
+        const a = normalizePart({ type: "audio", data: mp3, title: "bg loop" });
+        expect(a.type).toBe("audio");
+        expect(a.title).toBe("bg loop");
+        expect(a.data).toMatch(/^data:audio\/mpeg;base64,/);
+        expect(normalizePart({ type: "audio", data: wav }).data).toMatch(
+            /^data:audio\/wav;base64,/,
+        );
+    });
+
+    it("defaults a bare base64 string to mp3 and passes a data: URL through", () => {
+        expect(normalizePart({ type: "audio", data: "AAAA" }).data).toBe(
+            "data:audio/mpeg;base64,AAAA",
+        );
+        const url = "data:audio/wav;base64,AAAA";
+        expect(normalizePart({ type: "audio", data: url }).data).toBe(url);
+    });
+
+    it("validates an audio part (no retry bounce)", () => {
+        expect(validate({ type: "audio", data: mp3 }).issues).toBeUndefined();
+        expect(validate(["here's a track", { type: "audio", data: mp3 }]).issues).toBeUndefined();
+    });
+
+    it("round-trips audio inside a mixed parts array", () => {
+        const r = normalizeChatResponse(["here's a track:", { type: "audio", data: mp3 }]);
+        expect(r.parts.map((p) => p.type)).toEqual(["text", "audio"]);
+    });
+});

@@ -646,6 +646,7 @@ async function _createBranchAgent(branch) {
             "Generate music from a text prompt (Google Lyria). Returns an MP3 `Uint8Array`.",
             "Signature: `createMusic(prompt: string, opts?: { length?: 'clip' | 'full' }): Promise<Uint8Array>`. `length: 'clip'` (default) is a ~30-second clip; `'full'` is a longer structured song (slower, costlier). Put ALL musical control in the prompt — genre, instruments, tempo/BPM, key, mood, and structure tags like [Verse]/[Chorus]. There is NO duration, seed, or loop parameter.",
             "Use it as an app asset: `const bg = await createMusic('lo-fi hip hop, mellow, 80 BPM'); await fs.write('app/assets/bg.mp3', bg)` — then `<audio src=\"assets/bg.mp3\" loop>` in your app. There's no seamless-loop or exact-length control; for background loops, prompt for ambient material with no hard downbeats and rely on `<audio loop>`.",
+            "To play it inline in the chat reply instead, return it: `taskSuccess({ type: 'audio', data: track, title: 'lo-fi loop' })`. Prefer `fs.write` for real app assets — a chat audio part is committed into the session, so reserve it for short clips / listening.",
             "Fan out with `Promise.all([createMusic(a), createMusic(b)])`.",
         ].join("\n"),
     });
