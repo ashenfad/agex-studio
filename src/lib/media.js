@@ -63,6 +63,11 @@ async function _post({ label, url = OPENROUTER_CHAT_URL, body, settings, fetchIm
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${settings.apiKey}`,
+                // OpenRouter app attribution — same as the LLM client sends
+                // (see _buildLlmClient), so media calls show as "Agex Studio"
+                // in the dashboard instead of "unknown".
+                "HTTP-Referer": "https://agex.studio",
+                "X-Title": "Agex Studio",
             },
             body: JSON.stringify(body),
         });

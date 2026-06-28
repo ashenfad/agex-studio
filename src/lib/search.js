@@ -79,6 +79,10 @@ export async function runSearch(opts) {
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${settings.apiKey}`,
+                // OpenRouter app attribution — match the LLM client so search
+                // calls show as "Agex Studio" in the dashboard, not "unknown".
+                "HTTP-Referer": "https://agex.studio",
+                "X-Title": "Agex Studio",
             },
             body: JSON.stringify(body),
         });
