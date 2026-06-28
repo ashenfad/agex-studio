@@ -105,6 +105,18 @@
 
     let expandedText = $state(null)
 
+    /** Download filename for an image part: a slug from its alt text plus the
+     *  extension sniffed from the data: URL (jpeg→jpg, svg+xml→svg). */
+    function imageDownloadName(part) {
+        const m = /^data:image\/([a-z0-9.+-]+)/i.exec(part?.data || '')
+        let ext = (m?.[1] || 'png').toLowerCase()
+        if (ext === 'jpeg') ext = 'jpg'
+        if (ext === 'svg+xml') ext = 'svg'
+        const base = (part?.alt || 'image')
+            .trim().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'image'
+        return `${base}.${ext}`
+    }
+
 </script>
 
 <div class="message-list" bind:this={container} onscroll={handleScroll}>
@@ -191,7 +203,24 @@
                         <CardRow items={seg.data.items} />
                     {:else if seg.kind === 'image'}
                         <div class="rich-block image-block">
-                            <img src={seg.data.data} alt={seg.data.alt || ''} />
+                            <div class="img-wrap">
+                                <img src={seg.data.data} alt={seg.data.alt || ''} />
+                                <a
+                                    class="img-download"
+                                    href={seg.data.data}
+                                    download={imageDownloadName(seg.data)}
+                                    title="Download image"
+                                    aria-label="Download image"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="2"
+                                         stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                        <polyline points="7 10 12 15 17 10" />
+                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                    </svg>
+                                </a>
+                            </div>
                         </div>
                     {:else if seg.kind === 'audio'}
                         <!-- Native controls, NO autoplay — browsers block
@@ -381,11 +410,53 @@
         background: transparent;
     }
 
+    /* inline-block hugs the image exactly, so the absolute-positioned
+       download button anchors to the image's corner — not the full-width
+       message column. */
+    .img-wrap {
+        position: relative;
+        display: inline-block;
+        max-width: min(700px, 100%);
+    }
+
     .rich-block.image-block img {
         display: block;
-        max-width: min(700px, 100%);
+        max-width: 100%;
         height: auto;
         border-radius: 8px;
+    }
+
+    .img-download {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        text-decoration: none;
+        opacity: 0;
+        transition: opacity 0.15s ease, background 0.15s ease;
+    }
+
+    .img-wrap:hover .img-download,
+    .img-download:focus-visible {
+        opacity: 1;
+    }
+
+    .img-download:hover {
+        background: rgba(0, 0, 0, 0.78);
+    }
+
+    /* Touch / no-hover devices: always show it (no hover to reveal). */
+    @media (hover: none) {
+        .img-download {
+            opacity: 1;
+        }
     }
 
     .rich-block.audio-block {
