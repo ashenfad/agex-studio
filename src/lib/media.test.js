@@ -28,7 +28,11 @@ describe("runCreateImage", () => {
         expect(body.model).toBe("google/gemini-3.1-flash-image");
         expect(body.modalities).toEqual(["image", "text"]);
         expect(body.messages[0].content).toEqual([{ type: "text", text: "a castle" }]);
-        expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe("Bearer sk-test");
+        const headers = fetchImpl.mock.calls[0][1].headers;
+        expect(headers.Authorization).toBe("Bearer sk-test");
+        // OpenRouter app attribution so media calls show as "Agex Studio".
+        expect(headers["HTTP-Referer"]).toBe("https://agex.studio");
+        expect(headers["X-Title"]).toBe("Agex Studio");
     });
 
     it("escalates to the pro model on quality:'high'", async () => {
