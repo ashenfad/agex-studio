@@ -104,6 +104,24 @@
 
     let text = $state('')
     let menuOpen = $state(false)
+
+    // Escape closes whichever menu is open. A document-level listener (added
+    // only while a menu is open) catches Escape regardless of where focus
+    // sits — the toggle button, a menu item, or nowhere. The per-menu
+    // backdrops handle outside-click; a backdrop can't catch keydown (a
+    // non-focusable sibling is never in the keydown bubble path).
+    $effect(() => {
+        if (!menuOpen && !modelMenuOpen && !providerMenuOpen) return
+        function onEsc(e) {
+            if (e.key !== 'Escape') return
+            menuOpen = false
+            modelMenuOpen = false
+            providerMenuOpen = false
+        }
+        document.addEventListener('keydown', onEsc)
+        return () => document.removeEventListener('keydown', onEsc)
+    })
+
     let dragOver = $state(false)
     let importing = $state(false)
     /** @type {HTMLTextAreaElement | undefined} */
@@ -233,12 +251,13 @@
                         </svg>
                     </button>
                     {#if menuOpen}
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div
+                        <button
+                            type="button"
                             class="menu-backdrop"
+                            aria-label="Close menu"
+                            tabindex="-1"
                             onclick={() => (menuOpen = false)}
-                            onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)}
-                        ></div>
+                        ></button>
                         <div class="add-menu" role="menu">
                             <button class="menu-item" role="menuitem" onclick={openLocalPicker}>
                                 Local files
@@ -282,12 +301,13 @@
                         </svg>
                     </button>
                     {#if modelMenuOpen}
-                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div
+                        <button
+                            type="button"
                             class="menu-backdrop"
+                            aria-label="Close menu"
+                            tabindex="-1"
                             onclick={() => (modelMenuOpen = false)}
-                            onkeydown={(e) => e.key === 'Escape' && (modelMenuOpen = false)}
-                        ></div>
+                        ></button>
                         <div class="model-menu" role="menu">
                             {#each modelPresets as preset (preset.id)}
                                 <button
@@ -322,12 +342,13 @@
                             </svg>
                         </button>
                         {#if providerMenuOpen}
-                            <!-- svelte-ignore a11y_no_static_element_interactions -->
-                            <div
+                            <button
+                                type="button"
                                 class="menu-backdrop"
+                                aria-label="Close menu"
+                                tabindex="-1"
                                 onclick={() => (providerMenuOpen = false)}
-                                onkeydown={(e) => e.key === 'Escape' && (providerMenuOpen = false)}
-                            ></div>
+                            ></button>
                             <div class="model-menu" role="menu">
                                 <button
                                     class="menu-item"
@@ -537,6 +558,11 @@
         position: fixed;
         inset: 0;
         z-index: 200;
+        border: none;
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        cursor: default;
     }
 
     .add-menu {
