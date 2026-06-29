@@ -346,8 +346,9 @@ All values must be JSON-serializable (functions/closures fail with
 `DataCloneError` — use `eval` for in-iframe JS). Results return as a
 flat array mixing `{ type: 'log', level, message }` and per-action
 entries — `{ type: 'eval', expr, value }`, `{ type: 'read', selector,
-value }`, `{ type: 'screenshot', data }`; eval/read carry the result on
-`value`. Keep result reads narrow (`querySelector` + textContent /
+value }`, `{ type: 'screenshot', data, dataBase64 }`; eval/read carry
+the result on `value`. (Screenshot `data` is a sentinel placeholder —
+the real base64 lands on `dataBase64`; see the screenshot section.) Keep result reads narrow (`querySelector` + textContent /
 getAttribute) so you don't return giant blobs — DOM nodes / functions /
 circular refs come back as descriptive strings, so don't try to return
 an `Element` and click it from the agent side.
@@ -430,11 +431,19 @@ Skip when:
   the failure messages are more precise than "looks wrong in this
   screenshot."
 
-#### ⚠ A screenshot's `data` is a base64 string, NOT raw bytes
+#### ⚠ To embed a shot, read `dataBase64` — NOT `data`
 
-The `{ type: 'screenshot', data }` entry carries `data` as a **base64
-PNG string** (no `data:` prefix) — plain text, not a `Uint8Array`.
-That matters because `fs`, `renderPdf`, and the image response part's
+On a returned `{ type: 'screenshot', ... }` entry, `data` is a
+**sentinel placeholder** (`"<emitted via console.log>"`), not the
+image. The real screenshot flows to your *vision* automatically as a
+next-turn observation (that's the act→observe rule above), so `data`
+is deliberately stubbed to keep the result lean. **Reading `.data` and
+embedding it gives a broken image** — its value is literally the
+sentinel text.
+
+The embeddable bytes live on **`dataBase64`**: a **base64 PNG string**
+(no `data:` prefix) — plain text, not a `Uint8Array`. That distinction
+matters because `fs`, `renderPdf`, and the image response part's
 `Uint8Array` path all speak **raw bytes**. Mixing the two silently
 corrupts the image.
 
@@ -444,7 +453,7 @@ string for you:
 
 ```ts
 const r = await testApp([{ screenshot: true }]);
-const shot = r.find(x => x.type === 'screenshot')?.data;   // base64 string
+const shot = r.find(x => x.type === 'screenshot')?.dataBase64;  // base64 PNG
 taskSuccess(['Here it is:', { type: 'image', data: shot, alt: '...' }]);
 ```
 
