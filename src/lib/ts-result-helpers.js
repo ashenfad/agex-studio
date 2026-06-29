@@ -59,12 +59,21 @@ export function normalizeEvalValues(results) {
  * Emit screenshots and screenshot-capture failures as observations
  * on the calling emission via `ctx.console.log`. Screenshots are
  * shipped as `{format, data}` image envelopes (agex-ts's
- * `console.log` shape-detects these into image OutputParts); the
- * data field is replaced with a sentinel so the returned array
- * doesn't carry the giant base64 blob (which would bloat event-log
- * persistence on taskSuccess). Capture failures are emitted as
- * text observations so the agent sees the reason on its next turn
- * even when they discarded `await testApp(...)`'s return value.
+ * `console.log` shape-detects these into image OutputParts).
+ *
+ * The base64 is then moved off `data` (replaced with a sentinel) and
+ * onto a `dataBase64` side field. The sentinel keeps the *default*
+ * return lean: an agent that round-trips the whole result array into
+ * `taskSuccess` doesn't double-persist the blob (the screenshot is
+ * already retained once, in this emission's OutputEvent). The
+ * `dataBase64` side field is the opt-in escape hatch — an agent that
+ * wants to embed the shot in its reply reads it explicitly and passes
+ * it as `{ type: 'image', data: r.dataBase64 }`, paying the second
+ * copy only on purpose.
+ *
+ * Capture failures are emitted as text observations so the agent sees
+ * the reason on its next turn even when they discarded
+ * `await testApp(...)`'s return value.
  *
  * @param {{ console: { log: (...args: any[]) => void } }} ctx
  *   agex-ts injects `ctx` into `wantsContext: true` host-bound fns;
@@ -77,6 +86,9 @@ export function emitObservations(ctx, results) {
     for (const r of results) {
         if (r?.type === "screenshot" && r.data) {
             ctx.console.log({ format: "png", data: r.data });
+            // Preserve the real base64 for explicit embedding; stub
+            // `data` so the default whole-array round-trip stays lean.
+            r.dataBase64 = r.data;
             r.data = "<emitted via console.log>";
         } else if (
             r?.type === "log" &&

@@ -152,6 +152,16 @@ describe("emitObservations", () => {
         expect(results[0].data).toBe("<emitted via console.log>");
     });
 
+    it("preserves the real base64 on a `dataBase64` side field", () => {
+        const { ctx } = makeCtx();
+        const results = [{ type: "screenshot", data: "BASE64_BYTES" }];
+        emitObservations(ctx, results);
+        // The escape hatch: agents that want to embed the shot in
+        // taskSuccess read `dataBase64`, which still carries the real
+        // base64 even though `data` is stubbed.
+        expect(results[0].dataBase64).toBe("BASE64_BYTES");
+    });
+
     it("emits screenshot capture failures as text via console.log", () => {
         const { ctx, calls } = makeCtx();
         const results = [
