@@ -118,6 +118,7 @@ const META_KEYS = /** @type {const} */ ({
     updated: "__session_updated__",
     kernel: "__session_kernel__",
     external: "__session_external__",
+    starred: "__session_starred__",
 });
 
 /** Branch-meta storage keys + the state-value decoder, exported for
@@ -964,6 +965,7 @@ export async function listBranchesWithMeta() {
                 description: await peekStr(branch, META_KEYS.description),
                 updated: await peekStr(branch, META_KEYS.updated),
                 external: await peekBool(branch, META_KEYS.external),
+                starred: await peekBool(branch, META_KEYS.starred),
             })),
     );
 }
@@ -1119,6 +1121,7 @@ export async function readBranchMeta(name) {
         description: await peekStr(META_KEYS.description),
         updated: await peekStr(META_KEYS.updated),
         external: await peekBool(META_KEYS.external),
+        starred: await peekBool(META_KEYS.starred),
     });
 }
 
@@ -1131,6 +1134,8 @@ export async function writeBranchMeta(name, patch) {
             target.set(META_KEYS.description, patch.description);
         if (patch.external !== undefined)
             target.set(META_KEYS.external, patch.external);
+        if (patch.starred !== undefined)
+            target.set(META_KEYS.starred, patch.starred);
         // Always bump `updated` alongside any other write so the
         // session-list ordering reflects the edit.
         target.set(META_KEYS.updated, patch.updated ?? new Date().toISOString());

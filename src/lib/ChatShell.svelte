@@ -4,6 +4,7 @@
     import ChatInput from './ChatInput.svelte'
     import SplitPane from './SplitPane.svelte'
     import AppPreview from './AppPreview.svelte'
+    import AppLauncherRail from './AppLauncherRail.svelte'
     import ActionModal from './ActionModal.svelte'
     import ChapterModal from './ChapterModal.svelte'
     import SettingsDrawer from './SettingsDrawer.svelte'
@@ -27,7 +28,7 @@
     }
     import TokenModal from './TokenModal.svelte'
     import { pyodideStore } from './pyodide.js'
-    import { initSessionsFromUrl, loadHistoryChunked, switchSession, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
+    import { initSessionsFromUrl, loadHistoryChunked, switchSession, setSessionStarred, sessionStore, CURRENT_BRANCH_KEY } from './sessions.js'
     import { setNotificationActivateHandler } from './notify.js'
     import { setFaviconStatus } from './favicon.js'
     import { isOnScreen } from './presence.js'
@@ -92,6 +93,14 @@
      *  we don't snap them back on subsequent reloads. */
     /** @type {'split' | 'app-only'} */
     let viewMode = $state('split')
+    /** Why we're in app-only mode, when we are. `'play'` = a published
+     *  artifact opened via `?play=1` (keep the brand/attribution pill);
+     *  `'fullscreen'` = the user maximized their own local app (plain
+     *  "exit full screen" chrome + the launcher rail). `null` in split
+     *  mode. Tracked as state rather than the mount-time `isPlayMode`
+     *  const so re-entering full-screen after an exit reads correctly. */
+    /** @type {'play' | 'fullscreen' | null} */
+    let appOnlyReason = $state(null)
     let scrollKey = $state(0)
     let tokenModalOpen = $state(false)
     let chapterModalData = $state(null)
@@ -169,6 +178,7 @@
     })()
     if (isPlayMode) {
         viewMode = 'app-only'
+        appOnlyReason = 'play'
         // Also flip `mobileView` to 'app'. Without this, mobile loads
         // get `class="split-pane mobile-chat view-app-only"` — both
         // `.view-app-only .pane.left { display: none }` and
@@ -178,6 +188,28 @@
         mobileView = 'app'
     }
     let hasAppFiles = $derived(rt.files.some(f => f === 'app' || f.startsWith('app/')))
+    // Whether the user can "keep" the active session as an app, and
+    // whether it's currently kept. Gated on ts + a built app so the
+    // star surfaces exactly when there's an artifact worth keeping; the
+    // py kernel and app-less sessions never expose it (see
+    // setSessionStarred, which also no-ops on py defensively).
+    let canStar = $derived(activeKernel === 'ts' && hasAppFiles)
+    let currentStarred = $derived(
+        $sessionStore.sessions.find(s => s.branch === $sessionStore.currentBranch)?.starred ?? false
+    )
+    // Kept apps for the full-screen launcher rail.
+    let starredSessions = $derived($sessionStore.sessions.filter(s => s.starred))
+
+    /** Leave local full-screen back to the split studio view. Shared by
+     *  the launcher rail's "Exit full screen" and the play-mode brand
+     *  pill (via SplitPane's onExitAppOnly). */
+    function exitAppOnly() {
+        viewMode = 'split'
+        appOnlyReason = null
+        // Reveal chat: on desktop via split, on mobile via mobileView.
+        mobileView = 'chat'
+        scrollKey++
+    }
 
     function dismissUndoToast() {
         rt.dismissUndoToast()
@@ -551,9 +583,20 @@
             onFilesClick={() => filesOpen = true}
             onAppReloadClick={() => previewRefreshKey++}
             onChapterClick={handleTokenClick}
+            onToggleStar={() => setSessionStarred($sessionStore.currentBranch, !currentStarred)}
+            onEnterFullscreen={() => {
+                viewMode = 'app-only'
+                appOnlyReason = 'fullscreen'
+                // Mirror the play-mode mount: on mobile, app-only must
+                // also flip mobileView to 'app' or both panes hide.
+                mobileView = 'app'
+            }}
             {configured}
             fileCount={rt.files?.length ?? 0}
             showAppReload={hasAppFiles}
+            canFullscreen={hasAppFiles}
+            {canStar}
+            starred={currentStarred}
             inputTokens={lastInputTokens}
             chapteringTrigger={$settingsStore.chapteringTrigger}
             {activeKernel}
@@ -721,6 +764,7 @@
     collapsed={!hasAppFiles || !bootedKernels.has(activeKernel)}
     {mobileView}
     {viewMode}
+    localFullscreen={appOnlyReason === 'fullscreen'}
     initialRatio={isExternalEntry ? 0.3 : 0.5}
     onToggleMobileView={() => {
         // Mobile toggle: when bringing chat back into view, bump
@@ -731,13 +775,7 @@
         mobileView = mobileView === 'chat' ? 'app' : 'chat'
         if (mobileView === 'chat') scrollKey++
     }}
-    onExitAppOnly={() => {
-        // Same rationale as above. exitAppOnly always reveals the
-        // chat (on desktop via split, on mobile via mobileView='chat').
-        viewMode = 'split'
-        mobileView = 'chat'
-        scrollKey++
-    }}
+    onExitAppOnly={exitAppOnly}
 >
     {#snippet children()}
         {@render chatContent()}
@@ -746,6 +784,19 @@
         <AppPreview refreshKey={previewRefreshKey + rt.previewTick} />
     {/snippet}
 </SplitPane>
+
+{#if viewMode === 'app-only' && appOnlyReason === 'fullscreen'}
+    <!-- Full-screen launcher: switch between kept apps AND exit
+         full-screen, without opening chat. The sole chrome in local
+         full-screen. Rendered at the shell level (not inside SplitPane,
+         which stays layout-only) as a fixed overlay. -->
+    <AppLauncherRail
+        apps={starredSessions}
+        currentBranch={$sessionStore.currentBranch}
+        onSwitch={(branch) => switchSession(branch)}
+        onExit={exitAppOnly}
+    />
+{/if}
 
 <SessionDrawer
     open={sessionsOpen}

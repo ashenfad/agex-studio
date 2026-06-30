@@ -109,6 +109,38 @@ describe("cache CRUD", () => {
         expect(records[0].title).toBe("Hello");
     });
 
+    it("round-trips the starred flag through the cache", () => {
+        cacheSession({
+            kernel: "ts",
+            branch: "chat-app",
+            title: "Kalimba Tuner",
+            name: "",
+            description: "",
+            updated: "2026-05-07T00:00:00Z",
+            starred: true,
+        });
+        const records = loadCache();
+        expect(records).toHaveLength(1);
+        expect(records[0].starred).toBe(true);
+    });
+
+    it("loads a legacy record with no starred field as falsy", () => {
+        // Back-compat: caches written before the starred field existed
+        // must still load, with starred simply absent (treated as false
+        // everywhere downstream).
+        cacheSession({
+            kernel: "ts",
+            branch: "chat-legacy",
+            title: "Old session",
+            name: "",
+            description: "",
+            updated: "2026-05-07T00:00:00Z",
+        });
+        const records = loadCache();
+        expect(records).toHaveLength(1);
+        expect(records[0].starred).toBeFalsy();
+    });
+
     it("updates an existing session in place (not duplicate)", () => {
         cacheSession({
             kernel: "py",
