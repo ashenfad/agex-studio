@@ -5,6 +5,7 @@
     import SplitPane from './SplitPane.svelte'
     import AppPreview from './AppPreview.svelte'
     import AppLauncherRail from './AppLauncherRail.svelte'
+    import MobileAppSwitcher from './MobileAppSwitcher.svelte'
     import ActionModal from './ActionModal.svelte'
     import ChapterModal from './ChapterModal.svelte'
     import SettingsDrawer from './SettingsDrawer.svelte'
@@ -197,8 +198,14 @@
     let currentStarred = $derived(
         $sessionStore.sessions.find(s => s.branch === $sessionStore.currentBranch)?.starred ?? false
     )
-    // Kept apps for the full-screen launcher rail.
+    // Kept apps for the full-screen launcher rail (desktop) and the
+    // mobile app switcher. `hasOtherKeptApps` gates both the rail's
+    // value and whether the mobile FAB becomes a switcher.
     let starredSessions = $derived($sessionStore.sessions.filter(s => s.starred))
+    let hasOtherKeptApps = $derived(
+        starredSessions.some(s => s.branch !== $sessionStore.currentBranch)
+    )
+    let mobileSwitcherOpen = $state(false)
 
     /** Leave local full-screen back to the split studio view. Shared by
      *  the launcher rail's "Exit full screen" and the play-mode brand
@@ -765,6 +772,8 @@
     {mobileView}
     {viewMode}
     localFullscreen={appOnlyReason === 'fullscreen'}
+    mobileSwitcherAvailable={hasOtherKeptApps}
+    onOpenMobileSwitcher={() => mobileSwitcherOpen = true}
     initialRatio={isExternalEntry ? 0.3 : 0.5}
     onToggleMobileView={() => {
         // Mobile toggle: when bringing chat back into view, bump
@@ -795,6 +804,19 @@
         currentBranch={$sessionStore.currentBranch}
         onSwitch={(branch) => switchSession(branch)}
         onExit={exitAppOnly}
+    />
+{/if}
+
+{#if mobileSwitcherOpen}
+    <!-- Mobile app switcher (bottom sheet). Opened from the mobile FAB
+         while viewing an app; switches between kept apps and carries the
+         "Show chat" exit. Stays in app view on switch. -->
+    <MobileAppSwitcher
+        apps={starredSessions}
+        currentBranch={$sessionStore.currentBranch}
+        onSwitch={(branch) => { mobileSwitcherOpen = false; switchSession(branch) }}
+        onShowChat={() => { mobileSwitcherOpen = false; mobileView = 'chat'; scrollKey++ }}
+        onClose={() => mobileSwitcherOpen = false}
     />
 {/if}
 

@@ -4,8 +4,10 @@
      *   mobileView?: 'chat' | 'app',
      *   viewMode?: 'split' | 'app-only',
      *   localFullscreen?: boolean,
+     *   mobileSwitcherAvailable?: boolean,
      *   initialRatio?: number,
      *   onToggleMobileView?: () => void,
+     *   onOpenMobileSwitcher?: () => void,
      *   onExitAppOnly?: () => void,
      *   children: any,
      *   preview: any,
@@ -15,8 +17,10 @@
         mobileView = 'chat',
         viewMode = 'split',
         localFullscreen = false,
+        mobileSwitcherAvailable = false,
         initialRatio = 0.5,
         onToggleMobileView,
+        onOpenMobileSwitcher,
         onExitAppOnly,
         children,
         preview,
@@ -229,12 +233,32 @@
                 </svg>
             </button>
         {:else if viewMode !== 'app-only'}
-            <button class="mobile-fab" onclick={onToggleMobileView} title={mobileView === 'chat' ? 'Show App' : 'Show Chat'}>
+            <!-- Mobile-only FAB. Context-aware: a plain chat/app toggle,
+                 EXCEPT in app view when there are other kept apps to
+                 switch to — then it opens the mobile app switcher (which
+                 also carries the "Show chat" exit). So the extra menu
+                 only appears when it earns its keep; otherwise it's the
+                 same one-tap toggle as before. Dimmed over the app so it
+                 doesn't fight the full-screen content. -->
+            {@const showSwitcher = mobileView === 'app' && mobileSwitcherAvailable}
+            <button
+                class="mobile-fab"
+                onclick={showSwitcher ? onOpenMobileSwitcher : onToggleMobileView}
+                title={mobileView === 'chat' ? 'Show App' : showSwitcher ? 'Apps' : 'Show Chat'}
+                aria-label={mobileView === 'chat' ? 'Show app' : showSwitcher ? 'Switch apps' : 'Show chat'}
+            >
                 {#if mobileView === 'chat'}
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
                         <line x1="8" y1="21" x2="16" y2="21"></line>
                         <line x1="12" y1="17" x2="12" y2="21"></line>
+                    </svg>
+                {:else if showSwitcher}
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
                     </svg>
                 {:else}
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -486,6 +510,14 @@
             bottom: 4.5rem;
             right: 1rem;
             z-index: 100;
+            /* Force the FAB onto its own GPU compositing layer. Without
+               this, a Chromium touch lands on the cross-origin app
+               iframe's compositor "touch region" instead of the FAB
+               (its click never fires; the app's touch handlers do). A
+               promoted layer is hit-tested above the iframe on the
+               compositor thread, so the tap reaches the FAB. */
+            transform: translateZ(0);
+            will-change: transform;
             width: 44px;
             height: 44px;
             border-radius: 50%;
