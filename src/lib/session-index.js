@@ -43,6 +43,9 @@ const KVGIT_OBJECT_STORE = "kv";
  * @property {string} description
  * @property {string} updated
  * @property {boolean} [external]
+ * @property {boolean} [starred] - true for sessions the user has
+ *     "kept" as an app. Only ever set on ts sessions that have `app/`
+ *     files (gated at toggle time); py / non-app sessions never carry it.
  */
 
 /**

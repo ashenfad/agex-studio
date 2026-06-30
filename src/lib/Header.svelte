@@ -1,7 +1,34 @@
 <script>
     import { syncStatusStore } from './sync-engine.js'
-    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean, hasUnseenSessions?: boolean }} */
-    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, configured, fileCount = 0, showAppReload = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false, hasUnseenSessions = false } = $props()
+    /** @type {{ onSettingsClick: () => void, onSessionsClick: () => void, onFilesClick: () => void, onAppReloadClick?: () => void, onChapterClick?: () => void, onToggleStar?: () => void, onEnterFullscreen?: () => void, configured: boolean, fileCount: number, showAppReload?: boolean, canStar?: boolean, starred?: boolean, canFullscreen?: boolean, inputTokens?: number | null, chapteringTrigger?: number, activeKernel?: 'py' | 'ts', hasSessionUpdates?: boolean, hasUnseenSessions?: boolean }} */
+    let { onSettingsClick, onSessionsClick, onFilesClick, onAppReloadClick, onChapterClick, onToggleStar, onEnterFullscreen, configured, fileCount = 0, showAppReload = false, canStar = false, starred = false, canFullscreen = false, inputTokens = null, chapteringTrigger = 150000, activeKernel = 'ts', hasSessionUpdates = false, hasUnseenSessions = false } = $props()
+
+    // App-actions dropdown (Full screen / Keep / Reload).
+    // Click-outside is handled via a window listener + a bound wrapper
+    // rather than a fixed backdrop: the header sets `container-type`,
+    // whose layout containment would trap a `position: fixed` backdrop
+    // to the header box (so it couldn't cover the body anyway).
+    let appMenuOpen = $state(false)
+    /** @type {HTMLElement | undefined} */
+    let appMenuWrap
+
+    function onKeydown(e) {
+        if (e.key === 'Escape' && appMenuOpen) {
+            appMenuOpen = false
+            e.stopPropagation()
+        }
+    }
+
+    function onWindowClick(e) {
+        // The opening click bubbles here with the trigger as target
+        // (inside the wrap), so it won't self-close. Clicks in the
+        // chat body close it; clicks into the cross-origin app iframe
+        // can't reach the parent, so those don't (Escape / re-click /
+        // selecting an item still close — acceptable).
+        if (appMenuOpen && appMenuWrap && !appMenuWrap.contains(e.target)) {
+            appMenuOpen = false
+        }
+    }
 
     // Sync activity / attention, self-subscribed (no prop threading):
     // a pulsing dot while any session is actively syncing, a steady
@@ -41,6 +68,8 @@
         return Math.round((used / total) * 100)
     }
 </script>
+
+<svelte:window onkeydown={onKeydown} onclick={onWindowClick} />
 
 <header>
     <button
@@ -86,16 +115,62 @@
         </button>
     {/if}
     {#if showAppReload}
-        <button
-            class="app-reload-btn"
-            onclick={onAppReloadClick}
-            title="Reload app preview"
-        >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="23 4 23 10 17 10"></polyline>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-            </svg>
-        </button>
+        <!-- App actions, folded into one menu. Surfaces whenever the
+             session has an app (any kernel). Holds: Full screen, Keep
+             app (ts only — gated by canStar), Reload. A small accent dot
+             on the trigger keeps the "kept" state glanceable without
+             opening the menu (mirrors the drawer's Apps group). -->
+        <div class="app-menu-wrap" bind:this={appMenuWrap}>
+            <button
+                class="app-btn"
+                class:kept={starred}
+                onclick={() => (appMenuOpen = !appMenuOpen)}
+                title="App"
+                aria-label="App actions"
+                aria-haspopup="menu"
+                aria-expanded={appMenuOpen}
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                {#if starred}
+                    <span class="kept-dot" aria-hidden="true"></span>
+                {/if}
+            </button>
+            {#if appMenuOpen}
+                <div class="app-menu" role="menu">
+                    {#if canFullscreen}
+                        <button class="app-menu-item mi-fullscreen" role="menuitem" onclick={() => { appMenuOpen = false; onEnterFullscreen?.() }}>
+                            <svg class="mi-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+                                <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
+                                <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+                                <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+                            </svg>
+                            <span class="mi-label">Full screen</span>
+                        </button>
+                    {/if}
+                    {#if canStar}
+                        <button class="app-menu-item" role="menuitemcheckbox" aria-checked={starred} onclick={() => { appMenuOpen = false; onToggleStar?.() }}>
+                            <svg class="mi-icon" class:kept={starred} width="16" height="16" viewBox="0 0 24 24" fill={starred ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                            </svg>
+                            <span class="mi-label">{starred ? 'Remove from your apps' : 'Keep in your apps'}</span>
+                        </button>
+                    {/if}
+                    <button class="app-menu-item" role="menuitem" onclick={() => { appMenuOpen = false; onAppReloadClick?.() }}>
+                        <svg class="mi-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        <span class="mi-label">Reload</span>
+                    </button>
+                </div>
+            {/if}
+        </div>
     {/if}
     {#if fileCount > 0}
         <!-- File drawer is browse-only since uploads moved to the
@@ -152,6 +227,12 @@
            SplitPane ratio changes. */
         container-type: inline-size;
         container-name: header;
+        /* Lift the header (a flex item) above the chat content below it
+           so the app-menu dropdown — painted inside the header's
+           container-induced stacking context — isn't covered by the
+           MessageList. Stays well under drawers/modals (z 100+). */
+        position: relative;
+        z-index: 5;
     }
 
     h1 {
@@ -295,7 +376,14 @@
         background: var(--surface-hover);
     }
 
-    .app-reload-btn {
+    .app-menu-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .app-btn {
+        position: relative;
         background: none;
         border: none;
         color: var(--text-muted);
@@ -306,9 +394,79 @@
         align-items: center;
     }
 
-    .app-reload-btn:hover {
+    .app-btn:hover,
+    .app-btn[aria-expanded='true'] {
         color: var(--text);
         background: var(--surface-hover);
+    }
+
+    /* Glanceable "this app is kept" state without opening the menu —
+       a small accent dot on the trigger, mirroring the drawer's
+       starred-row star. */
+    .app-btn.kept {
+        color: var(--accent);
+    }
+
+    .kept-dot {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 2px var(--bg);
+    }
+
+    .app-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 100;
+        min-width: 200px;
+        padding: 0.35rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .app-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        width: 100%;
+        text-align: left;
+        padding: 0.5rem;
+        border: none;
+        border-radius: 6px;
+        background: none;
+        color: var(--text);
+        font-size: 0.85rem;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .app-menu-item:hover {
+        background: var(--surface-hover);
+    }
+
+    .mi-icon {
+        color: var(--text-muted);
+        flex-shrink: 0;
+    }
+
+    .mi-icon.kept {
+        color: var(--accent);
+    }
+
+    /* Full-screen is desktop-only for now — its launcher rail (the only
+       exit) is desktop-only, so hide the menu item on mobile to avoid a
+       one-way door. Keep + Reload still work on mobile. */
+    @media (max-width: 768px) {
+        .mi-fullscreen {
+            display: none;
+        }
     }
 
     .file-badge {

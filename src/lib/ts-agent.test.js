@@ -54,6 +54,9 @@ describe("_isAgentMemoryKey", () => {
         expect(_isAgentMemoryKey("__session_updated__")).toBe(false);
         expect(_isAgentMemoryKey("__session_kernel__")).toBe(false);
         expect(_isAgentMemoryKey("__session_external__")).toBe(false);
+        // Starring is a user "keep this app" preference, not agent
+        // memory — a chat-reset/fresh-fork must not silently unstar.
+        expect(_isAgentMemoryKey("__session_starred__")).toBe(false);
     });
 
     it("does NOT match unknown keys (defensive — keep what we don't recognize)", () => {

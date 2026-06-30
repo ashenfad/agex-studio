@@ -48,6 +48,12 @@
     let { open, onClose } = $props()
 
     let sessions = $derived($sessionStore.sessions)
+    // "Kept" apps pinned into their own group at the top — the MVP
+    // launcher: starred sessions are always one tap away regardless of
+    // how far their chat has slid down the recency list. Both lists keep
+    // the store's updated-desc order (filter preserves it).
+    let starredSessions = $derived(sessions.filter((s) => s.starred))
+    let otherSessions = $derived(sessions.filter((s) => !s.starred))
     let syncConnected = $derived(Boolean($settingsStore.syncRepo && $settingsStore.syncPat))
 
     // Re-rendered each minute while the drawer is open so the
@@ -534,38 +540,53 @@
             </div>
         {/if}
 
+        {#snippet sessionRow(s)}
+            {@const rt = peekSessionRuntime(s.branch)}
+            <SessionRow
+                session={s}
+                active={s.branch === currentBranch}
+                runtime={rt}
+                syncStatus={$syncStatusStore[s.branch]}
+                {syncConnected}
+                {nowTick}
+                canDelete={sessions.length > 1}
+                updating={updatingBranch === s.branch}
+                resolving={resolvingBranch === s.branch}
+                deleting={deletingBranch === s.branch}
+                deleteBusy={!!deletingBranch}
+                deleteArmed={deleteConfirmBranch === s.branch}
+                resetArmed={confirmResetBranch === s.branch}
+                menuOpen={actionsMenuBranch === s.branch}
+                onSwitch={() => handleSwitch(s.branch)}
+                onFork={(e) => handleFork(e, s.branch)}
+                onEdit={(e) => handleEdit(e, s)}
+                onDelete={(e) => handleDelete(e, s.branch)}
+                onUpdate={() => handleUpdate(s.branch)}
+                onDismissUpdate={() => dismissImportedUpdate(s.branch)}
+                onForkDiverged={() => handleForkDiverged(s.branch)}
+                onResetToRemote={() => handleResetToRemote(s.branch)}
+                onRetrySync={() => handleRetrySync(s.branch)}
+                onRepush={() => handleRepush(s.branch)}
+                onKeepLocal={() => handleKeepLocal(s.branch)}
+                onToggleMenu={(e) => toggleActionsMenu(e, s.branch)}
+                onCloseMenu={closeActionsMenu}
+            />
+        {/snippet}
+
         <div class="session-list">
-            {#each sessions as s (s.branch)}
-                {@const rt = peekSessionRuntime(s.branch)}
-                <SessionRow
-                    session={s}
-                    active={s.branch === currentBranch}
-                    runtime={rt}
-                    syncStatus={$syncStatusStore[s.branch]}
-                    {syncConnected}
-                    {nowTick}
-                    canDelete={sessions.length > 1}
-                    updating={updatingBranch === s.branch}
-                    resolving={resolvingBranch === s.branch}
-                    deleting={deletingBranch === s.branch}
-                    deleteBusy={!!deletingBranch}
-                    deleteArmed={deleteConfirmBranch === s.branch}
-                    resetArmed={confirmResetBranch === s.branch}
-                    menuOpen={actionsMenuBranch === s.branch}
-                    onSwitch={() => handleSwitch(s.branch)}
-                    onFork={(e) => handleFork(e, s.branch)}
-                    onEdit={(e) => handleEdit(e, s)}
-                    onDelete={(e) => handleDelete(e, s.branch)}
-                    onUpdate={() => handleUpdate(s.branch)}
-                    onDismissUpdate={() => dismissImportedUpdate(s.branch)}
-                    onForkDiverged={() => handleForkDiverged(s.branch)}
-                    onResetToRemote={() => handleResetToRemote(s.branch)}
-                    onRetrySync={() => handleRetrySync(s.branch)}
-                    onRepush={() => handleRepush(s.branch)}
-                    onKeepLocal={() => handleKeepLocal(s.branch)}
-                    onToggleMenu={(e) => toggleActionsMenu(e, s.branch)}
-                    onCloseMenu={closeActionsMenu}
-                />
+            {#if starredSessions.length > 0}
+                <!-- Pinned "Apps" group: kept ts+app sessions, always at
+                     the top so they don't slide away as chats age. -->
+                <div class="group-label">Apps</div>
+                {#each starredSessions as s (s.branch)}
+                    {@render sessionRow(s)}
+                {/each}
+                {#if otherSessions.length > 0}
+                    <div class="group-label">Recent</div>
+                {/if}
+            {/if}
+            {#each otherSessions as s (s.branch)}
+                {@render sessionRow(s)}
             {/each}
 
             <!-- Cloud stubs: sessions that exist in the sync repo but
@@ -864,6 +885,24 @@
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
+    }
+
+    /* Section header for the Apps / Recent grouping. Quiet — uppercase
+       micro-label, not a heavy divider — so it organizes without
+       competing with the session rows. The first one drops its top
+       margin so the list doesn't open with a gap. */
+    .group-label {
+        font-size: 0.62rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        padding: 0.15rem 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    .group-label:first-child {
+        margin-top: 0;
     }
 
     .session-item {

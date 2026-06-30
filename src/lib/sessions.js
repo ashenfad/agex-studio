@@ -171,6 +171,9 @@ export function markPyExperimentalWarningSeen() {
  *     by opening a published-artifact URL (`/run/?src=…`). External
  *     sessions are gated against host-capability features (Drive
  *     imports, etc.).
+ * @property {boolean} [starred] - true when the user has "kept" this
+ *     session as an app. Only set on ts sessions with `app/` files
+ *     (gated at toggle time); drives the drawer's pinned "Apps" group.
  */
 
 /**
@@ -210,6 +213,7 @@ function _initialStateFromCache() {
             description: r.description || "",
             updated: r.updated || "",
             external: !!r.external,
+            starred: !!r.starred,
             kernel: r.kernel,
             app_storage_bytes: appStorageSize(r.kernel, r.branch),
         }));
@@ -265,6 +269,7 @@ function _writeSessionsToCache(sessions) {
             description: s.description || "",
             updated: s.updated || "",
             external: !!s.external,
+            starred: !!s.starred,
         }));
     replaceSessionCache(records);
 }
@@ -367,6 +372,7 @@ async function _gatherAllSessions() {
                 description: r.description || "",
                 updated: r.updated || "",
                 external: !!r.external,
+                starred: !!r.starred,
                 kernel,
             });
         }
@@ -428,6 +434,7 @@ async function initSessions() {
                 description: "",
                 updated: new Date().toISOString(),
                 external: false,
+                starred: false,
                 kernel: "ts",
             },
         ];
@@ -515,6 +522,7 @@ export async function createSession({ kernel = "ts" } = {}) {
         description: "",
         updated: new Date().toISOString(),
         external: false,
+        starred: false,
         kernel: safeKernel,
     };
     const sessions = _decorateAppStorage([newSession, ...state.sessions]);
@@ -530,6 +538,30 @@ export async function switchSession(branch) {
     if (branch === state.currentBranch) return;
     localStorage.setItem(CURRENT_BRANCH_KEY, branch);
     await refreshSessionList(branch);
+    void _healStarIfNoApp(branch);
+}
+
+/** Self-heal a stale star: a session can be starred while it has an app,
+ *  then later have its `app/` files deleted. The toggle is gated on the
+ *  *active* session, so we can't catch that at deletion time for a
+ *  background session — instead we re-check on the way in. Best-effort
+ *  and boot-free: only runs when the ts adapter is already booted (the
+ *  common case after any ts use), so it never forces a Pyodide-style
+ *  cold start just to validate a flag. A session that stays starred-but-
+ *  app-less until its next foreground switch is a harmless cosmetic blip. */
+async function _healStarIfNoApp(branch) {
+    try {
+        if (_kernelFor(branch) !== "ts") return;
+        const s = state.sessions.find((x) => x.branch === branch);
+        if (!s?.starred) return;
+        const adapter = _adapterIfBooted("ts");
+        if (!adapter) return;
+        const files = await adapter.listFiles(branch);
+        const hasApp = files.some((f) => f === "app" || f.startsWith("app/"));
+        if (!hasApp) await setSessionStarred(branch, false);
+    } catch (err) {
+        console.warn("[agex] star self-heal failed:", err);
+    }
 }
 
 /** Delete a session. Switches to another only if deleting the
@@ -672,7 +704,12 @@ async function _forkSession({ mode, images = "full" }) {
     }
     const suffix = { fresh: "(fresh)", compact: "(compact)", full: "(fork)" }[mode];
     const newTitle = `${sourceMeta?.title || "New Chat"} ${suffix}`;
-    await adapter.writeBranchMeta(newBranch, { title: newTitle });
+    // Clear `starred` on every fork mode. `full` (branch-from-HEAD) and
+    // `compact` (snapshot) inherit the source's `__session_starred__`
+    // meta key; `fresh` never had it. A fork is a new session the user
+    // re-keeps deliberately — two identical stars in the Apps group
+    // (one titled "(fork)") would just be confusing.
+    await adapter.writeBranchMeta(newBranch, { title: newTitle, starred: false });
     appStorageCopy(sourceKernel, sourceBranch, newBranch);
 
     // Carry the source's publish identity to the fork so its next
@@ -699,6 +736,7 @@ async function _forkSession({ mode, images = "full" }) {
         description: "",
         updated: new Date().toISOString(),
         external: false,
+        starred: false,
         kernel: sourceKernel,
     };
     const sessions = _decorateAppStorage([newSession, ...state.sessions]);
@@ -903,11 +941,19 @@ export async function importBundle(
     // session-store entry. Use readBranchMeta so the imported title /
     // name / description carry through cleanly.
     const meta = await adapter.readBranchMeta(branch);
+    // Reset `starred` on import regardless of `external`: starring is a
+    // personal "keep this app" preference, not a property of the artifact.
+    // A bundle's branch meta may carry the exporter's starred flag, so
+    // clear it here (the one chokepoint every import flows through) rather
+    // than excising the key from the exported subgraph.
+    /** @type {{ external?: boolean, starred: boolean }} */
+    const importPatch = { starred: false };
     if (external) {
         // Persist the external flag in branch metadata so it survives
         // reload — listBranchesWithMeta reads it back on the next boot.
-        await adapter.writeBranchMeta(branch, { external: true });
+        importPatch.external = true;
     }
+    await adapter.writeBranchMeta(branch, importPatch);
 
     const newSession = {
         branch,
@@ -916,6 +962,7 @@ export async function importBundle(
         description: meta.description || "",
         updated: meta.updated || new Date().toISOString(),
         external: !!external,
+        starred: false,
         kernel,
     };
     const sessions = _decorateAppStorage([newSession, ...state.sessions]);
@@ -1166,9 +1213,17 @@ export async function setSessionMeta(branch, name, description) {
     schedulePush(branch, { kernel: _kernelFor(branch) });
 }
 
-// ---------------------------------------------------------------------------
-// Debug
-// ---------------------------------------------------------------------------
+/** Toggle a session's "kept as an app" star. Scoped to ts sessions —
+ *  the only ones the UI exposes the toggle for (gated on
+ *  `kernel === 'ts' && hasAppFiles`). A no-op on py branches so a stray
+ *  call can't strand a py session in the drawer's Apps group. */
+export async function setSessionStarred(branch, starred) {
+    if (_kernelFor(branch) !== "ts") return;
+    const adapter = await resolveAdapter("ts");
+    await adapter.writeBranchMeta(branch, { starred: !!starred });
+    await refreshSessionList(state.currentBranch);
+    schedulePush(branch, { kernel: "ts" });
+}
 
 /** Get debug info for a session branch: commit count, keyset size,
  *  HEAD hash. */

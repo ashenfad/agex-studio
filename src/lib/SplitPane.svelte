@@ -3,6 +3,7 @@
      *   collapsed?: boolean,
      *   mobileView?: 'chat' | 'app',
      *   viewMode?: 'split' | 'app-only',
+     *   localFullscreen?: boolean,
      *   initialRatio?: number,
      *   onToggleMobileView?: () => void,
      *   onExitAppOnly?: () => void,
@@ -13,6 +14,7 @@
         collapsed = false,
         mobileView = 'chat',
         viewMode = 'split',
+        localFullscreen = false,
         initialRatio = 0.5,
         onToggleMobileView,
         onExitAppOnly,
@@ -207,12 +209,13 @@
                 aria-label="Show chat"
             ></div>
         {/if}
-        {#if viewMode === 'app-only'}
-            <!-- Branded pill: the only chrome in play mode. Combines
-                 attribution ("this was built with agex.studio") with
-                 the escape hatch ("view how"). Same bottom-right
-                 anchor as the mobile FAB so the spatial pattern is
-                 consistent across modes. -->
+        {#if viewMode === 'app-only' && !localFullscreen}
+            <!-- Branded pill: chrome for the PUBLISHED-ARTIFACT play
+                 mode only. Combines attribution ("built with
+                 agex.studio") with the escape hatch ("view how"). Local
+                 full-screen instead uses the shell-level AppLauncherRail
+                 (which owns both app-switching AND exit), so no pill
+                 here in that case. -->
             <button
                 class="brand-pill"
                 onclick={onExitAppOnly}
@@ -225,7 +228,7 @@
                     <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
             </button>
-        {:else}
+        {:else if viewMode !== 'app-only'}
             <button class="mobile-fab" onclick={onToggleMobileView} title={mobileView === 'chat' ? 'Show App' : 'Show Chat'}>
                 {#if mobileView === 'chat'}
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
