@@ -38,8 +38,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="sheet-backdrop" transition:fade={{ duration: 150 }} onclick={onClose}></div>
+<button type="button" class="sheet-backdrop" aria-label="Close" transition:fade={{ duration: 150 }} onclick={onClose}></button>
 
 <div class="sheet" role="dialog" aria-label="Your apps" transition:fly={{ y: 300, duration: 220 }}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -74,11 +73,16 @@
 </div>
 
 <style>
+    /* A <button> (not a div) so the tap-to-dismiss is a real control;
+       native button chrome reset, keeping just the dim scrim. */
     .sheet-backdrop {
         position: fixed;
         inset: 0;
         z-index: 110;
+        border: none;
+        padding: 0;
         background: rgba(0, 0, 0, 0.45);
+        cursor: default;
     }
 
     .sheet {
