@@ -510,14 +510,6 @@
             bottom: 4.5rem;
             right: 1rem;
             z-index: 100;
-            /* Force the FAB onto its own GPU compositing layer. Without
-               this, a Chromium touch lands on the cross-origin app
-               iframe's compositor "touch region" instead of the FAB
-               (its click never fires; the app's touch handlers do). A
-               promoted layer is hit-tested above the iframe on the
-               compositor thread, so the tap reaches the FAB. */
-            transform: translateZ(0);
-            will-change: transform;
             width: 44px;
             height: 44px;
             border-radius: 50%;
