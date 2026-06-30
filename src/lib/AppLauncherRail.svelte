@@ -96,8 +96,7 @@
 ></div>
 
 {#if expanded}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="launcher-backdrop" onclick={() => (expanded = false)}></div>
+    <button type="button" class="launcher-backdrop" aria-label="Close menu" onclick={() => (expanded = false)}></button>
 {/if}
 
 {#if visible}
@@ -113,6 +112,7 @@
             onclick={() => (expanded = !expanded)}
             title={expanded ? 'Close menu' : 'Apps & full screen'}
             aria-label={expanded ? 'Close menu' : 'Apps and full screen'}
+            aria-haspopup="menu"
             aria-expanded={expanded}
         >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -167,11 +167,18 @@
         /* Transparent — purely a cursor-approach sensor over the app. */
     }
 
+    /* A <button> (not a div) so the click-to-close affordance is a real
+       control; tabindex isn't needed (Escape + selecting an item also
+       close). Reset native button chrome so it stays an invisible
+       click-catcher — transparent, no dimming, app stays visible. */
     .launcher-backdrop {
         position: fixed;
         inset: 0;
         z-index: 99;
-        /* Transparent click-catcher; no dimming so the app stays visible. */
+        border: none;
+        padding: 0;
+        background: transparent;
+        cursor: default;
     }
 
     .launcher {
