@@ -1507,35 +1507,14 @@ async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
 export async function loadHistory(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
-    /** Resolve a ChapterEvent's `eventRefs` state keys to the original
-     *  events. The originals are left at their state keys when
-     *  `replaceRange` rewrites the active index (see
-     *  agex-ts:event-log.ts), so `byKey` is the right primitive to
-     *  follow the refs without re-walking the active index. */
-    const resolveByKey = async (key) => {
-        if (typeof (/** @type {any} */ (log).byKey) === "function") {
-            return await /** @type {any} */ (log).byKey(key);
-        }
-        return null;
-    };
 
-    // Pre-collect so we can run an async flatten pass (and so the
-    // main walk can be plain `for...of`). For typical session sizes
-    // the buffer cost is small compared to per-event IDB latency,
-    // which we'd pay either way.
-    /** @type {Array<Object>} */
-    const rawEvents = [];
-    for await (const e of log.iter()) rawEvents.push(e);
-
-    /** Flat event list with ChapterEvents substituted by their
-     *  (recursively-resolved) originals. */
-    /** @type {Array<Object>} */
-    const flat = [];
-    /** Top-level chapter metadata, in flatten-encounter order. Drained
-     *  by the `__chapter__` `success` handler below. */
-    /** @type {Array<Object>} */
-    const chapterMeta = [];
-    await _doFlatten(rawEvents, flat, chapterMeta, resolveByKey, true);
+    // Flatten pass: substitute each ChapterEvent with its
+    // (recursively-resolved) originals so the visible scroll renders
+    // the pre-fold turns. `collect: true` also drains top-level chapter
+    // metadata (name, message, modal-contents) into `chapterMeta`, in
+    // flatten-encounter order, for the `__chapter__` `success` handler
+    // below.
+    const { flat, chapterMeta } = await _flattenLogEvents(log, true);
 
     /** @type {Array<Object>} */
     const messages = [];
@@ -1759,38 +1738,54 @@ function _renderFileEvent(fe) {
 /**
  * Collect the active event log into a flat array with every
  * ChapterEvent substituted by its (recursively-resolved) original
- * events. Mirrors py's `token_history` flatten (chaptering.py) and
- * `loadHistory`'s pre-pass: chaptering replaces a folded action range
- * in the active index with a single ChapterEvent placeholder, so a
- * plain `log.iter()` walk drops those actions from token accounting.
- * Flattening restores them, keeping the Context Usage plot dense after
- * compression.
+ * events. Mirrors py's `token_history` flatten (chaptering.py):
+ * chaptering replaces a folded action range in the active index with a
+ * single ChapterEvent placeholder, so a plain `log.iter()` walk drops
+ * those actions from token accounting. Flattening restores them,
+ * keeping the Context Usage plot dense after compression.
+ *
+ * Shared by the token-telemetry callers and `loadHistory`'s pre-pass —
+ * `collect` toggles whether top-level chapter metadata (name, message,
+ * recursive modal-contents) is gathered alongside `flat`. The telemetry
+ * callers pass `false` (they only need the flattened originals);
+ * `loadHistory` passes `true` to also drain `chapterMeta` into its
+ * chaptering bands.
  *
  * @param {Object} log  EventLog for SESSION
- * @returns {Promise<Array<Object>>}
+ * @param {boolean} [collect=false]  gather chapter metadata into `chapterMeta`
+ * @returns {Promise<{ flat: Array<Object>, chapterMeta: Array<Object> }>}
  */
-async function _flattenLogEvents(log) {
+async function _flattenLogEvents(log, collect = false) {
+    /** Resolve a ChapterEvent's `eventRefs` state keys to the original
+     *  events. The originals are left at their state keys when
+     *  `replaceRange` rewrites the active index (see
+     *  agex-ts:event-log.ts), so `byKey` is the right primitive to
+     *  follow the refs without re-walking the active index. */
     const resolveByKey = async (key) => {
         if (typeof (/** @type {any} */ (log).byKey) === "function") {
             return await /** @type {any} */ (log).byKey(key);
         }
         return null;
     };
+    // Pre-collect so the flatten pass (and `loadHistory`'s main walk)
+    // can be plain `for...of`. For typical session sizes the buffer
+    // cost is small compared to per-event IDB latency, which we'd pay
+    // either way.
     /** @type {Array<Object>} */
     const rawEvents = [];
     for await (const e of log.iter()) rawEvents.push(e);
     /** @type {Array<Object>} */
     const flat = [];
-    // collect=false: we only want the flattened originals, not the
-    // chapter metadata `loadHistory` gathers for its modal contents.
-    await _doFlatten(rawEvents, flat, [], resolveByKey, false);
-    return flat;
+    /** @type {Array<Object>} */
+    const chapterMeta = [];
+    await _doFlatten(rawEvents, flat, chapterMeta, resolveByKey, collect);
+    return { flat, chapterMeta };
 }
 
 export async function estimateLogTokens(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
-    const flat = await _flattenLogEvents(log);
+    const { flat } = await _flattenLogEvents(log);
     let latestActionTokens = 0;
     for (const e of flat) {
         if (
@@ -1808,7 +1803,7 @@ export async function estimateLogTokens(branch) {
 export async function getTokenHistory(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
-    const flat = await _flattenLogEvents(log);
+    const { flat } = await _flattenLogEvents(log);
     /** @type {number[]} */
     const out = [];
     for (const e of flat) {
