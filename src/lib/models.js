@@ -32,7 +32,7 @@ export const OPENROUTER_MODELS = [
     { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
     { id: "anthropic/claude-fable-5", label: "Claude Fable 5" },
     { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8" },
-    { id: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6" },
+    { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
     { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
     { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
     { id: "google/gemini-3.5-flash", label: "Gemini 3.5 Flash" },
@@ -51,7 +51,7 @@ export const OPENAI_MODELS = [
 export const ANTHROPIC_MODELS = [
     { id: "claude-fable-5", label: "Claude Fable 5" },
     { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ];
 
