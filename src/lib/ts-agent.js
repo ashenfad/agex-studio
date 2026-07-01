@@ -1756,11 +1756,43 @@ function _renderFileEvent(fe) {
 // Telemetry
 // ---------------------------------------------------------------------------
 
+/**
+ * Collect the active event log into a flat array with every
+ * ChapterEvent substituted by its (recursively-resolved) original
+ * events. Mirrors py's `token_history` flatten (chaptering.py) and
+ * `loadHistory`'s pre-pass: chaptering replaces a folded action range
+ * in the active index with a single ChapterEvent placeholder, so a
+ * plain `log.iter()` walk drops those actions from token accounting.
+ * Flattening restores them, keeping the Context Usage plot dense after
+ * compression.
+ *
+ * @param {Object} log  EventLog for SESSION
+ * @returns {Promise<Array<Object>>}
+ */
+async function _flattenLogEvents(log) {
+    const resolveByKey = async (key) => {
+        if (typeof (/** @type {any} */ (log).byKey) === "function") {
+            return await /** @type {any} */ (log).byKey(key);
+        }
+        return null;
+    };
+    /** @type {Array<Object>} */
+    const rawEvents = [];
+    for await (const e of log.iter()) rawEvents.push(e);
+    /** @type {Array<Object>} */
+    const flat = [];
+    // collect=false: we only want the flattened originals, not the
+    // chapter metadata `loadHistory` gathers for its modal contents.
+    await _doFlatten(rawEvents, flat, [], resolveByKey, false);
+    return flat;
+}
+
 export async function estimateLogTokens(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
+    const flat = await _flattenLogEvents(log);
     let latestActionTokens = 0;
-    for await (const e of log.iter()) {
+    for (const e of flat) {
         if (
             e &&
             typeof e === "object" &&
@@ -1776,9 +1808,10 @@ export async function estimateLogTokens(branch) {
 export async function getTokenHistory(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
+    const flat = await _flattenLogEvents(log);
     /** @type {number[]} */
     const out = [];
-    for await (const e of log.iter()) {
+    for (const e of flat) {
         if (
             e &&
             typeof e === "object" &&
