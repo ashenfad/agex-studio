@@ -27,9 +27,9 @@
 
 /** @type {ReadonlyArray<ModelPreset>} */
 export const OPENROUTER_MODELS = [
-    { id: "openai/gpt-5.5", label: "GPT-5.5" },
-    { id: "openai/gpt-5.4-mini", label: "GPT-5.4 Mini" },
-    { id: "openai/gpt-5.4-nano", label: "GPT-5.4 Nano" },
+    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { id: "anthropic/claude-fable-5", label: "Claude Fable 5" },
     { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8" },
     { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
@@ -42,9 +42,9 @@ export const OPENROUTER_MODELS = [
 
 /** @type {ReadonlyArray<ModelPreset>} */
 export const OPENAI_MODELS = [
-    { id: "gpt-5.5", label: "GPT-5.5" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
+    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
 ];
 
 /** @type {ReadonlyArray<ModelPreset>} */
