@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { listModelEndpoints, clearEndpointCache } from "./openrouter.js";
+import {
+    listModelEndpoints,
+    clearEndpointCache,
+    pinFallbackFetch,
+    clearForcedToolMemo,
+} from "./openrouter.js";
 
 // Mirrors the real `anthropic/claude-sonnet-4.6` shape: several providers,
 // some serving the model from multiple regions (same provider_name, distinct
@@ -82,5 +87,93 @@ describe("listModelEndpoints", () => {
         global.fetch = fetchMock;
         expect(await listModelEndpoints("")).toEqual([]);
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+});
+
+describe("pinFallbackFetch", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        clearForcedToolMemo();
+    });
+
+    const URL = "https://openrouter.ai/api/v1/chat/completions";
+    const hardPinBody = (extra = {}) =>
+        JSON.stringify({
+            model: "z-ai/glm-5.2",
+            tool_choice: "required",
+            provider: { order: ["baidu/fp8"], allow_fallbacks: false },
+            ...extra,
+        });
+    const noEndpoints = () =>
+        new Response(
+            JSON.stringify({ error: { message: "No endpoints found for z-ai/glm-5.2.", code: 404 } }),
+            { status: 404, statusText: "Not Found" },
+        );
+
+    it("keeps the pin but relaxes forced tools on 'No endpoints found'", async () => {
+        const ok = new Response("stream", { status: 200 });
+        const fetchMock = vi.fn().mockResolvedValueOnce(noEndpoints()).mockResolvedValueOnce(ok);
+        global.fetch = fetchMock;
+
+        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+
+        expect(res.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // retry keeps the hard pin untouched, only drops the forced tool choice
+        const retryBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+        expect(retryBody.provider).toEqual({ order: ["baidu/fp8"], allow_fallbacks: false });
+        expect(retryBody.tool_choice).toBe("auto");
+    });
+
+    it("memoizes: after one failure it relaxes up front, no wasted 404", async () => {
+        global.fetch = vi
+            .fn()
+            .mockResolvedValueOnce(noEndpoints()) // first call: force fails
+            .mockResolvedValue(new Response("stream", { status: 200 }));
+
+        await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() }); // learns it
+        const second = vi.fn().mockResolvedValue(new Response("stream", { status: 200 }));
+        global.fetch = second;
+
+        await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+
+        // single request, already relaxed — no 404 round-trip
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(second.mock.calls[0][1].body).tool_choice).toBe("auto");
+    });
+
+    it("passes a successful response straight through without reading it", async () => {
+        const ok = new Response("stream", { status: 200 });
+        const fetchMock = vi.fn().mockResolvedValue(ok);
+        global.fetch = fetchMock;
+
+        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+
+        expect(res).toBe(ok); // same object → body still unconsumed for the streamer
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not retry an unrelated 404, but keeps its body readable", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValue(new Response("model not found", { status: 404, statusText: "Not Found" }));
+        global.fetch = fetchMock;
+
+        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(404);
+        expect(await res.text()).toBe("model not found");
+    });
+
+    it("does not retry when there is no hard pin", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(noEndpoints());
+        global.fetch = fetchMock;
+
+        const body = JSON.stringify({ model: "z-ai/glm-5.2" }); // no provider pin
+        const res = await pinFallbackFetch(URL, { method: "POST", body });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(404);
     });
 });

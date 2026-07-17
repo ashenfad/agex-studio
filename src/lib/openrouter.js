@@ -35,6 +35,87 @@ function _endpointLabel(providerName, tag) {
     return variant ? `${providerName} (${variant})` : providerName;
 }
 
+// Hard-pinned (model, provider) pairs we've learned can't honor
+// `tool_choice: "required"`. Once a pin proves it can't force tools for a
+// model, later calls relax up front instead of eating a 404 every turn.
+// Module-lifetime; a provider's tool-calling support effectively never changes.
+const _pinNoForcedTools = new Set();
+
+/** Test hook: forget what we've learned about pins and forced tools. */
+export function clearForcedToolMemo() {
+    _pinNoForcedTools.clear();
+}
+
+/** `${model}|${pinnedProviderSlug}` for a request body, or null when it isn't a
+ *  hard provider pin we could rescue. */
+function _pinKey(body) {
+    if (body?.provider?.allow_fallbacks !== false) return null;
+    const slug = body.provider.order?.[0];
+    return body.model && slug ? `${body.model}|${slug}` : null;
+}
+
+function _parseBody(b) {
+    try {
+        return JSON.parse(typeof b === "string" ? b : "");
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * A `fetchImpl` for the OpenAI client that keeps a hard provider pin working
+ * when the pinned provider can't do forced tool-calling.
+ *
+ * agex forces tool use (`tool_choice: "required"`), but some OpenRouter
+ * endpoints don't support the *forced* value for a given model — Baidu on
+ * GLM-5.2, for one. With a hard pin (`allow_fallbacks: false`) that leaves
+ * OpenRouter no eligible endpoint, so it returns `404 "No endpoints found"`.
+ * Rather than abandon the provider the user explicitly chose, we relax the
+ * forced tool choice: retry the same pinned request with `tool_choice: "auto"`,
+ * which the provider *can* serve. The pin is honored; the model just isn't
+ * compelled to call a tool on that turn. We remember the (model, provider) pair
+ * so subsequent calls relax up front rather than paying the 404 each time.
+ *
+ * Trade-off: under `auto` the pinned model may answer with prose instead of a
+ * tool call on some turns. Everything else — successes, unrelated 404s, and
+ * requests with no hard pin — passes through untouched.
+ *
+ * Wired in via `OpenAI({ fetchImpl })`; the client hands us the fully-built
+ * request whose JSON body already carries the merged `provider` pin.
+ *
+ * @param {string | URL | Request} url
+ * @param {RequestInit} [init]  `init.body` is the JSON request string.
+ * @returns {Promise<Response>}
+ */
+export async function pinFallbackFetch(url, init) {
+    let body = _parseBody(init?.body);
+    const key = _pinKey(body);
+    // Already known to reject forced tools → relax before we even ask.
+    if (key && body.tool_choice === "required" && _pinNoForcedTools.has(key)) {
+        body = { ...body, tool_choice: "auto" };
+        init = { ...init, body: JSON.stringify(body) };
+    }
+    const res = await fetch(url, init);
+    if (res.status !== 404) return res;
+    // Only a hard pin that's still forcing tools can be rescued this way.
+    if (!key || body.tool_choice !== "required") return res;
+    // Reading the body settles whether this is the forced-tool failure; either
+    // way the caller must still be able to read it, so hand back a fresh copy.
+    const text = await res.text();
+    if (!/no endpoints found/i.test(text)) {
+        return new Response(text, {
+            status: res.status,
+            statusText: res.statusText,
+            headers: res.headers,
+        });
+    }
+    // The pinned provider can't force tools for this model. Keep the pin, drop
+    // the force, and remember so we skip the wasted 404 next time.
+    _pinNoForcedTools.add(key);
+    const retried = JSON.stringify({ ...body, tool_choice: "auto" });
+    return fetch(url, { ...init, body: retried });
+}
+
 /** @type {Map<string, Promise<Array<ProviderEndpoint>>>} */
 const _cache = new Map();
 

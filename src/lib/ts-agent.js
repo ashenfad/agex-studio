@@ -49,6 +49,7 @@ import _mediaSkill from "./skills/media.md?raw";
 import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
 import { extrasFor, supportsServiceTier, hasVision } from "./models.js";
+import { pinFallbackFetch } from "./openrouter.js";
 import {
     runTestApp as appControlRunTestApp,
     runLiveApp as appControlRunLiveApp,
@@ -904,6 +905,11 @@ function _buildLlmClient(settings) {
         apiKey,
         model,
         ...(baseUrl ? { baseUrl } : {}),
+        // A hard pin can 404 ("No endpoints found") when the pinned provider
+        // can't do forced tool-calling (`tool_choice: "required"`), which agex
+        // always sends. `pinFallbackFetch` keeps the pinned provider and retries
+        // with `tool_choice: "auto"` instead of abandoning the user's choice.
+        ...(providerPin ? { fetchImpl: pinFallbackFetch } : {}),
         // OpenRouter attribution headers — surface the studio in the
         // OpenRouter analytics dashboard and earn fairer rate-limit
         // weighting on free models. Mirrors the py side's
