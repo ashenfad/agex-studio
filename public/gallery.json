@@ -1,5 +1,14 @@
 [
   {
+    "name": "Apoca-Laps",
+    "description": "Race the end of the world.",
+    "gistShorthand": "ashenfad/daee111af88934cfbc309b1172030cbc/575c4f0fea73c1a3d757fe4b24588941a91bbd47/apoca-laps",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["racing", "game", "voxel"],
+    "thumbnail": "apoca-laps.png"
+  },
+  {
     "name": "Absorbed",
     "description": "An Osmos tribute",
     "gistShorthand": "ashenfad/42516b0358378571f2bb5f3a6ccd812f/65bfc5486254918d8f27691c45f946d6a1340a88/absorbed",
