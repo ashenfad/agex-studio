@@ -1429,15 +1429,21 @@ export async function readAppBinaries(branch) {
  * and collecting top-level chapter metadata into `metaOut`. Mirrors
  * py's `_do_flatten` (`py-kernel-adapter.js:557`) field-for-field.
  *
- *   - `collect=true` at the top level: record `{name, message, events}`
- *     for each ChapterEvent encountered. The `events` payload is the
- *     output of `serializeChapterEvents`, which is itself recursive
- *     and produces the modal-drill-down shape `ChapterModal` expects.
- *   - `collect=false` when recursing into a ChapterEvent's resolved
- *     events: still flatten any nested chapters into `flatOut` (so the
- *     main scroll sees deeply-folded originals), but don't push their
- *     metadata to the queue — nested chapters' metadata lives inside
- *     the parent chapter's modal-contents payload already.
+ *   - When `collect` is true, record `{name, message, timestamp, events}`
+ *     for **every** ChapterEvent encountered, at any nesting depth. The
+ *     `events` payload is the output of `serializeChapterEvents`, which
+ *     is itself recursive and produces the modal-drill-down shape
+ *     `ChapterModal` expects.
+ *   - Nested chapters must be collected too (not just top-level ones),
+ *     because a later chaptering run can re-fold an earlier run's
+ *     chapter, nesting it. `loadHistory`'s main walk still renders one
+ *     band per `__chapter__` run (the nested runs' bookkeeping is
+ *     re-expanded into `flatOut` here), so each of those bands needs
+ *     its own run's chapter metadata. Collecting only top-level chapters
+ *     starves the later bands — they drain an empty queue and render
+ *     "0 chapters created" even though the fold happened. `collect` is
+ *     threaded unchanged through the recursion; the FIFO order is fixed
+ *     up by a timestamp sort in `_flattenLogEvents` (see there).
  *
  * @param {ReadonlyArray<Object>} events
  * @param {Array<Object>} flatOut
@@ -1454,6 +1460,10 @@ async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
                 metaOut.push({
                     name: ce.name,
                     message: ce.message,
+                    // Stamped when the chapter's run applied it — the
+                    // durable link back to which run produced it. Used
+                    // by `_flattenLogEvents` to order the queue by run.
+                    timestamp: ce.timestamp,
                     events: await serializeChapterEvents(
                         ce.eventRefs || [],
                         resolveByKey,
@@ -1462,14 +1472,16 @@ async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
                 });
             }
             // Recurse into the originals so nested chapters' inner
-            // events also reach the main scroll.
+            // events also reach the main scroll. `collect` is threaded
+            // through unchanged (not forced false) so a re-folded run's
+            // chapters are collected for that run's band too.
             /** @type {Array<Object>} */
             const resolved = [];
             for (const key of ce.eventRefs || []) {
                 const inner = await resolveByKey(key);
                 if (inner) resolved.push(inner);
             }
-            await _doFlatten(resolved, flatOut, metaOut, resolveByKey, false);
+            await _doFlatten(resolved, flatOut, metaOut, resolveByKey, collect);
         } else {
             flatOut.push(e);
         }
@@ -1513,12 +1525,27 @@ async function _doFlatten(events, flatOut, metaOut, resolveByKey, collect) {
 export async function loadHistory(branch) {
     const agent = await _agentForBranch(branch);
     const log = await agent.events(SESSION);
+    return _reconstructHistory(log);
+}
 
+/**
+ * Rebuild the shell's chat-message rows from an `EventLog`. Split out of
+ * `loadHistory` so the chapter-band reconstruction can be unit-tested
+ * against a synthetic log without standing up an agent pool — the only
+ * surface it needs is `iter()` (active index) and `byKey()` (resolve a
+ * folded event's state key). Exported as a test seam; not part of the
+ * public studio API.
+ *
+ * @param {{ iter: () => AsyncIterable<Object>, byKey?: (key: string) => Promise<Object | null> }} log
+ * @returns {Promise<Array<Object>>}
+ */
+export async function _reconstructHistory(log) {
     // Flatten pass: substitute each ChapterEvent with its
     // (recursively-resolved) originals so the visible scroll renders
-    // the pre-fold turns. `collect: true` also drains top-level chapter
-    // metadata (name, message, modal-contents) into `chapterMeta`, in
-    // flatten-encounter order, for the `__chapter__` `success` handler
+    // the pre-fold turns. `collect: true` also drains chapter metadata
+    // (name, message, modal-contents) — for every chapter at every
+    // nesting depth — into `chapterMeta`, ordered by application time
+    // (see `_flattenLogEvents`), for the `__chapter__` `success` handler
     // below.
     const { flat, chapterMeta } = await _flattenLogEvents(log, true);
 
@@ -1602,13 +1629,16 @@ export async function loadHistory(branch) {
         } else if (t === "success") {
             const result = /** @type {any} */ (e).result;
             if (currentTaskName === "__chapter__") {
-                // Drain N top-level chapter metadata entries (where N
-                // is the chapter task's result length) into the most-
-                // recent open chaptering band. Mirrors py's
-                // `_chapter_meta[:take]` slice + reversed-search for
-                // the open band. Without this drain the band would
-                // render as "0 chapters created" — same symptom we
-                // saw pre-aggregation, now defended differently.
+                // Drain N chapter metadata entries (where N is this
+                // run's result length) into the most-recent open
+                // chaptering band. `chapterMeta` holds every run's
+                // chapters (all depths), ordered by application time, so
+                // the front N belong to this run. Mirrors py's
+                // `_chapter_meta[:take]` slice + reversed-search for the
+                // open band. (Earlier this collected only top-level
+                // chapters, so after a run re-folded an earlier chapter
+                // the later bands drained an empty queue and rendered
+                // "0 chapters created" though the fold had happened.)
                 let n = 0;
                 if (Array.isArray(result)) {
                     for (const ch of result) {
@@ -1785,6 +1815,21 @@ async function _flattenLogEvents(log, collect = false) {
     /** @type {Array<Object>} */
     const chapterMeta = [];
     await _doFlatten(rawEvents, flat, chapterMeta, resolveByKey, collect);
+    // Order the chapter queue by application time so the FIFO drain in
+    // `_reconstructHistory` pairs each band with its own run. `_doFlatten`
+    // pushes chapters in walk order — outer (later) chapters before the
+    // nested (earlier) ones they re-folded — which is the reverse of the
+    // order the main walk hits the bands. A ChapterEvent's `timestamp` is
+    // stamped when its run applies it, so sorting by it recovers
+    // chronological run order == the order bands are walked. (Chapters
+    // from one run share a near-identical stamp and runs are turn-gated
+    // and seconds+ apart, so cross-run buckets never interleave; a stable
+    // sort keeps within-run order.) Empty/no-op when `collect` is false.
+    chapterMeta.sort((a, b) => {
+        const at = /** @type {any} */ (a).timestamp || "";
+        const bt = /** @type {any} */ (b).timestamp || "";
+        return at < bt ? -1 : at > bt ? 1 : 0;
+    });
     return { flat, chapterMeta };
 }
 

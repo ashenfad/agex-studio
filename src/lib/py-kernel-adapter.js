@@ -563,7 +563,13 @@ _all = _get_events(_state)
 _pre = [e for e in _all if e.source != "setup"]
 
 # Flatten chapters: expand ChapterEvents into their original events,
-# collecting chapter metadata for the chaptering bands.
+# collecting chapter metadata for the chaptering bands. Collect at every
+# nesting depth (not just top-level): a later chaptering run can re-fold
+# an earlier run's chapter, nesting it, but the main walk still renders
+# one band per run (nested runs' bookkeeping is re-expanded into _flat),
+# so each band needs its own run's chapters. (Mirrors the TS _do_flatten
+# fix; collecting only top-level chapters left the later bands draining
+# an empty queue -> "0 chapters created" though the fold had happened.)
 _flat = []
 _chapter_meta = []
 
@@ -574,13 +580,23 @@ def _do_flatten(evts, collect=True):
                 _chapter_meta.append({
                     "name": _e.name,
                     "message": _e.message,
+                    # Stamped when this chapter's run applied it — used
+                    # below to order the queue by run (see the sort).
+                    "timestamp": _e.timestamp.isoformat(),
                     "events": _serialize_chapter_events(_e.resolve_events(_state), _state),
                 })
-            _do_flatten(_e.resolve_events(_state), collect=False)
+            # Thread collect through unchanged (not forced False).
+            _do_flatten(_e.resolve_events(_state), collect=collect)
         else:
             _flat.append(_e)
 
 _do_flatten(_pre)
+# Order the chapter queue by application time so the FIFO drain in the
+# main walk pairs each band with its own run. _do_flatten yields outer
+# (later) chapters before the nested (earlier) ones they re-folded — the
+# reverse of band-walk order; sorting by the stamp recovers chronological
+# run order == the order bands are walked.
+_chapter_meta.sort(key=lambda _m: _m["timestamp"])
 
 _messages = []
 _current_events = []
