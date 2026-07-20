@@ -1825,6 +1825,9 @@ async function _flattenLogEvents(log, collect = false) {
     // from one run share a near-identical stamp and runs are turn-gated
     // and seconds+ apart, so cross-run buckets never interleave; a stable
     // sort keeps within-run order.) Empty/no-op when `collect` is false.
+    // `timestamp` is an ISO-8601 string from `toISOString()` (UTC, ms
+    // precision) in both the reload path and tests, so a lexical compare
+    // is chronological — no Date parsing needed.
     chapterMeta.sort((a, b) => {
         const at = /** @type {any} */ (a).timestamp || "";
         const bt = /** @type {any} */ (b).timestamp || "";
