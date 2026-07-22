@@ -30,7 +30,7 @@ describe("settingsStore", () => {
         });
         expect(received).toEqual({
             apiKey: "",
-            model: "google/gemini-3.5-flash",
+            model: "google/gemini-3.6-flash",
             accessMode: "openrouter",
             provider: "openai",
             baseUrl: "",
@@ -73,7 +73,7 @@ describe("settingsStore", () => {
             received = s;
         });
         expect(received.apiKey).toBe("sk-partial");
-        expect(received.model).toBe("google/gemini-3.5-flash");
+        expect(received.model).toBe("google/gemini-3.6-flash");
     });
 
     it("handles corrupt localStorage gracefully", async () => {
@@ -84,6 +84,17 @@ describe("settingsStore", () => {
             received = s;
         });
         expect(received.apiKey).toBe("");
+    });
+
+    it("migrates the retired Gemini 3.5 Flash preset", async () => {
+        store["agex-settings"] = JSON.stringify({
+            model: "google/gemini-3.5-flash",
+            accessMode: "openrouter",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        expect(received.model).toBe("google/gemini-3.6-flash");
     });
 
     /** Migration: pre-accessMode settings that were already going through
@@ -156,7 +167,7 @@ describe("updateSettings", () => {
 
         expect(values).toHaveLength(2);
         expect(values[1].apiKey).toBe("sk-new");
-        expect(values[1].model).toBe("google/gemini-3.5-flash");
+        expect(values[1].model).toBe("google/gemini-3.6-flash");
 
         const saved = JSON.parse(store["agex-settings"]);
         expect(saved.apiKey).toBe("sk-new");
@@ -193,7 +204,7 @@ describe("resolveProvider", () => {
     it("returns openai in OpenRouter mode for non-anthropic models", async () => {
         const { resolveProvider } = await loadSettings();
         for (const model of [
-            "google/gemini-3.5-flash",
+            "google/gemini-3.6-flash",
             "openai/gpt-5.4",
             "meta-llama/llama-4",
             "mistralai/mistral-large",
@@ -210,7 +221,7 @@ describe("resolveProvider", () => {
             resolveProvider({
                 accessMode: "openrouter",
                 provider: "anthropic", // stored, but should be ignored
-                model: "google/gemini-3.5-flash",
+                model: "google/gemini-3.6-flash",
             }),
         ).toBe("openai");
         expect(

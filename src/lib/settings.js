@@ -4,9 +4,12 @@
 
 export const STORAGE_KEY = "agex-settings";
 
+const RETIRED_OPENROUTER_MODEL = "google/gemini-3.5-flash";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.6-flash";
+
 const DEFAULTS = {
     apiKey: "",
-    model: "google/gemini-3.5-flash",
+    model: DEFAULT_OPENROUTER_MODEL,
     // ``accessMode`` is the user-facing primary control: which service
     // we're talking to.  Two modes:
     //   "openrouter" — managed: fixed base URL, key + model is enough.
@@ -165,6 +168,15 @@ function load() {
                 // direct-provider modes fold into "custom"; preserve
                 // the wire format via ``provider``.
                 merged.accessMode = "custom";
+            }
+            // Move existing OpenRouter users off the retired Gemini model.
+            // Custom model IDs remain user-controlled, so only migrate this
+            // exact retired preset when it is stored.
+            if (
+                merged.accessMode === "openrouter" &&
+                merged.model === RETIRED_OPENROUTER_MODEL
+            ) {
+                merged.model = DEFAULT_OPENROUTER_MODEL;
             }
             return merged;
         }
