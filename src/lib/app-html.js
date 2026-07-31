@@ -19,6 +19,21 @@ import {
 const CONSOLE_INTERCEPTOR = `
 <script>
 (function() {
+    // Guarded postMessage to the studio parent. The bootloader stamps
+    // window.__AGEX_PARENT_ORIGIN before app scripts run; if it's
+    // somehow missing, DROP the message rather than fall back to '*'
+    // — app-storage contents and bridge payloads must never broadcast
+    // to an arbitrary embedder. Returns whether the message was sent
+    // so reply-expecting callers can fail fast instead of hanging.
+    // Defined here because the console interceptor is the first
+    // script in every buildAppHtml assembly; later inline scripts
+    // (query bridge, storage shim, control bridge) rely on it.
+    window.__agexPost = function(msg) {
+        var origin = window.__AGEX_PARENT_ORIGIN;
+        if (!origin) return false;
+        window.parent.postMessage(msg, origin);
+        return true;
+    };
     window.__agex_logs = [];
     var _origLog = console.log, _origWarn = console.warn, _origErr = console.error;
     // Per-message cap. Mirrors MAX_VALUE_BYTES in iframe-bridge.js:
@@ -70,13 +85,13 @@ const CONSOLE_INTERCEPTOR = `
             var attr = el.src ? 'src' : (el.href ? 'href' : 'data');
             var logMsg = '[resource load failed] <' + tag + ' ' + attr + '="' + String(url) + '"> failed to load';
             window.__agex_logs.push({ level: 'error', message: logMsg });
-            window.parent.postMessage({
+            window.__agexPost({
                 type: 'agex-iframe-resource-error',
                 tag: tag,
                 attr: attr,
                 url: String(url),
                 outerHTML: (el.outerHTML || '').slice(0, 200),
-            }, window.__AGEX_PARENT_ORIGIN || '*');
+            });
         } catch (_) { /* swallow */ }
     }, true);  // capture phase — resource errors don't bubble
 })();
@@ -96,12 +111,15 @@ window.query = function(opts) {
             }
         }
         window.addEventListener('message', handler);
-        window.parent.postMessage({
+        if (!window.__agexPost({
             type: 'agex-query',
             id: id,
             code: opts.code,
             result: opts.result || null,
-        }, window.__AGEX_PARENT_ORIGIN || '*');
+        })) {
+            window.removeEventListener('message', handler);
+            reject(new Error('agex parent origin not configured'));
+        }
     });
 };
 
@@ -119,11 +137,14 @@ window.getCacheValue = function(key) {
             }
         }
         window.addEventListener('message', handler);
-        window.parent.postMessage({
+        if (!window.__agexPost({
             type: 'agex-cache-get',
             id: id,
             key: key,
-        }, window.__AGEX_PARENT_ORIGIN || '*');
+        })) {
+            window.removeEventListener('message', handler);
+            reject(new Error('agex parent origin not configured'));
+        }
     });
 };
 
@@ -158,20 +179,20 @@ window.spawn = function(spec, opts) {
         }
         function onAbort() {
             cleanup();
-            window.parent.postMessage(
-                { type: 'agex-cancel-spawn', id: id },
-                window.__AGEX_PARENT_ORIGIN || '*'
-            );
+            window.__agexPost({ type: 'agex-cancel-spawn', id: id });
             reject(new DOMException('Aborted', 'AbortError'));
         }
         if (signal && signal.aborted) { onAbort(); return; }
         window.addEventListener('message', handler);
         if (signal) signal.addEventListener('abort', onAbort);
-        window.parent.postMessage({
+        if (!window.__agexPost({
             type: 'agex-spawn',
             id: id,
             spec: spec === undefined ? null : spec,
-        }, window.__AGEX_PARENT_ORIGIN || '*');
+        })) {
+            cleanup();
+            reject(new Error('agex parent origin not configured'));
+        }
     });
 };
 
@@ -195,12 +216,17 @@ window.notify = function(title, body) {
             resolve(!!event.data.shown);
         }
         window.addEventListener('message', handler);
-        window.parent.postMessage({
+        if (!window.__agexPost({
             type: 'agex-notify',
             id: id,
             title: opts.title == null ? '' : String(opts.title),
             body: opts.body == null ? '' : String(opts.body),
-        }, window.__AGEX_PARENT_ORIGIN || '*');
+        })) {
+            // notify() never rejects — treat "can't reach parent" as
+            // "not shown".
+            window.removeEventListener('message', handler);
+            resolve(false);
+        }
     });
 };
 <\/script>`;
@@ -242,10 +268,10 @@ export function buildAppStorageShim(opts = {}) {
         function notify() {
             if (!persist || !__writeable) return;
             try {
-                window.parent.postMessage({
+                window.__agexPost({
                     type: 'agex-app-storage',
                     data: JSON.parse(JSON.stringify(data)),
-                }, window.__AGEX_PARENT_ORIGIN || '*');
+                });
             } catch (e) { /* parent gone — swallow */ }
         }
         return {
@@ -333,10 +359,7 @@ installControlBridge(window);
 // replaces the document, so we need an in-doc signal instead. Module
 // scripts run after the document parses, so by the time this runs
 // the app's other scripts have also had a chance to start.
-window.parent.postMessage(
-    { type: 'agex-bridge-ready' },
-    window.__AGEX_PARENT_ORIGIN || '*'
-);
+window.__agexPost({ type: 'agex-bridge-ready' });
 <\/script>`;
 
 const CDN_IMPORTS = {
