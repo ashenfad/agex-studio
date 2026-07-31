@@ -16,7 +16,7 @@ import { read as readAppStorage } from './app-storage.js';
 import { buildAppHtml } from './app-html.js';
 // Single source of truth for the settings localStorage key (the worker
 // LLM bridge below reads the API key out of it per-request).
-import { STORAGE_KEY as SETTINGS_STORAGE_KEY, resolveBaseUrl } from './settings.js';
+import { getSettings, resolveBaseUrl, resolveProvider } from './settings.js';
 // `?url` makes vite emit `esbuild-bridge.js` as a static asset and
 // hand back its resolved URL (hashed in production, /src/... in dev).
 // Forwarded to the py worker via the init postMessage so worker.js
@@ -277,22 +277,17 @@ async function getPdfPageCount(pdfBase64, requestId) {
     }
 }
 
-// --- LLM bridge: main-thread fetch with key from localStorage ---
+// --- LLM bridge: main-thread fetch with key from the settings store ---
 
 /**
- * Read the OpenRouter / Anthropic API key from localStorage.
- * Done per-request so key rotation via the Settings drawer takes effect
- * immediately without requiring a worker restart.
+ * Read the OpenRouter / Anthropic API key from the settings store.
+ * Read per-request so key rotation via the Settings drawer takes effect
+ * immediately without requiring a worker restart. Goes through
+ * `getSettings()` (not raw localStorage) so legacy pre-`accessMode`
+ * records see the same in-memory migration the rest of the app uses.
  */
 function _readApiKey() {
-    try {
-        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        if (!raw) return "";
-        const settings = JSON.parse(raw);
-        return settings.apiKey || "";
-    } catch {
-        return "";
-    }
+    return getSettings().apiKey || "";
 }
 
 /**
@@ -301,15 +296,30 @@ function _readApiKey() {
  * The worker chooses request URLs, so without this gate a compromised
  * worker (or anything that reached the bridge) could ask the main
  * thread to attach the API key to an arbitrary destination. The
- * allowed origin derives from the same `resolveBaseUrl` the kernel
- * adapters use — OpenRouter in managed mode, the user's own base URL
- * in custom mode — so there's no separate list to keep in sync.
+ * allowed origin derives from the same settings snapshot + resolver
+ * chain `_llmConfig` uses to build the client, so the gate always
+ * matches the endpoint the worker was actually configured with:
+ *
+ *   - `resolveBaseUrl` non-empty → that URL's origin (OpenRouter in
+ *     managed mode, the user's own base URL in custom mode).
+ *   - `resolveBaseUrl` empty → the client library's default endpoint
+ *     (`_llmConfig` omits base_url then): api.anthropic.com for
+ *     PyfetchAnthropic, OpenRouter for PyfetchOpenAI.
+ *
+ * Reads the migrated `getSettings()` snapshot, NOT raw localStorage —
+ * legacy pre-`accessMode` records are migrated in memory by
+ * settings.js `load()` without being written back, so a raw reparse
+ * would see no accessMode/baseUrl and refuse auth for exactly the
+ * users the migration exists to keep working.
  */
 function _isConfiguredLlmOrigin(url) {
+    const settings = getSettings();
+    const base =
+        resolveBaseUrl(settings) ||
+        (resolveProvider(settings) === "anthropic"
+            ? "https://api.anthropic.com"
+            : "https://openrouter.ai");
     try {
-        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        const base = resolveBaseUrl(raw ? JSON.parse(raw) : {});
-        if (!base) return false;
         return new URL(url).origin === new URL(base).origin;
     } catch {
         return false;

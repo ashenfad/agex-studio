@@ -937,4 +937,51 @@ describe("LLM bridge auth gate", () => {
         );
         expect(headers["Authorization"]).toBeUndefined();
     });
+
+    // --- Legacy settings records (pre-accessMode) --------------------
+    // settings.js load() migrates these in memory WITHOUT writing back
+    // to localStorage, so the gate must read the migrated snapshot —
+    // a raw localStorage reparse would see no accessMode/baseUrl and
+    // refuse auth for exactly the users the migration keeps working.
+    // (Caught by Codex review on PR #65.)
+
+    it("legacy record (no accessMode, no baseUrl) still authenticates OpenRouter", async () => {
+        localStorageData["agex-settings"] = JSON.stringify({
+            apiKey: "sk-test",
+        });
+        const headers = await llmFetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+        );
+        expect(headers["Authorization"]).toBe("Bearer sk-test");
+    });
+
+    it("legacy anthropic-direct record authenticates the client-default endpoint", async () => {
+        // provider=anthropic with no baseUrl migrates to custom mode
+        // with an empty base URL — _llmConfig then omits base_url and
+        // PyfetchAnthropic defaults to api.anthropic.com, so that's
+        // the origin the gate must allow.
+        localStorageData["agex-settings"] = JSON.stringify({
+            apiKey: "sk-test",
+            provider: "anthropic",
+        });
+        const headers = await llmFetch("https://api.anthropic.com/v1/messages");
+        expect(headers["x-api-key"]).toBe("sk-test");
+    });
+
+    it("custom mode with empty baseUrl authenticates the OpenAI-shape default (OpenRouter)", async () => {
+        setSettings({ accessMode: "custom", provider: "openai", baseUrl: "" });
+        const headers = await llmFetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+        );
+        expect(headers["Authorization"]).toBe("Bearer sk-test");
+    });
+
+    it("legacy record still refuses other origins", async () => {
+        localStorageData["agex-settings"] = JSON.stringify({
+            apiKey: "sk-test",
+        });
+        const headers = await llmFetch("https://attacker.example/collect");
+        expect(headers["Authorization"]).toBeUndefined();
+        expect(headers["x-api-key"]).toBeUndefined();
+    });
 });
