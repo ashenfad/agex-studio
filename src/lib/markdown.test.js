@@ -1,3 +1,8 @@
+// @vitest-environment jsdom
+// DOMPurify needs a DOM to sanitize against — and specifically jsdom,
+// not happy-dom: under happy-dom 20.x DOMPurify reports isSupported
+// but mis-sanitizes (drops <strong>, passes <script> through), so the
+// sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
 import { renderMarkdown, renderMarkdownInline } from "./markdown.js";
 
@@ -158,5 +163,72 @@ describe("renderMarkdownInline", () => {
         // Defensive — DataTable filters non-strings before calling,
         // but the helper itself should handle accidental misuse.
         expect(renderMarkdownInline(42)).toContain("42");
+    });
+});
+
+describe("sanitization", () => {
+    // Markdown reaching these renderers can come from an imported
+    // session bundle (gist link) — VFS files, chapter summaries, and
+    // chat history are all attacker-controlled in that path, and the
+    // output lands in {@html} on the origin holding API keys. These
+    // tests pin the DOMPurify pass that closes that hole.
+
+    it("strips <script> tags", () => {
+        const html = renderMarkdown('hello <script>alert(1)</script> world');
+        expect(html).not.toContain("<script");
+        expect(html).toContain("hello");
+        expect(html).toContain("world");
+    });
+
+    it("strips event-handler attributes", () => {
+        const html = renderMarkdown('<img src="x" onerror="alert(1)">');
+        expect(html).not.toContain("onerror");
+    });
+
+    it("strips javascript: hrefs from markdown links", () => {
+        const html = renderMarkdown("[click](javascript:alert(1))");
+        expect(html).not.toContain("javascript:");
+    });
+
+    it("strips javascript: hrefs from raw anchors", () => {
+        const html = renderMarkdown('<a href="javascript:alert(1)">x</a>');
+        expect(html).not.toContain("javascript:");
+    });
+
+    it("strips iframes and embeds", () => {
+        const html = renderMarkdown(
+            '<iframe src="https://evil.example"></iframe><embed src="x">'
+        );
+        expect(html).not.toContain("<iframe");
+        expect(html).not.toContain("<embed");
+    });
+
+    it("entity-escapes mermaid source instead of injecting it", () => {
+        const html = renderMarkdown(
+            '```mermaid\n</pre><img src=x onerror=alert(1)>\n```'
+        );
+        // No live tag — the payload survives only as escaped text
+        // ("onerror" as inert text content is fine; an <img> element
+        // carrying it is not).
+        expect(html).not.toContain("<img");
+        expect(html).toContain('<pre class="mermaid">');
+        // The source survives as escaped text (textContent decodes it
+        // back for mermaid.render).
+        expect(html).toContain("&lt;/pre&gt;&lt;img src=x onerror=alert(1)&gt;");
+    });
+
+    it("keeps benign markup: vfs links, callouts, code, emphasis", () => {
+        const html = renderMarkdown(
+            "> [!NOTE]\n> heads up\n\n**bold** [f](vfs:a.png) `code`"
+        );
+        expect(html).toContain('class="callout callout-note"');
+        expect(html).toContain('data-vfs-path="a.png"');
+        expect(html).toContain("<strong>bold</strong>");
+        expect(html).toContain("<code>code</code>");
+    });
+
+    it("sanitizes renderMarkdownInline output too", () => {
+        const html = renderMarkdownInline('<img src="x" onerror="alert(1)">');
+        expect(html).not.toContain("onerror");
     });
 });

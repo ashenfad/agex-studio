@@ -10,8 +10,25 @@
  */
 
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 marked.setOptions({ breaks: true });
+
+/**
+ * Sanitize rendered HTML before it reaches `{@html}`.
+ *
+ * Chat messages, VFS files, and chapter summaries all flow through
+ * here — and all of them can arrive from an *imported* session
+ * bundle (gist links), so the markdown source is untrusted. marked
+ * passes raw HTML through by default; DOMPurify strips script
+ * vectors (event handlers, javascript: URLs, <script>) while
+ * keeping the tags our renderers emit. `data-vfs-path` survives
+ * via DOMPurify's default data-* allowance; explicit ADD_ATTR
+ * guards against that default ever being turned off.
+ */
+function sanitize(html) {
+    return DOMPurify.sanitize(html, { ADD_ATTR: ["data-vfs-path"] });
+}
 
 // Custom renderer:
 // - mermaid code blocks → <pre class="mermaid"> for client-side rendering
@@ -38,7 +55,11 @@ const CALLOUT_LABELS = {
 
 renderer.code = function ({ text, lang }) {
     if (lang === "mermaid") {
-        return `<pre class="mermaid">${text}</pre>`;
+        // Entity-escape the diagram source: interpolating it raw is
+        // an HTML injection vector. renderMermaidBlocks() reads the
+        // block back via textContent, which decodes the entities, so
+        // mermaid still sees the original source.
+        return `<pre class="mermaid">${escapeHtml(text)}</pre>`;
     }
     return origCode({ text, lang });
 };
@@ -101,6 +122,15 @@ function escapeAttr(s) {
         .replace(/</g, "&lt;");
 }
 
+/** Full HTML text escape for element content. */
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
 /** Ensure blank lines before block elements so marked recognizes them. */
 function prepare(text) {
     return text
@@ -120,7 +150,7 @@ function prepare(text) {
  * wraps as visual breaks. Per-call options are merged onto the
  * module-level defaults set via `marked.setOptions`. */
 export function renderMarkdown(text, { breaks = true } = {}) {
-    return marked.parse(prepare(text), { breaks });
+    return sanitize(marked.parse(prepare(text), { breaks }));
 }
 
 /** Parse markdown to inline HTML — no block elements (paragraphs,
@@ -135,7 +165,7 @@ export function renderMarkdown(text, { breaks = true } = {}) {
  *  table's fixed ROW_HEIGHT virtualization. */
 export function renderMarkdownInline(text) {
     const flat = String(text).replace(/\s*\n\s*/g, " ");
-    return marked.parseInline(flat);
+    return sanitize(marked.parseInline(flat));
 }
 
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";

@@ -13,6 +13,7 @@
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@vitest/coverage-v8": "^4.1.0",
     "happy-dom": "^20.9.0",
+    "jsdom": "^29.1.1",
     "svelte": "^5.45.2",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
@@ -24,6 +25,7 @@
     "@agex-ts/runtime-worker": "^3.0.0",
     "@agex-ts/termish": "^0.1.0",
     "agex-ts": "^0.4.1",
+    "dompurify": "^3.4.12",
     "fflate": "^0.8.2",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.4",
