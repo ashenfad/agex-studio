@@ -24,12 +24,15 @@ demand (see [What leaves your browser](#what-leaves-your-browser)).
   games in a sandboxed iframe alongside the chat — JSX bundled in-browser
   via `esbuild`, or no-build HTM + Preact for a lighter path. The agent
   can `testApp` and `liveApp` to verify and interact with what it built.
-- **Tight code sandbox.** The primary [TypeScript
+- **Isolated code execution.** The primary [TypeScript
   kernel](https://github.com/ashenfad/agex-ts) runs agent code in a Web
-  Worker realm — no DOM, no host globals, no `eval`. Code sees only the
-  names you inject as parameters; type annotations are stripped and it's
-  compiled with `new AsyncFunction`. Bare npm imports resolve through
-  esm.sh on demand.
+  Worker realm — no DOM, no main-thread state, no `eval`. Registered
+  capabilities arrive as injected parameters; type annotations are
+  stripped and it's compiled with `new AsyncFunction`. The boundary
+  isolates the page, not the network: agent code can still reach
+  worker-scope globals like `fetch`, so this is isolation for
+  cooperative code, not a jail for hostile code. Bare npm imports
+  resolve through esm.sh on demand.
 
 ## What it can do
 

@@ -427,16 +427,17 @@ async function _createBranchAgent(branch) {
         // as-is. Net effect: agents can `import x from 'd3'` for any
         // npm package without us needing to pre-declare it.
         //
-        // Why this is fine in our threat model: agex-ts's interpreter
-        // bounds what imported code can do (only registered host fns
-        // are reachable; no fs / env / raw-fetch access). A
-        // compromised library can return weird values but can't
-        // exfil or escape the worker. CSP + CORS bound network reach
-        // for anything the host fns might do downstream. Namespaces
-        // in browser/worker aren't a security gate; they're a UX +
-        // quality concern, and esm.sh handles ~all of npm cleanly.
-        //
-        // See namespaceResolver-v0.md for the full rationale.
+        // Why this is acceptable in our threat model: agent code and
+        // imported libraries run cooperatively, not adversarially —
+        // the worker boundary keeps them off the DOM and main-thread
+        // state, but worker-scope globals (fetch, IndexedDB) remain
+        // reachable, so a genuinely hostile package COULD exfiltrate
+        // workspace data. The gate against that is upstream of
+        // execution: the agent imports what the task calls for, and
+        // sessions that import someone else's bundle mark themselves
+        // external. Namespaces in browser/worker are a UX + quality
+        // concern rather than a security one, and esm.sh handles
+        // ~all of npm cleanly.
         namespaceResolver: (specifier) => {
             if (
                 specifier.startsWith("http://") ||
