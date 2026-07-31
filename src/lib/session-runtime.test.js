@@ -3,8 +3,8 @@
  *
  * This logic used to live inside `ChatShell.svelte` (untestable as
  * component-local closures). Lifting it into `session-runtime.svelte.js`
- * (Phase 1 of concurrent-sessions) makes it directly exercisable — these
- * tests pin the token → events/report behavior the chat feed depends on.
+ * made it directly exercisable — these tests pin the token →
+ * events/report behavior the chat feed depends on.
  *
  * Only the pure accumulation surface is exercised here (handleToken,
  * snapshotTurn, commitActiveReport, rebuildStreamingMessages, spawn

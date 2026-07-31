@@ -64,7 +64,7 @@ These shape almost every design decision:
 - `src/lib/ChatShell.svelte`, `MessageList.svelte`,
   `ChatInput.svelte` — the chat panel.
 - `src/lib/AppPreview.svelte`, `app-control.js`, `iframe-bridge.js`,
-  `pyodide.js` (also hosts `buildAppHtml`) — the live preview.
+  `app-html.js` (hosts `buildAppHtml`) — the live preview.
   See [app-preview.md](app-preview.md).
 - `src/lib/kernel-adapter.js` (contract), `ts-kernel-adapter.js`,
   `py-kernel-adapter.js`, `kernel-registry.js` — the kernel

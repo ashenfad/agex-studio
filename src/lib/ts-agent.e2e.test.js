@@ -1,5 +1,5 @@
 /**
- * End-to-end tests for the per-branch agent pool (Phase 2).
+ * End-to-end tests for the per-branch agent pool.
  *
  * Drives the REAL kernel path — `createTsAdapter` → `ts-agent` pool →
  * agex-ts agent → eval runtime → kvgit-backed state — but with test
@@ -10,7 +10,7 @@
  *
  * This is the behavioral net the pool refactor otherwise lacks: it
  * exercises persistence round-trips, two-session isolation, and — the
- * whole point of Phase 2 — concurrent turns on different sessions
+ * whole point of the pool — concurrent turns on different sessions
  * landing on their own branches without cross-talk.
  */
 

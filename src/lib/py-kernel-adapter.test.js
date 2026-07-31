@@ -6,9 +6,10 @@
  * is too slow / fragile to be useful here. Instead we verify the
  * surface: every method named in the typedef is present and callable.
  *
- * When the Ts adapter lands (Phase 5), a parameterized conformance
- * suite will exercise actual round-trip behavior against both
- * adapters. That's the higher-leverage test layer.
+ * Still open: a parameterized conformance suite exercising actual
+ * round-trip behavior against both adapters (the higher-leverage test
+ * layer). Both adapters exist now; this shape check and its twin in
+ * ts-kernel-adapter.test.js are the current stand-in.
  */
 
 import { describe, it, expect } from "vitest";

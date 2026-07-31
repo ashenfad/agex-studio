@@ -29,8 +29,8 @@
     // Pyodide boot is now driven lazily by `kernelRegistry.ensure('py', ...)`
     // in ChatShell — fired only after settings are configured. The shell
     // renders immediately; the warming-up state shows once init begins.
-    // No eager `startWorker()` here, so users on a TS-only path (when
-    // the Phase 5 Ts adapter lands) don't pay the Pyodide download cost.
+    // No eager `startWorker()` here, so users on a TS-only path don't
+    // pay the Pyodide download cost.
 
     // Pre-fetch Plotly.js on the parent origin. Sandboxed iframes use
     // opaque origins and don't share the HTTP cache across loads, so

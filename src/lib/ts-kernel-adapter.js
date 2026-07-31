@@ -6,8 +6,8 @@
  * a studio-side helper module (`ts-agent.js`). The adapter's role is
  * shape-translation, not new logic — every method just forwards its
  * `branch` to the matching branch-explicit `ts-agent` helper, which
- * resolves that branch's agent from the per-session pool (Phase 2 —
- * concurrent sessions; no shared "current branch" to synchronize).
+ * resolves that branch's agent from the per-session pool (concurrent
+ * sessions; no shared "current branch" to synchronize).
  *
  * `runQuery` is the one stubbed method — the agent↔app data bridge is a
  * Pyodide-kernel affordance with no TS-kernel equivalent yet.

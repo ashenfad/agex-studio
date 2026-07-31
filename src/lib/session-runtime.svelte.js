@@ -3,14 +3,13 @@
  * agent run loop, lifted out of `ChatShell.svelte` so a session's state
  * survives the foreground view switching away from it.
  *
- * Concurrent-sessions work (see `roadmap/concurrent-sessions.md`). One
- * `SessionRuntime` per branch holds what used to be `ChatShell`'s
+ * One `SessionRuntime` per branch holds what used to be `ChatShell`'s
  * component-local `$state` (messages, busy, the streaming accumulators,
  * …) and the methods that mutate it (`send`, `handleToken`,
  * `snapshotTurn`, …). `ChatShell` is a projection of the foreground
  * session's runtime.
  *
- * With Phase 2 landed, each session is its own agex-ts agent + worker
+ * Each session is its own agex-ts agent + worker
  * over a shared kvgit store (a branch per session), so turns on
  * different sessions run concurrently — fire one, switch away, it keeps
  * streaming. `send` captures `{ adapter, branch }` once at the top (the
@@ -70,11 +69,11 @@ export function activeTurnCount() {
     return _activeTurns;
 }
 
-// Phase 2 landed per-session working trees (each session is its own
-// agent + worker over a shared store), so turns on different sessions run
-// concurrently — the Phase 1 global single-flight guard is gone. Each
-// runtime's own `busy` flag still guards re-entrancy on the *same*
-// session.
+// Per-session working trees (each session is its own agent + worker
+// over a shared store) mean turns on different sessions run
+// concurrently — there is deliberately no global single-flight guard.
+// Each runtime's own `busy` flag still guards re-entrancy on the
+// *same* session.
 
 export class SessionRuntime {
     /** @param {string} branch */
@@ -789,7 +788,7 @@ export class SessionRuntime {
     send = async (prompt, attachments = [], agentReady = true) => {
         // Per-session re-entrancy guard only — turns on *other* sessions
         // run concurrently (each has its own agent + worker over the
-        // shared store; Phase 2).
+        // shared store).
         if (this.busy || !agentReady) return;
         const trimmed = (prompt || "").trim();
         if (!trimmed && attachments.length === 0) return;
