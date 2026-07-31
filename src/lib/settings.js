@@ -209,11 +209,6 @@ export function updateSettings(patch) {
     notify();
 }
 
-/** @returns {boolean} */
-export function isConfigured() {
-    return settings.apiKey.length > 0;
-}
-
 /** Return a snapshot of the current settings object.
  *
  *  Use over the Svelte-store `subscribe` contract when you need a

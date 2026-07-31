@@ -26,7 +26,7 @@
  * - Loaded lazily on first call (esbuild-wasm is ~10MB).
  * - Bare imports (`react`, `@radix-ui/...`) are marked external and
  *   stay as native ES module imports in the output.  The iframe's
- *   import map (configured in pyodide.js's buildAppHtml) resolves
+ *   import map (configured in app-html.js's buildAppHtml) resolves
  *   them to esm.sh at runtime.  This keeps the bundle to just the
  *   agent's local files.
  * - Relative imports (`./Chart.jsx`) are resolved against the file

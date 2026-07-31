@@ -8,8 +8,8 @@
  * see that distinction; they just say "operate on branch X".
  *
  * Concrete adapters implement this as a plain JS object exporting
- * functions matching the typedef.  See `py-kernel-adapter.js` (Phase 4)
- * and `ts-kernel-adapter.js` (Phase 5).
+ * functions matching the typedef.  See `py-kernel-adapter.js` and
+ * `ts-kernel-adapter.js`.
  *
  * Shell-only concerns deliberately NOT in this interface — these live
  * in shared shell modules and call into the adapter as needed:
@@ -21,10 +21,8 @@
  *   - iframe bridge plumbing, gist publish, settings, OAuth, theme,
  *     chat shell rendering, app preview rendering
  *
- * See `KERNEL_MAPPING.md` (Phase 2) for the empirical grounding behind
- * this shape.  Once both adapters exist (Phase 5) and the shell is
- * fully refactored, KERNEL_MAPPING.md goes away — this typedef plus
- * its two implementations are the canonical truth.
+ * This typedef plus its two implementations are the canonical truth
+ * for the kernel boundary.
  */
 
 // ---------------------------------------------------------------------------
@@ -386,6 +384,18 @@
  *   Cheap preview — commit count + branch metadata.  Used by the
  *   export modal before the user commits to the full export.
  *
+ * @property {(branch: string) => Promise<{ profile: Object, estimates: Object } | null>} profilePublishSizes
+ *   Per-category byte profile + approximate bundle sizes for each
+ *   publish shape — drives the publish modal's shape options.
+ *   Ts-kernel capability; the py adapter returns `null`, which tells
+ *   the publish flow to skip the shape-options stage.
+ *
+ * @property {(sourceBranch: string, destBranch: string, opts?: { images?: string }) => Promise<void>} snapshotToBranch
+ *   Persistent snapshot: copy `sourceBranch`'s tip into a single
+ *   fresh commit on `destBranch` (the "compact copy" fork).  Ts-only;
+ *   the py adapter throws (the fork modal disables the option for py
+ *   sessions before this could be reached).
+ *
  * --- History rendering ---------------------------------------------------
  *
  * @property {(branch: string) => Promise<UiMessage[]>} loadHistory
@@ -417,11 +427,21 @@
  *   Execute `code` in the branch's sandbox with a snapshot of the
  *   branch's `cache` and shared VFS access.  Returns the requested
  *   variables (when `resultVars` is an array), or the entire
- *   serializable namespace (when `null`).  Cache writes from query
- *   code are turn-local (discarded when the query returns); VFS writes
- *   are shared live.  See agex-studio's `STATE.md` § "runQuery
- *   isolation" for the asymmetric-state contract that both adapters
- *   honor identically.
+ *   serializable namespace (when `null`).
+ *
+ *   The asymmetric-state contract both adapters honor identically —
+ *   state sharing between the chat agent and a query is intentional
+ *   and asymmetric per slice:
+ *     - cache: SNAPSHOT — copied into scratch state at query start;
+ *       apps read what the agent explicitly cached, but later chat
+ *       writes don't appear until the next query.
+ *     - VFS: shared LIVE — queries read whatever is currently on
+ *       disk; helper/scratch files survive the round-trip.
+ *     - query-side writes: discarded — they land in scratch state
+ *       that never syncs back and never commits. Load-bearing: if
+ *       queries persisted, app reads would leak into the chat event
+ *       log and inflate prompt token costs; speculative writes would
+ *       clobber live app state.
  *
  * @property {(branch: string, key: string) => Promise<unknown>} getCacheValue
  *   Read a value from the branch's agent cache (`cache.set(key, value)`

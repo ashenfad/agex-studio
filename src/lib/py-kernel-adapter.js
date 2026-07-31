@@ -22,8 +22,9 @@
  *
  * Existing functions in `agent.js` / `sessions.js` are still exported
  * directly for now — call sites migrate to the adapter incrementally.
- * Once migration is complete (later in Phase 4), the existing exports
- * can be removed and the adapter becomes the only entry point.
+ * Still open: once the last direct imports are gone (session-runtime's
+ * `cancelTask`, AppPreview's `setLiveIframe`, and friends), the direct
+ * exports can be removed and the adapter becomes the only entry point.
  */
 
 import {
@@ -105,8 +106,8 @@ function _waitForStage(target) {
  *  Escapes backslashes, double quotes, and newlines — a literal
  *  newline in a branch name would terminate the Python string literal
  *  inside the heredoc and produce a SyntaxError in the worker.
- *  (sessions.js uses a similar two-replace pattern; once Phase 5
- *  surfaces a real cross-kernel escaper need, consolidate.) */
+ *  (sessions.js uses a similar two-replace pattern; if a real
+ *  cross-kernel escaper need surfaces, consolidate.) */
 function _esc(branch) {
     return String(branch || "")
         .replace(/\\/g, "\\\\")
@@ -203,9 +204,8 @@ if _state.current_branch != "${_esc(branch)}":
 
         async dispose() {
             // No-op for now. Pyodide worker teardown isn't currently
-            // wired up; the studio relies on tab close. When lazy
-            // re-init lands (Phase 4 thread 3), this becomes
-            // meaningful.
+            // wired up; the studio relies on tab close. If lazy
+            // re-init ever lands, this becomes meaningful.
         },
 
         // --- Branch operations -------------------------------------------

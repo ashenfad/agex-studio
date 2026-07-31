@@ -64,7 +64,14 @@ export async function getActiveAdapter() {
     const ss = get(sessionStore);
     const branch = ss.currentBranch;
     const session = ss.sessions.find((s) => s.branch === branch);
-    const kernel = /** @type {'py' | 'ts'} */ (session?.kernel || "py");
+    // A record without `kernel` is a legacy (pre-TS) python session —
+    // same convention as _writeSessionsToCache. A missing record
+    // entirely is transient (boot race, just-created session); TS is
+    // the primary kernel, so default there to 'ts' rather than paying
+    // a spurious ~30s Pyodide boot on the wrong guess.
+    const kernel = /** @type {'py' | 'ts'} */ (
+        session ? session.kernel || "py" : "ts"
+    );
     const adapter = await resolveAdapter(kernel);
     return { adapter, branch, kernel };
 }

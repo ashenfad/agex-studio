@@ -881,10 +881,10 @@ export async function exportBundle(branch, onProgress, opts = {}) {
 }
 
 /** Byte profile + per-shape size estimates for the publish modal.
- *  Returns null for kernels without snapshot support (py). */
+ *  Returns null for kernels without snapshot support (py adapter
+ *  returns null itself — part of the KernelAdapter contract). */
 export async function profilePublishSizes(branch) {
     const adapter = await resolveAdapter(_kernelFor(branch));
-    if (typeof adapter.profilePublishSizes !== "function") return null;
     return adapter.profilePublishSizes(branch);
 }
 

@@ -59,7 +59,7 @@ provides equivalent isolation without any of these issues.
 The iframe drops the `sandbox` attribute entirely (cross-origin
 separation provides the isolation instead) and uses an `allow=`
 permissions-policy list to delegate browser features down to the
-apps origin. The current list (`AppPreview.svelte:435`,
+apps origin. The current list (the `allow=` attribute in `AppPreview.svelte`,
 `app-control.js`):
 
 ```
@@ -75,8 +75,8 @@ with the iframe's `allow=` attribute when adding more.
 
 ## `buildAppHtml` pipeline
 
-Located in `src/lib/pyodide.js` (the name is historical — the
-function is kernel-agnostic). Inputs: a `Record<string, string>`
+Located in `src/lib/app-html.js` (kernel-agnostic — both adapters
+route through it). Inputs: a `Record<string, string>`
 of text files under `app/`, an optional `Record<string, Uint8Array>`
 of binary assets, and an `appStorage` config. Output: a complete
 HTML document string the studio sends to the iframe's
@@ -116,7 +116,7 @@ What it does, in order:
 Implementation note: the rewrite passes happen *after* CSS
 inlining so the just-inlined `<style>` blocks also get their
 `url(...)` references rewritten. See
-`_resolveAppModules` in `pyodide.js` and `app-assets.js`'s
+`_resolveAppModules` in `app-html.js` and `app-assets.js`'s
 `rewriteHtmlAssetRefs` / `rewriteCssAssetRefs`.
 
 ## The asset pipeline (binary files in `app/`)
@@ -252,7 +252,7 @@ the next turn's prompt. From inner to outer:
 |---|---|---|
 | 50 KB | `iframe-bridge.js` `_jsonifyEvalResult` | Big eval return values |
 | 50 KB | `iframe-bridge.js` `_capString` | Big read-action property readbacks |
-| 50 KB/msg | `pyodide.js` `CONSOLE_INTERCEPTOR` | In-iframe `console.log(bigObj)` |
+| 50 KB/msg | `app-html.js` `CONSOLE_INTERCEPTOR` | In-iframe `console.log(bigObj)` |
 | 256 KB total | `app-control.js` `collectResults` | Backstop on combined return — drops earliest entries (logs first; action results survive) and prepends a synthetic warning |
 
 50 KB is generous for honest debug data, tight enough that
@@ -327,14 +327,11 @@ approach unlocks browser features the sandbox model blocked
 (persistent permissions, cross-origin stylesheet introspection,
 Referer-aware services).
 
-### Why `buildAppHtml` lives in `pyodide.js`
+### Where `buildAppHtml` lives
 
-Historical. The function was original to the py kernel's
-worker bridge. It's kernel-agnostic now, and the file naming is
-misleading. A future refactor could split it out as
-`build-app-html.js` — the existing tests in
-`pyodide.test.js` already exercise it through the kernel
-boundaries.
+`src/lib/app-html.js`. It was original to the py kernel's worker
+bridge (hence tests in `pyodide.test.js` exercising it through the
+kernel boundaries), then extracted once it became kernel-agnostic.
 
 ### Why `?worker&url` for the agex-runtime-worker import
 

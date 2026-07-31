@@ -78,8 +78,8 @@
             clearAllAppStorage()
             try { localStorage.removeItem(CURRENT_BRANCH_KEY) } catch {}
 
-            // Delete all IndexedDB databases (kvgit-py session data for
-            // now; @agex-ts/kvgit when Phase 5 lands).
+            // Delete all IndexedDB databases (both kernels' kvgit
+            // session data).
             // `indexedDB.databases()` is unsupported in Firefox <126 and
             // older Safari / some WebViews. Feature-detect so a missing
             // method doesn't throw past the reload below — better to skip

@@ -131,13 +131,12 @@ export function decodeStateValue(bytes) {
     return polymorphicDecoder(bytes);
 }
 
-// --- Per-branch agent pool (Phase 2) ---------------------------------
+// --- Per-branch agent pool -------------------------------------------
 //
 // Each studio session is its own single-session agex-ts Agent — its own
 // Web Worker and a working tree pinned to that session's branch over ONE
 // shared kvgit store. Concurrent sessions run on independent agents, so a
-// turn (or its cancel / timeout) on one never disturbs another. See
-// roadmap/concurrent-sessions.md.
+// turn (or its cancel / timeout) on one never disturbs another.
 
 /**
  * @typedef {{

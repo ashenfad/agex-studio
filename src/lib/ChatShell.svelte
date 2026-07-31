@@ -61,8 +61,8 @@
     }
 
     // Per-session conversation + streaming state and the agent run loop
-    // live in a `SessionRuntime` keyed by branch (session-runtime.svelte.js
-    // — see roadmap/concurrent-sessions.md). This shell projects whichever
+    // live in a `SessionRuntime` keyed by branch (session-runtime.svelte.js).
+    // This shell projects whichever
     // session is foreground via `rt`; view-scoped state (drawers, modals,
     // layout, boot status) stays in this component. `'__boot__'` is a
     // throwaway placeholder runtime until `currentBranch` is resolved.

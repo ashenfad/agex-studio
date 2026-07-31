@@ -269,8 +269,8 @@ del _register_io
 
 # -- Install host-side helper modules onto the Python path --
 # Done in basics because sessions.js (which runs at history-ready)
-# imports bundle for export/import flows.  App-storage moved off the
-# kernel substrate in Phase 4 — see src/lib/app-storage.js.
+# imports bundle for export/import flows.  App-storage lives off the
+# kernel substrate entirely — see src/lib/app-storage.js.
 _install_module("bundle", "/bundle.py")
 
 # -- Event helpers used by sessions.js loadHistory + sendMessage --
