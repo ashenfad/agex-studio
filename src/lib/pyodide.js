@@ -16,7 +16,7 @@ import { read as readAppStorage } from './app-storage.js';
 import { buildAppHtml } from './app-html.js';
 // Single source of truth for the settings localStorage key (the worker
 // LLM bridge below reads the API key out of it per-request).
-import { STORAGE_KEY as SETTINGS_STORAGE_KEY } from './settings.js';
+import { STORAGE_KEY as SETTINGS_STORAGE_KEY, resolveBaseUrl } from './settings.js';
 // `?url` makes vite emit `esbuild-bridge.js` as a static asset and
 // hand back its resolved URL (hashed in production, /src/... in dev).
 // Forwarded to the py worker via the init postMessage so worker.js
@@ -296,13 +296,44 @@ function _readApiKey() {
 }
 
 /**
+ * Is `url` on the same origin as the user's configured LLM endpoint?
+ *
+ * The worker chooses request URLs, so without this gate a compromised
+ * worker (or anything that reached the bridge) could ask the main
+ * thread to attach the API key to an arbitrary destination. The
+ * allowed origin derives from the same `resolveBaseUrl` the kernel
+ * adapters use — OpenRouter in managed mode, the user's own base URL
+ * in custom mode — so there's no separate list to keep in sync.
+ */
+function _isConfiguredLlmOrigin(url) {
+    try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        const base = resolveBaseUrl(raw ? JSON.parse(raw) : {});
+        if (!base) return false;
+        return new URL(url).origin === new URL(base).origin;
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Choose the auth header shape based on the request URL's host.
  * OpenRouter / OpenAI-compatible endpoints use `Authorization: Bearer`;
  * Anthropic's direct API uses `x-api-key`.
+ *
+ * Only injects when the request targets the configured provider's
+ * origin — otherwise the request goes out unauthenticated (and
+ * presumably 401s, which surfaces to the agent as an ordinary error).
  */
 function _injectAuth(headers, url) {
     const key = _readApiKey();
     if (!key) return headers;
+    if (!_isConfiguredLlmOrigin(url)) {
+        console.warn(
+            `LLM bridge: not attaching API key — ${url} is not on the configured provider origin`,
+        );
+        return headers;
+    }
     if (url.includes("api.anthropic.com")) {
         headers["x-api-key"] = key;
     } else {

