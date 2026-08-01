@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "typecheck": "tsc --noEmit -p jsconfig.json"
+    "typecheck": "tsc --noEmit -p jsconfig.json && svelte-check --fail-on-warnings=false"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
@@ -16,6 +16,7 @@
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.1",
     "svelte": "^5.45.2",
+    "svelte-check": "^4.7.4",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"

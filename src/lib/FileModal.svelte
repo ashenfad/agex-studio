@@ -4,7 +4,7 @@
     import { getActiveAdapter } from './active-adapter.js'
     import { tick } from 'svelte'
     import Papa from 'papaparse'
-    import { formatBytes } from './bytes.js'
+    import { formatBytes, bytesToBlob } from './bytes.js'
 
     /** @type {{ path: string | null, onClose: () => void }} */
     let { path, onClose } = $props()
@@ -69,13 +69,17 @@
         return { header: result.data[0], rows: result.data.slice(1) }
     }
 
-    let parsedCsv = $derived(fileType === 'csv' && content ? parseCsv(content) : null)
-
     let content = $state(null)
     let size = $state(null)
     let loading = $state(false)
     let error = $state(null)
     let pdfContainer = $state(null)
+
+    // Declared after `content`: `$derived` bodies are lazy, so the
+    // previous ordering (above the `$state` it reads) happened to work,
+    // but it's a temporal-dead-zone hazard the moment anything reads
+    // this during init.
+    let parsedCsv = $derived(fileType === 'csv' && content ? parseCsv(content) : null)
 
     // Truncation banner state. Set when we cap a text/csv preview so
     // the user knows there's more behind what's shown.
@@ -204,7 +208,7 @@
                         : ext === '.webp' ? 'image/webp'
                         : ext === '.png' ? 'image/png'
                         : 'image/jpeg'
-                    createdBlobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }))
+                    createdBlobUrl = URL.createObjectURL(bytesToBlob(bytes, mime))
                     if (cancelled) {
                         // Effect torn down between createObjectURL and
                         // assignment — clean up the just-leaked URL.
@@ -256,7 +260,7 @@
         try {
             const { adapter, branch } = await getActiveAdapter()
             const bytes = await adapter.readFile(branch, path)
-            const blob = new Blob([bytes])
+            const blob = bytesToBlob(bytes)
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url

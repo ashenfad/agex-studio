@@ -48,6 +48,7 @@
         onConfirm,
     } = $props()
 
+    /** @type {'full' | 'fresh' | 'compact'} */
     let mode = $state('full')
     let compactSmallImages = $state(true)
     let working = $state(false)

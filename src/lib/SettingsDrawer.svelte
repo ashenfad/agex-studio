@@ -17,12 +17,16 @@
     let apiKey = $state('')
     let model = $state('')
     let customModel = $state(false)
+    /** @type {import('./settings.js').Settings['accessMode']} */
     let accessMode = $state('openrouter')
+    /** @type {import('./settings.js').Settings['provider']} */
     let provider = $state('openai')
     let baseUrl = $state('')
     let chapteringTrigger = $state(80000)
     let toolUseWireFormat = $state(true)
+    /** @type {import('./settings.js').Settings['reasoningEffort']} */
     let reasoningEffort = $state('medium')
+    /** @type {import('./settings.js').Settings['serviceTier']} */
     let serviceTier = $state('standard')
     let githubPat = $state('')
     let activeTab = $state('model')
@@ -160,7 +164,10 @@
             accessMode,
             provider,
             baseUrl: accessMode === 'custom' ? baseUrl.trim() : '',
-            chapteringTrigger: parseInt(chapteringTrigger, 10) || 150000,
+            // `bind:value` on an `<input type="number">` already yields a
+            // number (or null when cleared), so the previous
+            // `parseInt(number, 10)` was a no-op relying on coercion.
+            chapteringTrigger: Number(chapteringTrigger) || 150000,
             toolUseWireFormat,
             reasoningEffort,
             serviceTier,

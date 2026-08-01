@@ -246,7 +246,7 @@
                             class="publish-url-input"
                             readonly
                             value={`${st.result.runtimeUrl}&play=1`}
-                            onfocus={(e) => e.target.select()}
+                            onfocus={(e) => /** @type {HTMLInputElement} */ (e.currentTarget).select()}
                         />
                         <button type="button" class="btn-copy" onclick={() => copyUrl(`${st.result.runtimeUrl}&play=1`, 'play')}>
                             {copyFlash === 'play' ? 'Copied!' : 'Copy'}
@@ -264,7 +264,7 @@
                             class="publish-url-input"
                             readonly
                             value={st.result.runtimeUrl}
-                            onfocus={(e) => e.target.select()}
+                            onfocus={(e) => /** @type {HTMLInputElement} */ (e.currentTarget).select()}
                         />
                         <button type="button" class="btn-copy" onclick={() => copyUrl(st.result.runtimeUrl, 'showcase')}>
                             {copyFlash === 'showcase' ? 'Copied!' : 'Copy'}
