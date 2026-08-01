@@ -26,7 +26,12 @@ import { viewingFile } from "./viewing-file.js";
  * @param {MouseEvent} e
  */
 export function handleVfsClick(e) {
-    const target = e.target?.closest?.(".vfs-download");
+    // `EventTarget` has no `closest`; only Elements do. Delegated
+    // clicks can also originate from a text node's parent, hence the
+    // optional call rather than an instanceof narrow.
+    const target = /** @type {HTMLElement | null | undefined} */ (
+        /** @type {Element | null} */ (e.target)?.closest?.(".vfs-download")
+    );
     if (!target) return;
     e.preventDefault();
     const raw = target.dataset.vfsPath;

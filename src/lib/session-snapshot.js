@@ -116,7 +116,9 @@ export async function profileSession(versioned, branch) {
                 try {
                     const bytes = await store.get(entry.blob);
                     if (bytes === null) return 0;
-                    const event = polymorphicDecoder(bytes);
+                    const event = /** @type {{ parts?: unknown } | null} */ (
+                        polymorphicDecoder(bytes)
+                    );
                     if (!event || !Array.isArray(event.parts)) return 0;
                     return event.parts
                         .filter(_isImagePart)
@@ -189,9 +191,13 @@ export function estimatePublishSizes(profile) {
  *   fallback when canvas APIs are unavailable).
  */
 export async function transformEventImages(bytes, mode, transformImage = null) {
+    // The decoder returns whatever was encoded; events carrying image
+    // parts are the only shape this function acts on, and the guard
+    // below rejects anything else.
+    /** @type {{ parts?: unknown } | null} */
     let event;
     try {
-        event = polymorphicDecoder(bytes);
+        event = /** @type {{ parts?: unknown } | null} */ (polymorphicDecoder(bytes));
     } catch {
         return null;
     }
@@ -241,7 +247,8 @@ export async function transformEventImages(bytes, mode, transformImage = null) {
  * @param {string} sourceBranch
  * @param {string} destBranch
  * @param {{ images?: 'full' | 'strip' | 'downsample',
- *           transformImage?: Function }} [opts]
+ *           transformImage?: ((part: {format: string, data: string, altText?: string}) =>
+ *             Promise<{format: string, data: string} | null>) | null }} [opts]
  * @returns {Promise<{ branch: string, keys: number, imagesTransformed: number }>}
  */
 export async function snapshotBranch(versioned, sourceBranch, destBranch, opts = {}) {

@@ -185,7 +185,15 @@ export function makeImportInfo(source, importedHead) {
  * flag revisions that land *after* import).
  *
  * @param {string} branch
- * @param {{ force?: boolean, now?: number, fetchImpl?: typeof fetch }} [opts]
+ * @param {{
+ *   force?: boolean,
+ *   now?: number,
+ *   fetchImpl?: typeof fetch,
+ *   pat?: string|null,
+ *   importInfo?: ImportInfo|null,
+ * }} [opts] - `pat` lifts GitHub's rate limit; `importInfo` lets a caller
+ *     that already holds the record (the sweep in `sessions.js`) skip a
+ *     redundant localStorage read.
  * @returns {Promise<ImportInfo|null>} the (possibly updated) record
  */
 export async function checkGistUpdate(branch, opts = {}) {

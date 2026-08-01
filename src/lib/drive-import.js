@@ -132,6 +132,7 @@ export async function importFromDrive() {
             }),
         );
 
+        /** @type {Record<string, Uint8Array>} */
         const writeBatch = {};
         const errors = [];
         for (let i = 0; i < results.length; i++) {

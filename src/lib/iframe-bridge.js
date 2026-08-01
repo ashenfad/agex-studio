@@ -74,6 +74,18 @@ async function loadHtmlToImage() {
 }
 
 /**
+ * The minimal frame contract the parent-side helpers need. Real usage
+ * passes an `HTMLIFrameElement`; tests pass a double, so the listener
+ * methods are optional and guarded at each call site.
+ *
+ * @typedef {object} BridgeFrame
+ * @property {any} contentWindow
+ * @property {boolean} [__navigated] - load-listener latch
+ * @property {(type: string, fn: any, opts?: any) => void} [addEventListener]
+ * @property {(type: string, fn: any, opts?: any) => void} [removeEventListener]
+ */
+
+/**
  * Resolve once the next animation frame has painted, or after
  * `timeoutMs` if rAF never fires. Best-effort frame pump used before
  * a screenshot so rAF-driven canvases reflect current state without
@@ -93,7 +105,9 @@ async function loadHtmlToImage() {
  * behavior, never worse. 100ms comfortably covers two frames even on a
  * 30fps display (~66ms).
  *
- * @param {Window | null | undefined} win
+ * @param {Window | typeof globalThis | null | undefined} win - either a
+ *   real frame window or the ambient global (the in-worker path passes
+ *   `globalThis`); both carry the rAF/timer surface used below.
  * @param {number} [timeoutMs]
  * @returns {Promise<void>}
  */
@@ -164,7 +178,8 @@ async function captureScreenshot(doc, selector) {
  *
  * @param {Document} doc
  * @param {object} action
- * @param {Window} [global] - scope for eval and log reads; defaults to globalThis
+ * @param {Window | typeof globalThis} [global] - scope for eval and log
+ *   reads; defaults to globalThis
  * @returns {Promise<object|null>}
  */
 export async function dispatchAction(doc, action, global) {
@@ -395,7 +410,12 @@ export function installControlBridge(win) {
         if (parentOrigin && event.origin !== parentOrigin) return;
         const response = await handleControlMessage(win.document, event.data, win);
         if (!response) return;
-        event.source?.postMessage(response, parentOrigin || '*');
+        // `MessageEventSource` also covers MessagePort / ServiceWorker,
+        // whose postMessage takes transferables rather than a target
+        // origin. Control messages only ever arrive from the parent
+        // window, so narrow before replying.
+        const source = /** @type {Window | null} */ (event.source);
+        source?.postMessage(response, parentOrigin || '*');
     });
 }
 
@@ -424,7 +444,7 @@ let _controlIdCounter = 0;
  * live_app / AppPreview) and the apps origin can vary in dev. Callers
  * that need stricter validation can compare `event.origin` themselves.
  *
- * @param {HTMLIFrameElement | {contentWindow: any}} iframe
+ * @param {HTMLIFrameElement | BridgeFrame} iframe
  * @param {object} action
  * @returns {Promise<any>}
  */

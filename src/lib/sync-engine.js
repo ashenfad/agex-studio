@@ -64,7 +64,7 @@ const APP_SYNCED_AT_KEY = (branch) => `agex-sync-appat-${branch}`;
  * @property {string} detail — human hint for warn/error states
  * @property {number} at — epoch ms of the last transition; for
  *     "synced" this is the last successful CHECK (sweeps re-stamp it)
- * @property {number} [appAt] — epoch ms of the last app-state sync
+ * @property {number} [appAt] - epoch ms of the last app-state sync
  *     (push, apply, or confirmed-current pull)
  */
 
@@ -169,14 +169,14 @@ function markAppSynced(branch) {
  * @typedef {Object} SyncEngineDeps
  * @property {() => Promise<any>} getStore — the shared ts kvgit KVStore
  * @property {() => string[]} listSyncableBranches — ts chat branches
- * @property {(branch: string) => Promise<void>} [onBranchPulled] — a
+ * @property {(branch: string) => Promise<void>} [onBranchPulled] - a
  *     pull moved the branch's local ref; refresh lists / dispose pools
- * @property {() => string | null} [currentBranch] — foreground branch
+ * @property {() => string | null} [currentBranch] - foreground branch
  *     (sweeps skip it; its sync rides the post-turn push)
  * @property {(branch: string) => Promise<void>} [onBranchArchivedRemotely]
  *     — tombstone propagation: remove the local session (recoverable
  *     from the trash); must NOT re-archive remotely
- * @property {() => Promise<void>} [onSessionListChanged] — a roster op
+ * @property {() => Promise<void>} [onSessionListChanged] - a roster op
  *     created/removed local branches; rebuild the session list
  * @property {(remote: any, branch: string) => Promise<string | null>} [fetchStubTitle]
  *     — display title for a remote-only session (reads branch meta at
@@ -185,7 +185,7 @@ function markAppSynced(branch) {
  *     — the session's app-storage bag (localStorage shim contents)
  * @property {(branch: string, entries: Record<string, string>) => void} [applyAppState]
  *     — replace the local bag with synced entries
- * @property {(deps: { store: any }) => any} [makeRemote] — test seam
+ * @property {(deps: { store: any }) => any} [makeRemote] - test seam
  */
 
 /** @type {SyncEngineDeps | null} */

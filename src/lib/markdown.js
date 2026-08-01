@@ -53,6 +53,7 @@ const CALLOUT_LABELS = {
     important: "Important",
 };
 
+/** @param {{ text: string, lang?: string }} token */
 renderer.code = function ({ text, lang }) {
     if (lang === "mermaid") {
         // Entity-escape the diagram source: interpolating it raw is

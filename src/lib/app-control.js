@@ -436,7 +436,7 @@ function _attachBridges(iframe, queryHandler, cacheHandler, pendingHandlers, ini
  *   appBinaries?: Record<string, Uint8Array>,
  *   actions?: Array<object>,
  *   appStorageSeed?: Record<string, string>,
- *   buildAppHtml: (files: Record<string, string>, opts?: object) => string,
+ *   buildAppHtml: (files: Record<string, string>, opts?: any) => Promise<string>,
  *   queryHandler?: ((code: string, resultVars: string[] | null) => Promise<unknown>) | null,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   viewport?: string | { width?: number, height?: number },

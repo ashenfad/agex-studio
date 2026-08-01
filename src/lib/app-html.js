@@ -658,6 +658,7 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     }
 
     // Build import map entries for JS files
+    /** @type {Record<string, string>} - specifier → data-URL / CDN URL */
     const appImports = {};
     const knownFiles = new Set(jsFiles.keys());
 
@@ -777,6 +778,7 @@ export async function bundleAppWorkers(appFiles) {
     const entries = Object.keys(appFiles).filter((k) => WORKER_FILE_RE.test(k));
     if (entries.length === 0) return {};
     const { runEsbuild } = await import('./esbuild-bridge.js');
+    /** @type {Record<string, string>} - worker name → bundled source */
     const out = {};
     for (const key of entries) {
         const result = await runEsbuild({

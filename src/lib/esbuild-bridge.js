@@ -269,6 +269,15 @@ function joinPath(base, rel) {
  *     to preact/jsx-runtime, so agent code can `import` from "react"
  *     end-to-end while running on Preact.
  * @param {boolean} [args.minify=false]
+ * @param {boolean|"inline"|"external"|"linked"|"both"} [args.sourcemap="inline"]
+ *     Passed straight through to esbuild. Inline by default so agent
+ *     stack traces point at the agent's source rather than the bundle;
+ *     `false` (or the other esbuild modes) to override.
+ * @param {"external"|"esm-url"} [args.bareImports="external"] - How bare
+ *     specifiers are resolved: "external" leaves them for the iframe's
+ *     import map (main-thread app code), "esm-url" rewrites them to
+ *     absolute `https://esm.sh/...` imports (worker bundles, which never
+ *     see the page's import map). See `virtualFsPlugin`.
  * @returns {Promise<{contents: string|null, errors: Array, warnings: Array}>}
  */
 export async function runEsbuild(args) {

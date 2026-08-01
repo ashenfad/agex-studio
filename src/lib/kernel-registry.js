@@ -73,7 +73,13 @@ import { createPyAdapter } from "./py-kernel-adapter.js";
  */
 export function createKernelRegistry() {
     /**
-     * @type {Map<Kernel, { adapter: KernelAdapter, ready: Promise<void>, onStageListeners: Set<(stage: import('./kernel-adapter.js').InitStage) => void | Promise<void>> }>}
+     * Per-kernel boot record. `bootDone` flips true once `ready`
+     * resolves and distinguishes "still booting" from "booted" for the
+     * re-configure branch in `ensure` — concurrent callers waiting on
+     * the same in-flight boot must all see `false` so none of them
+     * re-inits the adapter with their own settings.
+     *
+     * @type {Map<Kernel, { adapter: KernelAdapter, ready: Promise<void>, onStageListeners: Set<(stage: import('./kernel-adapter.js').InitStage) => void | Promise<void>>, bootDone: boolean }>}
      */
     const entries = new Map();
 
