@@ -11,7 +11,7 @@
     import TextModal from './TextModal.svelte'
     import ChapteringBand from './ChapteringBand.svelte'
 
-    /** @type {{ messages: Array<{role: string, content: string, timestamp: Date, events?: Array, commit_hash?: string}>, busy: boolean, onUndo?: (index: number) => void, hasMore?: boolean, onLoadMore?: () => void, onActionOpen?: (index: number) => void, onChapterOpen?: (msg: any) => void, scrollKey?: number }} */
+    /** @type {{ messages: Array<import('./kernel-adapter.js').UiMessage>, busy: boolean, onUndo?: (index: number) => void, hasMore?: boolean, onLoadMore?: () => void, onActionOpen?: (index: number) => void, onChapterOpen?: (msg: any) => void, scrollKey?: number }} */
     let { messages, busy, onUndo, hasMore = false, onLoadMore, onActionOpen, onChapterOpen, scrollKey = 0 } = $props()
 
     // Reactive tick to keep relative timestamps fresh

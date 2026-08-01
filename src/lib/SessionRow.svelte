@@ -102,8 +102,18 @@
     // nowTick is read so the relative-time titles recompute each minute
     // while the drawer is open; the values themselves come from the
     // helpers above.
-    let syncTitle = $derived(syncStatus ? (nowTick, syncGlyphTitle(syncStatus)) : '')
-    let metaDateTitle = $derived((nowTick, dateTitle(s, syncStatus)))
+    // `nowTick` is read purely to register a reactive dependency, so
+    // these relative timestamps re-render as it advances. `$derived.by`
+    // with an explicit `void` states that intent; the comma-operator
+    // form it replaces read as a typo (and tripped svelte-check).
+    let syncTitle = $derived.by(() => {
+        void nowTick
+        return syncStatus ? syncGlyphTitle(syncStatus) : ''
+    })
+    let metaDateTitle = $derived.by(() => {
+        void nowTick
+        return dateTitle(s, syncStatus)
+    })
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

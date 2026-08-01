@@ -1,6 +1,7 @@
 <script>
     import { getActiveAdapter } from './active-adapter.js'
     import { viewingFile } from './viewing-file.js'
+    import { bytesToBlob } from './bytes.js'
 
     /** @type {{ open: boolean, onClose: () => void, files: string[], onDelete?: (names: string[], commitHash: string) => void, onFilesChanged?: (files: string[]) => void }} */
     let { open, onClose, files: rawFiles, onDelete, onFilesChanged } = $props()
@@ -28,7 +29,7 @@
             const { adapter, branch } = await getActiveAdapter()
             for (const path of selected) {
                 const bytes = await adapter.readFile(branch, path)
-                const blob = new Blob([bytes])
+                const blob = bytesToBlob(bytes)
                 const url = URL.createObjectURL(blob)
                 const a = document.createElement('a')
                 a.href = url

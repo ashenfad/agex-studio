@@ -46,6 +46,7 @@
     // adapter is captured once at loadPreview time so the synchronous
     // query-message handler can dispatch without an extra await.
     let appBranch = ''
+    /** @type {import('./app-storage.js').Kernel} */
     let appKernel = 'py'
     /** @type {import('./kernel-adapter.js').KernelAdapter | null} */
     let appAdapter = null

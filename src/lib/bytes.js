@@ -44,3 +44,24 @@ export function base64ToBytes(b64) {
     for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
     return out;
 }
+
+/**
+ * Wrap raw bytes as a `Blob`.
+ *
+ * Exists for a typing reason rather than a behavioral one:
+ * TypeScript 5.7 made `Uint8Array` generic over its backing buffer, so
+ * the default `Uint8Array<ArrayBufferLike>` no longer satisfies
+ * `BlobPart` (which wants an `ArrayBuffer`-backed view — a
+ * `SharedArrayBuffer` can't be one). Every byte array here comes from
+ * the VFS or `fetch` and is `ArrayBuffer`-backed, but the type can't
+ * prove that. Asserting once here keeps the explanation in one place
+ * instead of at each construction site.
+ *
+ * @param {Uint8Array} bytes
+ * @param {string} [type] - MIME type for the Blob.
+ * @returns {Blob}
+ */
+export function bytesToBlob(bytes, type) {
+    const part = /** @type {BlobPart} */ (/** @type {unknown} */ (bytes));
+    return type ? new Blob([part], { type }) : new Blob([part]);
+}
