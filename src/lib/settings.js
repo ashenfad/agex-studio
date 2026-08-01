@@ -110,6 +110,11 @@ let subscribers = [];
  *     expensive.  Only meaningful for OpenAI and Google models per
  *     OpenRouter's documentation; gated in the UI via
  *     ``supportsServiceTier`` in models.js.
+ * @property {Record<string, string>} providerPins — OpenRouter provider
+ *     pins keyed by model id (``author/slug``).  A present entry means the
+ *     user chose a specific upstream for that model, and the client hard-
+ *     pins it (``provider.order`` with fallbacks off).  Models absent from
+ *     the map — and every model in custom mode — route normally.
  * @property {string} githubPat — GitHub Personal Access Token with
  *     ``gist`` scope.  Used to publish artifact bundles as secret
  *     gists.  Stored locally; never sent anywhere except api.github.com.
@@ -131,6 +136,12 @@ let subscribers = [];
  * @property {boolean} notifyOnFinish — fire a desktop notification when a
  *     session finishes a turn while its result isn't on screen. Also
  *     gated on the browser notification permission.
+ * @property {'full' | 'flat' | 'flat-downsample' | 'flat-strip'} publishShape
+ *     — the shape chosen on the last gist publish (full history vs tip
+ *     snapshot, and how images are treated), pre-selected the next time
+ *     the options stage opens so an image-heavy workflow isn't re-choosing
+ *     every publish.  Only consulted for ts sessions; py always bundles
+ *     ``full``.
  */
 
 /** @type {Settings} */

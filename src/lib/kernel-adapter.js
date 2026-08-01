@@ -63,6 +63,9 @@
  * @property {boolean} [external] - true when the session was imported from
  *   an external bundle (gates host-capability features the visitor might
  *   not want to lend to a stranger's artifact). Persists in branch metadata.
+ * @property {boolean} [starred] - true when the user has "kept" this
+ *   session as an app; drives the drawer's pinned "Apps" group. Ts-only
+ *   (gated at toggle time). Persists in branch metadata.
  */
 
 // ---------------------------------------------------------------------------
@@ -70,11 +73,48 @@
 // ---------------------------------------------------------------------------
 
 /**
- * @typedef {Object} TokenChunk
+ * A chunk of streamed LLM text — the common case, one per delta.
+ *
+ * @typedef {Object} TextTokenChunk
  * @property {string} type
  * @property {string} content
  * @property {boolean} start
  * @property {boolean} done
+ */
+
+/**
+ * A sub-agent activity chunk. Not LLM text: the Ts adapter synthesizes
+ * these from a clone's tagged events so the chat can render a live
+ * "spawn chip" (start → progress → end) without the caller subscribing
+ * to the event stream separately. Rides the same `onToken` channel
+ * because it updates the same in-flight turn.
+ *
+ * @typedef {Object} SpawnTokenChunk
+ * @property {"spawn"} type
+ * @property {"start" | "progress" | "end"} phase
+ * @property {string|number} id - Clone identity, stable across phases.
+ * @property {number} [steps] - Actions taken so far (progress / end).
+ * @property {string} [inputsSummary] - Short label for the chip.
+ * @property {string} [inputs] - Full input text for the drill-down.
+ * @property {string} [content] - Clone stdout / error detail.
+ * @property {string} [result] - Settled value, on `end`.
+ * @property {string} [error] - Failure message, on `end`.
+ * @property {number} [elapsedMs] - Wall time, on `end`.
+ * @property {number} [startedAt] - Epoch ms the clone began, so the
+ *   chip can tick a live elapsed counter without the shell tracking it.
+ * @property {Array<Object>} [events] - Split output events for the
+ *   drill-down panel.
+ * @property {string} [status] - Terminal outcome on `end`
+ *   (`success` / `fail` / `cancelled`).
+ * @property {number} [durationMs] - Wall time the clone took, on `end`.
+ * @property {string} [resultSummary] - Short label for the settled
+ *   value, shown on the collapsed chip.
+ */
+
+/**
+ * What `onToken` receives. The shell switches on `type`.
+ *
+ * @typedef {TextTokenChunk | SpawnTokenChunk} TokenChunk
  */
 
 /**
@@ -152,6 +192,13 @@
  * @property {boolean} [isMarkdown] - True when content is markdown (e.g. file-event recaps).
  * @property {boolean} [cancelled] - True for an agent message produced from a CancelledEvent.
  * @property {Array<Object>} [chapters] - For chaptering rows: per-chapter detail.
+ * @property {boolean} [streaming] - True while the row is a live
+ *   streaming placeholder rather than a settled message. Set by
+ *   `SessionRuntime`'s token accumulator and cleared when the turn
+ *   lands; rows carrying it are filtered out before persisting.
+ * @property {string} [errorStack] - Captured stack for an agent row
+ *   representing a thrown error, surfaced behind the row's detail
+ *   toggle. Absent on ordinary messages.
  */
 
 // ---------------------------------------------------------------------------
@@ -189,6 +236,11 @@
 /**
  * @typedef {Object} ExportBundleOptions
  * @property {(p: ProgressUpdate) => void} [onProgress]
+ * @property {"full" | "flat" | "flat-downsample" | "flat-strip"} [shape]
+ *   How much history and image weight to carry. `full` (default)
+ *   exports the branch as-is; the `flat*` shapes snapshot the tip into
+ *   a single commit first, optionally downsampling or stripping image
+ *   parts. Ts-only — the py adapter ignores it.
  */
 
 // ---------------------------------------------------------------------------
@@ -390,9 +442,11 @@
  *   Ts-kernel capability; the py adapter returns `null`, which tells
  *   the publish flow to skip the shape-options stage.
  *
- * @property {(sourceBranch: string, destBranch: string, opts?: { images?: string }) => Promise<void>} snapshotToBranch
+ * @property {(sourceBranch: string, destBranch: string, opts?: { images?: "full" | "strip" | "downsample" }) => Promise<{ branch: string, keys: number, imagesTransformed: number }>} snapshotToBranch
  *   Persistent snapshot: copy `sourceBranch`'s tip into a single
- *   fresh commit on `destBranch` (the "compact copy" fork).  Ts-only;
+ *   fresh commit on `destBranch` (the "compact copy" fork).  Resolves
+ *   with the destination branch plus what the copy moved — key count
+ *   and how many image parts the `images` mode rewrote.  Ts-only;
  *   the py adapter throws (the fork modal disables the option for py
  *   sessions before this could be reached).
  *

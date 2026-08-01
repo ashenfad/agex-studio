@@ -195,7 +195,13 @@ export function hasOutputEvents(events) {
  * `taskSuccess('')` used to end a task after the answer was already
  * delivered as prose) produces an empty list, so the renderer shows no
  * bubble for it.
- * @param {{ type: string, content?: string, parts?: Array }} content
+ * @typedef {{ type: string, content?: string, parts?: Array } | null | undefined} AgentContent
+ *     A normalized agent result: the plain shape (any `type` other than
+ *     `'response'`, carrying a `content` string) or the rich shape
+ *     (`type: 'response'` with `parts`). Nullish is legal everywhere — a
+ *     turn can end without producing a result at all.
+ *
+ * @param {AgentContent} content
  * @returns {Array<{ kind: string, content?: string, data?: object }>}
  */
 export function segmentParts(content) {
@@ -232,7 +238,7 @@ export function segmentParts(content) {
  * task without a duplicate result bubble. The activity card renders
  * independently of content, so suppressing the empty bubble never hides
  * the turn.
- * @param {unknown} content
+ * @param {string | AgentContent} content
  * @returns {boolean}
  */
 export function isEmptyAgentContent(content) {

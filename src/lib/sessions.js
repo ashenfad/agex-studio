@@ -174,6 +174,14 @@ export function markPyExperimentalWarningSeen() {
  * @property {boolean} [starred] - true when the user has "kept" this
  *     session as an app. Only set on ts sessions with `app/` files
  *     (gated at toggle time); drives the drawer's pinned "Apps" group.
+ * @property {string} [name] - user-curated custom name, overriding the
+ *     agent-generated `title` in the drawer. Empty when unset.
+ * @property {string} [description] - user-curated description shown in
+ *     the session's settings and on published artifacts.
+ * @property {boolean} [updateAvailable] - true when this session was
+ *     imported from a gist whose source has since gained a newer
+ *     revision, so the drawer can offer to pull it. Set by the
+ *     revision check, not persisted.
  */
 
 /**
@@ -642,7 +650,9 @@ export async function forkSession() {
  *  history and agent cache dropped. `images: 'downsample'` (the
  *  default) also re-encodes observed images smaller; the agent
  *  continues from the event log exactly as before. ts kernel only. */
-export async function forkSessionCompact({ images = "downsample" } = {}) {
+/** @param {{ images?: 'full' | 'strip' | 'downsample' }} [opts] */
+export async function forkSessionCompact(opts = {}) {
+    const { images = "downsample" } = opts;
     return _forkSession({ mode: "compact", images });
 }
 
@@ -669,7 +679,12 @@ export async function forkSessionFreshChat() {
     return _forkSession({ mode: "fresh" });
 }
 
-async function _forkSession({ mode, images = "full" }) {
+/**
+ * @param {{ mode: 'compact' | 'fresh' | 'full',
+ *           images?: 'full' | 'strip' | 'downsample' }} opts
+ */
+async function _forkSession(opts) {
+    const { mode, images = "full" } = opts;
     const sourceBranch = state.currentBranch;
     const sourceKernel = _kernelFor(sourceBranch);
     const adapter = await resolveAdapter(sourceKernel);

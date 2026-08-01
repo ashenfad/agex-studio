@@ -516,7 +516,17 @@ export function createTsAdapter() {
                     kernel: "ts",
                     name: meta.name || meta.title,
                     description: meta.description,
-                    progress: opts.onProgress,
+                    // `ts-bundle`'s exportBundle reports positionally —
+                    // `progress(phase, done, total)` — while the
+                    // KernelAdapter contract (and the py adapter, and
+                    // the export/publish UIs) pass a single
+                    // `{ phase, done, total }` object. Forwarding
+                    // `opts.onProgress` straight through meant the UI
+                    // read `.phase` off the string "walking" and
+                    // rendered undefined for the whole export.
+                    progress: opts.onProgress
+                        ? (phase, done, total) => opts.onProgress?.({ phase, done, total })
+                        : undefined,
                 });
                 return { bytes, manifest };
             } finally {
@@ -539,7 +549,13 @@ export function createTsAdapter() {
          *  single fresh commit on `destBranch` (the "compact copy"
          *  fork). Same core as size-reduced publishing, minus the
          *  ephemeral delete. */
-        async snapshotToBranch(sourceBranch, destBranch, { images = "full" } = {}) {
+        /**
+         * @param {string} sourceBranch
+         * @param {string} destBranch
+         * @param {{ images?: 'full' | 'strip' | 'downsample' }} [opts]
+         */
+        async snapshotToBranch(sourceBranch, destBranch, opts = {}) {
+            const { images = "full" } = opts;
             const versioned = await agentGetSharedVersioned();
             return snapshotBranch(versioned, sourceBranch, destBranch, {
                 images,

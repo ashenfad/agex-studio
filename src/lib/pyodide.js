@@ -559,6 +559,7 @@ export function setLiveIframe(iframe) {
  */
 
 async function _handleTestApp(appFilesJson, actionsJson, fresh, viewportJson, requestId) {
+    /** @type {Record<string, string>} */
     let appStorageSeed = {};
     if (!fresh) {
         const branch = localStorage.getItem("agex-current-branch") || "";

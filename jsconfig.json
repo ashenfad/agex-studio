@@ -3,10 +3,23 @@
     "moduleResolution": "bundler",
     "target": "ESNext",
     "module": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable", "WebWorker"],
     "checkJs": true,
+    "skipLibCheck": true,
+    // Don't type-check (or descend into) dependency JS. Without this,
+    // `checkJs` follows imports into node_modules and reports errors
+    // in third-party sources we can't fix.
+    "maxNodeModuleJsDepth": 0,
     "paths": {
       "$lib/*": ["./src/lib/*"]
     }
   },
-  "include": ["src/**/*.js", "src/**/*.svelte"]
+  // Tests are deliberately outside the checked program for now: their
+  // partial mocks and test doubles produce a large volume of errors
+  // that say more about the doubles than about the code under test.
+  // Getting src/ to zero is what makes the JSDoc load-bearing; typing
+  // the suite is worthwhile follow-up work, not a blocker for gating
+  // CI on the production surface.
+  "include": ["src/**/*.js", "src/**/*.svelte", "src/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.js"]
 }

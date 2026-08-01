@@ -69,27 +69,6 @@ function _detectAudioFormat(b) {
     return "mpeg";
 }
 
-/**
- * Translate one agent-returned value into the renderer's per-part shape.
- *
- * Sniff order (first match wins):
- *   1. `string` → text part. Renderer treats text content as markdown.
- *   2. Plotly figure: object with `data: any[]` AND `layout: object`.
- *      The whole object becomes `figure`; the renderer's PlotlyChart
- *      component consumes the standard Plotly figure shape.
- *   3. Table: object with `columns: any[]` AND `rows: any[]`. Pass
- *      through to the dataframe renderer.
- *   4. Anything else → text part with `String(p)`. Mirrors py's
- *      `str(p)` fallback.
- *
- * False positives are theoretically possible — an unrelated object
- * with both `data` and `layout` fields would be misread as a chart —
- * but those collisions are contrived in practice. A user who hits
- * one can switch to the explicit tagged shape if needed.
- *
- * @param {unknown} p - one element from the agent's response
- * @returns {object} a `{ type, ... }` part dict the renderer consumes
- */
 // Shape predicates — the single source of truth for "what is a
 // renderable part." Shared by `normalizePart` (which maps a match to
 // the renderer dict) and `chatResponseSchema` (which validates that a
@@ -100,11 +79,14 @@ const isStat = (o) =>
 const isCallout = (o) =>
     o.type === "callout" &&
     (typeof o.title === "string" || typeof o.body === "string");
+/** @param {Record<string, unknown>} o @returns {o is { type: 'cards', items: unknown[] }} */
 const isCards = (o) => o.type === "cards" && Array.isArray(o.items);
+/** @param {Record<string, unknown>} o @returns {o is { type: 'image', data: Uint8Array | string, alt?: unknown }} */
 const isImage = (o) =>
     o.type === "image" &&
     (o.data instanceof Uint8Array ||
         (typeof o.data === "string" && o.data.length > 0));
+/** @param {Record<string, unknown>} o @returns {o is { type: 'audio', data: Uint8Array | string, title?: unknown }} */
 const isAudio = (o) =>
     o.type === "audio" &&
     (o.data instanceof Uint8Array ||
@@ -144,6 +126,27 @@ function objectFallbackPart(o) {
     }
 }
 
+/**
+ * Translate one agent-returned value into the renderer's per-part shape.
+ *
+ * Sniff order (first match wins):
+ *   1. `string` → text part. Renderer treats text content as markdown.
+ *   2. Plotly figure: object with `data: any[]` AND `layout: object`.
+ *      The whole object becomes `figure`; the renderer's PlotlyChart
+ *      component consumes the standard Plotly figure shape.
+ *   3. Table: object with `columns: any[]` AND `rows: any[]`. Pass
+ *      through to the dataframe renderer.
+ *   4. Anything else → text part with `String(p)`. Mirrors py's
+ *      `str(p)` fallback.
+ *
+ * False positives are theoretically possible — an unrelated object
+ * with both `data` and `layout` fields would be misread as a chart —
+ * but those collisions are contrived in practice. A user who hits
+ * one can switch to the explicit tagged shape if needed.
+ *
+ * @param {unknown} p - one element from the agent's response
+ * @returns {object} a `{ type, ... }` part dict the renderer consumes
+ */
 export function normalizePart(p) {
     if (typeof p === "string") {
         return { type: "text", content: p };
@@ -333,6 +336,7 @@ function validateChatPart(p, path, issues) {
  * the agent can act on. Defined entirely host-side, so no worker
  * boundary concerns.
  */
+/** @type {import('@standard-schema/spec').StandardSchemaV1} */
 export const chatResponseSchema = {
     "~standard": {
         version: 1,

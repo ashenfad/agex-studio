@@ -27,7 +27,7 @@ function _userTimezone() {
  * config-resolution machinery — that's what lets the JS bridge inject
  * auth on the main thread.
  *
- * @param {{ provider?: string, baseUrl?: string }} settings
+ * @param {{ provider?: string, baseUrl?: string, accessMode?: string, model?: string }} settings
  */
 function _llmConfig(settings) {
   // Resolve wire-format provider here too — in OpenRouter mode the
@@ -127,11 +127,32 @@ function _reasoningKwargLine(settings) {
 }
 
 /**
+ * The slice of the settings store the py init path reads.  Callers hand
+ * over the whole ``Settings`` object; only ``apiKey`` and ``model`` are
+ * load-bearing enough to be required, since the helpers above all have
+ * a defined behavior for a missing field (and the tests lean on that to
+ * init with a two-key stub).
+ *
+ * @typedef {Object} AgentInitSettings
+ * @property {string} apiKey
+ * @property {string} model
+ * @property {string} [accessMode] - "openrouter" (managed) vs "custom"
+ *     (user-supplied endpoint); decides base-URL resolution and whether
+ *     the Anthropic wire format is forced back to the OpenAI shape.
+ * @property {string} [provider] - wire format when in custom mode.
+ * @property {string} [baseUrl] - explicit endpoint when in custom mode.
+ * @property {number} [chapteringTrigger] - token budget spliced into the
+ *     Agent constructor's ``chaptering_trigger``.
+ * @property {boolean} [toolUseWireFormat] - native reasoning on/off.
+ * @property {"low"|"medium"|"high"} [reasoningEffort]
+ */
+
+/**
  * Compose the settings-derived literals that basics + rich splice
  * into their Python heredocs.  The matrix knowledge lives in the
  * focused helpers above; this is just glue.
  *
- * @param {{ apiKey: string, model: string, provider?: string, baseUrl?: string, chapteringTrigger?: number, toolUseWireFormat?: boolean, reasoningEffort?: "low"|"medium"|"high" }} settings
+ * @param {AgentInitSettings} settings
  */
 function _settingsConstants(settings) {
   return {
@@ -147,7 +168,7 @@ function _settingsConstants(settings) {
  * stand the agent up, but no module/skill/task registration. Pairs with
  * ``initAgentRich`` which finishes the wiring once Wave 3 is installed.
  *
- * @param {{ apiKey: string, model: string }} settings
+ * @param {AgentInitSettings} settings
  */
 export async function initAgentBasics(settings) {
   const {
@@ -319,7 +340,7 @@ from agex.agent.emissions import (
  * static skills and helper functions, defines the chat task.
  * Required before ``sendMessage`` can run.
  *
- * @param {{ apiKey: string, model: string }} settings
+ * @param {AgentInitSettings} settings
  */
 export async function initAgentRich(settings) {
   const { userTz } = _settingsConstants(settings);
@@ -366,7 +387,7 @@ async def chat(message: str) -> str | Response:
  * through ChatShell which calls each phase as the worker reaches the
  * matching stage.
  *
- * @param {{ apiKey: string, model: string }} settings
+ * @param {AgentInitSettings} settings
  */
 export async function initAgent(settings) {
   await initAgentBasics(settings);

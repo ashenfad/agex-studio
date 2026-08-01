@@ -41,10 +41,21 @@ const BINARY_MAX_BYTES = 1_048_576;
 const SOURCE_DIRS = ["app/", "helpers/"];
 
 /**
+ * Three mutually exclusive parse outcomes, kept as separate shapes (no
+ * shared discriminant field) so consumers narrow with `"help" in parsed`
+ * / `"error" in parsed` — a present key IS the tag.
+ *
+ * @typedef {{help: true}} EsbuildArgsHelp - `--help` / no args
+ * @typedef {{error: string}} EsbuildArgsError - message to surface to the agent
+ * @typedef {{entry: string, outfile: string, minify: boolean}} EsbuildArgsBuild - a runnable build
+ * @typedef {EsbuildArgsHelp | EsbuildArgsError | EsbuildArgsBuild} EsbuildArgs
+ */
+
+/**
  * Parse `esbuild` argv. Pure function — no I/O.
  *
  * @param {ReadonlyArray<string>} args
- * @returns {{help: true} | {entry: string, outfile: string, minify: boolean} | {error: string}}
+ * @returns {EsbuildArgs}
  */
 export function parseEsbuildArgs(args) {
     if (!args || args.length === 0 || args[0] === "--help" || args[0] === "-h") {
@@ -215,11 +226,15 @@ const _encoder = new TextEncoder();
  */
 export async function runEsbuildCommand(ctx, runEsbuild) {
     const parsed = parseEsbuildArgs(ctx.args);
-    if (parsed.help) {
+    // Narrow by key presence, which is the tag for this union — see the
+    // `EsbuildArgs` typedef. Equivalent to the truthiness checks this
+    // replaced (`help` is only ever `true`, error messages are never
+    // empty) but it's what lets the destructure below typecheck.
+    if ("help" in parsed) {
         ctx.stdout.write(HELP_TEXT);
         return;
     }
-    if (parsed.error) {
+    if ("error" in parsed) {
         throw new Error(parsed.error);
     }
 

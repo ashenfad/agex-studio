@@ -83,7 +83,10 @@ export class SessionRuntime {
 
     // --- Conversation state (was ChatShell component $state) ----------
 
-    /** @type {Array<{role: string, content: any, timestamp: Date, events?: Array, commit_hash?: string}>} */
+    /** The conversation rows this session renders. Uses the canonical
+     *  `UiMessage` shape the adapters produce, rather than a local
+     *  subset — streaming placeholders and settled rows share it.
+     *  @type {Array<import('./kernel-adapter.js').UiMessage>} */
     messages = $state([]);
     busy = $state(false);
     cancelling = $state(false);
@@ -320,6 +323,7 @@ export class SessionRuntime {
         if (eidx != null) {
             this.updateBlock(eidx, { kind: "text", text: finalText });
         }
+        /** @type {import('./kernel-adapter.js').UiMessage} */
         const committedMsg = {
             role: "agent",
             content: finalText,
@@ -586,6 +590,7 @@ export class SessionRuntime {
         // then re-add current streaming state (optional report +
         // activity).
         const nonStreaming = this.messages.filter((m) => !m.streaming);
+        /** @type {Array<import('./kernel-adapter.js').UiMessage>} */
         const streamParts = [];
         if (this.activeReportText !== null) {
             streamParts.push({
@@ -809,6 +814,7 @@ export class SessionRuntime {
         //    above the user's message — natural reading order.
         if (attachments.length > 0) {
             const uploadCommit = await adapter.getCurrentCommit(branch);
+            /** @type {Record<string, Uint8Array>} */
             const fileMap = {};
             for (const att of attachments) fileMap[att.name] = att.bytes;
             try {

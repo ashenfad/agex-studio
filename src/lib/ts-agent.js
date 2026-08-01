@@ -19,7 +19,7 @@
  */
 
 import { createAgent } from "agex-ts";
-import { KvgitState } from "agex-ts/state";
+import { KvgitState, isVersioned } from "agex-ts/state";
 import { Staged, VersionedKV } from "@agex-ts/kvgit";
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import {
@@ -86,7 +86,6 @@ import { normalizeChatResponse, chatResponseSchema } from "./ts-chat-response.js
 /**
  * @typedef {import('agex-ts').Agent} Agent
  * @typedef {import('agex-ts').LLMClient} LLMClient
- * @typedef {import('@agex-ts/kvgit').VersionedKV} VersionedKV
  * @typedef {import('./kernel-adapter.js').KernelSettings} KernelSettings
  * @typedef {import('./kernel-adapter.js').BranchMeta} BranchMeta
  */
@@ -141,7 +140,7 @@ export function decodeStateValue(bytes) {
 /**
  * @typedef {{
  *   agent: Agent,
- *   chatTask: (message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<string>,
+ *   chatTask: (message: string, opts?: import('agex-ts/types').TaskCallOptions) => Promise<unknown>,
  *   busy: boolean,
  *   lastUsed: number,
  * }} PoolEntry
@@ -222,9 +221,16 @@ async function _getMgmt() {
 }
 
 /** The shared `VersionedKV` (the management tree's) — for bundle export /
- *  import / stats, which read a branch's commit subgraph directly. */
+ *  import / stats, which read a branch's commit subgraph directly.
+ *
+ *  `Staged.versioned` is declared as the narrow `Versioned` interface,
+ *  but every store this module constructs is a `VersionedKV`, and
+ *  callers need the class surface (`initial`, `cleanOrphans`, the
+ *  subgraph walkers). Asserting once here keeps the reach-through in
+ *  a single place instead of at each call site.
+ *  @returns {Promise<VersionedKV>} */
 export async function getSharedVersioned() {
-    return (await _getMgmt()).versioned;
+    return /** @type {VersionedKV} */ ((await _getMgmt()).versioned);
 }
 
 /** Build a StateResolver pinned to one branch over the shared store. The
@@ -536,7 +542,10 @@ async function _createBranchAgent(branch) {
             // fresh would put ctx at the wrong index — pull it off
             // the end and slice the user args explicitly.
             const ctx = args[args.length - 1];
-            const [actions, fresh, viewport] = args.slice(0, -1);
+            const [actions, fresh, viewport] =
+                /** @type {[Array<object>|undefined, boolean|undefined, any]} */ (
+                    args.slice(0, -1)
+                );
             const fs = await agent.fs(SESSION);
             // Split the app/ dir into text files (HTML / JS / CSS / JSON
             // — passed as decoded strings) and binary assets (images /
@@ -557,6 +566,7 @@ async function _createBranchAgent(branch) {
                 if (isBinaryAppFile(full)) appBinaries[full] = bytes;
                 else appFiles[full] = decoder.decode(bytes);
             });
+            /** @type {Record<string, string>} */
             let appStorageSeed = {};
             if (!fresh) {
                 appStorageSeed = readAppStorage("ts", branch);
@@ -590,7 +600,7 @@ async function _createBranchAgent(branch) {
             // Same rest-and-extract pattern as `testApp` — ctx is
             // the trailing arg per `wantsContext: true`.
             const ctx = args[args.length - 1];
-            const [actions] = args.slice(0, -1);
+            const [actions] = /** @type {[Array<object>|undefined]} */ (args.slice(0, -1));
             const results = await appControlRunLiveApp({
                 iframe: appControlGetLiveIframe(),
                 actions: actions ?? [],
@@ -688,6 +698,11 @@ async function _createBranchAgent(branch) {
     // as an image observation directly — agex-ts's console-capture
     // detects PNG magic bytes and routes through the image pipeline.
     agent.fn(
+        /**
+         * @param {Uint8Array} bytes
+         * @param {number[]|null} [pages]
+         * @param {number} [scale]
+         */
         async function renderPdf(bytes, pages = null, scale = 2) {
             return await renderPdfPagesToBytes(bytes, pages, scale);
         },
@@ -703,6 +718,7 @@ async function _createBranchAgent(branch) {
     );
 
     agent.fn(
+        /** @param {Uint8Array} bytes */
         async function pdfPageCount(bytes) {
             return await getPdfPageCount(bytes);
         },
@@ -989,7 +1005,10 @@ export async function createBranch(name, opts = {}) {
         // walk; first-call must `await initial()` to populate the cache.
         // TODO(@agex-ts/kvgit): if Staged grows an `initial()` analog, drop
         // the versioned reach-through here.
-        const initialCommit = await staged.versioned.initial();
+        // `Staged.versioned` is declared as the narrow `Versioned`
+        // interface, but every store we construct is a `VersionedKV`
+        // — which is where `initial()` lives.
+        const initialCommit = await /** @type {VersionedKV} */ (staged.versioned).initial();
         await staged.createBranch(name, { at: initialCommit });
     }
     await staged.switchBranch(name);
@@ -1100,7 +1119,8 @@ export async function deleteBranch(name) {
     // explicit user-initiated delete is single-tab in practice;
     // see commit message for the trade-off.
     try {
-        await staged.versioned.cleanOrphans({ minAge: 0 });
+        // Same narrow-interface reach-through as `initial()` above.
+        await /** @type {VersionedKV} */ (staged.versioned).cleanOrphans({ minAge: 0 });
     } catch (e) {
         // Non-fatal: the delete itself succeeded. A failed sweep
         // just means orphans linger until the next successful sweep
@@ -1176,7 +1196,9 @@ export async function writeBranchMeta(name, patch) {
 export async function getCurrentCommit(branch) {
     const agent = await _agentForBranch(branch);
     const state = await agent.state(SESSION);
-    return state.currentCommit ?? null;
+    // `currentCommit` lives on the versioned backend only; a live
+    // (unversioned) state has no commit to report.
+    return isVersioned(state) ? (state.currentCommit ?? null) : null;
 }
 
 /** Flush the active session's pending state writes to kvgit. agex-ts

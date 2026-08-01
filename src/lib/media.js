@@ -132,6 +132,9 @@ function _imageMime(b) {
 /** User-message content: the text prompt plus any input images (edit /
  *  compose mode), each as a base64 data: URL. */
 function _imageContent(prompt, images) {
+    /** Heterogeneous by design — OpenAI-shape content mixes `text` and
+     *  `image_url` parts in one array.
+     *  @type {Array<Record<string, unknown>>} */
     const content = [{ type: "text", text: prompt }];
     for (const bytes of images) {
         content.push({

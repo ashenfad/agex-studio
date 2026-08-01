@@ -51,7 +51,10 @@ function _loadBaseSvg(url) {
     return _baseSvgPromise;
 }
 
-/** @param {HTMLLinkElement | null} */
+/** Find (or create) the `<link rel="icon">` we badge, remembering its
+ *  original href on first sight so idle can restore it verbatim.
+ *  Null outside the browser (no document to query).
+ *  @returns {HTMLLinkElement | null} */
 function _ensureLink() {
     if (typeof document === "undefined") return null;
     let link = /** @type {HTMLLinkElement | null} */ (
