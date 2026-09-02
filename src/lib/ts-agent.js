@@ -48,7 +48,7 @@ import _spawnSkill from "./skills/spawn.md?raw";
 import _mediaSkill from "./skills/media.md?raw";
 import _supabaseAuthSkill from "./skills/supabase-auth.md?raw";
 import { resolveBaseUrl, resolveProvider } from "./settings.js";
-import { extrasFor, supportsServiceTier, hasVision } from "./models.js";
+import { extrasFor, hasVision } from "./models.js";
 import { forcedToolFallbackFetch } from "./openrouter.js";
 import {
     runTestApp as appControlRunTestApp,
@@ -896,17 +896,6 @@ function _buildLlmClient(settings) {
     // sense against OpenRouter — direct OpenAI ignores `provider`,
     // and local servers wouldn't recognize it either.
     const modelExtras = { ...(isOpenRouter ? extrasFor(model) : {}) };
-    // Layer in the user's service-tier choice when the (mode,
-    // provider, model) combo supports it. `standard` means "omit
-    // the field entirely" — sending the literal string would pin
-    // us to a tier we'd otherwise auto-route past. Only `flex` and
-    // `priority` get forwarded.
-    if (
-        (settings.serviceTier === "flex" || settings.serviceTier === "priority") &&
-        supportsServiceTier(settings.accessMode, "openai", model)
-    ) {
-        modelExtras.service_tier = settings.serviceTier;
-    }
     // User's provider pin for this model — a HARD pin (only this provider,
     // no fallbacks). Wins over any preset `extras.provider` (overwrites,
     // doesn't merge). OpenRouter-only; ignored in custom / direct modes.
