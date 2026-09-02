@@ -30,14 +30,16 @@ export const OPENROUTER_MODELS = [
     { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna" },
-    { id: "anthropic/claude-fable-5", label: "Claude Fable 5" },
-    { id: "anthropic/claude-opus-4.8", label: "Claude Opus 4.8" },
+    { id: "anthropic/claude-fable-5.1", label: "Claude Fable 5.1" },
+    { id: "anthropic/claude-opus-5", label: "Claude Opus 5" },
     { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
     { id: "anthropic/claude-haiku-4.5", label: "Claude Haiku 4.5" },
     { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-    { id: "google/gemini-3.6-flash", label: "Gemini 3.6 Flash" },
-    { id: "google/gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite" },
-    { id: "z-ai/glm-5.2", label: "GLM 5.2" },
+    { id: "google/gemini-3.8-flash", label: "Gemini 3.8 Flash" },
+    { id: "google/gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite" },
+    { id: "z-ai/glm-5.3", label: "GLM 5.3" },
+    { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash" },
+    { id: "meta/muse-spark-1.3", label: "Muse Spark 1.3" },
 ];
 
 /** @type {ReadonlyArray<ModelPreset>} */
@@ -49,8 +51,8 @@ export const OPENAI_MODELS = [
 
 /** @type {ReadonlyArray<ModelPreset>} */
 export const ANTHROPIC_MODELS = [
-    { id: "claude-fable-5", label: "Claude Fable 5" },
-    { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+    { id: "claude-opus-5", label: "Claude Opus 5" },
     { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ];
@@ -149,6 +151,11 @@ export function supportsServiceTier(mode, provider, modelId) {
  * @type {ReadonlySet<string>}
  */
 const NO_VISION = new Set([
+    // GLM's flagship line is text-only. Note `glm-5.3-flash` is NOT — the
+    // Flash sibling takes image and video input, so listing the family by
+    // prefix would wrongly strip vision from it.
+    "z-ai/glm-5.3",
+    "glm-5.3",
     "z-ai/glm-5.2",
     "glm-5.2",
 ]);

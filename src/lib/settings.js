@@ -4,8 +4,18 @@
 
 export const STORAGE_KEY = "agex-settings";
 
-const RETIRED_OPENROUTER_MODEL = "google/gemini-3.5-flash";
-const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.6-flash";
+const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.8-flash";
+// Prior OpenRouter defaults. Someone sitting on one of these almost
+// certainly never touched the setting, so carry them to the current
+// default rather than stranding them on a model the picker no longer
+// lists — SettingsDrawer drops an unlisted id into its free-text custom
+// input, which reads as breakage for a value the user never chose. Every
+// bump so far has been same-family and same-price, so the move is free.
+// Deliberately narrow: ex-defaults only, never a model actively picked.
+const SUPERSEDED_OPENROUTER_MODELS = new Set([
+    "google/gemini-3.5-flash",
+    "google/gemini-3.6-flash",
+]);
 
 const DEFAULTS = {
     apiKey: "",
@@ -180,12 +190,12 @@ function load() {
                 // the wire format via ``provider``.
                 merged.accessMode = "custom";
             }
-            // Move existing OpenRouter users off the retired Gemini model.
-            // Custom model IDs remain user-controlled, so only migrate this
-            // exact retired preset when it is stored.
+            // Move existing OpenRouter users off a superseded default.
+            // Custom model IDs remain user-controlled, so only migrate the
+            // exact ids we once shipped as the default.
             if (
                 merged.accessMode === "openrouter" &&
-                merged.model === RETIRED_OPENROUTER_MODEL
+                SUPERSEDED_OPENROUTER_MODELS.has(merged.model)
             ) {
                 merged.model = DEFAULT_OPENROUTER_MODEL;
             }

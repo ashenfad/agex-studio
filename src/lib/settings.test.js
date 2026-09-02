@@ -30,7 +30,7 @@ describe("settingsStore", () => {
         });
         expect(received).toEqual({
             apiKey: "",
-            model: "google/gemini-3.6-flash",
+            model: "google/gemini-3.8-flash",
             accessMode: "openrouter",
             provider: "openai",
             baseUrl: "",
@@ -73,7 +73,7 @@ describe("settingsStore", () => {
             received = s;
         });
         expect(received.apiKey).toBe("sk-partial");
-        expect(received.model).toBe("google/gemini-3.6-flash");
+        expect(received.model).toBe("google/gemini-3.8-flash");
     });
 
     it("handles corrupt localStorage gracefully", async () => {
@@ -86,15 +86,29 @@ describe("settingsStore", () => {
         expect(received.apiKey).toBe("");
     });
 
-    it("migrates the retired Gemini 3.5 Flash preset", async () => {
+    it.each([
+        ["google/gemini-3.5-flash"],
+        ["google/gemini-3.6-flash"],
+    ])("migrates the superseded default %s", async (stale) => {
         store["agex-settings"] = JSON.stringify({
-            model: "google/gemini-3.5-flash",
+            model: stale,
             accessMode: "openrouter",
         });
         const { settingsStore } = await loadSettings();
         let received;
         settingsStore.subscribe((s) => { received = s });
-        expect(received.model).toBe("google/gemini-3.6-flash");
+        expect(received.model).toBe("google/gemini-3.8-flash");
+    });
+
+    it("leaves an actively-chosen model alone, even one dropped from the presets", async () => {
+        store["agex-settings"] = JSON.stringify({
+            model: "z-ai/glm-5.2", // no longer a preset, but never a default
+            accessMode: "openrouter",
+        });
+        const { settingsStore } = await loadSettings();
+        let received;
+        settingsStore.subscribe((s) => { received = s });
+        expect(received.model).toBe("z-ai/glm-5.2");
     });
 
     /** Migration: pre-accessMode settings that were already going through
@@ -167,7 +181,7 @@ describe("updateSettings", () => {
 
         expect(values).toHaveLength(2);
         expect(values[1].apiKey).toBe("sk-new");
-        expect(values[1].model).toBe("google/gemini-3.6-flash");
+        expect(values[1].model).toBe("google/gemini-3.8-flash");
 
         const saved = JSON.parse(store["agex-settings"]);
         expect(saved.apiKey).toBe("sk-new");
@@ -204,7 +218,7 @@ describe("resolveProvider", () => {
     it("returns openai in OpenRouter mode for non-anthropic models", async () => {
         const { resolveProvider } = await loadSettings();
         for (const model of [
-            "google/gemini-3.6-flash",
+            "google/gemini-3.8-flash",
             "openai/gpt-5.4",
             "meta-llama/llama-4",
             "mistralai/mistral-large",
@@ -221,7 +235,7 @@ describe("resolveProvider", () => {
             resolveProvider({
                 accessMode: "openrouter",
                 provider: "anthropic", // stored, but should be ignored
-                model: "google/gemini-3.6-flash",
+                model: "google/gemini-3.8-flash",
             }),
         ).toBe("openai");
         expect(
