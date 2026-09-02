@@ -37,13 +37,6 @@ const DEFAULTS = {
     chapteringTrigger: 150000,
     toolUseWireFormat: true,
     reasoningEffort: "medium",
-    // OpenRouter's `service_tier` passthrough. `standard` means
-    // "don't send the field"; `flex` opts into the lower-cost,
-    // higher-latency tier (OpenAI: ~50% off gpt-5 last we checked);
-    // `priority` opts into faster + costlier. Only honored by
-    // OpenAI and Google models — see `supportsServiceTier` in
-    // models.js for the gating rule.
-    serviceTier: "standard",
     // OpenRouter provider pins, keyed by model id ("author/slug"). When
     // set, the user has chosen a specific upstream provider for that model;
     // `_buildLlmClient` hard-pins it (`provider.order` + no fallbacks). A
@@ -113,13 +106,6 @@ let subscribers = [];
  *     OpenRouter's ``reasoning.effort`` and to an Anthropic
  *     ``budget_tokens`` (1024 / 2048 / 4096).  Ignored when
  *     toolUseWireFormat is false.
- * @property {"standard" | "flex" | "priority"} serviceTier — OpenRouter
- *     `service_tier` passthrough.  ``standard`` omits the field entirely
- *     (use the provider's default tier).  ``flex`` opts into the lower-
- *     cost / higher-latency tier; ``priority`` opts into faster + more
- *     expensive.  Only meaningful for OpenAI and Google models per
- *     OpenRouter's documentation; gated in the UI via
- *     ``supportsServiceTier`` in models.js.
  * @property {Record<string, string>} providerPins — OpenRouter provider
  *     pins keyed by model id (``author/slug``).  A present entry means the
  *     user chose a specific upstream for that model, and the client hard-

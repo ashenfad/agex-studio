@@ -286,14 +286,14 @@
     const _initKey = (s) => JSON.stringify([
         s.apiKey, s.model, s.provider, s.baseUrl,
         s.toolUseWireFormat, s.reasoningEffort,
-        // serviceTier AND the current model's provider pin both flow into
-        // the LLM client's request-body `extras` (see _buildLlmClient in
-        // ts-agent.js); chapteringTrigger is passed through initAgent's
-        // reconfigure() path. All are silently dropped on settings save if
-        // not tracked here — the effect's `if (initKey === lastInitKey)
-        // return` would short-circuit when only one of these changed. (The
-        // pin is keyed by model, so only the active model's pin matters.)
-        s.serviceTier, s.chapteringTrigger,
+        // The current model's provider pin flows into the LLM client's
+        // request-body `extras` (see _buildLlmClient in ts-agent.js);
+        // chapteringTrigger is passed through initAgent's reconfigure()
+        // path. Both are silently dropped on settings save if not tracked
+        // here — the effect's `if (initKey === lastInitKey) return` would
+        // short-circuit when only one of them changed. (The pin is keyed
+        // by model, so only the active model's pin matters.)
+        s.chapteringTrigger,
         s.providerPins?.[s.model],
     ])
     $effect(() => {

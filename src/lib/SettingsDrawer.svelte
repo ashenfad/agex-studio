@@ -1,7 +1,7 @@
 <script>
     import { untrack } from 'svelte'
     import { settingsStore, updateSettings } from './settings.js'
-    import { presetsFor, supportsServiceTier } from './models.js'
+    import { presetsFor } from './models.js'
     import { listModelEndpoints } from './openrouter.js'
     import {
         SYNC_PAT_CREATE_LINK,
@@ -26,8 +26,6 @@
     let toolUseWireFormat = $state(true)
     /** @type {import('./settings.js').Settings['reasoningEffort']} */
     let reasoningEffort = $state('medium')
-    /** @type {import('./settings.js').Settings['serviceTier']} */
-    let serviceTier = $state('standard')
     let githubPat = $state('')
     let activeTab = $state('model')
 
@@ -39,12 +37,6 @@
     let providerOptions = $state([])
     let providerLoading = $state(false)
     let providerError = $state('')
-
-    // The tier picker is only meaningful for OpenAI / Google models;
-    // hide it elsewhere so the form doesn't sprout an inert knob.
-    // Derived from the live local state so flipping `accessMode` or
-    // `model` in the drawer shows/hides the row immediately.
-    let tierSupported = $derived(supportsServiceTier(accessMode, provider, model))
 
     // Sync local state from store whenever drawer opens.  We deliberately
     // route the mode through a ``const mode`` instead of reading the
@@ -76,7 +68,6 @@
             chapteringTrigger = s.chapteringTrigger
             toolUseWireFormat = s.toolUseWireFormat ?? true
             reasoningEffort = s.reasoningEffort ?? 'medium'
-            serviceTier = s.serviceTier ?? 'standard'
             githubPat = s.githubPat ?? ''
         }
     })
@@ -170,7 +161,6 @@
             chapteringTrigger: Number(chapteringTrigger) || 150000,
             toolUseWireFormat,
             reasoningEffort,
-            serviceTier,
             providerPins: pins,
             githubPat: githubPat.trim(),
         }
@@ -400,39 +390,6 @@
                             <span class="provider-hint">Pinned — only this provider, no fallback.</span>
                         {/if}
                     </label>
-                {/if}
-
-                {#if tierSupported}
-                    <!-- Service tier — OpenRouter's request-body
-                         `service_tier` passthrough. `standard` omits
-                         the field (provider default); `flex` opts
-                         into cheaper + slower; `priority` opts into
-                         faster + costlier. Only OpenAI and Google
-                         models honor it per OpenRouter docs; the row
-                         hides for everything else. -->
-                    <div class="field">
-                        <span class="field-label">Service tier</span>
-                        <div class="segmented">
-                            <button
-                                type="button"
-                                class:active={serviceTier === 'standard'}
-                                onclick={() => serviceTier = 'standard'}
-                                title="Provider's default tier"
-                            >Standard</button>
-                            <button
-                                type="button"
-                                class:active={serviceTier === 'flex'}
-                                onclick={() => serviceTier = 'flex'}
-                                title="Lower cost, higher latency"
-                            >Flex</button>
-                            <button
-                                type="button"
-                                class:active={serviceTier === 'priority'}
-                                onclick={() => serviceTier = 'priority'}
-                                title="Higher cost, faster"
-                            >Priority</button>
-                        </div>
-                    </div>
                 {/if}
 
                 <label class="checkbox-row">
