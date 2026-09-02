@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     listModelEndpoints,
     clearEndpointCache,
-    pinFallbackFetch,
+    forcedToolFallbackFetch,
     clearForcedToolMemo,
 } from "./openrouter.js";
 
@@ -90,7 +90,7 @@ describe("listModelEndpoints", () => {
     });
 });
 
-describe("pinFallbackFetch", () => {
+describe("forcedToolFallbackFetch", () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         clearForcedToolMemo();
@@ -104,10 +104,43 @@ describe("pinFallbackFetch", () => {
             provider: { order: ["baidu/fp8"], allow_fallbacks: false },
             ...extra,
         });
+    /** Open routing — no pin, so the memo keys on the model alone. */
+    const openRouteBody = (extra = {}) =>
+        JSON.stringify({
+            model: "meta/muse-spark-1.3",
+            tool_choice: "required",
+            ...extra,
+        });
     const noEndpoints = () =>
         new Response(
             JSON.stringify({ error: { message: "No endpoints found for z-ai/glm-5.2.", code: 404 } }),
             { status: 404, statusText: "Not Found" },
+        );
+    /** The real Meta-on-Muse-Spark shape: OpenRouter's envelope carrying the
+     *  upstream error as an escaped JSON string, so `tool_choice` only appears
+     *  nested inside `metadata.raw`. Empty statusText mirrors HTTP/2. */
+    const providerRefusal = () =>
+        new Response(
+            JSON.stringify({
+                error: {
+                    message: "Provider returned error",
+                    code: 400,
+                    metadata: {
+                        raw: JSON.stringify({
+                            error: {
+                                code: null,
+                                message:
+                                    'only "auto" is supported for tool_choice. "none", "required", and named function choices are not currently supported',
+                                param: "tool_choice",
+                                type: "invalid_request_error",
+                            },
+                        }),
+                        provider_name: "Meta",
+                        is_byok: false,
+                    },
+                },
+            }),
+            { status: 400, statusText: "" },
         );
 
     it("keeps the pin but relaxes forced tools on 'No endpoints found'", async () => {
@@ -115,7 +148,7 @@ describe("pinFallbackFetch", () => {
         const fetchMock = vi.fn().mockResolvedValueOnce(noEndpoints()).mockResolvedValueOnce(ok);
         global.fetch = fetchMock;
 
-        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: hardPinBody() });
 
         expect(res.status).toBe(200);
         expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -125,21 +158,82 @@ describe("pinFallbackFetch", () => {
         expect(retryBody.tool_choice).toBe("auto");
     });
 
-    it("memoizes: after one failure it relaxes up front, no wasted 404", async () => {
+    it("relaxes on an upstream provider's 400, unpinned, and hides it from the caller", async () => {
+        const ok = new Response("stream", { status: 200 });
+        const fetchMock = vi.fn().mockResolvedValueOnce(providerRefusal()).mockResolvedValueOnce(ok);
+        global.fetch = fetchMock;
+
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
+
+        // the 400 never escapes — agex only ever sees the successful retry
+        expect(res.status).toBe(200);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body).tool_choice).toBe("auto");
+    });
+
+    it("preserves the abort signal across the retry", async () => {
+        const controller = new AbortController();
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(providerRefusal())
+            .mockResolvedValueOnce(new Response("stream", { status: 200 }));
+        global.fetch = fetchMock;
+
+        await forcedToolFallbackFetch(URL, {
+            method: "POST",
+            body: openRouteBody(),
+            signal: controller.signal,
+        });
+
+        expect(fetchMock.mock.calls[1][1].signal).toBe(controller.signal);
+    });
+
+    it("memoizes a pinned route: after one failure it relaxes up front", async () => {
         global.fetch = vi
             .fn()
             .mockResolvedValueOnce(noEndpoints()) // first call: force fails
             .mockResolvedValue(new Response("stream", { status: 200 }));
 
-        await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() }); // learns it
+        await forcedToolFallbackFetch(URL, { method: "POST", body: hardPinBody() }); // learns it
         const second = vi.fn().mockResolvedValue(new Response("stream", { status: 200 }));
         global.fetch = second;
 
-        await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+        await forcedToolFallbackFetch(URL, { method: "POST", body: hardPinBody() });
 
         // single request, already relaxed — no 404 round-trip
         expect(second).toHaveBeenCalledTimes(1);
         expect(JSON.parse(second.mock.calls[0][1].body).tool_choice).toBe("auto");
+    });
+
+    it("memoizes an unpinned route by model — one handshake per page load", async () => {
+        global.fetch = vi
+            .fn()
+            .mockResolvedValueOnce(providerRefusal())
+            .mockResolvedValue(new Response("stream", { status: 200 }));
+
+        await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
+        const second = vi.fn().mockResolvedValue(new Response("stream", { status: 200 }));
+        global.fetch = second;
+
+        await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
+
+        expect(second).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(second.mock.calls[0][1].body).tool_choice).toBe("auto");
+    });
+
+    it("scopes the memo per model — a refusal doesn't relax an unrelated one", async () => {
+        global.fetch = vi
+            .fn()
+            .mockResolvedValueOnce(providerRefusal())
+            .mockResolvedValue(new Response("stream", { status: 200 }));
+        await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
+
+        const second = vi.fn().mockResolvedValue(new Response("stream", { status: 200 }));
+        global.fetch = second;
+        const other = JSON.stringify({ model: "z-ai/glm-5.3", tool_choice: "required" });
+        await forcedToolFallbackFetch(URL, { method: "POST", body: other });
+
+        expect(JSON.parse(second.mock.calls[0][1].body).tool_choice).toBe("required");
     });
 
     it("passes a successful response straight through without reading it", async () => {
@@ -147,7 +241,7 @@ describe("pinFallbackFetch", () => {
         const fetchMock = vi.fn().mockResolvedValue(ok);
         global.fetch = fetchMock;
 
-        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: hardPinBody() });
 
         expect(res).toBe(ok); // same object → body still unconsumed for the streamer
         expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -159,21 +253,48 @@ describe("pinFallbackFetch", () => {
             .mockResolvedValue(new Response("model not found", { status: 404, statusText: "Not Found" }));
         global.fetch = fetchMock;
 
-        const res = await pinFallbackFetch(URL, { method: "POST", body: hardPinBody() });
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: hardPinBody() });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(res.status).toBe(404);
         expect(await res.text()).toBe("model not found");
     });
 
-    it("does not retry when there is no hard pin", async () => {
-        const fetchMock = vi.fn().mockResolvedValue(noEndpoints());
+    it("does not retry an unrelated 400, but keeps its body readable", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValue(new Response("context length exceeded", { status: 400, statusText: "" }));
         global.fetch = fetchMock;
 
-        const body = JSON.stringify({ model: "z-ai/glm-5.2" }); // no provider pin
-        const res = await pinFallbackFetch(URL, { method: "POST", body });
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        expect(res.status).toBe(404);
+        expect(res.status).toBe(400);
+        expect(await res.text()).toBe("context length exceeded");
+    });
+
+    it("does not retry a request that wasn't forcing tools", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(providerRefusal());
+        global.fetch = fetchMock;
+
+        const body = JSON.stringify({ model: "meta/muse-spark-1.3", tool_choice: "auto" });
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body });
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(400);
+    });
+
+    it("surfaces a retry that fails too, rather than swallowing it twice", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(providerRefusal())
+            .mockResolvedValueOnce(new Response("still broken", { status: 400, statusText: "" }));
+        global.fetch = fetchMock;
+
+        const res = await forcedToolFallbackFetch(URL, { method: "POST", body: openRouteBody() });
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(res.status).toBe(400);
+        expect(await res.text()).toBe("still broken");
     });
 });

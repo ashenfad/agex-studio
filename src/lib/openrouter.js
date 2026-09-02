@@ -35,23 +35,48 @@ function _endpointLabel(providerName, tag) {
     return variant ? `${providerName} (${variant})` : providerName;
 }
 
-// Hard-pinned (model, provider) pairs we've learned can't honor
-// `tool_choice: "required"`. Once a pin proves it can't force tools for a
-// model, later calls relax up front instead of eating a 404 every turn.
-// Module-lifetime; a provider's tool-calling support effectively never changes.
-const _pinNoForcedTools = new Set();
+// Routes we've learned can't honor `tool_choice: "required"`. Once a route
+// refuses, later calls relax up front instead of eating a failed request
+// every turn. Module-lifetime — deliberately forgotten on reload, so a
+// provider that gains support (or a lucky first draw that didn't) is
+// re-probed next session at the cost of one cheap round trip.
+const _noForcedTools = new Set();
 
-/** Test hook: forget what we've learned about pins and forced tools. */
+/** Test hook: forget what we've learned about routes and forced tools. */
 export function clearForcedToolMemo() {
-    _pinNoForcedTools.clear();
+    _noForcedTools.clear();
 }
 
-/** `${model}|${pinnedProviderSlug}` for a request body, or null when it isn't a
- *  hard provider pin we could rescue. */
-function _pinKey(body) {
-    if (body?.provider?.allow_fallbacks !== false) return null;
-    const slug = body.provider.order?.[0];
-    return body.model && slug ? `${body.model}|${slug}` : null;
+/** Memo key for a request body: `${model}|${pinnedProviderSlug}` under a hard
+ *  provider pin, bare `${model}` when routing is open (no pin to name, so the
+ *  refusal is remembered for the model as a whole). Null without a model.
+ *
+ *  Keying open routing by model alone is deliberately coarse: OpenRouter picks
+ *  an endpoint per request, so one refusal downgrades the model for every turn
+ *  this page load even though a different draw might have honored the force.
+ *  The alternative — re-probing every turn — costs a failed request each time.
+ *  Bounded by module lifetime, so the coarseness expires on reload. */
+function _memoKey(body) {
+    if (!body?.model) return null;
+    const pinned =
+        body.provider?.allow_fallbacks === false ? body.provider.order?.[0] : null;
+    return pinned ? `${body.model}|${pinned}` : body.model;
+}
+
+// Statuses that can carry a forced-tool refusal. 404 is OpenRouter's own
+// routing refusal ("No endpoints found that support the provided
+// 'tool_choice' value"); 400 is an upstream provider rejecting the value
+// after OpenRouter already routed to it — Meta on Muse Spark answers
+// `only "auto" is supported for tool_choice`. Both are pre-stream HTTP
+// responses, which is what makes them catchable here at all.
+const _RETRY_STATUS = new Set([400, 404]);
+
+/** Does this error body say the request failed over forced tool choice?
+ *  Matched against the raw text: OpenRouter nests the upstream provider's
+ *  error as an escaped JSON string, so a regex sees `tool_choice` at any
+ *  depth without us having to unwrap the envelope. */
+function _isForcedToolRefusal(text) {
+    return /tool_choice/i.test(text) || /no endpoints found/i.test(text);
 }
 
 function _parseBody(b) {
@@ -63,55 +88,72 @@ function _parseBody(b) {
 }
 
 /**
- * A `fetchImpl` for the OpenAI client that keeps a hard provider pin working
- * when the pinned provider can't do forced tool-calling.
+ * A `fetchImpl` for the OpenAI client that keeps an OpenRouter route working
+ * when it can't do forced tool-calling.
  *
- * agex forces tool use (`tool_choice: "required"`), but some OpenRouter
- * endpoints don't support the *forced* value for a given model — Baidu on
- * GLM-5.2, for one. With a hard pin (`allow_fallbacks: false`) that leaves
- * OpenRouter no eligible endpoint, so it returns `404 "No endpoints found"`.
- * Rather than abandon the provider the user explicitly chose, we relax the
- * forced tool choice: retry the same pinned request with `tool_choice: "auto"`,
- * which the provider *can* serve. The pin is honored; the model just isn't
- * compelled to call a tool on that turn. We remember the (model, provider) pair
- * so subsequent calls relax up front rather than paying the 404 each time.
+ * agex forces tool use (`tool_choice: "required"`), but some routes won't
+ * serve the *forced* value for a given model, in two distinct shapes:
  *
- * Trade-off: under `auto` the pinned model may answer with prose instead of a
- * tool call on some turns. Everything else — successes, unrelated 404s, and
- * requests with no hard pin — passes through untouched.
+ *   - OpenRouter refuses to route at all — `404 "No endpoints found that
+ *     support the provided 'tool_choice' value"`. Under a hard pin
+ *     (`allow_fallbacks: false`) there's no eligible endpoint left; Baidu on
+ *     GLM-5.2 is the case that first surfaced this.
+ *   - OpenRouter routes fine and the *upstream provider* rejects the value —
+ *     `400 only "auto" is supported for tool_choice`, which is Meta on Muse
+ *     Spark. Note this can't be predicted from the endpoints API: Meta
+ *     declares `tool_choice` in `supported_parameters`, since that lists
+ *     parameter *names*, not which values each one accepts.
+ *
+ * Either way, rather than fail the turn we relax the forced tool choice and
+ * retry with `tool_choice: "auto"`, which the route *can* serve. Any provider
+ * pin is preserved untouched — the user's choice is honored, the model just
+ * isn't compelled to call a tool. The route is remembered (see `_memoKey`) so
+ * later turns relax up front instead of re-paying the failed request.
+ *
+ * The retry is invisible to the caller: agex only inspects `response.ok`
+ * after `fetchImpl` resolves, so it never sees the refusal. The cost is one
+ * extra round trip on the first turn per route per page load, and a rejected
+ * request bills no tokens. Note the retry shares the client's request timeout
+ * rather than getting a fresh one — the timer isn't cleared until we resolve —
+ * and it inherits `init.signal`, so a user cancel still aborts mid-handshake.
+ *
+ * Trade-off: under `auto` the model may answer with prose instead of a tool
+ * call on some turns. Everything else — successes, unrelated 4xx, and requests
+ * that weren't forcing tools — passes through untouched.
  *
  * Wired in via `OpenAI({ fetchImpl })`; the client hands us the fully-built
- * request whose JSON body already carries the merged `provider` pin.
+ * request whose JSON body already carries any merged `provider` pin.
  *
  * @param {string | URL | Request} url
  * @param {RequestInit} [init]  `init.body` is the JSON request string.
  * @returns {Promise<Response>}
  */
-export async function pinFallbackFetch(url, init) {
+export async function forcedToolFallbackFetch(url, init) {
     let body = _parseBody(init?.body);
-    const key = _pinKey(body);
+    const key = _memoKey(body);
     // Already known to reject forced tools → relax before we even ask.
-    if (key && body.tool_choice === "required" && _pinNoForcedTools.has(key)) {
+    if (key && body.tool_choice === "required" && _noForcedTools.has(key)) {
         body = { ...body, tool_choice: "auto" };
         init = { ...init, body: JSON.stringify(body) };
     }
     const res = await fetch(url, init);
-    if (res.status !== 404) return res;
-    // Only a hard pin that's still forcing tools can be rescued this way.
+    if (!_RETRY_STATUS.has(res.status)) return res;
+    // Only a request still forcing tools can be rescued this way.
     if (!key || body.tool_choice !== "required") return res;
     // Reading the body settles whether this is the forced-tool failure; either
     // way the caller must still be able to read it, so hand back a fresh copy.
     const text = await res.text();
-    if (!/no endpoints found/i.test(text)) {
+    if (!_isForcedToolRefusal(text)) {
         return new Response(text, {
             status: res.status,
             statusText: res.statusText,
             headers: res.headers,
         });
     }
-    // The pinned provider can't force tools for this model. Keep the pin, drop
-    // the force, and remember so we skip the wasted 404 next time.
-    _pinNoForcedTools.add(key);
+    // This route can't force tools for this model. Keep everything else, drop
+    // the force, and remember so we skip the wasted request next time. A retry
+    // that fails too is returned as-is, so a genuine error still surfaces.
+    _noForcedTools.add(key);
     const retried = JSON.stringify({ ...body, tool_choice: "auto" });
     return fetch(url, { ...init, body: retried });
 }
