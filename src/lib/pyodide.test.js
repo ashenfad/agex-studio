@@ -211,6 +211,104 @@ describe("runPythonStreaming", () => {
     });
 });
 
+describe("LLM stream bridge — forced-tool fallback", () => {
+    const URL_ = "https://openrouter.ai/api/v1/chat/completions";
+
+    /** The Meta-on-Muse-Spark refusal, in OpenRouter's envelope. */
+    const refusal = () =>
+        new Response(
+            JSON.stringify({
+                error: {
+                    message: "Provider returned error",
+                    code: 400,
+                    metadata: {
+                        raw: JSON.stringify({
+                            error: {
+                                message:
+                                    'only "auto" is supported for tool_choice. "none", "required", and named function choices are not currently supported',
+                                param: "tool_choice",
+                                type: "invalid_request_error",
+                            },
+                        }),
+                        provider_name: "Meta",
+                    },
+                },
+            }),
+            { status: 400, statusText: "" },
+        );
+
+    /** Drive one `llm-stream` request through the worker bridge and settle. */
+    async function pump(body) {
+        const { startWorker } = await loadPyodide();
+        const { clearForcedToolMemo } = await import("./openrouter.js");
+        clearForcedToolMemo();
+        startWorker();
+        const w = MockWorker.instances[0];
+        w._receive({ type: "ready" });
+        w._receive({
+            type: "llm-stream",
+            id: 7,
+            requestJson: JSON.stringify({ url: URL_, method: "POST", body }),
+        });
+        // let the handler's fetch + reader microtasks drain
+        await new Promise((r) => setTimeout(r, 0));
+        return w;
+    }
+
+    it("relaxes and retries instead of failing the turn", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(refusal())
+            .mockResolvedValueOnce(new Response("data: hi\n\n", { status: 200 }));
+        vi.stubGlobal("fetch", fetchMock);
+
+        const w = await pump(
+            JSON.stringify({ model: "meta/muse-spark-1.3", tool_choice: "required" }),
+        );
+
+        // the refusal never reaches the worker as an error
+        expect(w.posted.find((m) => m.type === "llm-stream-error")).toBeUndefined();
+        expect(w.posted.find((m) => m.type === "llm-stream-done")).toBeDefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body).tool_choice).toBe("auto");
+    });
+
+    it("still surfaces an unrelated failure to the worker", async () => {
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValue(
+                new Response(JSON.stringify({ error: { message: "context length exceeded" } }), {
+                    status: 400,
+                    statusText: "",
+                }),
+            );
+        vi.stubGlobal("fetch", fetchMock);
+
+        const w = await pump(
+            JSON.stringify({ model: "meta/muse-spark-1.3", tool_choice: "required" }),
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const err = w.posted.find((m) => m.type === "llm-stream-error");
+        expect(err.error).toContain("context length exceeded");
+    });
+
+    it("leaves the Anthropic shape alone (tool_choice is an object, not \"required\")", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(refusal());
+        vi.stubGlobal("fetch", fetchMock);
+
+        const w = await pump(
+            JSON.stringify({
+                model: "anthropic/claude-sonnet-5",
+                tool_choice: { type: "any" },
+            }),
+        );
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(w.posted.find((m) => m.type === "llm-stream-error")).toBeDefined();
+    });
+});
+
 describe("terminateWorker", () => {
     it("is a no-op when no worker exists", async () => {
         const { terminateWorker } = await loadPyodide();

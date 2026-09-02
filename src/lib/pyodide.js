@@ -22,6 +22,10 @@ import { getSettings, resolveBaseUrl, resolveProvider } from './settings.js';
 // Forwarded to the py worker via the init postMessage so worker.js
 // can fetch the same vite-bundled bridge the TS kernel uses.
 import _esbuildBridgeUrl from './esbuild-bridge.js?url';
+// Shared with the TS kernel: rescues an OpenRouter route that refuses
+// `tool_choice: "required"`. The memo inside is keyed by model, so what
+// one kernel learns the other doesn't have to re-discover.
+import { forcedToolFallbackFetch } from './openrouter.js';
 
 /** @type {Worker | null} */
 let worker = null;
@@ -459,7 +463,13 @@ async function handleLlmStream(requestJson, requestId) {
 
     try {
         const headers = _injectAuth({ ...req.headers }, req.url);
-        const resp = await fetch(req.url, {
+        // Not plain `fetch`: agex-py sends `tool_choice: "required"` when
+        // reasoning is off (`pyfetch_openai` defaults it to "auto" when
+        // reasoning is on, to keep Anthropic thinking alive), and some
+        // OpenRouter routes refuse the forced value. Without the wrapper
+        // that refusal lands in the `!resp.ok` branch below and fails the
+        // turn outright — the py bridge has no retry of its own.
+        const resp = await forcedToolFallbackFetch(req.url, {
             method: req.method || "POST",
             headers,
             body: req.body,
