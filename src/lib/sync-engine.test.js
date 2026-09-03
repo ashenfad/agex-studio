@@ -47,7 +47,28 @@ function makeRosterRemote(remoteStore) {
     return {
         listRefs: async () => (await inner.listRefs()).filter((r) => !archived.has(r.branch)),
         fetch: (want, have) => inner.fetch(want, have),
-        push: (b, e, n, c) => inner.push(b, e, n, c),
+        // MemoryRemote replays through `applyWire`, which accepts any
+        // DAG. GithubRemote does not: it renders each commit's git tree
+        // from its first parent's render, so a stream that doesn't
+        // descend from `expectedOld` throws "parent … not in stream or
+        // frontier". Enforcing that here keeps the double from accepting
+        // pushes the real transport rejects — a gap that let a
+        // sideways force-push ship green.
+        push: async (b, expectedOld, newHead, commits) => {
+            const rendered = new Set(expectedOld === null ? [] : [expectedOld]);
+            const buffered = [];
+            for await (const wc of commits) {
+                const firstParent = wc.parents[0];
+                if (firstParent !== undefined && !rendered.has(firstParent)) {
+                    throw new Error(
+                        `push: parent ${firstParent.slice(0, 7)} of ${wc.hash.slice(0, 7)} not in stream or frontier (stream must be parents-first)`,
+                    );
+                }
+                rendered.add(wc.hash);
+                buffered.push(wc);
+            }
+            return inner.push(b, expectedOld, newHead, buffered);
+        },
         listArchivedRefs: async () =>
             [...archived].map(([branch, head]) => ({ branch, head })),
         archiveBranch: async (branch) => {
@@ -401,26 +422,50 @@ describe("roster and lifecycle", () => {
         expect(statusOf("chat-aa11").kind).toBe("two-sided");
     });
 
-    it("force-pushes a rewind, dropping the discarded turn from the remote", async () => {
-        const { world, good } = await rewoundWorld();
+    it("pushes a rewind, dropping the discarded turn from the visible session", async () => {
+        const { world } = await rewoundWorld();
         await syncNow("chat-aa11");
+        const dirtyHead = (await world.remote.listRefs()).find(
+            (r) => r.branch === "chat-aa11",
+        ).head;
         const { pushLocalOverRemote } = await import("./sync-engine.js");
 
         await pushLocalOverRemote("chat-aa11");
 
         expect(statusOf("chat-aa11").state).toBe("synced");
         const head = (await world.remote.listRefs()).find((r) => r.branch === "chat-aa11").head;
-        expect(head).toBe(good);
-        // What a fresh device would materialize: the undone turn is gone.
+        // What a fresh device would materialize: the undone turn is gone
+        // from the state, even though it stays in the history.
         const fresh = new Memory();
         const { applyWire: apply } = await import("@agex-ts/kvgit");
         await apply(fresh, world.remote.fetch(head, []), { createBranch: "chat-aa11" });
         const view = await VersionedKV.open(fresh, { branch: "chat-aa11" });
         expect(new TextDecoder().decode(await view.get("good"))).toBe("yes");
         expect(await view.get("junk")).toBeNull();
+        // Landed as a descendant, which is the only shape the GitHub
+        // transport will accept — and why the old force-push couldn't work.
+        const ancestry = [];
+        for await (const c of view.history()) ancestry.push(c);
+        expect(ancestry).toContain(dirtyHead);
     });
 
-    it("refuses the force-push when the remote moved after classification", async () => {
+    it("surfaces a failed resolution as an error, never a stuck spinner", async () => {
+        const { world } = await rewoundWorld();
+        await syncNow("chat-aa11");
+        // Any failure in the resolution path will do; what's under test is
+        // that the row doesn't keep spinning with the reason in the console.
+        world.remote.listRefs = async () => {
+            throw new Error("network is down");
+        };
+        const { pushLocalOverRemote } = await import("./sync-engine.js");
+
+        await expect(pushLocalOverRemote("chat-aa11")).rejects.toThrow("network is down");
+
+        expect(statusOf("chat-aa11").state).toBe("error");
+        expect(statusOf("chat-aa11").detail).toContain("network is down");
+    });
+
+    it("refuses to resolve silently when the remote moved after classification", async () => {
         const { world, good } = await rewoundWorld();
         await syncNow("chat-aa11");
         expect(statusOf("chat-aa11").kind).toBe("local-rewind");

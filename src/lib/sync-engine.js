@@ -40,9 +40,7 @@ import {
     applyWire,
     clearSyncHead,
     getSyncHead,
-    setSyncHead,
     syncBranch,
-    walkDelta,
 } from "@agex-ts/kvgit";
 import { GithubClient, GithubRemote, base64ToBytes, bytesToBase64 } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
@@ -1163,91 +1161,36 @@ async function forkLocalSide(branch) {
 }
 
 /**
- * Case A — "Push this device's version". The remote holds only work this
- * device discarded (see `classifyDivergence`), so replace it wholesale.
+ * Rebase this device's state onto `remoteHead`: one commit descending
+ * from the remote tip that carries the local keyset exactly.
  *
- * This is a genuine force-push, and it has to be assembled by hand:
- * kvgit's `pushBranch` is fast-forward-only, moving the remote ref along
- * ancestry and nothing else. The `Remote` primitive underneath is not —
- * `push(branch, expectedOld, newHead, commits)` takes an arbitrary
- * `newHead`, so the fast-forward policy lives in the orchestrator, not
- * the transport.
- *
- * The CAS alone does NOT make this safe. `expectedOld` is whatever the
- * remote currently points at, so it always matches and always wins — it
- * guards against a write landing mid-flight, not against the remote
- * having moved since the button appeared. The status was computed at sync
- * time and clicked later; a device that pushed in that window would have
- * its commits overwritten by a CAS that succeeded exactly as intended.
- *
- * So authorization is re-derived here, against the head we are about to
- * overwrite, and the whole read-verify-push runs under the sync lock so a
- * sibling tab can't move the remote between the check and the CAS. A
- * remote that advanced is no longer a rewind: it re-syncs and comes back
- * as a two-sided divergence, where the user gets the real choice.
- *
- * Archiving the old remote branch first (for trash recoverability) is
- * deliberately NOT done: `archiveSessionRemotely` refreshes the roster,
- * whose tombstone propagation would delete this very session locally,
- * and the archived ref would keep re-triggering that on later refreshes.
- */
-export async function pushLocalOverRemote(branch) {
-    const store = await deps.getStore();
-    const remote = await getRemote();
-    const vk = await VersionedKV.open(store, { branch });
-    const localHead = await vk.latestHead();
-    if (localHead === null) throw new Error(`No local branch '${branch}' to push.`);
-    setStatus(branch, { state: "syncing" });
-    const outcome = await withSyncLock(async () => {
-        const remoteHead = await remoteHeadOf(remote, branch);
-        if (localHead === remoteHead) return "no-op"; // nothing to force
-        // Same predicate that classified the divergence, re-run against
-        // the head this CAS would discard.
-        if ((await classifyDivergence(store, branch, remoteHead)) !== "local-rewind") {
-            return "stale";
-        }
-        const won = await remote.push(
-            branch,
-            remoteHead,
-            localHead,
-            walkDelta(store, { want: localHead, have: [remoteHead] }),
-        );
-        return won ? "pushed" : "stale";
-    });
-    // "stale" / "busy": the authorization no longer holds, or another tab
-    // owns the lock. Re-sync to re-derive the state rather than retrying
-    // an overwrite against a head nothing has examined.
-    if (outcome !== "pushed") return syncNow(branch);
-    await setSyncHead(store, branch, localHead);
-    return syncNow(branch); // now up-to-date both ways → status settles to synced
-}
-
-/**
- * Case B — "Keep this device's version" on a genuine two-sided
- * divergence. Rebases this device's state onto the remote head so the
- * push is an ordinary fast-forward and other devices never see a
- * conflict: they pull a descendant of what they already hold.
- *
- * The keyset is replaced, not merged over. `diff(remoteHead, localHead)`
+ * The keyset is REPLACED, not merged over. `diff(remoteHead, localHead)`
  * reads in that direction, so `added`/`modified` are what this device
- * contributes and `removed` is what exists remotely and NOT locally —
- * the other side's turns. Those must be deleted explicitly. Writing only
- * our own keys would leave them in place, which is the exact failure the
- * undo case makes obvious: the turns you removed would come straight
- * back. Bytes move through `commit({updates, removals})` rather than a
+ * contributes and `removed` is what exists remotely and not locally —
+ * turns this device doesn't have. Those must be deleted explicitly;
+ * writing only our own keys would leave them in place, which the undo
+ * case makes obvious (the turns you removed would come straight back).
+ * Bytes move through `commit({updates, removals})` rather than a
  * `Staged`, so no codec is involved and values round-trip untouched.
  *
- * The overwritten turns stay in the remote's ancestry — recoverable
+ * Rebasing rather than moving the ref sideways is what makes the result
+ * pushable at all. `GithubRemote.push` renders each commit's git tree
+ * from its first parent's render, so it only accepts a stream that
+ * descends from `expectedOld` — a sibling line is rejected outright
+ * ("parent … not in stream or frontier"). The `Remote` interface's
+ * signature allows an arbitrary `newHead`; the GitHub transport does
+ * not. So the resolution has to produce a descendant, and this is it.
+ *
+ * The displaced turns stay in the remote's ancestry — recoverable
  * history, just no longer the visible session.
  */
-export async function keepLocalVersion(branch) {
-    const store = await deps.getStore();
-    const remote = await getRemote();
+async function rebaseLocalOntoRemote(store, remote, branch) {
     const remoteHead = await remoteHeadOf(remote, branch);
     await ensureRemoteObjects(store, remote, branch, remoteHead);
     const vk = await VersionedKV.open(store, { branch });
     const localHead = await vk.latestHead();
     if (localHead === null) throw new Error(`No local branch '${branch}'.`);
+    if (localHead === remoteHead) return; // already identical
     const delta = await vk.diff(remoteHead, localHead);
     // Read values off the local side BEFORE the ref moves. `checkout`
     // returns a detached view, so this doesn't disturb `vk`.
@@ -1261,7 +1204,74 @@ export async function keepLocalVersion(branch) {
     await vk.commit({ updates, removals });
     if (deps.onBranchPulled) await deps.onBranchPulled(branch);
     channel?.postMessage({ branch });
-    return syncNow(branch);
+}
+
+/** Run one resolution, making sure a failure lands as an error status
+ *  rather than stranding the row. Every path here sets "syncing" (via
+ *  `syncNow` or directly) before doing network work, and an exception
+ *  escaping used to leave that spinner up forever with the reason only
+ *  in the console — which is exactly how a broken push read as a slow
+ *  one for ten minutes. */
+async function runResolution(branch, fn) {
+    try {
+        return await fn();
+    } catch (err) {
+        setStatus(branch, { state: "error", detail: err?.message ?? String(err) });
+        throw err;
+    }
+}
+
+/**
+ * Case A — "Push this device's version". The remote holds only work this
+ * device discarded (see `classifyDivergence`), so this device's state
+ * wins without asking.
+ *
+ * Mechanically identical to Case B's "keep this device's version": both
+ * rebase onto the remote tip and push as an ordinary fast-forward. What
+ * differs is the question asked, not the operation — here there is
+ * nothing of anyone else's at stake, so no question is asked at all.
+ *
+ * An earlier draft force-pushed instead, CASing the remote ref sideways
+ * to the local head. That cannot work against GitHub: the transport
+ * renders trees parent-by-parent and rejects a stream that doesn't
+ * descend from the frontier. It survived review only because the
+ * in-memory test remote applies wire commits through `applyWire`, which
+ * accepts any DAG — a double more permissive than the real thing.
+ *
+ * The authorization re-check stays. The status was computed at sync time
+ * and clicked later; if the remote advanced in between, this is no
+ * longer a rewind, and silently dropping another device's turns from the
+ * visible session is still the wrong thing to do without asking.
+ */
+export async function pushLocalOverRemote(branch) {
+    return runResolution(branch, async () => {
+        const store = await deps.getStore();
+        const remote = await getRemote();
+        setStatus(branch, { state: "syncing" });
+        const remoteHead = await remoteHeadOf(remote, branch);
+        if ((await classifyDivergence(store, branch, remoteHead)) !== "local-rewind") {
+            // Re-syncing re-derives the status, which comes back
+            // two-sided and offers the real choice.
+            return syncNow(branch);
+        }
+        await rebaseLocalOntoRemote(store, remote, branch);
+        return syncNow(branch);
+    });
+}
+
+/**
+ * Case B — "Keep this device's version" on a genuine two-sided
+ * divergence. Other devices never see a conflict: the push is a
+ * fast-forward, so they pull a descendant of what they already hold.
+ */
+export async function keepLocalVersion(branch) {
+    return runResolution(branch, async () => {
+        const store = await deps.getStore();
+        const remote = await getRemote();
+        setStatus(branch, { state: "syncing" });
+        await rebaseLocalOntoRemote(store, remote, branch);
+        return syncNow(branch);
+    });
 }
 
 /**
@@ -1278,6 +1288,10 @@ export async function keepLocalVersion(branch) {
  * @returns {Promise<{ backup: string }>} the parked session's branch
  */
 export async function useRemoteVersion(branch) {
+    return runResolution(branch, () => _useRemoteVersion(branch));
+}
+
+async function _useRemoteVersion(branch) {
     const store = await deps.getStore();
     const remote = await getRemote();
     const head = await remoteHeadOf(remote, branch);
