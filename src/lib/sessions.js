@@ -490,14 +490,7 @@ async function initSessions() {
             await _removeLocalSession(branch);
         },
         onLocalBackupCreated: async (backup, source) => {
-            // Name it off the source session so the two rows are
-            // tellable apart at a glance, and so the copy reads as
-            // disposable — it exists to be deleted once its turns have
-            // been looked at. `name` (user-curated) wins over `title`
-            // in the drawer, so this survives the agent retitling.
-            const src = state.sessions.find((x) => x.branch === source);
-            const base = src?.name || src?.title || "New Chat";
-            await setSessionMeta(backup, `${base} (this device)`, "");
+            await prepareLocalBackup(backup, source);
             await refreshSessionList(state.currentBranch);
         },
         onSessionListChanged: async () => {
@@ -864,6 +857,32 @@ export async function loadHistoryChunked(branch = state.currentBranch) {
 export async function getCurrentCommit() {
     const adapter = await _adapterForCurrent();
     return adapter.getCurrentCommit(state.currentBranch);
+}
+
+/**
+ * Finish a parked local backup: the sync engine forks the kvgit branch,
+ * and this carries over everything that lives outside it.
+ *
+ * App save data is the part that's easy to miss. It sits in the
+ * localStorage bag, not the branch, so a fork that skips it leaves the
+ * copy opening empty while the device's real save data stays on the
+ * branch being reset to the remote — the opposite of the intended split,
+ * and the backup wouldn't be the complete session it promises. This
+ * mirrors what `forkSession` already does.
+ *
+ * The name is taken from the source so the two rows are tellable apart
+ * and the copy reads as disposable — it exists to be deleted once its
+ * turns have been looked at. `name` (user-curated) wins over `title` in
+ * the drawer, so it survives the agent retitling the session.
+ *
+ * @param {string} backup - the parked branch
+ * @param {string} source - the session it was forked from
+ */
+export async function prepareLocalBackup(backup, source) {
+    appStorageCopy("ts", source, backup);
+    const src = state.sessions.find((x) => x.branch === source);
+    const base = src?.name || src?.title || "New Chat";
+    await setSessionMeta(backup, `${base} (this device)`, "");
 }
 
 /** Undo the last turn by resetting state to a prior commit. */
