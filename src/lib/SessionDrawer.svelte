@@ -33,10 +33,11 @@
     import { createPublishFlow } from './publish-flow.svelte.js'
     import {
         downloadRemoteSession,
-        forkDivergedSession,
         isSyncEnabled,
+        keepLocalVersion,
+        pushLocalOverRemote,
         refreshRoster,
-        resetSessionToRemote,
+        useRemoteVersion,
         repushSession,
         setSyncEnabled,
         syncNow,
@@ -70,7 +71,6 @@
 
     // Per-branch resolution state for the inline attention rows.
     let resolvingBranch = $state('')
-    let confirmResetBranch = $state('')
 
     async function handleRetrySync(branch) {
         resolvingBranch = branch
@@ -114,31 +114,17 @@
         }
     }
 
-    async function handleForkDiverged(branch) {
+    /** Run one divergence resolution, holding the row in its busy
+     *  state. None of the three needs an arm-then-confirm step: the
+     *  old "Take synced" had one because it destroyed local turns
+     *  outright, and every path now preserves what it moves away from. */
+    async function resolveDivergence(branch, fn, label) {
+        if (resolvingBranch) return
         resolvingBranch = branch
         try {
-            await forkDivergedSession(branch)
+            await fn(branch)
         } catch (err) {
-            console.error('Fork diverged failed:', err)
-        } finally {
-            resolvingBranch = ''
-        }
-    }
-
-    async function handleResetToRemote(branch) {
-        if (confirmResetBranch !== branch) {
-            confirmResetBranch = branch
-            setTimeout(() => {
-                if (confirmResetBranch === branch) confirmResetBranch = ''
-            }, 4000)
-            return
-        }
-        confirmResetBranch = ''
-        resolvingBranch = branch
-        try {
-            await resetSessionToRemote(branch)
-        } catch (err) {
-            console.error('Reset to remote failed:', err)
+            console.error(`${label} failed:`, err)
         } finally {
             resolvingBranch = ''
         }
@@ -251,13 +237,13 @@
      *  tucks the experimental py-create behind a chevron edge. */
     let createMenuOpen = $state(false)
 
-    async function handleNew(kernel) {
+    async function handleNew(kernel, opts = {}) {
         if (kernel === 'py' && !hasSeenPyExperimentalWarning()) {
             pendingPyConfirm = true
             return
         }
         try {
-            await createSession({ kernel })
+            await createSession({ kernel, ...opts })
             onClose()
         } catch (e) {
             console.error('Failed to create session:', e)
@@ -510,6 +496,21 @@
                                 <span class="split-menu-item-label">Python session</span>
                                 <span class="split-menu-item-tag">experimental</span>
                             </button>
+                            {#if syncConnected}
+                                <!-- Only worth offering when sync is on;
+                                     without it every session is already
+                                     local-only and the item would be a
+                                     no-op that implies otherwise. -->
+                                <button
+                                    class="split-menu-item"
+                                    role="menuitem"
+                                    title="Stays on this device — never uploaded to the sync repo"
+                                    onclick={() => { createMenuOpen = false; handleNew('ts', { sync: false }) }}
+                                >
+                                    <span class="split-menu-item-label">Local-only session</span>
+                                    <span class="split-menu-item-tag">not synced</span>
+                                </button>
+                            {/if}
                         </div>
                     {/if}
                 </div>
@@ -548,6 +549,7 @@
                 runtime={rt}
                 syncStatus={$syncStatusStore[s.branch]}
                 {syncConnected}
+                localOnly={syncConnected && s.kernel === 'ts' && !isSyncEnabled(s.branch)}
                 {nowTick}
                 canDelete={sessions.length > 1}
                 updating={updatingBranch === s.branch}
@@ -555,7 +557,6 @@
                 deleting={deletingBranch === s.branch}
                 deleteBusy={!!deletingBranch}
                 deleteArmed={deleteConfirmBranch === s.branch}
-                resetArmed={confirmResetBranch === s.branch}
                 menuOpen={actionsMenuBranch === s.branch}
                 onSwitch={() => handleSwitch(s.branch)}
                 onFork={(e) => handleFork(e, s.branch)}
@@ -563,8 +564,9 @@
                 onDelete={(e) => handleDelete(e, s.branch)}
                 onUpdate={() => handleUpdate(s.branch)}
                 onDismissUpdate={() => dismissImportedUpdate(s.branch)}
-                onForkDiverged={() => handleForkDiverged(s.branch)}
-                onResetToRemote={() => handleResetToRemote(s.branch)}
+                onPushLocal={() => resolveDivergence(s.branch, pushLocalOverRemote, 'Push local over remote')}
+                onUseRemote={() => resolveDivergence(s.branch, useRemoteVersion, 'Use remote version')}
+                onKeepThisDevice={() => resolveDivergence(s.branch, keepLocalVersion, 'Keep local version')}
                 onRetrySync={() => handleRetrySync(s.branch)}
                 onRepush={() => handleRepush(s.branch)}
                 onKeepLocal={() => handleKeepLocal(s.branch)}

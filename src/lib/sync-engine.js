@@ -35,7 +35,15 @@
  * kvgit machinery.
  */
 
-import { VersionedKV, applyWire, clearSyncHead, getSyncHead, syncBranch } from "@agex-ts/kvgit";
+import {
+    VersionedKV,
+    applyWire,
+    clearSyncHead,
+    getSyncHead,
+    setSyncHead,
+    syncBranch,
+    walkDelta,
+} from "@agex-ts/kvgit";
 import { GithubClient, GithubRemote, base64ToBytes, bytesToBase64 } from "@agex-ts/kvgit/github";
 import { getSettings } from "./settings.js";
 
@@ -61,6 +69,9 @@ const APP_SYNCED_AT_KEY = (branch) => `agex-sync-appat-${branch}`;
 /**
  * @typedef {Object} BranchSyncStatus
  * @property {"pending" | "syncing" | "synced" | "diverged" | "remote-gone" | "error"} state
+ * @property {"local-rewind" | "two-sided"} [kind] - only on "diverged";
+ *     which shape of divergence this is (see `classifyDivergence`). The
+ *     two want different UI, not different wording for one dialog.
  * @property {string} detail — human hint for warn/error states
  * @property {number} at — epoch ms of the last transition; for
  *     "synced" this is the last successful CHECK (sweeps re-stamp it)
@@ -176,6 +187,10 @@ function markAppSynced(branch) {
  * @property {(branch: string) => Promise<void>} [onBranchArchivedRemotely]
  *     — tombstone propagation: remove the local session (recoverable
  *     from the trash); must NOT re-archive remotely
+ * @property {(backup: string, source: string) => Promise<void>} [onLocalBackupCreated]
+ *     - a divergence was resolved toward the remote and this device's
+ *     turns were parked on `backup`; the host labels it so the row
+ *     reads as the disposable copy it is.
  * @property {() => Promise<void>} [onSessionListChanged] - a roster op
  *     created/removed local branches; rebuild the session list
  * @property {(remote: any, branch: string) => Promise<string | null>} [fetchStubTitle]
@@ -486,7 +501,7 @@ export async function syncNow(branch) {
             schedulePush(branch, { delayMs: BUSY_RETRY_MS });
             return "busy";
         }
-        applyOutcome(branch, outcome);
+        await applyOutcome(store, branch, outcome);
         const pulled = outcome.pull.status;
         if (pulled === "fast-forwarded" || pulled === "created") {
             if (deps.onBranchPulled) await deps.onBranchPulled(branch);
@@ -520,11 +535,47 @@ export async function syncOnArrival(branch) {
     await syncNow(branch);
 }
 
-function applyOutcome(branch, outcome) {
+/**
+ * Which shape of divergence is this?
+ *
+ * `__sync_head__` records the last head this device knew it shared with
+ * the remote, and kvgit never advances it on divergence. So when it still
+ * equals the remote head, the remote holds nothing this device hasn't
+ * already seen: the split came from a LOCAL rewind — undo is
+ * `staged.resetTo` to an earlier commit (see `undoToCommit` in
+ * ts-agent.js), after which new turns build a sibling line — and the
+ * remote side is this device's own discarded work. Nobody else's turns
+ * are at stake, so that case is a push, not a conflict.
+ *
+ * Anything else means the remote moved on its own: another device pushed
+ * commits this one never had, and a real choice has to be made.
+ *
+ * Unprovable → "two-sided", the careful path. Misreading a real conflict
+ * as a rewind would offer to overwrite someone else's turns.
+ *
+ * @returns {Promise<"local-rewind" | "two-sided">}
+ */
+async function classifyDivergence(store, branch, remoteHead) {
+    try {
+        const syncHead = await getSyncHead(store, branch);
+        return syncHead !== null && syncHead === remoteHead
+            ? "local-rewind"
+            : "two-sided";
+    } catch {
+        return "two-sided";
+    }
+}
+
+async function applyOutcome(store, branch, outcome) {
     if (outcome.status === "diverged") {
+        const kind = await classifyDivergence(store, branch, outcome.pull.remoteHead);
         setStatus(branch, {
             state: "diverged",
-            detail: "This session changed on another device too — resolution UI coming next slice.",
+            kind,
+            detail:
+                kind === "local-rewind"
+                    ? "This device's version hasn't reached the sync repo."
+                    : "This session changed on another device too.",
         });
     } else if (outcome.status === "remote-gone") {
         setStatus(branch, {
@@ -1079,42 +1130,148 @@ export async function repushSession(branch) {
     return syncNow(branch);
 }
 
-/**
- * "Keep both": fork the remote side of a diverged session into a new
- * local-only branch (sync disabled — pushing it would mint a duplicate
- * remote session). The original keeps its local turns and its
- * diverged status. Returns the fork's branch name.
- */
-export async function forkDivergedSession(branch) {
-    const store = await deps.getStore();
-    const remote = await getRemote();
-    const head = await remoteHeadOf(remote, branch);
-    await ensureRemoteObjects(store, remote, branch, head);
+/** A fresh chat branch name. */
+function _newChatBranch() {
     const suffix = [...crypto.getRandomValues(new Uint8Array(4))]
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
-    const fork = `chat-${suffix}`;
+    return `chat-${suffix}`;
+}
+
+/**
+ * Park this device's current head on a new local-only branch, so a
+ * resolution that moves the live branch elsewhere doesn't strand it.
+ *
+ * Sync is disabled on the fork deliberately: pushing it would mint a
+ * duplicate remote session. That's the asymmetry worth stating — the
+ * remote side of a divergence survives in the remote's own ancestry and
+ * on the devices that hold it, while the local side, once the ref moves,
+ * is unreferenced with no UI able to name the commit again. So only the
+ * local side needs parking.
+ *
+ * @returns {Promise<string>} the fork's branch name
+ */
+async function forkLocalSide(branch) {
+    const store = await deps.getStore();
     const vk = await VersionedKV.open(store, { branch });
+    const head = await vk.latestHead();
+    if (head === null) throw new Error(`No local branch '${branch}' to fork.`);
+    const fork = _newChatBranch();
     await vk.createBranch(fork, { at: head });
     setSyncEnabled(fork, false);
-    await deps?.onSessionListChanged?.();
     return fork;
 }
 
 /**
- * "Take remote": discard this device's diverged turns and reset the
- * local branch to the remote head. Destructive on purpose — the UI
- * confirms first. The local commits stay in the store (unreferenced)
- * until kvgit GC; this is a ref move, not an erasure.
+ * Case A — "Push this device's version". The remote holds only work this
+ * device discarded (see `classifyDivergence`), so replace it wholesale.
+ *
+ * This is a genuine force-push, and it has to be assembled by hand:
+ * kvgit's `pushBranch` is fast-forward-only, moving the remote ref along
+ * ancestry and nothing else. The `Remote` primitive underneath is not —
+ * `push(branch, expectedOld, newHead, commits)` takes an arbitrary
+ * `newHead`, so the fast-forward policy lives in the orchestrator, not
+ * the transport. We send the commits the remote lacks and CAS the ref
+ * from the head we classified against, so a remote that moved in the
+ * meantime loses the CAS and re-syncs instead of being clobbered.
+ *
+ * Archiving the old remote branch first (for trash recoverability) is
+ * deliberately NOT done: `archiveSessionRemotely` refreshes the roster,
+ * whose tombstone propagation would delete this very session locally,
+ * and the archived ref would keep re-triggering that on later refreshes.
  */
-export async function resetSessionToRemote(branch) {
+export async function pushLocalOverRemote(branch) {
+    const store = await deps.getStore();
+    const remote = await getRemote();
+    const remoteHead = await remoteHeadOf(remote, branch);
+    const vk = await VersionedKV.open(store, { branch });
+    const localHead = await vk.latestHead();
+    if (localHead === null) throw new Error(`No local branch '${branch}' to push.`);
+    if (localHead === remoteHead) return syncNow(branch); // nothing to force
+    setStatus(branch, { state: "syncing" });
+    const won = await withSyncLock(() =>
+        remote.push(
+            branch,
+            remoteHead,
+            localHead,
+            walkDelta(store, { want: localHead, have: [remoteHead] }),
+        ),
+    );
+    // Lost the CAS (or the lock): the remote moved under us, so the
+    // classification that authorized this is stale. Re-sync to re-derive
+    // it rather than retrying the overwrite against an unexamined head.
+    if (won !== true) return syncNow(branch);
+    await setSyncHead(store, branch, localHead);
+    return syncNow(branch); // now up-to-date both ways → status settles to synced
+}
+
+/**
+ * Case B — "Keep this device's version" on a genuine two-sided
+ * divergence. Rebases this device's state onto the remote head so the
+ * push is an ordinary fast-forward and other devices never see a
+ * conflict: they pull a descendant of what they already hold.
+ *
+ * The keyset is replaced, not merged over. `diff(remoteHead, localHead)`
+ * reads in that direction, so `added`/`modified` are what this device
+ * contributes and `removed` is what exists remotely and NOT locally —
+ * the other side's turns. Those must be deleted explicitly. Writing only
+ * our own keys would leave them in place, which is the exact failure the
+ * undo case makes obvious: the turns you removed would come straight
+ * back. Bytes move through `commit({updates, removals})` rather than a
+ * `Staged`, so no codec is involved and values round-trip untouched.
+ *
+ * The overwritten turns stay in the remote's ancestry — recoverable
+ * history, just no longer the visible session.
+ */
+export async function keepLocalVersion(branch) {
+    const store = await deps.getStore();
+    const remote = await getRemote();
+    const remoteHead = await remoteHeadOf(remote, branch);
+    await ensureRemoteObjects(store, remote, branch, remoteHead);
+    const vk = await VersionedKV.open(store, { branch });
+    const localHead = await vk.latestHead();
+    if (localHead === null) throw new Error(`No local branch '${branch}'.`);
+    const delta = await vk.diff(remoteHead, localHead);
+    // Read values off the local side BEFORE the ref moves. `checkout`
+    // returns a detached view, so this doesn't disturb `vk`.
+    const localView = await vk.checkout(localHead);
+    if (localView === null) throw new Error(`Local head '${localHead}' is missing.`);
+    const updates = await localView.getMany([...delta.added, ...delta.modified]);
+    const removals = new Set(delta.removed);
+    await vk.resetTo(remoteHead);
+    // No-op when the keysets already match (histories differed, content
+    // didn't) — the branch simply stays at the remote head.
+    await vk.commit({ updates, removals });
+    if (deps.onBranchPulled) await deps.onBranchPulled(branch);
+    channel?.postMessage({ branch });
+    return syncNow(branch);
+}
+
+/**
+ * Case B — "Use synced version". Discards this device's diverged turns
+ * in favour of the remote, parking them on a local-only session first so
+ * nothing is lost. That parking is what the old "Keep both" should have
+ * done: it forked the REMOTE side, left the original diverged, and so
+ * resolved nothing while blocking the branch from ever pushing again.
+ *
+ * The ref move itself is not an erasure — the local commits stay in the
+ * store until kvgit GC — but nothing in the UI can name a commit hash,
+ * so without the fork they are gone as far as anyone can reach them.
+ *
+ * @returns {Promise<{ backup: string }>} the parked session's branch
+ */
+export async function useRemoteVersion(branch) {
     const store = await deps.getStore();
     const remote = await getRemote();
     const head = await remoteHeadOf(remote, branch);
     await ensureRemoteObjects(store, remote, branch, head);
+    const backup = await forkLocalSide(branch);
     const vk = await VersionedKV.open(store, { branch });
     await vk.resetTo(head);
     if (deps.onBranchPulled) await deps.onBranchPulled(branch);
     channel?.postMessage({ branch });
+    await deps?.onLocalBackupCreated?.(backup, branch);
     await syncNow(branch); // reconciles sync-head bookkeeping → synced
+    await deps?.onSessionListChanged?.();
+    return { backup };
 }

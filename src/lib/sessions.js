@@ -37,6 +37,7 @@ import {
     isSyncConnected,
     isSyncEnabled,
     schedulePush,
+    setSyncEnabled,
     startSyncEngine,
 } from "./sync-engine.js";
 import {
@@ -488,6 +489,17 @@ async function initSessions() {
             // already in the trash; restore brings it back anywhere).
             await _removeLocalSession(branch);
         },
+        onLocalBackupCreated: async (backup, source) => {
+            // Name it off the source session so the two rows are
+            // tellable apart at a glance, and so the copy reads as
+            // disposable — it exists to be deleted once its turns have
+            // been looked at. `name` (user-curated) wins over `title`
+            // in the drawer, so this survives the agent retitling.
+            const src = state.sessions.find((x) => x.branch === source);
+            const base = src?.name || src?.title || "New Chat";
+            await setSessionMeta(backup, `${base} (this device)`, "");
+            await refreshSessionList(state.currentBranch);
+        },
         onSessionListChanged: async () => {
             await refreshSessionList(state.currentBranch);
         },
@@ -512,16 +524,26 @@ async function initSessions() {
 
 /** Create a new chat session and switch to it.
  *
- * @param {{ kernel?: 'py' | 'ts' }} [options]
+ * @param {{ kernel?: 'py' | 'ts', sync?: boolean }} [options]
  *   `kernel` selects the runtime the session will be bound to.
  *   Defaults to `"ts"` — lighter cold start than py (no Pyodide
  *   install). Once set, a session's kernel doesn't change.
+ *
+ *   `sync: false` creates a session that never leaves this device.
+ *   The flag is written before this function returns, which is the
+ *   whole reason it exists as a create-time option: sync defaults to
+ *   ON per branch, and turning it off afterwards in session settings
+ *   can arrive too late — the first turn schedules a push, and
+ *   `setSyncEnabled(false)` cancels a PENDING push but does not
+ *   retract one that already landed. Opting out at creation is the
+ *   only way to guarantee the session was never uploaded.
  */
-export async function createSession({ kernel = "ts" } = {}) {
+export async function createSession({ kernel = "ts", sync = true } = {}) {
     const safeKernel = kernel === "py" ? "py" : "ts";
     const adapter = await resolveAdapter(safeKernel);
     const branch = `${CHAT_BRANCH_PREFIX}${_randomHex8()}`;
     await adapter.createBranch(branch);
+    if (!sync) setSyncEnabled(branch, false);
 
     const newSession = {
         branch,
