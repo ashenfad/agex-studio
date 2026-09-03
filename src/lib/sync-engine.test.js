@@ -420,6 +420,42 @@ describe("roster and lifecycle", () => {
         expect(await view.get("junk")).toBeNull();
     });
 
+    it("refuses the force-push when the remote moved after classification", async () => {
+        const { world, good } = await rewoundWorld();
+        await syncNow("chat-aa11");
+        expect(statusOf("chat-aa11").kind).toBe("local-rewind");
+
+        // Another device pushes in the window between the status being
+        // computed and the button being clicked. The CAS can't catch this
+        // on its own: `expectedOld` is read fresh, so it would match the
+        // newly advanced head and succeed, discarding commits this device
+        // has never seen.
+        const other = new Memory();
+        const otherRemote = makeRosterRemote(world.remoteStore);
+        const { applyWire: apply } = await import("@agex-ts/kvgit");
+        const tip = (await otherRemote.listRefs()).find((r) => r.branch === "chat-aa11").head;
+        await apply(other, otherRemote.fetch(tip, []), { createBranch: "chat-aa11" });
+        await commitOn(other, "chat-aa11", "from-b", "b");
+        await pushBranch(other, otherRemote, "chat-aa11");
+        const advanced = (await world.remote.listRefs()).find(
+            (r) => r.branch === "chat-aa11",
+        ).head;
+
+        const { pushLocalOverRemote } = await import("./sync-engine.js");
+        await pushLocalOverRemote("chat-aa11");
+
+        // The other device's commit survives, and the session comes back
+        // as the real conflict it now is.
+        expect(
+            (await world.remote.listRefs()).find((r) => r.branch === "chat-aa11").head,
+        ).toBe(advanced);
+        expect(statusOf("chat-aa11").state).toBe("diverged");
+        expect(statusOf("chat-aa11").kind).toBe("two-sided");
+        // And the local side is untouched — nothing was resolved.
+        const vk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(vk.currentCommit).toBe(good);
+    });
+
     it("keeping this device's version deletes the other side's keys", async () => {
         const { world } = await twoSidedWorld();
         const { keepLocalVersion } = await import("./sync-engine.js");
