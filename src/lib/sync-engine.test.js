@@ -449,6 +449,54 @@ describe("roster and lifecycle", () => {
         expect(ancestry).toContain(dirtyHead);
     });
 
+    it("rebases onto the head it authorized, not one that arrived mid-flight", async () => {
+        const { world } = await rewoundWorld();
+        await syncNow("chat-aa11");
+        expect(statusOf("chat-aa11").kind).toBe("local-rewind");
+
+        /** Another device lands a turn on the shared branch. */
+        const otherDevicePushes = async () => {
+            const other = new Memory();
+            const otherRemote = makeRosterRemote(world.remoteStore);
+            const { applyWire: apply } = await import("@agex-ts/kvgit");
+            const tip = (await otherRemote.listRefs()).find(
+                (r) => r.branch === "chat-aa11",
+            ).head;
+            await apply(other, otherRemote.fetch(tip, []), { createBranch: "chat-aa11" });
+            await commitOn(other, "chat-aa11", "from-b", "b");
+            await pushBranch(other, otherRemote, "chat-aa11");
+        };
+
+        // Fire it in the window BETWEEN the authorization read and the
+        // rebase: the first listRefs returns the pre-push snapshot the
+        // check approves, and the remote advances immediately after. A
+        // helper that re-read the head would pick up the new one and
+        // delete `from-b` under an approval that never covered it.
+        const listRefs = world.remote.listRefs.bind(world.remote);
+        let calls = 0;
+        world.remote.listRefs = async () => {
+            const refs = await listRefs();
+            if (++calls === 1) await otherDevicePushes();
+            return refs;
+        };
+
+        const { pushLocalOverRemote } = await import("./sync-engine.js");
+        await pushLocalOverRemote("chat-aa11");
+
+        // The other device's turn survives, and the session comes back as
+        // the conflict it now is rather than resolving itself against a
+        // head nobody approved.
+        const head = (await world.remote.listRefs()).find(
+            (r) => r.branch === "chat-aa11",
+        ).head;
+        const fresh = new Memory();
+        const { applyWire: apply2 } = await import("@agex-ts/kvgit");
+        await apply2(fresh, world.remote.fetch(head, []), { createBranch: "chat-aa11" });
+        const view = await VersionedKV.open(fresh, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await view.get("from-b"))).toBe("b");
+        expect(statusOf("chat-aa11").state).toBe("diverged");
+    });
+
     it("surfaces a failed resolution as an error, never a stuck spinner", async () => {
         const { world } = await rewoundWorld();
         await syncNow("chat-aa11");
