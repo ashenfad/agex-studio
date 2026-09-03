@@ -19,6 +19,7 @@
      *   runtime: any,
      *   syncStatus: any,
      *   syncConnected: boolean,
+     *   localOnly: boolean,
      *   nowTick: number,
      *   canDelete: boolean,
      *   updating: boolean,
@@ -26,16 +27,16 @@
      *   deleting: boolean,
      *   deleteBusy: boolean,
      *   deleteArmed: boolean,
-     *   resetArmed: boolean,
-     *   menuOpen: boolean,
+         *   menuOpen: boolean,
      *   onSwitch: () => void,
      *   onFork: (e: Event) => void,
      *   onEdit: (e: Event) => void,
      *   onDelete: (e: Event) => void,
      *   onUpdate: () => void,
      *   onDismissUpdate: () => void,
-     *   onForkDiverged: () => void,
-     *   onResetToRemote: () => void,
+     *   onPushLocal: () => void,
+     *   onUseRemote: () => void,
+     *   onKeepThisDevice: () => void,
      *   onRetrySync: () => void,
      *   onRepush: () => void,
      *   onKeepLocal: () => void,
@@ -48,6 +49,7 @@
         runtime: rt,
         syncStatus,
         syncConnected,
+        localOnly,
         nowTick,
         canDelete,
         updating,
@@ -55,7 +57,6 @@
         deleting,
         deleteBusy,
         deleteArmed,
-        resetArmed,
         menuOpen,
         onSwitch,
         onFork,
@@ -63,8 +64,9 @@
         onDelete,
         onUpdate,
         onDismissUpdate,
-        onForkDiverged,
-        onResetToRemote,
+        onPushLocal,
+        onUseRemote,
+        onKeepThisDevice,
         onRetrySync,
         onRepush,
         onKeepLocal,
@@ -164,11 +166,25 @@
     {#if syncConnected && s.kernel === 'ts' && syncStatus}
         {#if ['diverged', 'error', 'remote-gone'].includes(syncStatus.state)}
         <div class="update-row" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
-            {#if syncStatus.state === 'diverged'}
-                <span class="update-label">Diverged — changed on another device</span>
-                <button class="update-btn" disabled={resolving} onclick={onForkDiverged}>Keep both</button>
-                <button class="update-btn" disabled={resolving} onclick={onResetToRemote}>
-                    {resetArmed ? 'Discard local turns?' : 'Take synced'}
+            {#if syncStatus.state === 'diverged' && syncStatus.kind === 'local-rewind'}
+                <!-- Self-inflicted: the sync repo holds only work this
+                     device discarded (an undo rewound past commits that
+                     had already been pushed). Nobody else's turns are at
+                     stake, so this is deliberately NOT phrased as a
+                     conflict and offers no choice — routing a local
+                     rewind through a dialog written for concurrent edits
+                     is where the old UI lost people. -->
+                <span class="update-label">This device&#39;s version hasn&#39;t been pushed</span>
+                <button class="update-btn" disabled={resolving} onclick={onPushLocal}>
+                    Push this device's version
+                </button>
+            {:else if syncStatus.state === 'diverged'}
+                <span class="update-label">Changed on another device too</span>
+                <button class="update-btn" disabled={resolving} onclick={onUseRemote}>
+                    Use synced version
+                </button>
+                <button class="update-btn" disabled={resolving} onclick={onKeepThisDevice}>
+                    Keep this device's version
                 </button>
             {:else if syncStatus.state === 'error'}
                 <span class="update-label" title={syncStatus.detail}>Sync error</span>
@@ -187,6 +203,13 @@
                 class="kernel-badge kernel-{s.kernel || 'py'}"
                 title="Runtime kernel: {s.kernel === 'ts' ? 'TypeScript (agex-ts)' : 'Python (agex-py) — experimental, larger sandbox surface'}"
             >{s.kernel || 'py'}{(s.kernel || 'py') === 'py' ? ' · exp' : ''}</span>
+            {#if localOnly}
+                <!-- Only shown while sync is connected: elsewhere every
+                     session is local and the badge would be noise. It
+                     matters most when both kinds sit in one list and
+                     nothing else tells them apart. -->
+                <span class="local-only-badge" title="Stays on this device — not synced">local</span>
+            {/if}
             {#if syncConnected && s.kernel === 'ts' && syncStatus && syncStatus.state !== 'synced'}
                 <span class="sync-glyph sync-{syncStatus.state}" title={syncTitle}>{syncGlyph(syncStatus.state)}</span>
             {/if}
@@ -504,6 +527,16 @@
         color: var(--text-muted);
         display: inline-block;
         animation: sync-spin 1.2s linear infinite;
+    }
+
+    .local-only-badge {
+        margin-left: 0.35rem;
+        padding: 0 0.3rem;
+        border: 1px solid var(--border, #d0d0d0);
+        border-radius: 3px;
+        font-size: 0.68rem;
+        opacity: 0.65;
+        text-transform: lowercase;
     }
 
     .sync-glyph.sync-diverged,

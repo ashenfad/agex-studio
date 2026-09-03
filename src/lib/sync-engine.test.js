@@ -154,6 +154,7 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
         archivedLocally,
         applied,
         appBags: {},
+        backupsLabelled: [],
         branches,
         listChanges: () => listChanges,
     };
@@ -169,6 +170,9 @@ function makeWorld({ branches = [], currentBranch = null } = {}) {
         },
         onSessionListChanged: async () => {
             listChanges++;
+        },
+        onLocalBackupCreated: async (backup, source) => {
+            world.backupsLabelled.push({ backup, source });
         },
         fetchStubTitle: async (_remote, branch) => world.stubTitles?.[branch] ?? null,
         readAppState: (branch) => world.appBags?.[branch] ?? {},
@@ -345,7 +349,9 @@ describe("roster and lifecycle", () => {
         expect(world.archivedLocally).toEqual(["chat-aa11"]);
     });
 
-    it("fork keeps both sides of a divergence; reset takes the remote", async () => {
+    /** Stand up a genuine two-sided divergence: another device pulls the
+     *  shared tip, commits, and pushes, while this one commits its own. */
+    async function twoSidedWorld() {
         connect();
         const world = makeWorld({ branches: ["chat-aa11"] });
         await commitOn(world.local, "chat-aa11", "seed", "0");
@@ -360,28 +366,106 @@ describe("roster and lifecycle", () => {
         await pushBranch(other, otherRemote, "chat-aa11");
         const localHead = await commitOn(world.local, "chat-aa11", "from-a", "a");
         expect((await syncNow("chat-aa11")).status).toBe("diverged");
+        const remoteHead = (await world.remote.listRefs()).find(
+            (r) => r.branch === "chat-aa11",
+        ).head;
+        return { world, localHead, remoteHead };
+    }
 
-        const { forkDivergedSession, resetSessionToRemote, isSyncEnabled: enabled } =
-            await import("./sync-engine.js");
+    /** The undo shape: push, then rewind past what was pushed and build
+     *  a new line on top of the earlier commit. */
+    async function rewoundWorld() {
+        connect();
+        const world = makeWorld({ branches: ["chat-aa11"] });
+        const clean = await commitOn(world.local, "chat-aa11", "seed", "0");
+        await syncNow("chat-aa11");
+        await commitOn(world.local, "chat-aa11", "junk", "oops");
+        await syncNow("chat-aa11"); // the dirty turn reaches the remote
+        const vk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        await vk.resetTo(clean); // undoToCommit
+        const good = await commitOn(world.local, "chat-aa11", "good", "yes");
+        return { world, good };
+    }
 
-        // Fork: remote side lands on a new sync-disabled branch; the
-        // original keeps its local turn.
-        const fork = await forkDivergedSession("chat-aa11");
-        expect(fork).toMatch(/^chat-[0-9a-f]{8}$/);
-        expect(enabled(fork)).toBe(false);
-        const forkVk = await VersionedKV.open(world.local, { branch: fork });
-        expect(new TextDecoder().decode(await forkVk.get("from-b"))).toBe("b");
-        expect(await forkVk.get("from-a")).toBeNull();
-        const origVk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
-        expect(origVk.currentCommit).toBe(localHead);
+    it("reads a local rewind as its own case, not a conflict", async () => {
+        const { world } = await rewoundWorld();
+        expect((await syncNow("chat-aa11")).status).toBe("diverged");
+        // The sync head still matches the remote head, so the remote
+        // holds nothing this device hasn't seen.
+        expect(statusOf("chat-aa11").kind).toBe("local-rewind");
+        expect(world.pulled).not.toContain("chat-aa11");
+    });
 
-        // Reset: original adopts the remote head and reports synced.
-        await resetSessionToRemote("chat-aa11");
-        const after = await VersionedKV.open(world.local, { branch: "chat-aa11" });
-        expect(new TextDecoder().decode(await after.get("from-b"))).toBe("b");
-        expect(await after.get("from-a")).toBeNull();
+    it("reads a real two-device split as two-sided", async () => {
+        await twoSidedWorld();
+        expect(statusOf("chat-aa11").kind).toBe("two-sided");
+    });
+
+    it("force-pushes a rewind, dropping the discarded turn from the remote", async () => {
+        const { world, good } = await rewoundWorld();
+        await syncNow("chat-aa11");
+        const { pushLocalOverRemote } = await import("./sync-engine.js");
+
+        await pushLocalOverRemote("chat-aa11");
+
+        expect(statusOf("chat-aa11").state).toBe("synced");
+        const head = (await world.remote.listRefs()).find((r) => r.branch === "chat-aa11").head;
+        expect(head).toBe(good);
+        // What a fresh device would materialize: the undone turn is gone.
+        const fresh = new Memory();
+        const { applyWire: apply } = await import("@agex-ts/kvgit");
+        await apply(fresh, world.remote.fetch(head, []), { createBranch: "chat-aa11" });
+        const view = await VersionedKV.open(fresh, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await view.get("good"))).toBe("yes");
+        expect(await view.get("junk")).toBeNull();
+    });
+
+    it("keeping this device's version deletes the other side's keys", async () => {
+        const { world } = await twoSidedWorld();
+        const { keepLocalVersion } = await import("./sync-engine.js");
+
+        await keepLocalVersion("chat-aa11");
+
+        const vk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await vk.get("from-a"))).toBe("a");
+        // The regression that matters: writing only our own keys would
+        // leave the other device's turn sitting in the keyset.
+        expect(await vk.get("from-b")).toBeNull();
+        expect(statusOf("chat-aa11").state).toBe("synced");
+    });
+
+    it("keeping this device's version lands as a descendant, so others fast-forward", async () => {
+        const { world, remoteHead } = await twoSidedWorld();
+        const { keepLocalVersion } = await import("./sync-engine.js");
+
+        await keepLocalVersion("chat-aa11");
+
+        const vk = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        const ancestry = [];
+        for await (const c of vk.history()) ancestry.push(c);
+        expect(ancestry).toContain(remoteHead);
+    });
+
+    it("using the synced version parks this device's turns instead of dropping them", async () => {
+        const { world, localHead } = await twoSidedWorld();
+        const { useRemoteVersion, isSyncEnabled: enabled } = await import("./sync-engine.js");
+
+        const { backup } = await useRemoteVersion("chat-aa11");
+
+        // The live session adopts the remote side...
+        const live = await VersionedKV.open(world.local, { branch: "chat-aa11" });
+        expect(new TextDecoder().decode(await live.get("from-b"))).toBe("b");
+        expect(await live.get("from-a")).toBeNull();
         expect(statusOf("chat-aa11").state).toBe("synced");
         expect(world.pulled).toContain("chat-aa11");
+
+        // ...and this device's turns survive on a local-only sibling.
+        expect(backup).toMatch(/^chat-[0-9a-f]{8}$/);
+        expect(enabled(backup)).toBe(false);
+        const parked = await VersionedKV.open(world.local, { branch: backup });
+        expect(parked.currentCommit).toBe(localHead);
+        expect(new TextDecoder().decode(await parked.get("from-a"))).toBe("a");
+        expect(world.backupsLabelled).toEqual([{ backup, source: "chat-aa11" }]);
     });
 });
 
