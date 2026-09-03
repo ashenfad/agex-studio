@@ -1171,9 +1171,20 @@ async function forkLocalSide(branch) {
  * ancestry and nothing else. The `Remote` primitive underneath is not —
  * `push(branch, expectedOld, newHead, commits)` takes an arbitrary
  * `newHead`, so the fast-forward policy lives in the orchestrator, not
- * the transport. We send the commits the remote lacks and CAS the ref
- * from the head we classified against, so a remote that moved in the
- * meantime loses the CAS and re-syncs instead of being clobbered.
+ * the transport.
+ *
+ * The CAS alone does NOT make this safe. `expectedOld` is whatever the
+ * remote currently points at, so it always matches and always wins — it
+ * guards against a write landing mid-flight, not against the remote
+ * having moved since the button appeared. The status was computed at sync
+ * time and clicked later; a device that pushed in that window would have
+ * its commits overwritten by a CAS that succeeded exactly as intended.
+ *
+ * So authorization is re-derived here, against the head we are about to
+ * overwrite, and the whole read-verify-push runs under the sync lock so a
+ * sibling tab can't move the remote between the check and the CAS. A
+ * remote that advanced is no longer a rewind: it re-syncs and comes back
+ * as a two-sided divergence, where the user gets the real choice.
  *
  * Archiving the old remote branch first (for trash recoverability) is
  * deliberately NOT done: `archiveSessionRemotely` refreshes the roster,
@@ -1183,24 +1194,30 @@ async function forkLocalSide(branch) {
 export async function pushLocalOverRemote(branch) {
     const store = await deps.getStore();
     const remote = await getRemote();
-    const remoteHead = await remoteHeadOf(remote, branch);
     const vk = await VersionedKV.open(store, { branch });
     const localHead = await vk.latestHead();
     if (localHead === null) throw new Error(`No local branch '${branch}' to push.`);
-    if (localHead === remoteHead) return syncNow(branch); // nothing to force
     setStatus(branch, { state: "syncing" });
-    const won = await withSyncLock(() =>
-        remote.push(
+    const outcome = await withSyncLock(async () => {
+        const remoteHead = await remoteHeadOf(remote, branch);
+        if (localHead === remoteHead) return "no-op"; // nothing to force
+        // Same predicate that classified the divergence, re-run against
+        // the head this CAS would discard.
+        if ((await classifyDivergence(store, branch, remoteHead)) !== "local-rewind") {
+            return "stale";
+        }
+        const won = await remote.push(
             branch,
             remoteHead,
             localHead,
             walkDelta(store, { want: localHead, have: [remoteHead] }),
-        ),
-    );
-    // Lost the CAS (or the lock): the remote moved under us, so the
-    // classification that authorized this is stale. Re-sync to re-derive
-    // it rather than retrying the overwrite against an unexamined head.
-    if (won !== true) return syncNow(branch);
+        );
+        return won ? "pushed" : "stale";
+    });
+    // "stale" / "busy": the authorization no longer holds, or another tab
+    // owns the lock. Re-sync to re-derive the state rather than retrying
+    // an overwrite against a head nothing has examined.
+    if (outcome !== "pushed") return syncNow(branch);
     await setSyncHead(store, branch, localHead);
     return syncNow(branch); // now up-to-date both ways → status settles to synced
 }
