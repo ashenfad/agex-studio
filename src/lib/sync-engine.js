@@ -1183,9 +1183,16 @@ async function forkLocalSide(branch) {
  *
  * The displaced turns stay in the remote's ancestry — recoverable
  * history, just no longer the visible session.
+ *
+ * `remoteHead` is a parameter, not something this reads for itself, and
+ * that is load-bearing: callers authorize against a specific head, and a
+ * second independent read here would rebase onto whatever arrived in
+ * between — silently dropping another device's keys under an approval
+ * that never covered them. Movement after the caller's read is caught by
+ * the subsequent push instead, which finds the branches diverged and
+ * re-prompts.
  */
-async function rebaseLocalOntoRemote(store, remote, branch) {
-    const remoteHead = await remoteHeadOf(remote, branch);
+async function rebaseLocalOntoRemote(store, remote, branch, remoteHead) {
     await ensureRemoteObjects(store, remote, branch, remoteHead);
     const vk = await VersionedKV.open(store, { branch });
     const localHead = await vk.latestHead();
@@ -1248,13 +1255,19 @@ export async function pushLocalOverRemote(branch) {
         const store = await deps.getStore();
         const remote = await getRemote();
         setStatus(branch, { state: "syncing" });
-        const remoteHead = await remoteHeadOf(remote, branch);
-        if ((await classifyDivergence(store, branch, remoteHead)) !== "local-rewind") {
-            // Re-syncing re-derives the status, which comes back
-            // two-sided and offers the real choice.
-            return syncNow(branch);
-        }
-        await rebaseLocalOntoRemote(store, remote, branch);
+        // Read, authorize, and rebase against ONE head, under the lock so
+        // a sibling tab can't move the remote mid-sequence. `syncNow`
+        // takes the same lock, so it has to run after this releases.
+        await withSyncLock(async () => {
+            const remoteHead = await remoteHeadOf(remote, branch);
+            if ((await classifyDivergence(store, branch, remoteHead)) !== "local-rewind") {
+                return false;
+            }
+            await rebaseLocalOntoRemote(store, remote, branch, remoteHead);
+            return true;
+        });
+        // Not authorized (or the lock was busy): re-syncing re-derives the
+        // status, which comes back two-sided and offers the real choice.
         return syncNow(branch);
     });
 }
@@ -1269,7 +1282,10 @@ export async function keepLocalVersion(branch) {
         const store = await deps.getStore();
         const remote = await getRemote();
         setStatus(branch, { state: "syncing" });
-        await rebaseLocalOntoRemote(store, remote, branch);
+        await withSyncLock(async () => {
+            const remoteHead = await remoteHeadOf(remote, branch);
+            await rebaseLocalOntoRemote(store, remote, branch, remoteHead);
+        });
         return syncNow(branch);
     });
 }

@@ -2,24 +2,35 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // sessions.js reads localStorage at import (cold-start session cache);
 // the per-branch sync flag lives there too, which is what these assert.
+// Needs `length` / `key(i)` as well as the accessors: app-storage reads a
+// branch's bag by ENUMERATING keys under a prefix, so an accessor-only
+// stub silently reads back empty.
 const store = {};
 vi.stubGlobal("localStorage", {
     getItem: (k) => store[k] ?? null,
     setItem: (k, v) => {
-        store[k] = v;
+        store[k] = String(v);
     },
     removeItem: (k) => {
         delete store[k];
+    },
+    key: (i) => Object.keys(store)[i] ?? null,
+    get length() {
+        return Object.keys(store).length;
     },
 });
 
 // The real adapter pulls in ts-agent.js (worker + `?url` asset imports).
 // Branch creation is not what's under test here — the flag write is.
 const created = [];
+const metaWrites = [];
 vi.mock("./active-adapter.js", () => ({
     resolveAdapter: async () => ({
         createBranch: async (branch) => {
             created.push(branch);
+        },
+        writeBranchMeta: async (branch, meta) => {
+            metaWrites.push({ branch, ...meta });
         },
     }),
 }));
@@ -27,6 +38,7 @@ vi.mock("./active-adapter.js", () => ({
 beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k];
     created.length = 0;
+    metaWrites.length = 0;
     vi.resetModules();
 });
 
@@ -79,5 +91,36 @@ describe("createSession sync opt-out", () => {
         expect(localOnly).not.toBe(normal);
         expect(isSyncEnabled(localOnly)).toBe(false);
         expect(isSyncEnabled(normal)).toBe(true);
+    });
+});
+
+describe("prepareLocalBackup", () => {
+    it("carries app save data onto the parked copy", async () => {
+        const { prepareLocalBackup } = await load();
+        const appStorage = await import("./app-storage.js");
+        appStorage.write("ts", "chat-source", { level: "7", coins: "120" });
+
+        await prepareLocalBackup("chat-backup", "chat-source");
+
+        // Without this the copy opens empty while the device's real save
+        // data rides along with the branch being reset to the remote.
+        expect(appStorage.read("ts", "chat-backup")).toEqual({
+            level: "7",
+            coins: "120",
+        });
+        // The source keeps its own bag — this is a copy, not a move.
+        expect(appStorage.read("ts", "chat-source")).toEqual({
+            level: "7",
+            coins: "120",
+        });
+    });
+
+    it("is a no-op for a session with no app data", async () => {
+        const { prepareLocalBackup } = await load();
+        const appStorage = await import("./app-storage.js");
+
+        await prepareLocalBackup("chat-backup", "chat-empty");
+
+        expect(appStorage.read("ts", "chat-backup")).toEqual({});
     });
 });
