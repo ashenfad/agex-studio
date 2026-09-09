@@ -1,5 +1,14 @@
 [
   {
+    "name": "Algebra Circus",
+    "description": "Digital Circus does algebra",
+    "gistShorthand": "ashenfad/b4e4654ff43de52af7ae4d03e453a6b3/afb6301f3001f572ee62b9cad4442584328aa343/algebra-circus",
+    "kernel": "ts",
+    "hasApp": true,
+    "tags": ["educational", "math", "game"],
+    "thumbnail": "algebra-circus.png"
+  },
+  {
     "name": "Apoca-Laps",
     "description": "Race the end of the world.",
     "gistShorthand": "ashenfad/daee111af88934cfbc309b1172030cbc/575c4f0fea73c1a3d757fe4b24588941a91bbd47/apoca-laps",
