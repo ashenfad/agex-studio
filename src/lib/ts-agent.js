@@ -907,9 +907,9 @@ export function _sessionAffinityFetch(branch, baseFetch = fetch) {
  *  clones, chaptering — and a key must not span two histories (Meridian
  *  rejects a key whose history stops matching). Opening-message content
  *  can't tell two identical spawns apart, but the first tool_use id can:
- *  agex-ts derives it from the action's millisecond timestamp, so it is
- *  unique per generation and fixed once it's in the history (until
- *  chaptering rewrites it). The opening request goes untagged, and the
+ *  it's the provider's own id (agex-ts falls back to one derived from the
+ *  action's millisecond timestamp), so it is unique per generation and
+ *  fixed once it's in the history (until chaptering rewrites it). The opening request goes untagged, and the
  *  second starts a fresh session under the key while history is short.
  *
  *  @param {string} branch
