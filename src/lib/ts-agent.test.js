@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import {
     _conversationKey,
     _isAgentMemoryKey,
+    _sessionAffinityFetch,
     _usesSessionAffinity,
 } from "./ts-agent.js";
 
@@ -97,6 +98,12 @@ describe("_usesSessionAffinity", () => {
                 baseUrl: "https://api.anthropic.com/v1",
             }),
         ).toBe(false);
+        expect(
+            _usesSessionAffinity({
+                ...custom,
+                baseUrl: "https://API.Anthropic.com/v1",
+            }),
+        ).toBe(false);
         expect(_usesSessionAffinity({ ...custom, baseUrl: "" })).toBe(false);
         expect(
             _usesSessionAffinity({
@@ -119,40 +126,136 @@ describe("_usesSessionAffinity", () => {
 
 describe("_conversationKey", () => {
     const opening = { role: "user", content: [{ type: "text", text: "hi" }] };
+    const action = (id) => ({
+        role: "assistant",
+        content: [
+            { type: "thinking", thinking: "", signature: "s" },
+            { type: "tool_use", id, name: "ts_action", input: {} },
+        ],
+    });
+    const result = (id) => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+    });
     const body = (messages) => JSON.stringify({ messages });
 
-    it("is stable as the conversation grows", async () => {
-        const first = await _conversationKey("chat-a", body([opening]));
-        const later = await _conversationKey(
+    it("keys on the first tool_use id, stable as the conversation grows", () => {
+        const first = _conversationKey(
             "chat-a",
-            body([opening, { role: "assistant", content: [] }, opening]),
+            body([opening, action("tu_1_0"), result("tu_1_0")]),
         );
-        expect(first).toMatch(/^agex-studio:chat-a:[0-9a-f]{16}$/);
+        const later = _conversationKey(
+            "chat-a",
+            body([
+                opening,
+                action("tu_1_0"),
+                result("tu_1_0"),
+                action("tu_2_0"),
+                result("tu_2_0"),
+            ]),
+        );
+        expect(first).toBe("agex-studio:chat-a:tu_1_0");
         expect(later).toBe(first);
     });
 
-    it("ignores cache_control moving onto the opening message", async () => {
-        const marked = {
-            role: "user",
-            content: [
-                { type: "text", text: "hi", cache_control: { type: "ephemeral" } },
-            ],
-        };
-        expect(await _conversationKey("chat-a", body([marked]))).toBe(
-            await _conversationKey("chat-a", body([opening])),
+    it("separates identical openings by their first generation", () => {
+        const a = _conversationKey("chat-a", body([opening, action("tu_1_0")]));
+        const b = _conversationKey("chat-a", body([opening, action("tu_9_0")]));
+        expect(a).not.toBe(b);
+    });
+
+    it("separates branches", () => {
+        expect(
+            _conversationKey("chat-b", body([opening, action("tu_1_0")])),
+        ).not.toBe(_conversationKey("chat-a", body([opening, action("tu_1_0")])));
+    });
+
+    it("returns null before the conversation has a tool_use", () => {
+        expect(_conversationKey("chat-a", body([opening]))).toBeNull();
+        expect(
+            _conversationKey(
+                "chat-a",
+                body([opening, { role: "assistant", content: [{ type: "text", text: "x" }] }]),
+            ),
+        ).toBeNull();
+        expect(_conversationKey("chat-a", "not json")).toBeNull();
+        expect(_conversationKey("chat-a", undefined)).toBeNull();
+    });
+});
+
+describe("_sessionAffinityFetch", () => {
+    const keyed = JSON.stringify({
+        messages: [
+            { role: "user", content: [{ type: "text", text: "hi" }] },
+            { role: "assistant", content: [{ type: "tool_use", id: "tu_1_0" }] },
+        ],
+    });
+    const init = { method: "POST", headers: { "x-api-key": "k" }, body: keyed };
+    const ok = new Response("{}");
+    const sent = (calls) => calls.map(([, i]) => i.headers["x-session-affinity"]);
+
+    it("tags keyed requests and keeps the client's headers", async () => {
+        const calls = [];
+        const f = _sessionAffinityFetch("chat-a", async (...a) => {
+            calls.push(a);
+            return ok;
+        });
+        await f("http://tagged.test/v1/messages", init);
+        expect(calls[0][1].headers).toEqual({
+            "x-api-key": "k",
+            "x-session-affinity": "agex-studio:chat-a:tu_1_0",
+        });
+    });
+
+    it("drops the header for an origin whose preflight rejects it", async () => {
+        const calls = [];
+        const f = _sessionAffinityFetch("chat-a", async (...a) => {
+            calls.push(a);
+            if (a[1].headers["x-session-affinity"]) {
+                throw new TypeError("Failed to fetch");
+            }
+            return ok;
+        });
+        expect(await f("http://strict.test/v1/messages", init)).toBe(ok);
+        await f("http://strict.test/v1/messages", init);
+        expect(sent(calls)).toEqual([
+            "agex-studio:chat-a:tu_1_0",
+            undefined,
+            undefined,
+        ]);
+    });
+
+    it("keeps the header when the untagged retry fails too", async () => {
+        const calls = [];
+        const f = _sessionAffinityFetch("chat-a", async (...a) => {
+            calls.push(a);
+            throw new TypeError("Failed to fetch");
+        });
+        await expect(f("http://offline.test/v1/messages", init)).rejects.toThrow(
+            TypeError,
         );
+        await expect(f("http://offline.test/v1/messages", init)).rejects.toThrow(
+            TypeError,
+        );
+        expect(sent(calls)).toEqual([
+            "agex-studio:chat-a:tu_1_0",
+            undefined,
+            "agex-studio:chat-a:tu_1_0",
+            undefined,
+        ]);
     });
 
-    it("separates branches and different opening messages", async () => {
-        const a = await _conversationKey("chat-a", body([opening]));
-        const other = { role: "user", content: [{ type: "text", text: "yo" }] };
-        expect(await _conversationKey("chat-b", body([opening]))).not.toBe(a);
-        expect(await _conversationKey("chat-a", body([other]))).not.toBe(a);
-    });
-
-    it("returns null when there is no opening message", async () => {
-        expect(await _conversationKey("chat-a", body([]))).toBeNull();
-        expect(await _conversationKey("chat-a", "not json")).toBeNull();
-        expect(await _conversationKey("chat-a", undefined)).toBeNull();
+    it("does not retry an aborted request", async () => {
+        const calls = [];
+        const controller = new AbortController();
+        controller.abort();
+        const f = _sessionAffinityFetch("chat-a", async (...a) => {
+            calls.push(a);
+            throw new TypeError("aborted");
+        });
+        await expect(
+            f("http://abort.test/v1/messages", { ...init, signal: controller.signal }),
+        ).rejects.toThrow(TypeError);
+        expect(calls).toHaveLength(1);
     });
 });

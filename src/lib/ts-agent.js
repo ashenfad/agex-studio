@@ -830,12 +830,16 @@ export async function spawnFromApp(branch, spec, opts = {}) {
 /** Whether requests should carry an `x-session-affinity` conversation
  *  key: Anthropic-shape traffic to a custom endpoint, i.e. a self-hosted
  *  proxy like Meridian. Never sent to api.anthropic.com or OpenRouter,
- *  whose CORS allow-lists would reject the unknown header. */
+ *  whose CORS allow-lists would reject the unknown header; any other
+ *  proxy that rejects it is caught by `_sessionAffinityFetch`. */
 export function _usesSessionAffinity(settings) {
     if (settings.accessMode === "openrouter") return false;
     if (resolveProvider(settings) !== "anthropic") return false;
-    const baseUrl = resolveBaseUrl(settings);
-    return baseUrl !== "" && !/\/\/api\.anthropic\.com\b/.test(baseUrl);
+    try {
+        return new URL(resolveBaseUrl(settings)).hostname !== "api.anthropic.com";
+    } catch {
+        return false;
+    }
 }
 
 /** The LLM client for `branch`'s agent: the shared `_llm`, or — when
@@ -846,8 +850,12 @@ function _branchLlm(branch) {
     return _buildLlmClient(_settings, branch);
 }
 
+/** Origins whose CORS preflight rejected `x-session-affinity`; requests
+ *  to them go without it until reload. */
+const _affinityRejected = new Set();
+
 /** `fetch` that tags each request with an `x-session-affinity` key naming
- *  its conversation.
+ *  its conversation (see `_conversationKey`).
  *
  *  Meridian resumes a backing Claude session per conversation, and that
  *  resume is what keeps its prompt cache warm. With no client-supplied
@@ -856,52 +864,76 @@ function _branchLlm(branch) {
  *  resume each other) — so every round of the agent's tool loop started
  *  a fresh session and re-wrote the whole conversation to the cache.
  *
- *  One branch's agent sends several conversations through this client —
- *  the chat itself, spawn clones, chaptering — and a key must not span
- *  two histories (Meridian rejects a key whose history stops matching).
- *  So the key is the branch plus a hash of the opening message, which is
- *  fixed for a conversation's life (until chaptering rewrites it) and
- *  differs between the chat and its clones. `cache_control` is dropped
- *  before hashing because the client moves that marker between turns.
+ *  A proxy whose CORS allow-list lacks the header fails the request the
+ *  way a network error does (a `TypeError`). So a failed tagged request
+ *  is retried untagged, and the origin stops getting the header only if
+ *  that retry succeeds — when it fails too, the network is the problem,
+ *  and its error surfaces as usual with the header left on.
  *
  *  @param {string} branch
+ *  @param {typeof fetch} [baseFetch]
  *  @returns {typeof fetch} */
-function _sessionAffinityFetch(branch) {
+export function _sessionAffinityFetch(branch, baseFetch = fetch) {
     return async (url, init) => {
-        const key = await _conversationKey(branch, init?.body);
-        if (key === null) return fetch(url, init);
-        return fetch(url, {
-            ...init,
-            headers: {
-                .../** @type {Record<string, string>} */ (init?.headers),
-                "x-session-affinity": key,
-            },
-        });
+        const origin = new URL(String(url)).origin;
+        const key = _affinityRejected.has(origin)
+            ? null
+            : _conversationKey(branch, init?.body);
+        if (key === null) return baseFetch(url, init);
+        try {
+            return await baseFetch(url, {
+                ...init,
+                headers: {
+                    .../** @type {Record<string, string>} */ (init?.headers),
+                    "x-session-affinity": key,
+                },
+            });
+        } catch (err) {
+            if (!(err instanceof TypeError) || init?.signal?.aborted) throw err;
+            const response = await baseFetch(url, init);
+            _affinityRejected.add(origin);
+            console.warn(
+                `[ts-agent] ${origin} rejected x-session-affinity; sending requests without it`,
+            );
+            return response;
+        }
     };
 }
 
-/** `agex-studio:<branch>:<hash of the first message>`, or null when the
- *  body has no first message to hash. */
-export async function _conversationKey(branch, body) {
+/** `agex-studio:<branch>:<first tool_use id>`, or null before the
+ *  conversation has one.
+ *
+ *  One branch's agent sends several conversations — the chat, spawn
+ *  clones, chaptering — and a key must not span two histories (Meridian
+ *  rejects a key whose history stops matching). Opening-message content
+ *  can't tell two identical spawns apart, but the first tool_use id can:
+ *  agex-ts derives it from the action's millisecond timestamp, so it is
+ *  unique per generation and fixed once it's in the history (until
+ *  chaptering rewrites it). The opening request goes untagged, and the
+ *  second starts a fresh session under the key while history is short.
+ *
+ *  @param {string} branch
+ *  @param {unknown} body
+ *  @returns {string | null} */
+export function _conversationKey(branch, body) {
     if (typeof body !== "string") return null;
-    let first;
+    let messages;
     try {
-        first = JSON.parse(body).messages?.[0];
+        messages = JSON.parse(body).messages;
     } catch {
         return null;
     }
-    if (first === undefined) return null;
-    const canonical = JSON.stringify(first, (k, v) =>
-        k === "cache_control" ? undefined : v,
-    );
-    const digest = await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(canonical),
-    );
-    const hex = [...new Uint8Array(digest).slice(0, 8)]
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    return `agex-studio:${branch}:${hex}`;
+    if (!Array.isArray(messages)) return null;
+    for (const message of messages) {
+        if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+            continue;
+        }
+        const toolUse = message.content.find((b) => b?.type === "tool_use");
+        if (typeof toolUse?.id === "string") {
+            return `agex-studio:${branch}:${toolUse.id}`;
+        }
+    }
+    return null;
 }
 
 /** Construct the LLM client for the configured provider. The studio's
