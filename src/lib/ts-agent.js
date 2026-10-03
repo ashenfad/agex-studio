@@ -161,7 +161,9 @@ const MAX_LIVE_AGENTS = 5;
 let _settings = /** @type {KernelSettings | null} */ (null);
 
 /** Shared LLM client (stateless per request) handed to every pooled
- *  agent; rebuilt + hot-swapped into all live agents on settings change. */
+ *  agent; rebuilt + hot-swapped into all live agents on settings change.
+ *  Agents whose requests carry a session key get their own client
+ *  instead (see `_branchLlm`). */
 let _llm = /** @type {LLMClient | null} */ (null);
 
 /** The studio's single shared kvgit substrate — one IndexedDB database
@@ -346,9 +348,9 @@ export async function initAgent(settings) {
     if (_kvstore !== null) {
         // Already booted — propagate the new client + chaptering trigger
         // to every live agent.
-        for (const entry of _pool.values()) {
+        for (const [branch, entry] of _pool) {
             entry.agent.reconfigure({
-                llm: _llm,
+                llm: _testHooks?.makeLlm ? _llm : _branchLlm(branch),
                 // Hot-swap the agent primer too — the no-vision note must
                 // track the active model on a mid-session switch.
                 primer: agentPrimerFor(settings.model),
@@ -385,7 +387,9 @@ async function _createBranchAgent(branch) {
         );
     }
     const settings = _settings;
-    const llm = _testHooks?.makeLlm ? _testHooks.makeLlm(branch) : _llm;
+    const llm = _testHooks?.makeLlm
+        ? _testHooks.makeLlm(branch)
+        : _branchLlm(branch);
     const runtime = _testHooks?.makeRuntime
         ? _testHooks.makeRuntime()
         : workerRuntime({
@@ -823,11 +827,90 @@ export async function spawnFromApp(branch, spec, opts = {}) {
     return agent.spawn(safeSpec, { signal: opts.signal });
 }
 
+/** Whether requests should carry an `x-session-affinity` conversation
+ *  key: Anthropic-shape traffic to a custom endpoint, i.e. a self-hosted
+ *  proxy like Meridian. Never sent to api.anthropic.com or OpenRouter,
+ *  whose CORS allow-lists would reject the unknown header. */
+export function _usesSessionAffinity(settings) {
+    if (settings.accessMode === "openrouter") return false;
+    if (resolveProvider(settings) !== "anthropic") return false;
+    const baseUrl = resolveBaseUrl(settings);
+    return baseUrl !== "" && !/\/\/api\.anthropic\.com\b/.test(baseUrl);
+}
+
+/** The LLM client for `branch`'s agent: the shared `_llm`, or — when
+ *  requests carry a session key — a client of its own, since the key
+ *  includes the branch. */
+function _branchLlm(branch) {
+    if (_settings === null || !_usesSessionAffinity(_settings)) return _llm;
+    return _buildLlmClient(_settings, branch);
+}
+
+/** `fetch` that tags each request with an `x-session-affinity` key naming
+ *  its conversation.
+ *
+ *  Meridian resumes a backing Claude session per conversation, and that
+ *  resume is what keeps its prompt cache warm. With no client-supplied
+ *  key it falls back to a fingerprint, but refuses to use it for a
+ *  request ending in a tool_result (concurrent headless loops would
+ *  resume each other) — so every round of the agent's tool loop started
+ *  a fresh session and re-wrote the whole conversation to the cache.
+ *
+ *  One branch's agent sends several conversations through this client —
+ *  the chat itself, spawn clones, chaptering — and a key must not span
+ *  two histories (Meridian rejects a key whose history stops matching).
+ *  So the key is the branch plus a hash of the opening message, which is
+ *  fixed for a conversation's life (until chaptering rewrites it) and
+ *  differs between the chat and its clones. `cache_control` is dropped
+ *  before hashing because the client moves that marker between turns.
+ *
+ *  @param {string} branch
+ *  @returns {typeof fetch} */
+function _sessionAffinityFetch(branch) {
+    return async (url, init) => {
+        const key = await _conversationKey(branch, init?.body);
+        if (key === null) return fetch(url, init);
+        return fetch(url, {
+            ...init,
+            headers: {
+                .../** @type {Record<string, string>} */ (init?.headers),
+                "x-session-affinity": key,
+            },
+        });
+    };
+}
+
+/** `agex-studio:<branch>:<hash of the first message>`, or null when the
+ *  body has no first message to hash. */
+export async function _conversationKey(branch, body) {
+    if (typeof body !== "string") return null;
+    let first;
+    try {
+        first = JSON.parse(body).messages?.[0];
+    } catch {
+        return null;
+    }
+    if (first === undefined) return null;
+    const canonical = JSON.stringify(first, (k, v) =>
+        k === "cache_control" ? undefined : v,
+    );
+    const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(canonical),
+    );
+    const hex = [...new Uint8Array(digest).slice(0, 8)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    return `agex-studio:${branch}:${hex}`;
+}
+
 /** Construct the LLM client for the configured provider. The studio's
  *  settings shape (apiKey / model / provider / baseUrl /
  *  reasoningEffort / toolUseWireFormat) is already kernel-agnostic; we
- *  just translate to the right provider's options shape. */
-function _buildLlmClient(settings) {
+ *  just translate to the right provider's options shape. `branch`, when
+ *  given, keys the client's requests to that branch's conversations
+ *  (see `_sessionAffinityFetch`). */
+function _buildLlmClient(settings, branch) {
     // Wire-format provider auto-resolves in OpenRouter mode (Anthropic
     // models → anthropic shape so cache_control flows through). Custom
     // mode honors the explicit provider choice.
@@ -865,6 +948,9 @@ function _buildLlmClient(settings) {
             apiKey,
             model,
             ...(baseUrl ? { baseUrl } : {}),
+            ...(branch !== undefined && _usesSessionAffinity(settings)
+                ? { fetchImpl: _sessionAffinityFetch(branch) }
+                : {}),
             ...(isOpenRouter
                 ? {
                       // OpenRouter's `/v1/messages` CORS allow-list

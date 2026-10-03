@@ -12,7 +12,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { _isAgentMemoryKey } from "./ts-agent.js";
+import {
+    _conversationKey,
+    _isAgentMemoryKey,
+    _usesSessionAffinity,
+} from "./ts-agent.js";
 
 describe("_isAgentMemoryKey", () => {
     it("matches event-log entries by their evt/ prefix", () => {
@@ -74,5 +78,81 @@ describe("_isAgentMemoryKey", () => {
         // `__subtasks__foo` key shouldn't be wiped.
         expect(_isAgentMemoryKey("__subtasks__foo")).toBe(false);
         expect(_isAgentMemoryKey("__event_log__/index")).toBe(false);
+    });
+});
+
+describe("_usesSessionAffinity", () => {
+    const custom = { accessMode: "custom", provider: "anthropic" };
+
+    it("applies to an Anthropic-shape custom endpoint (Meridian)", () => {
+        expect(
+            _usesSessionAffinity({ ...custom, baseUrl: "http://127.0.0.1:3456" }),
+        ).toBe(true);
+    });
+
+    it("never applies to endpoints whose CORS would reject the header", () => {
+        expect(
+            _usesSessionAffinity({
+                ...custom,
+                baseUrl: "https://api.anthropic.com/v1",
+            }),
+        ).toBe(false);
+        expect(_usesSessionAffinity({ ...custom, baseUrl: "" })).toBe(false);
+        expect(
+            _usesSessionAffinity({
+                accessMode: "openrouter",
+                model: "anthropic/claude-opus-5-5",
+            }),
+        ).toBe(false);
+    });
+
+    it("does not apply to OpenAI-shape traffic", () => {
+        expect(
+            _usesSessionAffinity({
+                accessMode: "custom",
+                provider: "openai",
+                baseUrl: "http://127.0.0.1:3456",
+            }),
+        ).toBe(false);
+    });
+});
+
+describe("_conversationKey", () => {
+    const opening = { role: "user", content: [{ type: "text", text: "hi" }] };
+    const body = (messages) => JSON.stringify({ messages });
+
+    it("is stable as the conversation grows", async () => {
+        const first = await _conversationKey("chat-a", body([opening]));
+        const later = await _conversationKey(
+            "chat-a",
+            body([opening, { role: "assistant", content: [] }, opening]),
+        );
+        expect(first).toMatch(/^agex-studio:chat-a:[0-9a-f]{16}$/);
+        expect(later).toBe(first);
+    });
+
+    it("ignores cache_control moving onto the opening message", async () => {
+        const marked = {
+            role: "user",
+            content: [
+                { type: "text", text: "hi", cache_control: { type: "ephemeral" } },
+            ],
+        };
+        expect(await _conversationKey("chat-a", body([marked]))).toBe(
+            await _conversationKey("chat-a", body([opening])),
+        );
+    });
+
+    it("separates branches and different opening messages", async () => {
+        const a = await _conversationKey("chat-a", body([opening]));
+        const other = { role: "user", content: [{ type: "text", text: "yo" }] };
+        expect(await _conversationKey("chat-b", body([opening]))).not.toBe(a);
+        expect(await _conversationKey("chat-a", body([other]))).not.toBe(a);
+    });
+
+    it("returns null when there is no opening message", async () => {
+        expect(await _conversationKey("chat-a", body([]))).toBeNull();
+        expect(await _conversationKey("chat-a", "not json")).toBeNull();
+        expect(await _conversationKey("chat-a", undefined)).toBeNull();
     });
 });
