@@ -308,6 +308,8 @@ export class ChatSession {
             const record = /** @type {{ asked?: number, done?: boolean } | null} */ (await plane.get(key));
             if (record === null || record.done) continue;
             const name = key.slice("delegates/".length);
+            // a full fork carries its parent's records: only this session's own count
+            if (!name.startsWith(`${this.name}.`)) continue;
             lost.push(name);
             this.inbox.put(
                 `[the studio's delegation mechanism speaking, not the person at the keyboard: delegate \`${name}\` was interrupted, since the page it ran in closed, and never answered. Its work so far is on its branch: ws-git diff ${name} --stat shows what it did; merge or check out what is useful, or ask afresh.]`,
@@ -322,17 +324,25 @@ export class ChatSession {
     }
 
     /** Record on the plane each delegate asked, and whether its answer
-     *  was read: what a later page reads to find those it lost. */
+     *  was read: what a later page reads to find those it lost. Whether
+     *  anything was written. */
     #recordDelegates() {
         const plane = this.ws?.plane(PLANE);
-        if (plane === undefined) return;
+        if (plane === undefined) return false;
+        let wrote = false;
         for (const job of this.jobs) {
             const done = job.status !== "running" && !this.unread.includes(job.name);
             if (this.#recorded.get(job.name) === done) continue;
             this.#recorded.set(job.name, done);
             plane.set(`delegates/${job.name}`, { asked: job.started, done });
+            wrote = true;
         }
+        return wrote;
     }
+
+    /** The commit of delegate records written while no turn ran, in
+     *  flight. @type {Promise<unknown> | null} */
+    #saving = null;
 
     /** A delegate's session, opened to read: its runner works it. */
     get readonly() {
@@ -349,7 +359,11 @@ export class ChatSession {
     syncJobs() {
         this.jobs = this.helper?.list().map((j) => ({ ...j })) ?? [];
         this.unread = this.helper?.outstanding() ?? [];
-        this.#recordDelegates();
+        // a turn's own commits carry what changes during it; outside one,
+        // commit it now, so what syncs never says an answer read is unread
+        if (this.#recordDelegates() && !this.busy && this.ws !== null) {
+            this.#saving = this.ws.commit({ tool: "studio.delegates" }).catch(() => undefined);
+        }
         // while a turn runs (an ask may start any time) or a delegate does
         const running = this.busy || this.jobs.some((j) => j.status === "running");
         if (running && this.#poll === null && this.helper !== null) this.#poll = setInterval(() => this.syncJobs(), 1000);
@@ -534,6 +548,8 @@ export class ChatSession {
                 // a turn stopped or failed: no waking until the person writes
                 if (this.#lastStatus !== "completed") this.#wakeOk = false;
                 this.syncJobs();
+                // the records it changed are committed before sync hears of the change
+                await this.#saving;
                 this.onMeta();
                 // answers that landed after its last tool call
                 void this.#maybeWake();
