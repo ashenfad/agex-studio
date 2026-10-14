@@ -1,132 +1,86 @@
-# Sharing and gallery
+# Sharing
 
-Sessions stay on your device until you decide otherwise. When you
-want to share one — with a friend, a class, the gallery — the
-studio packages it as a single binary bundle and pushes it to a
-secret GitHub gist under your account. There is no agex.studio
-relay in between.
+A session stays on your devices until you share it. Publishing puts
+it in a **secret GitHub gist** under your account, and gives you a
+link that opens it. There's no agex.studio server in between.
 
 ## What you need
 
-A GitHub Personal Access Token with **gist** scope. One-time
-setup:
+A GitHub token that can write gists, one of:
 
-1. Visit **[github.com/settings/tokens →](https://github.com/settings/tokens)**
-   and create a token (classic or fine-grained both work).
-2. Grant it the `gist` scope and nothing else. Sharing this
-   token's powers is limited to creating, updating, and deleting
-   gists on your behalf.
-3. In the studio: **Settings → GitHub token**. Paste and save.
+- a [classic token](https://github.com/settings/tokens/new?description=agex-studio&scopes=gist)
+  with the `gist` scope, or
+- a fine-grained token with the account permission *Gists: read and
+  write*.
 
-The token lives in `localStorage`, sent only to `api.github.com`
-when you publish. Revoking it on GitHub immediately cuts the
-studio's access.
+Paste it in **⚙ Settings → Publishing**. If you sync and leave this
+empty, the sync token is tried; a fine-grained sync token works if you
+also gave it the Gists permission.
 
 > [!NOTE]
-> Published gists are *secret*, not private. Secret gists aren't
-> listed on your profile and aren't search-indexed, but anyone
-> with the URL can view them. Treat published sessions like a
-> link-share, not a password-protected document.
+> Secret gists aren't listed on your profile or in search, but anyone
+> with the link can see them. Treat a published session like a link
+> you share, not a private document.
 
-## Publishing a session
+## Publishing
 
-In the active session's row, click the gear icon to open
-**Session settings**. Set a title and optional description if you
-haven't already, then click **Publish to gist**. The studio
-bundles the session, pushes it to a new gist, and posts a
-markdown comment on the gist carrying:
+From a session's **⋯** menu, choose **Publish…**:
 
-- The session title and description.
-- Two share URLs (more on those below).
-- A small stats table (commits, blobs, nodes, bundle size).
+- **As it is now** (the default): its files and conversation, without
+  the history. Smaller.
+- **With its history**: every commit, so viewers can undo its turns.
 
-The gist itself contains a single `.agex.b64` file — the binary
-bundle, base64-encoded so GitHub renders it as text.
+Tick that you understand anyone with the link can see all of it, then
+**Publish**. You get two links, each with **Copy**:
 
-After publishing, a confirmation panel shows the two share URLs
-with copy buttons, a link to the gist on GitHub, and a **Submit
-to gallery** button (covered below).
+- **The app alone**: the app fills the screen. For people who just
+  want to use it.
+- **The app and how it was made**: the studio, with the app beside
+  the conversation that built it.
 
-## Republishing (PATCH on update)
+There's also a link to the gist on GitHub.
 
-When you publish a session that's been published before, the
-studio updates the existing gist via PATCH instead of creating a
-new one. The mapping lives in `localStorage`
-(`agex-session-gist-<branch>`); clearing browser data resets it
-and the next publish will create a fresh gist.
+### Publishing again
 
-If the original gist has been deleted on GitHub, the studio
-falls back to creating a new one and surfaces a notice.
+Publishing the same session again **updates the same gist**, so the
+links keep working, and people who opened it are offered the new
+version. To publish separately, tick **As a new gist**. If the old
+gist was deleted, a new one is made, and the dialog says so.
 
-## Two URLs per publish: play vs showcase
+## Opening a published session
 
-Every publish produces one share URL with two modes:
+A link opens the studio and brings the session into **your** browser,
+as a session of your own: browse it, fork it, carry on the
+conversation, publish your own version. Opening the same link again
+goes to the copy you already have.
 
-- **Play** (`...&play=1`) — opens app-only view. The interactive
-  app fills the screen, no chat history visible. Use for end-users
-  who just want to *use* the thing.
-- **Showcase** (without `&play=1`) — opens split view: app on
-  one side, full chat history on the other. Use for builders or
-  curious folk who want to see how it was made.
+- **The app alone** shows just the app, with a small **agex studio ·
+  how it was made** button to see the rest.
+- **Without a model**, a visitor can still use the app and read the
+  conversation. To carry the conversation on, they choose a model in
+  Settings.
+- **Updates**: the studio checks now and then (at most every 12 hours)
+  whether a published session you opened has a newer version, and
+  offers it in the session list: **Open it** or **Not now**. If you
+  haven't changed your copy, the new version replaces it; if you have,
+  it opens beside it.
+- An app that calls an agent runs those calls on **the visitor's**
+  model, and asks them first. See [The agent](#the-agent).
 
-Both URLs point at the same gist. Recipients without an API key
-can still play (and inspect) — viewer mode kicks in automatically.
+## What a published session holds
 
-## Importing someone else's session
+**Included:** the session's files and its conversation (with the
+history, if you chose that). That means anything the agent could see:
+files you uploaded or brought in from Drive, what it fetched, what it
+wrote. Before publishing, look through the **📁 files drawer** and
+remove anything private.
 
-Open a share URL and the studio resolves the gist, downloads the
-bundle, and imports it as a new local session. The original
-publisher's name and description ride along; the imported session
-is yours to fork, edit, or republish from your own account.
+**Not included:** your settings and keys, your tokens, the data the
+app saved while you used it, and anything else in your browser outside
+the session.
 
-Imports deduplicate: opening the same gist twice surfaces the
-existing local session instead of creating a duplicate.
+## Removing a published session
 
-If you don't have an API key set, viewer mode loads the
-interactive app read-only — you can play the app and browse the
-history, just not continue the conversation.
-
-## Gallery submission
-
-The gallery on **[agex.studio/gallery/](https://agex.studio/gallery/)**
-collects sessions worth showing off. To submit one:
-
-1. Publish the session.
-2. On the publish-success panel, click **✨ Submit to gallery**.
-3. The studio opens a prefilled GitHub issue against the
-   `agex-studio` repo, with the session title, description, the
-   pinned URL, and tag suggestions.
-4. Attach a screenshot of the app or a representative chart, then
-   submit the issue.
-
-Submissions are reviewed manually; accepted entries appear in
-the gallery with a thumbnail, title, description, and two
-buttons: **Try it** (play mode) and **See how** (showcase mode).
-
-> [!NOTE]
-> Gallery entries pin to the specific gist version you submitted,
-> so they keep working unchanged even if you later republish the
-> session.
-
-## Deletion
-
-- **Unpublish a session locally**: clearing browser data removes
-  the `agex-session-gist-<branch>` mapping; the next publish
-  creates a new gist instead of updating the old one.
-- **Delete a published gist**: do this on github.com directly —
-  the studio doesn't track which gists you've created beyond
-  the per-session mapping, and there's no "delete remote" button.
-- **Remove a gallery entry**: comment on the original submission
-  issue or open a new one referencing it.
-
-## What gets shared
-
-The bundle is a full snapshot: every commit, every file in the
-workspace, the agent's memory state, the chat history. Anything
-the agent could see during the session is in there. Before
-publishing, look through the **Files** drawer and prune anything
-sensitive — uploaded PDFs, API responses cached in the
-workspace, anything that came in over the Drive picker.
-
-Settings (API keys, GitHub token, etc.) are *not* part of the
-bundle. Those stay in `localStorage` on your device only.
+The studio doesn't delete gists. Delete one on
+[gist.github.com](https://gist.github.com); its links stop working.
+Copies people already opened stay in their browsers.

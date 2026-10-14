@@ -287,10 +287,5 @@ release.
 
 ## Open
 
-- **OpenRouter's forced-tool fallback** (`openrouter.js`) looks
-  unneeded: agex-ts sends no `tool_choice`, and Muse, the route it was
-  written for, passes agex-ts's smoke script. It goes unless a route
-  shows otherwise.
-
 - **Model presets:** which providers the settings offer directly, beside
   OpenRouter.
