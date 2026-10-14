@@ -136,9 +136,15 @@ agent builds an app, tests it, and the human uses it in the preview.
 **S3. The studio's tools and rich replies,** in two PRs. S3a: `ui`
 artifacts (agex-ts #105 first) and their rendering, with the rich
 components salvaged. Exit: a reply with a table, a chart and cards
-renders inline, and a reload renders it the same. S3b: search, media,
-PDF and Drive import as typed host objects, in nontainer-studio's
-later shapes (`web`, `media`), and the primers.
+renders inline, and a reload renders it the same. S3b: `web`, `media`
+and `pdf` as typed host objects, `web` and `media` in nontainer-studio's
+shapes and on its OpenRouter endpoints (in JavaScript: `media`'s
+arguments by name as one object, and `Promise.all` in place of list
+calls); files
+added from the device or Google Drive into `uploads/`; the media skill;
+and the primer, built per turn from the settings. Exit: an agent
+searches, reads a page, makes an image, speech and music, and reads an
+uploaded PDF.
 
 **S4. Sync, bundles and gists.** The sync engine on the store's kvgit v4
 repository and its GitHub remote; bundle export and import, and the

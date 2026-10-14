@@ -1,9 +1,10 @@
 <script>
     /**
-     * The session's files under /workspace: a tree to browse, and a
-     * file opened to read (text, Markdown, or an image), download, or
-     * delete.
+     * The session's files under /workspace: a tree to browse, a file
+     * opened to read (text, Markdown, or an image), download, or delete,
+     * and files to add (uploaded, or from Google Drive) under uploads/.
      */
+    import { isDriveImportAvailable, pickFromDrive } from './drive-import.js'
     import { highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
 
@@ -56,6 +57,38 @@
 
     let confirmingDelete = $state(false)
 
+    /** What came of the last add: the paths added, or what failed. */
+    let added = $state('')
+    /** @type {HTMLInputElement | undefined} */
+    let picker = $state()
+    const drive = isDriveImportAvailable()
+
+    /** @param {{ name: string, bytes: Uint8Array }[]} files @param {string[]} [errors] */
+    async function add(files, errors = []) {
+        try {
+            const paths = await session.importFiles(files)
+            const done = paths.length > 0 ? `Added ${paths.map((p) => p.replace(`${ROOT}/`, '')).join(', ')}` : ''
+            added = [done, ...errors].filter(Boolean).join('; ')
+        } catch (e) {
+            added = e instanceof Error ? e.message : String(e)
+        }
+    }
+
+    async function upload() {
+        const chosen = [...(picker?.files ?? [])]
+        if (picker) picker.value = ''
+        await add(await Promise.all(chosen.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }))))
+    }
+
+    async function fromDrive() {
+        try {
+            const { files, errors } = await pickFromDrive()
+            await add(files, errors)
+        } catch (e) {
+            added = e instanceof Error ? e.message : String(e)
+        }
+    }
+
     async function remove() {
         if (open === null || session.ws === null) return
         await session.ws.files.remove(`${ROOT}/${open.path}`)
@@ -70,8 +103,16 @@
     <div class="drawer" role="dialog" aria-label="Files" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
         <header>
             <h2>Files</h2>
+            <button onclick={() => picker?.click()} disabled={session.busy} title="Add files from this device to uploads/">Upload</button>
+            {#if drive}
+                <button onclick={fromDrive} disabled={session.busy} title="Add files from Google Drive to uploads/">From Drive</button>
+            {/if}
+            <input bind:this={picker} type="file" multiple hidden onchange={upload} />
             <button class="close" onclick={onClose} aria-label="Close">✕</button>
         </header>
+        {#if added}
+            <p class="added">{added}</p>
+        {/if}
         {#if open === null}
             {#if entries.length === 0}
                 <p class="empty">No files yet.</p>
@@ -134,7 +175,7 @@
     }
     header {
         display: flex;
-        justify-content: space-between;
+        gap: 0.4rem;
         align-items: center;
         padding: 0.6rem 1rem;
         border-bottom: 1px solid var(--border);
@@ -142,6 +183,26 @@
     h2 {
         font-family: var(--font-display);
         font-size: 1.1rem;
+        margin-right: auto;
+    }
+    header button:not(.close) {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 4px;
+        padding: 0.2rem 0.6rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+    }
+    header button:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+    .added {
+        padding: 0.4rem 1rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 0.8rem;
     }
     .close {
         background: none;
