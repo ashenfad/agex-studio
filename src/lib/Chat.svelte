@@ -52,12 +52,27 @@
         following = list.scrollHeight - list.scrollTop - list.clientHeight < 80
     }
 
+    /** Set while a click opens or closes something in the transcript:
+     *  what it reveals grows the list, which isn't new content to follow. */
+    let revealing = false
+
+    /** @param {MouseEvent} e */
+    function onClick(e) {
+        if (!(e.target instanceof Element) || e.target.closest('button, summary') === null) return
+        revealing = true
+        requestAnimationFrame(() => {
+            revealing = false
+            // whether the reader is still at the bottom, now it has grown
+            onScroll()
+        })
+    }
+
     // follow the content as it grows, a streamed reply's deltas included
     $effect(() => {
         const el = list
         if (el == null) return
         const observer = new MutationObserver(() => {
-            if (following) el.scrollTop = el.scrollHeight
+            if (following && !revealing) el.scrollTop = el.scrollHeight
         })
         observer.observe(el, { childList: true, subtree: true, characterData: true })
         el.scrollTop = el.scrollHeight
@@ -66,7 +81,7 @@
 </script>
 
 <div class="chat">
-    <div class="messages" bind:this={list} onscroll={onScroll}>
+    <div class="messages" bind:this={list} onscroll={onScroll} onclickcapture={onClick}>
         {#each session.runs as run, i (run.runId)}
             <RunView {session} {run} at={session.endOf(i)} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
         {/each}
@@ -152,6 +167,10 @@
         min-height: 0;
     }
     .messages {
+        /* the browser's scroll anchoring holds the list's end in place
+           as it grows, scrolling a line just opened away; following the
+           newest content is done above */
+        overflow-anchor: none;
         flex: 1;
         overflow-y: auto;
         display: flex;

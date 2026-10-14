@@ -24,7 +24,7 @@
 
 {#each groups as g, i (i)}
     {#if g.kind === 'work'}
-        <ToolGroup entries={g.entries} />
+        <ToolGroup entries={g.entries} live={streaming} />
     {:else if g.kind === 'thinking'}
         {#if g.text.trim() !== ''}
             <ThinkingBlock text={g.text} live={streaming && i === groups.length - 1} />
