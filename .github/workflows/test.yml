@@ -47,3 +47,9 @@ jobs:
     - name: Run tests
       working-directory: agex-studio
       run: pnpm vitest run
+
+    # the one check of Vite bundling the linked packages and the
+    # world's worker
+    - name: Build
+      working-directory: agex-studio
+      run: pnpm build
