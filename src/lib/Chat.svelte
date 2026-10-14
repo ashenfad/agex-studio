@@ -4,7 +4,6 @@
      * the composer. A message sent while a turn runs is queued as a
      * note, delivered with the turn's next tool result.
      */
-    import { tick } from 'svelte'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
 
@@ -30,16 +29,30 @@
         }
     }
 
-    // keep the newest content in view as it streams
+    /** Whether the view follows the newest content: while the person
+     *  is at the bottom, and not once they scroll up to read. */
+    let following = true
+
+    function onScroll() {
+        if (list === undefined) return
+        following = list.scrollHeight - list.scrollTop - list.clientHeight < 80
+    }
+
+    // follow the content as it grows, a streamed reply's deltas included
     $effect(() => {
-        void session.runs.length
-        void session.live.length
-        void tick().then(() => list?.scrollTo({ top: list.scrollHeight }))
+        const el = list
+        if (el === undefined) return
+        const observer = new MutationObserver(() => {
+            if (following) el.scrollTop = el.scrollHeight
+        })
+        observer.observe(el, { childList: true, subtree: true, characterData: true })
+        el.scrollTop = el.scrollHeight
+        return () => observer.disconnect()
     })
 </script>
 
 <div class="chat">
-    <div class="messages" bind:this={list}>
+    <div class="messages" bind:this={list} onscroll={onScroll}>
         {#each session.runs as run (run.runId)}
             <RunView {run} />
         {/each}
