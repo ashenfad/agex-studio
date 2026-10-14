@@ -67,8 +67,8 @@
 
 <div class="chat">
     <div class="messages" bind:this={list} onscroll={onScroll}>
-        {#each session.runs as run (run.runId)}
-            <RunView {session} {run} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
+        {#each session.runs as run, i (run.runId)}
+            <RunView {session} {run} at={session.endOf(i)} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
         {/each}
         {#if session.interrupted && !session.busy}
             <div class="banner">

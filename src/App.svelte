@@ -66,9 +66,18 @@
         }
         window.addEventListener('focus', back)
         document.addEventListener('visibilitychange', back)
+        // a turn or a delegate runs in this page: leaving stops it
+        /** @param {BeforeUnloadEvent} e */
+        const leaving = (e) => {
+            if (!studio.working()) return
+            e.preventDefault()
+            e.returnValue = ''
+        }
+        window.addEventListener('beforeunload', leaving)
         return () => {
             window.removeEventListener('focus', back)
             document.removeEventListener('visibilitychange', back)
+            window.removeEventListener('beforeunload', leaving)
         }
     })
 

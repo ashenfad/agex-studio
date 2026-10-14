@@ -7,8 +7,8 @@
     import Artifact from './Artifact.svelte'
     import { renderMarkdown } from './markdown.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string }} */
-    let { session, text } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null }} */
+    let { session, text, at = null } = $props()
 
     const parts = $derived(splice(text))
 </script>
@@ -18,7 +18,7 @@
         {#if 'md' in part}
             {@html renderMarkdown(part.md)}
         {:else}
-            <Artifact {session} path={part.path} name={part.name} />
+            <Artifact {session} {at} path={part.path} name={part.name} />
         {/if}
     {/each}
 </div>
