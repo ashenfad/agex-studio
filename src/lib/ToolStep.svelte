@@ -9,12 +9,15 @@
     import { stepLine } from './activity.js'
     import { highlightCode } from './highlight.js'
 
-    /** @type {{ tool: import('./activity.js').ToolItem }} */
-    let { tool } = $props()
+    /** @type {{ tool: import('./activity.js').ToolItem, live?: boolean }} */
+    let { tool, live = false } = $props()
 
     let open = $state(false)
     const line = $derived(stepLine(tool))
-    const running = $derived(tool.result === null)
+    /** A call without a result is running while the turn is, and was
+     *  cut off in a turn that ended. */
+    const running = $derived(live && tool.result === null)
+    const cutOff = $derived(!live && tool.result === null)
     const args = $derived(tool.args)
 
     /** What the line carries while folded, besides its subject. */
@@ -48,6 +51,7 @@
         {#if line.subject}<span class="act-rest" class:code={line.code}>{line.subject}</span>{/if}
         {#if pictures}<span class="act-rest">{pictures}</span>{/if}
         {#if tool.isError}<span class="act-rest failed">· failed</span>{/if}
+        {#if cutOff}<span class="act-rest">· no result</span>{/if}
         <span class="act-chev">⌄</span>
     </button>
     {#if open}

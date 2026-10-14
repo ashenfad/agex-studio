@@ -10,14 +10,14 @@
     import ThinkingBlock from './ThinkingBlock.svelte'
     import ToolStep from './ToolStep.svelte'
 
-    /** @type {{ entries: import('./activity.js').Item[] }} */
-    let { entries } = $props()
+    /** @type {{ entries: import('./activity.js').Item[], live?: boolean }} */
+    let { entries, live = false } = $props()
 
     let open = $state(false)
     const tools = $derived(
         /** @type {import('./activity.js').ToolItem[]} */ (entries.filter((e) => e.kind === 'tool')),
     )
-    const running = $derived(tools.some((t) => t.result === null))
+    const running = $derived(live && tools.some((t) => t.result === null))
     const failed = $derived(tools.filter((t) => t.isError).length)
     const phrases = $derived(groupPhrases(tools))
 </script>
@@ -35,7 +35,7 @@
         <div class="act-body">
             {#each entries as e, i (i)}
                 {#if e.kind === 'tool'}
-                    <ToolStep tool={e} />
+                    <ToolStep tool={e} {live} />
                 {:else if e.kind === 'thinking'}
                     <ThinkingBlock text={e.text} />
                 {/if}

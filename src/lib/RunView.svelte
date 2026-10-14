@@ -62,7 +62,7 @@
                             name: part.name,
                             args: { ...part.args },
                             // a call the run ended before answering has no result
-                            result: result?.content ?? '',
+                            result: result?.content ?? null,
                             isError: result?.isError ?? false,
                             images: result?.images ?? [],
                         })

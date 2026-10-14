@@ -7,7 +7,8 @@
 
 /**
  * One item of an agent's turn, stored or streaming, as the transcript
- * lays it out.
+ * lays it out. A tool's `result` is null until the call ends, and stays
+ * null for a call its turn ended before answering.
  *
  * @typedef {(
  *   | { kind: "text", text: string }
