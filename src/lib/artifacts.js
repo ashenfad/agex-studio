@@ -58,9 +58,17 @@ function codeRanges(text) {
         }
     }
     if (open !== null) out.push([open.index, text.length]);
-    for (const m of text.matchAll(/(`+)[^`]*?\1/g)) {
-        const at = m.index ?? 0;
-        if (!out.some(([a, b]) => at >= a && at < b)) out.push([at, at + m[0].length]);
+    // a run of N backticks opens a span that the next run of exactly N
+    // closes; a run with no such close is literal
+    const runs = [...text.matchAll(/`+/g)].filter((m) => !out.some(([a, b]) => (m.index ?? 0) >= a && (m.index ?? 0) < b));
+    for (let i = 0; i < runs.length; i++) {
+        const open = runs[i];
+        const n = open?.[0].length;
+        const j = runs.findIndex((m, k) => k > i && m[0].length === n);
+        if (open === undefined || j < 0) continue;
+        const close = /** @type {RegExpExecArray} */ (runs[j]);
+        out.push([open.index ?? 0, (close.index ?? 0) + close[0].length]);
+        i = j;
     }
     return out;
 }
