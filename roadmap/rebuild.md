@@ -289,3 +289,8 @@ release.
 
 - **Model presets:** which providers the settings offer directly, beside
   OpenRouter.
+- **A model picker from OpenRouter's list:** rather than a typed model
+  id, choose from what `/api/v1/models` lists: the current
+  tool-capable models of the major providers (Anthropic, OpenAI, Meta,
+  Google) first, a search over the rest, the list cached for the day.
+  Later in the composer too, to change the model for a turn.

@@ -16,7 +16,8 @@
 <div class="text">
     {#each parts as part, i (i)}
         {#if 'md' in part}
-            {@html renderMarkdown(part.md)}
+            <!-- each its own, so the markdown rules don't reach an artifact's tables -->
+            <div class="markdown">{@html renderMarkdown(part.md)}</div>
         {:else}
             <Artifact {session} {at} path={part.path} name={part.name} />
         {/if}
@@ -24,7 +25,10 @@
 </div>
 
 <style>
-    .text :global(p) {
-        margin: 0.4rem 0;
+    .text {
+        line-height: 1.55;
+    }
+    .markdown {
+        margin: 0.3rem 0;
     }
 </style>
