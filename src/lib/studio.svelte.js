@@ -220,6 +220,10 @@ export class ChatSession {
     /** When the session was made: kept so a turn's metadata is written
      *  at once, within the turn. */
     createdAt = 0;
+    /** The session's record on the plane as last read or written here,
+     *  whole: what a turn's start writes over keeps every field it
+     *  doesn't set (`named`, `titledAt`). @type {Record<string, unknown>} */
+    #meta = {};
     /** @type {Run[]} */
     runs = $state([]);
     /** @type {Fold[]} */
@@ -475,6 +479,7 @@ export class ChatSession {
         const meta = await metaOf(ws);
         this.title = meta.title;
         this.createdAt = meta.createdAt;
+        this.#meta = /** @type {Record<string, unknown> | null} */ (await ws.plane(PLANE).get("meta")) ?? {};
         await this.refreshFiles();
         this.appStamp += 1;
         this.filesStamp += 1;
@@ -660,7 +665,8 @@ export class ChatSession {
         // named for what was asked, not for the files attached to it
         const title = this.title || titleFrom(attachmentsOf(prompt ?? "").text);
         // at once, so the turn's own commits carry it
-        plane.set("meta", { title, createdAt: this.createdAt || now, updatedAt: now });
+        this.#meta = { ...this.#meta, title, createdAt: this.createdAt || now, updatedAt: now };
+        plane.set("meta", this.#meta);
         this.title = title;
     }
 
@@ -831,7 +837,8 @@ export class ChatSession {
         const plane = this.ws.plane(PLANE);
         const meta = /** @type {object | null} */ (await plane.get("meta")) ?? {};
         // the person's name: the model's stop for good
-        plane.set("meta", { ...meta, title, named: true, updatedAt: Date.now() });
+        this.#meta = { ...meta, title, named: true, updatedAt: Date.now() };
+        plane.set("meta", this.#meta);
         await this.ws.autoCommit({ tool: "studio.rename" });
         this.title = title;
         this.onMeta();
@@ -861,7 +868,8 @@ export class ChatSession {
         // read again: the person may have renamed it, or a later turn named it, meanwhile
         const meta = /** @type {any} */ (await plane.get("meta")) ?? {};
         if (meta.named === true || (typeof meta.titledAt === "number" && meta.titledAt >= turns)) return;
-        plane.set("meta", { ...meta, title, titledAt: turns });
+        this.#meta = { ...meta, title, titledAt: turns };
+        plane.set("meta", this.#meta);
         // a turn running now commits it with its own; else a commit of its own
         if (!this.busy) await ws.autoCommit({ tool: "studio.title" });
         this.title = title;
