@@ -22,6 +22,7 @@
  *   OPENROUTER_API_KEY (openrouter), DRIVE_API_KEY (custom, if needed)
  *   DRIVE_BASE_URL, DRIVE_WIRE (custom: anthropic | openai)
  *   CHROME          a Chromium executable, if Playwright's isn't installed
+ *   DRIVE_SYNC_REPO, DRIVE_SYNC_TOKEN   connect sync to this repo (owner/name)
  *
  * Options:
  *   --url <url>         a studio already running (default: start `vite`)
@@ -88,6 +89,9 @@ const settings =
                 apiKey: env.OPENROUTER_API_KEY ?? "",
                 model: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
             };
+if (env.DRIVE_SYNC_REPO && env.DRIVE_SYNC_TOKEN) {
+    Object.assign(settings, { syncRepo: env.DRIVE_SYNC_REPO, syncToken: env.DRIVE_SYNC_TOKEN });
+}
 if (mode === "openrouter" && settings.apiKey === "") {
     console.error("OPENROUTER_API_KEY isn't set (or use --scripted, or DRIVE_MODE=custom)");
     process.exit(2);

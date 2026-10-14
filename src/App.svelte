@@ -12,6 +12,7 @@
     import SettingsDialog from './lib/SettingsDialog.svelte'
     import { isConfigured, settingsStore } from './lib/settings.js'
     import { studio } from './lib/studio.svelte.js'
+    import { sync } from './lib/sync.svelte.js'
 
     /** @type {string | null} */
     let failed = $state(null)
@@ -21,14 +22,39 @@
     /** The preview beside the chat (on a narrow screen, instead of it). */
     let showApp = $state(true)
 
-    if (import.meta.env.DEV) installDevHook(studio)
+    if (import.meta.env.DEV) installDevHook(studio, sync)
 
-    onMount(async () => {
-        try {
-            await studio.init()
-        } catch (e) {
-            failed = e instanceof Error ? e.message : String(e)
+    onMount(() => {
+        void (async () => {
+            try {
+                await studio.init()
+            } catch (e) {
+                failed = e instanceof Error ? e.message : String(e)
+                return
+            }
+            // every session against the repo, on arrival and on coming back
+            void sync.sweep({ force: true })
+        })()
+        const back = () => {
+            if (document.visibilityState === 'visible') void sync.sweep()
         }
+        window.addEventListener('focus', back)
+        document.addEventListener('visibilitychange', back)
+        return () => {
+            window.removeEventListener('focus', back)
+            document.removeEventListener('visibilitychange', back)
+        }
+    })
+
+    /** Sync's state for the header: busy, needing the person, or quiet. */
+    const syncMark = $derived.by(() => {
+        if (!sync.connected) return null
+        const states = Object.values(sync.status).map((s) => s.state)
+        if (sync.problem !== null || states.some((s) => s === 'diverged' || s === 'remote-gone' || s === 'error')) {
+            return { glyph: '⚠', title: sync.problem ?? 'A session needs attention: see the session list' }
+        }
+        if (states.some((s) => s === 'syncing')) return { glyph: '↻', title: 'Syncing' }
+        return null
     })
 
     async function openFiles() {
@@ -42,6 +68,9 @@
         <button class="icon sessions-toggle" onclick={() => (showSessions = !showSessions)} aria-label="Sessions">☰</button>
         <span class="brand">agex studio</span>
         <span class="title">{studio.current?.title || ''}</span>
+        {#if syncMark}
+            <button class="icon sync-mark" title={syncMark.title} aria-label={syncMark.title} onclick={() => (showSessions = true)}>{syncMark.glyph}</button>
+        {/if}
         <button class="icon" class:on={showApp} onclick={() => (showApp = !showApp)} aria-label="App preview" title="App preview">▣</button>
         <button class="icon" onclick={openFiles} aria-label="Files" disabled={studio.current === null}>📁</button>
         <button class="icon" onclick={() => (showSettings = true)} aria-label="Settings">⚙</button>

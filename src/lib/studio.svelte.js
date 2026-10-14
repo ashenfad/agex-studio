@@ -251,7 +251,9 @@ export class ChatSession {
             this.inbox.put(prompt);
             return;
         }
+        await this.#held;
         const ws = this.ws;
+        if (ws === null) throw new Error("the session isn't open");
         const session = this.#session(ws);
         const startedAt = ws.head;
         await this.#runTurn(session, async (apply) => {
@@ -343,12 +345,45 @@ export class ChatSession {
         });
         this.redoHead = null;
         await this.refreshFiles();
+        this.onMeta();
         return paths;
     }
 
     /** Wait for the turn running now, if any. */
     async settled() {
         await this.#running;
+    }
+
+    /** A sync of this session in flight: a turn waits for it. */
+    /** @type {Promise<unknown> | null} */
+    #held = null;
+
+    /**
+     * Run `fn` (a sync of this session) with no turn starting until it
+     * ends: `say` waits for it. Called only while no turn runs.
+     *
+     * @template T
+     * @param {() => Promise<T>} fn
+     */
+    async hold(fn) {
+        const run = fn();
+        this.#held = run.catch(() => undefined);
+        try {
+            return await run;
+        } finally {
+            this.#held = null;
+        }
+    }
+
+    /** Take in commits a sync pulled onto the branch: what is pending
+     *  here commits onto them (merging), or the workspace reads them. */
+    async adoptPulled() {
+        const ws = this.ws;
+        if (ws === null) return;
+        if (ws.uncommitted) await ws.commit({ tool: "studio.sync" });
+        else await ws.refresh();
+        this.redoHead = null;
+        await this.reload();
     }
 
     /** Stop the turn running now. */
@@ -492,11 +527,68 @@ export class Studio {
         this.sessions = infos.sort((a, b) => b.updatedAt - a.updatedAt);
     }
 
+    /** Called with a session's name when its content changed here (a
+     *  turn, an undo, a rename, files added): sync pushes it. */
+    /** @type {(name: string) => void} */
+    onChanged = () => {};
+
     /** @param {ChatSession} session */
     #watch(session) {
-        session.onMeta = () => void this.refresh();
+        session.onMeta = () => {
+            void this.refresh();
+            this.onChanged(session.name);
+        };
         this.#open.set(session.name, session);
         return session;
+    }
+
+    /** The session `name`, if this page has it open. @param {string} name */
+    opened(name) {
+        return this.#open.get(name);
+    }
+
+    /**
+     * Point session `name` at `commit`, which needn't descend from where
+     * it is (a sync's resolution): its workspace, if open, is closed and
+     * opened again there.
+     *
+     * @param {string} name @param {string} commit
+     */
+    async moveTo(name, commit) {
+        const session = this.#open.get(name);
+        if (session?.busy) throw new Error("a turn is running in that session; stop it first");
+        await session?.close();
+        const repo = (await openStore()).repo;
+        await repo.branches.delete(name);
+        await repo.branches.create(name, commit);
+        if (session !== undefined) {
+            session.redoHead = null;
+            await session.open();
+        }
+        await this.refresh();
+    }
+
+    /**
+     * A full fork of session `name`, open or not, titled `title`; its
+     * name. Not looked at.
+     *
+     * @param {string} name @param {string} title
+     */
+    async forkAs(name, title) {
+        const open = this.#open.get(name)?.ws ?? null;
+        const ws = open ?? (await (await openStore()).open(name, { profile: PROFILE }));
+        try {
+            const child = await ws.fork(newName(), { inherit: "full" });
+            const now = Date.now();
+            child.plane(PLANE).set("meta", { title, createdAt: now, updatedAt: now });
+            await child.autoCommit({ tool: "studio.fork" });
+            copyAppStorage("ts", name, child.session);
+            await child.close();
+            await this.refresh();
+            return child.session;
+        } finally {
+            if (open === null) await ws.close();
+        }
     }
 
     /** @param {string} name */

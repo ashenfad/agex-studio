@@ -146,11 +146,19 @@ and the primer, built per turn from the settings. Exit: an agent
 searches, reads a page, makes an image, speech and music, and reads an
 uploaded PDF.
 
-**S4. Sync, bundles and gists.** The sync engine on the store's kvgit v4
-repository and its GitHub remote; bundle export and import, and the
-compact fork, on kvgit v4; gist publishing, opening and update checks;
-the published-version tags. Exit: a session syncs between two
-browsers, and a published app opens from its gist link in a fresh one.
+**S4. Sync, bundles and gists,** in three PRs. S4a (agex-ts #106):
+kvgit's `PackRemote`, one pack per push, out of its spike, and
+`GithubRemote` removed. S4b: sync on it: a connect wizard (a
+fine-grained token, Contents read and write, on a private repo), a
+session pushed a few seconds after it changes and every one compared
+on arrival and on focus, a choice when one changed on two devices
+(the synced version, this device's kept as its own session; or this
+device's, on top of the synced one), cloud sessions to download, and
+the trash. An app's saved data stays on the device for now. S4c:
+bundle export and import, and the compact fork; gist publishing,
+opening and update checks; the published-version tags. Exit: a session
+syncs between two browsers, and a published app opens from its gist
+link in a fresh one.
 
 **S5. Agents from apps, and delegation.** The bridge: an app's
 agent-defined tasks on the viewer's own key, with a per-page budget;

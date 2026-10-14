@@ -2,10 +2,25 @@
     /**
      * The sessions: newest first, the one looked at marked, and for
      * each a menu to rename, fork (with its conversation, or its files
-     * alone) and delete.
+     * alone) and delete. With sync on, each shows its sync (a glyph,
+     * and the choices when it needs the person), and below them the
+     * repo's other sessions to download and its trash.
      */
     import { formatDate } from './format-time.js'
     import { studio } from './studio.svelte.js'
+    import { sync } from './sync.svelte.js'
+
+    /** A row's sync glyph and what it says, or null when quiet.
+     *  @param {string} name */
+    function mark(name) {
+        const st = sync.connected ? sync.status[name] : undefined
+        if (st === undefined || st.state === 'synced') return null
+        if (st.state === 'syncing') return { glyph: '↻', title: 'Syncing…' }
+        if (st.state === 'pending') return { glyph: '↑', title: `Sync queued${st.detail ? ` (${st.detail})` : ''}` }
+        return { glyph: '⚠', title: st.detail }
+    }
+
+    let emptying = $state(false)
 
     /** @type {{ onPicked?: () => void }} */
     let { onPicked = () => {} } = $props()
@@ -77,6 +92,10 @@
                         <span class="title">{s.title || 'New session'}</span>
                         <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
                     </button>
+                    {#if mark(s.name)}
+                        {@const m = mark(s.name)}
+                        <span class="sync" title={m?.title}>{m?.glyph}</span>
+                    {/if}
                     <button class="more" aria-label="Session actions" onclick={() => (menuFor = menuFor === s.name ? null : s.name)}>⋯</button>
                 {/if}
                 {#if menuFor === s.name}
@@ -89,14 +108,77 @@
                 {/if}
                 {#if confirming === s.name}
                     <div class="menu">
-                        <span>Delete “{s.title || 'New session'}” for good?</span>
-                        <button class="danger" onclick={() => act(() => studio.remove(s.name)).then(() => (confirming = null))}>Delete</button>
+                        {#if sync.synced(s.name)}
+                            <span>Delete “{s.title || 'New session'}”?</span>
+                            <button onclick={() => act(() => studio.remove(s.name)).then(() => (confirming = null))} title="It stays in the sync repo, and shows below as a cloud session">From this device</button>
+                            <button class="danger" onclick={() => act(() => sync.deleteEverywhere(s.name)).then(() => (confirming = null))} title="Into the sync repo's trash, on every device: restorable until it's emptied">Everywhere</button>
+                        {:else}
+                            <span>Delete “{s.title || 'New session'}” for good?</span>
+                            <button class="danger" onclick={() => act(() => studio.remove(s.name)).then(() => (confirming = null))}>Delete</button>
+                        {/if}
                         <button onclick={() => (confirming = null)}>Keep</button>
+                    </div>
+                {/if}
+                {#if sync.connected && sync.status[s.name]?.state === 'diverged'}
+                    <div class="menu attention">
+                        <span>Changed on another device too.</span>
+                        <button onclick={() => act(() => sync.useSynced(s.name))} title="This device's version is kept as a session of its own">Use the synced version</button>
+                        <button onclick={() => act(() => sync.keepMine(s.name))} title="Written on top of the synced version, which stays in the history">Keep this device's</button>
+                    </div>
+                {:else if sync.connected && sync.status[s.name]?.state === 'remote-gone'}
+                    <div class="menu attention">
+                        <span>{sync.status[s.name]?.detail}</span>
+                        <button onclick={() => act(() => sync.syncAgain(s.name))}>Sync it again</button>
+                        <button class="danger" onclick={() => act(() => studio.remove(s.name))}>Delete here too</button>
+                    </div>
+                {:else if sync.connected && sync.status[s.name]?.state === 'error'}
+                    <div class="menu attention">
+                        <span>Sync failed: {sync.status[s.name]?.detail}</span>
+                        <button onclick={() => act(() => sync.syncNow(s.name))}>Retry</button>
                     </div>
                 {/if}
             </li>
         {/each}
     </ul>
+    {#if sync.connected}
+        {#if sync.problem}<p class="failed">Sync: {sync.problem}</p>{/if}
+        {#if sync.cloud.length > 0}
+            <h3>In the sync repo</h3>
+            <ul>
+                {#each sync.cloud as c (c.name)}
+                    <li class="cloud">
+                        <span class="row static">
+                            <span class="title">☁ {c.title || 'Untitled'}</span>
+                            {#if c.updatedAt}<span class="when">{formatDate(new Date(c.updatedAt).toISOString())}</span>{/if}
+                        </span>
+                        <button class="small" onclick={() => act(() => sync.download(c.name))}>Download</button>
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+        {#if sync.trash.length > 0}
+            <details class="trash">
+                <summary>Trash ({sync.trash.length})</summary>
+                <ul>
+                    {#each sync.trash as t (t.name)}
+                        <li>
+                            <span class="row static"><span class="title">{t.title || 'Untitled'}</span></span>
+                            <button class="small" onclick={() => act(() => sync.restore(t.name))}>Restore</button>
+                        </li>
+                    {/each}
+                </ul>
+                {#if emptying}
+                    <div class="menu">
+                        <span>Delete these for good, on every device?</span>
+                        <button class="danger" onclick={() => act(() => sync.emptyTrash()).then(() => (emptying = false))}>Empty the trash</button>
+                        <button onclick={() => (emptying = false)}>Keep</button>
+                    </div>
+                {:else}
+                    <button class="small" onclick={() => (emptying = true)}>Empty the trash…</button>
+                {/if}
+            </details>
+        {/if}
+    {/if}
 </nav>
 
 <style>
@@ -193,5 +275,44 @@
     .failed {
         color: var(--error);
         font-size: 0.8rem;
+    }
+    .sync {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        padding: 0 0.2rem;
+    }
+    .attention span {
+        color: var(--error);
+        width: 100%;
+    }
+    h3 {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-top: 0.6rem;
+        padding: 0 0.5rem;
+    }
+    .static {
+        cursor: default;
+    }
+    .small {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 4px;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+        margin-right: 0.4rem;
+    }
+    .trash {
+        margin-top: 0.6rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+    .trash summary {
+        cursor: pointer;
+        padding: 0 0.5rem;
     }
 </style>
