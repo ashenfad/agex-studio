@@ -157,7 +157,7 @@ function cancelRunning(helper) {
  * What a runner needs from the studio: the agent a delegate runs on,
  * its tools at a depth, and the chat session open on a delegate.
  *
- * @typedef {{ agent: (opts: { delegate: boolean }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined }} RunnerHost
+ * @typedef {{ agent: (opts: { delegate: boolean }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined, toolOptions: () => { vision: boolean, codePrimer: string } }} RunnerHost
  */
 
 /**
@@ -186,6 +186,8 @@ export class StudioRunner {
             sessions: helper,
             inbox: new Inbox(),
             tools: this.host.tools(helper, depth, child),
+            // the parent's: view_image when the model takes images, and agex's guide
+            toolOptions: this.host.toolOptions(),
         });
         const stop = () => {
             delegate.cancel("stopped");

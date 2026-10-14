@@ -17,7 +17,7 @@
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import { Inbox, Policy, Sessions, Store, commandFactory, wsGit } from "@agex-ts/world";
 import workerUrl from "@agex-ts/world/worker?worker&url";
-import { Agent, RunStream, ScriptedProvider } from "agex-ts";
+import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, thinkingOf } from "./model.js";
@@ -50,10 +50,54 @@ const esbuild = commandFactory(
 );
 
 /**
+ * The model agent-defined tasks run on: whatever the settings say when
+ * each request goes, since one agent serves every session's tasks for
+ * the page's life and the settings may change meanwhile. A provider
+ * built per request from the settings now, its thinking theirs too.
+ *
+ * @type {import("agex-ts").Provider}
+ */
+const currentModel = {
+    name: "agex-studio:current",
+    stream(messages, tools, settings, opts) {
+        const s = getSettings();
+        return providerNow(s).stream(messages, tools, { ...settings, thinking: thinkingOf(s) }, opts);
+    },
+    transient(error) {
+        return providerNow(getSettings()).transient(error);
+    },
+    describe(error) {
+        const now = /** @type {import("agex-ts").Provider} */ (providerNow(getSettings()));
+        return now.describe?.(error) ?? null;
+    },
+};
+
+/** The provider the settings name now (in dev, possibly the scripted
+ *  one the driver fills). @param {import("./settings.js").Settings} s */
+function providerNow(s) {
+    if (s.accessMode === "scripted" && import.meta.env.DEV) return new ScriptedProvider(() => script.shift() ?? RAN_OUT);
+    return new AiSdkProvider(buildModel(s, { session: "agex-tasks" }));
+}
+
+/**
+ * `agex` in the agent's code: tasks it defines (`agex.task`) and calls,
+ * each run by a helper agent on the person's model, in a scratch world
+ * of its own (not a delegate: no branch, no strip, no waking).
+ */
+const agex = agentTasks(new Agent({ model: currentModel, settings: { maxTokens: 16000 } }), { scratch: true });
+
+/** What a turn's tools are told, beside the world's own: whether the
+ *  model takes images, and how to use `agex`. */
+export function toolOptionsNow() {
+    return { vision: getSettings().vision, codePrimer: AGEX_GUIDE };
+}
+
+/**
  * What every world the studio opens is given: code runs in the world's
  * worker, bundled by Vite; a bare import loads from esm.sh; what code
  * puts in `ui` is written under /workspace/ui to show in the reply; the
- * studio's host objects (`web`, `media`, `pdf`); `esbuild` in the
+ * studio's host objects (`web`, `media`, `pdf`, and `agex` for tasks the
+ * agent's code defines); `esbuild` in the
  * terminal; and the studio's skills, mounted read-only under
  * /workspace/skills.
  */
@@ -65,7 +109,7 @@ export const PROFILE = {
         // `ui.chart = spec`: shown in the reply
         ui: true,
     },
-    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost() },
+    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), agex },
     // ws-git: the agent's own git, which brings a delegate's work back
     commands: { esbuild, "ws-git": wsGit },
     skills: [interactiveApp, media],
@@ -162,6 +206,7 @@ function runnerHost(owner) {
             studioSessionsTool(helper, depth, publishedNow),
         ],
         observe: (name) => studio.opened(name),
+        toolOptions: toolOptionsNow,
     };
 }
 
@@ -466,7 +511,7 @@ export class ChatSession {
             inbox: this.inbox,
             ...(helper !== null && { sessions: helper }),
             tools: [testAppTool(this), ...(helper !== null ? [studioSessionsTool(helper, depthOf(this.name), publishedNow)] : [])],
-            toolOptions: { vision: getSettings().vision },
+            toolOptions: toolOptionsNow(),
         });
     }
 

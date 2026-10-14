@@ -78,6 +78,15 @@ schemas before the method runs) that code calls with `await`:
   `pdf.render(path, { pages, scale, dir })`, which writes pages as
   PNGs for `view_image`. pdf.js runs on the page (it needs a canvas),
   loaded from a CDN on first use.
+- **`agex`** (agex-ts's `agentTasks`): tasks the agent's code defines
+  (`agex.task({ name, instructions, params, returns })`, the types as
+  JSON Schema) and calls like a function, or `.map`s over a list. Each
+  call runs a helper agent on the person's model (`currentModel` in
+  `studio.svelte.js`, a provider built from the settings at each
+  request, since one agent serves every session for the page's life),
+  in a scratch world of its own in memory: not a delegate, so no
+  branch, no strip and no waking. `run_ts`'s description carries
+  agex-ts's `AGEX_GUIDE` (`toolOptionsNow`).
 
 `web` and `media` run on the settings' OpenRouter key
 (`openrouter-api.js`): with another provider, a call says it needs one,
