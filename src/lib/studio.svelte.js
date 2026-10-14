@@ -333,8 +333,9 @@ export class ChatSession {
         }
         await this.reload();
         if (!this.readonly) await this.#findInterrupted();
-        // a delegate opened while it runs: its turn, live from here, opening as it did
-        else if (openings[this.name] !== undefined) this.begin(openings[this.name] ?? "");
+        // a delegate opened while it runs: its turn, live from here, opening as
+        // it did (unless its runner's events, arriving while this opened, began it)
+        else if (openings[this.name] !== undefined && !this.busy) this.begin(openings[this.name] ?? "");
     }
 
     /**
