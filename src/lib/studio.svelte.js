@@ -15,10 +15,13 @@
  */
 
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
-import { Inbox, Policy, Store } from "@agex-ts/world";
+import { Inbox, Policy, Store, commandFactory } from "@agex-ts/world";
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { Agent, ScriptedProvider } from "agex-ts";
+import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { buildModel, thinkingOf } from "./model.js";
+import interactiveApp from "./skills/interactive-app.md?raw";
+import { testAppTool } from "./test-app.js";
 import { PRIMER } from "./primer.js";
 import { getSettings } from "./settings.js";
 
@@ -27,14 +30,29 @@ import { getSettings } from "./settings.js";
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 /** @typedef {import("@agex-ts/world").Fold} Fold */
 
-/** What every world the studio opens is given: code runs in the
- *  world's worker, bundled by Vite, and a bare import loads from esm.sh. */
+/** `esbuild`, a terminal command: bundles JSX/TSX under app/ (and
+ *  helpers/) for the preview. esbuild-wasm loads on its first use. */
+const esbuild = commandFactory(
+    () => async (ctx) => {
+        await runEsbuildCommand(ctx, async (args) => (await import("./esbuild-bridge.js")).runEsbuild(args));
+    },
+    { description: "esbuild <entry> --outfile=<out>: bundle JSX/TSX under app/ into a module the preview loads (esbuild --help)" },
+);
+
+/**
+ * What every world the studio opens is given: code runs in the world's
+ * worker, bundled by Vite; a bare import loads from esm.sh; `esbuild`
+ * in the terminal; and the studio's skills, mounted read-only under
+ * /workspace/skills.
+ */
 export const PROFILE = {
     code: {
         worker: { target: /** @type {const} */ ("browser"), url: workerUrl },
         /** @param {string} name */
         resolve: (name) => `https://esm.sh/${name}`,
     },
+    commands: { esbuild },
+    skills: [interactiveApp],
 };
 
 /** The IndexedDB database every session lives in. */
@@ -123,6 +141,9 @@ export class ChatSession {
     redoHead = $state(null);
     /** @type {string[]} */
     files = $state([]);
+    /** Bumped whenever the app under app/ may have changed (a tool call
+     *  that wrote, an undo, a reload), so the preview looks again. */
+    appStamp = $state(0);
     /** The inbox outlives each turn's agent: a note queued mid-turn
      *  rides the next tool result. */
     inbox = new Inbox();
@@ -166,11 +187,14 @@ export class ChatSession {
         this.title = meta.title;
         this.createdAt = meta.createdAt;
         await this.refreshFiles();
+        this.appStamp += 1;
     }
 
     async refreshFiles() {
         if (this.ws === null) return;
-        this.files = await this.ws.files.list("/workspace", { recursive: true }).catch(() => []);
+        // the skills mounted under skills/ are the studio's, not the session's work
+        const all = await this.ws.files.list("/workspace", { recursive: true }).catch(() => []);
+        this.files = all.filter((p) => p !== "skills" && !p.startsWith("skills/"));
     }
 
     /** The agent for the next turn: a new one each time, since an agent
@@ -189,6 +213,17 @@ export class ChatSession {
         });
     }
 
+    /** An agex-ts session over `ws` for the next turn: the world's tools,
+     *  `test_app`, and the inbox that outlives each agent.
+     *  @param {Workspace} ws */
+    #session(ws) {
+        return this.#agent().session(ws, {
+            inbox: this.inbox,
+            tools: [testAppTool(this)],
+            toolOptions: { vision: getSettings().vision },
+        });
+    }
+
     /**
      * Run a turn on `prompt`; resolves when it has ended and the record
      * is read back. A turn already running gets `prompt` as a note.
@@ -202,7 +237,7 @@ export class ChatSession {
             return;
         }
         const ws = this.ws;
-        const session = this.#agent().session(ws, { inbox: this.inbox });
+        const session = this.#session(ws);
         const startedAt = ws.head;
         await this.#runTurn(session, async (apply) => {
             for await (const event of session.stream(prompt)) {
@@ -215,7 +250,7 @@ export class ChatSession {
     /** Continue the last turn, which an interruption cut short. */
     async resume() {
         if (this.ws === null || this.busy || !this.interrupted) return;
-        const session = this.#agent().session(this.ws, { inbox: this.inbox });
+        const session = this.#session(this.ws);
         await this.#runTurn(session, async () => {
             const out = await session.resume();
             if (out.status !== "completed" && out.status !== "cancelled") this.error = `the turn ended ${out.status}${out.message ? `: ${out.message}` : ""}`;
@@ -341,6 +376,8 @@ export class ChatSession {
                 this.live.push({ kind: "tool", callId: event.callId, name: event.name, args: { ...event.args }, result: null, isError: false });
                 break;
             case "ToolEnded": {
+                // a call may have written the app; the preview looks again
+                this.appStamp += 1;
                 const part = this.live.find((p) => p.kind === "tool" && p.callId === event.callId);
                 if (part?.kind === "tool") {
                     part.result = event.result;

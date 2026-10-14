@@ -4,6 +4,7 @@
      * narrow screen), the files, and the settings for the model.
      */
     import { onMount } from 'svelte'
+    import AppPreview from './lib/AppPreview.svelte'
     import Chat from './lib/Chat.svelte'
     import { installDevHook } from './lib/dev-hook.js'
     import FilesDrawer from './lib/FilesDrawer.svelte'
@@ -17,6 +18,8 @@
     let showSettings = $state(false)
     let showFiles = $state(false)
     let showSessions = $state(false)
+    /** The preview beside the chat (on a narrow screen, instead of it). */
+    let showApp = $state(true)
 
     if (import.meta.env.DEV) installDevHook(studio)
 
@@ -39,6 +42,7 @@
         <button class="icon sessions-toggle" onclick={() => (showSessions = !showSessions)} aria-label="Sessions">☰</button>
         <span class="brand">agex studio</span>
         <span class="title">{studio.current?.title || ''}</span>
+        <button class="icon" class:on={showApp} onclick={() => (showApp = !showApp)} aria-label="App preview" title="App preview">▣</button>
         <button class="icon" onclick={openFiles} aria-label="Files" disabled={studio.current === null}>📁</button>
         <button class="icon" onclick={() => (showSettings = true)} aria-label="Settings">⚙</button>
     </header>
@@ -57,7 +61,12 @@
                 </p>
             {:else}
                 {#key studio.current.name}
-                    <Chat session={studio.current} />
+                    <div class="work" class:with-app={showApp}>
+                        <div class="chat-pane"><Chat session={studio.current} /></div>
+                        {#if showApp}
+                            <div class="app-pane"><AppPreview session={studio.current} /></div>
+                        {/if}
+                    </div>
                 {/key}
             {/if}
         </main>
@@ -122,6 +131,25 @@
         min-width: 0;
         min-height: 0;
     }
+    .work {
+        display: grid;
+        grid-template-columns: 1fr;
+        height: 100%;
+    }
+    .work.with-app {
+        grid-template-columns: minmax(20rem, 2fr) 3fr;
+    }
+    .chat-pane,
+    .app-pane {
+        min-width: 0;
+        min-height: 0;
+    }
+    .app-pane {
+        border-left: 1px solid var(--border);
+    }
+    .icon.on {
+        color: var(--accent);
+    }
     @media (max-width: 720px) {
         .sessions-toggle {
             display: block;
@@ -136,6 +164,16 @@
         }
         aside.open {
             display: block;
+        }
+        /* one pane at a time: the app instead of the chat while shown */
+        .work.with-app {
+            grid-template-columns: 1fr;
+        }
+        .work.with-app .chat-pane {
+            display: none;
+        }
+        .app-pane {
+            border-left: none;
         }
     }
     .note {

@@ -26,8 +26,13 @@
  * Options:
  *   --url <url>         a studio already running (default: start `vite`)
  *   --profile <dir>     keep the browser's data (IndexedDB) in <dir>, so
- *                       a later run sees this one's sessions (served on
- *                       DRIVE_PORT, default 5199: the data is the origin's)
+ *                       a later run sees this one's sessions
+ *   --apps <dir>        serve this agex-studio-apps clone as the preview's
+ *                       origin, rather than apps.agex.studio
+ *
+ * The studio is served on DRIVE_PORT, default 5173: the apps origin's
+ * bootloader takes its app only from a studio on 5173 or 4173, and a
+ * kept profile's data belongs to its origin, port and all.
  *   --reload            after the prompts, reload and print the record again
  *   --scripted <file>   a JSON list of model steps (DRIVE_MODE=scripted)
  *   --shot <file>       save a screenshot of the page at the end
@@ -57,6 +62,7 @@ for (let i = 0; i < args.length; i++) {
     else if (a === "--shot") opts.shot = args[++i];
     else if (a === "--quiet") opts.quiet = true;
     else if (a === "--requests") opts.requests = true;
+    else if (a === "--apps") opts.apps = args[++i];
     else if (a === "--exec") opts.steps.push({ kind: "exec", text: args[++i] });
     else {
         opts.prompts.push(a);
@@ -87,13 +93,34 @@ if (mode === "openrouter" && settings.apiKey === "") {
     process.exit(2);
 }
 
-/** Start `vite` on a port of its own; its URL once it is listening. */
-async function startServer() {
-    // A kept profile's IndexedDB belongs to an origin, port and all, so
-    // it gets the same port every run; a fresh one takes any.
-    const port = opts.profile ? Number(env.DRIVE_PORT ?? 5199) : 5180 + Math.floor(Math.random() * 100);
+/** Serve `dir` as the preview's origin; its URL. */
+async function serveApps(dir) {
+    const { createServer } = await import("node:http");
+    const { readFile } = await import("node:fs/promises");
+    const { join, normalize } = await import("node:path");
+    const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+    const server = createServer(async (req, res) => {
+        const path = normalize(new URL(req.url ?? "/", "http://x").pathname).replace(/^(\.\.[/\\])+/, "");
+        const file = join(dir, path.endsWith("/") ? `${path}index.html` : path);
+        try {
+            const body = await readFile(file);
+            res.writeHead(200, { "content-type": types[file.slice(file.lastIndexOf("."))] ?? "application/octet-stream" });
+            res.end(body);
+        } catch {
+            res.writeHead(404).end();
+        }
+    });
+    await new Promise((resolve) => server.listen(0, "localhost", resolve));
+    const address = /** @type {import("node:net").AddressInfo} */ (server.address());
+    return { url: `http://localhost:${address.port}`, stop: () => server.close() };
+}
+
+/** Start `vite`; its URL once it is listening. */
+async function startServer(appsOrigin) {
+    const port = Number(env.DRIVE_PORT ?? 5173);
     const server = spawn("npx", ["vite", "--port", String(port), "--strictPort"], {
         stdio: ["ignore", "pipe", "pipe"],
+        env: { ...env, ...(appsOrigin && { VITE_APPS_ORIGIN: appsOrigin }) },
     });
     let output = "";
     await new Promise((resolve, reject) => {
@@ -107,7 +134,9 @@ async function startServer() {
         };
         server.stdout.on("data", seen);
         server.stderr.on("data", seen);
-        server.on("exit", (code) => reject(new Error(`vite exited ${code}:\n${output}`)));
+        server.on("exit", (code) =>
+            reject(new Error(`vite exited ${code} (port ${port} taken? set DRIVE_PORT=4173, or pass --url):\n${output}`)),
+        );
     });
     return { url: `http://localhost:${port}/`, stop: () => server.kill() };
 }
@@ -134,7 +163,8 @@ function printRun(run) {
     }
 }
 
-const server = opts.url ? null : await startServer();
+const apps = opts.apps ? await serveApps(opts.apps) : null;
+const server = opts.url ? null : await startServer(apps?.url);
 const url = opts.url ?? server.url;
 const launch = { headless: true, ...(env.CHROME && { executablePath: env.CHROME }) };
 const context = opts.profile
@@ -208,5 +238,6 @@ try {
 } finally {
     await context.close();
     server?.stop();
+    apps?.stop();
 }
 process.exit(failed ? 1 : 0);
