@@ -4,7 +4,7 @@
 // but mis-sanitizes (drops <strong>, passes <script> through), so the
 // sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
-import { renderMarkdown, renderMarkdownInline } from "./markdown.js";
+import { renderMarkdown, renderMarkdownInline, renderTableCell } from "./markdown.js";
 
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
@@ -230,5 +230,21 @@ describe("sanitization", () => {
     it("sanitizes renderMarkdownInline output too", () => {
         const html = renderMarkdownInline('<img src="x" onerror="alert(1)">');
         expect(html).not.toContain("onerror");
+    });
+});
+
+describe("renderTableCell", () => {
+    it("renders a string as inline markdown, sanitized", () => {
+        expect(renderTableCell("**up**")).toContain("<strong>up</strong>");
+        expect(renderTableCell("<img src=x onerror=alert(1)>")).not.toContain("onerror");
+    });
+
+    it("escapes anything else, with objects and arrays as JSON", () => {
+        const html = renderTableCell(["<img src=x onerror=alert(1)>"]);
+        expect(html).not.toContain("<img");
+        expect(html).toBe("[&#34;&#60;img src=x onerror=alert(1)&#62;&#34;]");
+        expect(renderTableCell({ a: 1 })).toBe("{&#34;a&#34;:1}");
+        expect(renderTableCell(42)).toBe("42");
+        expect(renderTableCell(null)).toBe("");
     });
 });

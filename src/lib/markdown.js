@@ -169,6 +169,23 @@ export function renderMarkdownInline(text) {
     return sanitize(marked.parseInline(flat));
 }
 
+/**
+ * A table cell as HTML. A string gets inline markdown, so `**bold**`,
+ * `` `code` ``, `*italic*` and `[links](url)` render (sanitized);
+ * anything else is text, escaped, with an object or array shown as
+ * JSON; null and undefined are empty. Block-level markdown isn't
+ * possible — parseInline won't produce paragraphs, lists or headings —
+ * which keeps rows one height for the table's virtualization.
+ *
+ * @param {unknown} cell
+ */
+export function renderTableCell(cell) {
+    if (cell == null) return "";
+    if (typeof cell === "string") return renderMarkdownInline(cell);
+    const text = typeof cell === "object" ? JSON.stringify(cell) : String(cell);
+    return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 let mermaidPromise = null;
 

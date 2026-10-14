@@ -47,3 +47,15 @@ describe("artifactsOf and unembedded", () => {
         expect(unembedded(artifactsOf(results), texts).map((a) => a.name)).toEqual(["b", "c"]);
     });
 });
+
+describe("splice's code spans", () => {
+    it("closes a span at the next run of as many backticks", () => {
+        const text = "`` a ` b ![x](/workspace/ui/x.png) `` then ![y](/workspace/ui/y.png)";
+        expect(splice(text).filter((p) => "path" in p)).toEqual([{ name: "y", path: "/workspace/ui/y.png" }]);
+    });
+
+    it("takes a run with no close as literal", () => {
+        const text = "a `` b ![x](/workspace/ui/x.png)";
+        expect(splice(text).filter((p) => "path" in p)).toEqual([{ name: "x", path: "/workspace/ui/x.png" }]);
+    });
+});
