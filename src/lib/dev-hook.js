@@ -187,6 +187,25 @@ export function installDevHook(studio, sync) {
             s.syncJobs();
             return s.jobs.map((j) => ({ name: j.name, status: j.status, unread: s.unread.includes(j.name) }));
         },
+        /** Act on the preview the person sees, as test_app's live does.
+         *  @param {object[]} actions */
+        async live(actions) {
+            const { getLiveIframe, runLiveApp } = await import("./app-control.js");
+            const iframe = getLiveIframe();
+            if (iframe === null) throw new Error("the preview isn't showing an app");
+            return runLiveApp({ iframe, actions });
+        },
+        /** This page's budgets for apps' agent calls, and an app asking. */
+        async appAgent() {
+            const { appAgent } = await import("./app-tasks.svelte.js");
+            return { budgets: { ...appAgent.budgets }, asking: appAgent.asking ? { session: appAgent.asking.session, task: appAgent.asking.task } : null };
+        },
+        /** Answer an app's request to use the model. @param {boolean} yes */
+        async consent(yes) {
+            const { appAgent } = await import("./app-tasks.svelte.js");
+            appAgent.asking?.answer(yes);
+            return this.appAgent();
+        },
         /** The current session's head. */
         head() {
             return session().ws?.head ?? null;

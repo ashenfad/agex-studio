@@ -316,7 +316,7 @@ export function _enforceTotalCap(entries, max) {
  *  with the HTML so the bootloader can document.write it. This
  *  keeps the cross-origin handshake colocated with the rest of
  *  the per-iframe message handling. */
-function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null) {
+function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null, taskHandler = null) {
     let initPosted = false;
     const handler = (event) => {
         // Only accept messages from the app iframe's window at the apps
@@ -330,6 +330,22 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null) 
         if (data.type === "agex-host-ready" && !initPosted && initHtml) {
             initPosted = true;
             replyToApp(iframe, { type: "agex-host-init", html: initHtml });
+            return;
+        }
+
+        if (data.type === "agex-task") {
+            const { id } = data;
+            const p = (async () => {
+                try {
+                    if (!taskHandler) throw new Error("agex.task isn't available here");
+                    const value = await taskHandler({ spec: data.spec, inputs: data.inputs });
+                    replyToApp(iframe, { type: "agex-task-result", id, value: value === undefined ? null : value, error: null });
+                } catch (err) {
+                    replyToApp(iframe, { type: "agex-task-result", id, value: null, error: err?.message || String(err) });
+                }
+                iframe.__onQueryDone?.();
+            })();
+            pendingHandlers.push(p);
             return;
         }
 
@@ -386,6 +402,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null) 
  *   appStorageSeed?: Record<string, string>,
  *   buildAppHtml: (files: Record<string, string>, opts?: any) => Promise<string>,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
+ *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
  *   viewport?: string | { width?: number, height?: number },
  * }} opts
  * @returns {Promise<Array<object>>}
@@ -398,6 +415,7 @@ export async function runTestApp(opts) {
         appStorageSeed = {},
         buildAppHtml,
         cacheHandler = null,
+        taskHandler = null,
         viewport = null,
     } = opts;
     const { width: vpWidth, height: vpHeight } = resolveViewport(viewport);
@@ -459,6 +477,7 @@ export async function runTestApp(opts) {
             cacheHandler,
             pendingHandlers,
             html,
+            taskHandler,
         );
         window.addEventListener("message", messageHandler);
 
