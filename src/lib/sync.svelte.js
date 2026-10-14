@@ -233,10 +233,14 @@ export class Sync {
         }
     }
 
-    /** Bring a cloud session here. @param {string} name */
+    /** Bring a cloud session here; it leaves the cloud list once it is
+     *  here, and stays there to retry when it isn't. @param {string} name */
     async download(name) {
         await this.syncNow(name);
         await this.studio.refresh();
+        if (!this.studio.sessions.some((s) => s.name === name)) {
+            throw new Error(this.status[name]?.detail || "the download didn't finish; try again");
+        }
         this.cloud = this.cloud.filter((c) => c.name !== name);
     }
 
@@ -313,8 +317,12 @@ export class Sync {
         const remote = await this.#remoteNow();
         if (!(await remote.restoreBranch(name))) throw new Error("it couldn't be restored: is a session of that name back already?");
         await clearSyncHead((await openStore()).repo.store, name);
-        await this.download(name);
+        // out of the trash now, whatever the download does: a failed one
+        // leaves it among the cloud sessions, to retry
+        const shown = this.trash.find((t) => t.name === name) ?? { name, title: "", updatedAt: Date.now() };
         this.trash = this.trash.filter((t) => t.name !== name);
+        if (!this.cloud.some((c) => c.name === name)) this.cloud = [shown, ...this.cloud];
+        await this.download(name);
     }
 
     /** Delete every session in the repo's trash for good. */
