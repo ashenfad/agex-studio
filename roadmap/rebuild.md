@@ -231,16 +231,29 @@ guards, not secrecy): it travels with the session.
 
 **An app's needs, and its viewer's secrets.**
 - An app declares what it needs in `app/agex.json`:
-  `{ "needs": { "model": true, "secrets": [{ "name", "origins", "why" }] } }`.
-- It uses a secret without seeing it: `agex.fetch(url, init)`, the
-  studio filling `${NAME}` in the URL and headers for a declared origin
-  only, and replacing the value with its reference if a response echoes
-  it (the world's `httpHost` rules). `agex.task` stays as it is.
+  `{ "needs": { "model": true, "secrets": [{ "name", "origins", "in", "why" }] } }`,
+  where `in` is the one place the secret goes, a request header
+  (`"header:Authorization"`).
+- It uses a secret without holding it: `agex.fetch(url, init)`, the
+  studio filling `${NAME}` into the declared header, for a declared
+  origin only; never into a URL, a query or a body, which services echo
+  far more often. A literal echo in a response is replaced with the
+  reference (the world's `httpHost` rules). `agex.task` stays as it is.
+- **What that guarantees, and what it doesn't.** The secret reaches
+  only its origins, in its declared header: an app can't send it
+  anywhere else. It can't keep a service *at* those origins from
+  reflecting it back transformed (a debug echo, an encoding endpoint),
+  so the viewer is trusting the service with the key, not the app's
+  code with it; the panel below says so. The agent's own secrets
+  through `httpHost` carry the same limit, where the agent is the
+  person's own.
 - On a viewer's first use, one panel, "This app needs…": each need met
   (✓ a model) or not (a key for `api.stripe.com`, with a field), the
-  value kept on the viewer's device. Allowing grants this app, per app
-  and by name, those secrets and its agent-call budget; this replaces
-  S5b's consent question. A need the app didn't declare asks the same
+  value kept on the viewer's device, and for a secret what it allows
+  ("this app can use your key with api.stripe.com; a service there that
+  echoes keys could expose it"). Allowing grants this app, per app and
+  by name, those secrets and its agent-call budget; this replaces S5b's
+  consent question. A need the app didn't declare asks the same
   way when it is first used.
 
 **Skills and stand-ins.** Fetching while building (`curl` with a
@@ -249,7 +262,9 @@ without touching its real backend; `multiplayer` and `supabase-auth`
 brought up to date.
 
 Reserved now: `window.env` and `agex.fetch` in the app's page,
-`app/agex.json`, and the `variables` key on the studio plane.
+`app/agex.json`, and the `variables` key on the studio plane; the
+interactive-app skill tells the agent to leave the app-side three
+alone.
 
 ## Needed upstream
 
