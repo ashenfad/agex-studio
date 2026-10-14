@@ -165,12 +165,20 @@ without a model key) and update checks; the published-version tags
 for now). Exit: a session syncs between two
 browsers, and a published app opens from its gist link in a fresh one.
 
-**S5. Agents from apps, and delegation.** The bridge: an app's
-agent-defined tasks on the viewer's own key, with a per-page budget;
-the `sessions` tool and `ws-git` on, with waking, the caps, the strip,
-the rail and the drill-down, and `sessions published`. Exit: an app
-calls an agent on a click within its budget, and a session delegates,
-is woken by the answer, and merges it.
+**S5. Agents from apps, and delegation,** in two PRs. S5a: the
+`sessions` tool and `ws-git` on for every session; the studio's own
+runner, so delegates stream to the page (the strip's "doing" line, a
+delegate's transcript live, read-only), on the parent's model with 60
+tool calls a turn and no `test_app`; delegation nesting two deep;
+waking an idle session when answers land, 10 times before the person
+writes again, none after a stopped or failed turn; stopping a turn
+stops the delegates it asked, and undoing one unsays them; answer
+cards in the transcript; the rail's ⑂ count; `sessions published`.
+The job table is the page's: a reload keeps the delegates' branches,
+not their jobs. S5b: the bridge: an app's agent-defined tasks on the
+viewer's own key, with a per-page budget. Exit: an app calls an agent
+on a click within its budget, and a session delegates, is woken by the
+answer, and merges it.
 
 **S6. Variables, secrets and services.** The settings screen for both,
 into the world's profile; `curl` as a host command; the skills for

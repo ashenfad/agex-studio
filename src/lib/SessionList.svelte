@@ -128,6 +128,14 @@
                         <span class="title">{s.title || 'New session'}</span>
                         <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
                     </button>
+                    {#if studio.opened(s.name)?.jobs.length}
+                        {@const open = /** @type {import('./studio.svelte.js').ChatSession} */ (studio.opened(s.name))}
+                        {@const working = open.jobs.filter((j) => j.status === 'running').length}
+                        {@const waiting = open.unread.length - working}
+                        {#if working || waiting}
+                            <span class="delegates" title={`${working} delegate(s) working, ${waiting} answer(s) unread`}>⑂{working || waiting}</span>
+                        {/if}
+                    {/if}
                     {#if mark(s.name)}
                         {@const m = mark(s.name)}
                         <span class="sync" title={m?.title}>{m?.glyph}</span>
@@ -348,6 +356,11 @@
     .failed {
         color: var(--error);
         font-size: 0.8rem;
+    }
+    .delegates {
+        color: var(--accent);
+        font-size: 0.75rem;
+        padding: 0 0.2rem;
     }
     .sync {
         color: var(--text-muted);

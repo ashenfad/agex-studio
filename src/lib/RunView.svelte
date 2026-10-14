@@ -9,8 +9,10 @@
     import { CLOSING_NOTE } from 'agex-ts'
     import Artifact from './Artifact.svelte'
     import { artifactsOf, unembedded } from './artifacts.js'
+    import { delegateTask, deliveredAnswers } from './delegation.svelte.js'
     import { renderMarkdown } from './markdown.js'
     import ReplyText from './ReplyText.svelte'
+    import { studio } from './studio.svelte.js'
     import ToolCall from './ToolCall.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void }} */
@@ -38,6 +40,10 @@
         message.parts.map((p) => (p.kind === 'text' ? p.text : '')).join('')
 
     const opening = $derived(run.messages[0]?.role === 'user' ? textOf(run.messages[0]) : null)
+    /** Delegates' answers the opening delivered: shown as cards. */
+    const delivered = $derived(opening === null ? null : deliveredAnswers(opening))
+    /** A delegate's first turn: the task it was given, not its brief. */
+    const asked = $derived(opening === null ? null : delegateTask(opening))
     const rest = $derived(opening === null ? run.messages : run.messages.slice(1))
 
     /** The artifacts the reply doesn't embed, shown after it. */
@@ -54,8 +60,21 @@
         {#if onUndo}
             <button class="undo" title="Undo this turn and everything after it" onclick={onUndo}>↺ undo</button>
         {/if}
-        <div class="user">{opening}</div>
+        {#if asked !== null}
+            <div class="user"><span class="from">Task from {asked.parent.split('.').at(-1)}:</span> {asked.task}</div>
+        {:else if delivered === null}
+            <div class="user">{opening}</div>
+        {:else if delivered.said !== ''}
+            <div class="user">{delivered.said}</div>
+        {/if}
     </div>
+    {#if delivered !== null}
+        {#each delivered.answers as answer (answer.name)}
+            <button class="answer" title="Open {answer.name}" onclick={() => studio.switchTo(answer.name)}>
+                ⑂ <b>{answer.name.split('.').at(-1)}</b> answered{answer.preview ? `: ${answer.preview}` : ''} <span class="open">open →</span>
+            </button>
+        {/each}
+    {/if}
 {/if}
 <div class="agent">
     {#each rest as message (message.id)}
@@ -97,6 +116,32 @@
 </div>
 
 <style>
+    .answer {
+        display: block;
+        flex-shrink: 0;
+        width: 100%;
+        text-align: left;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 0.4rem 0.6rem;
+        margin: 0.3rem 0;
+        font-size: 0.85rem;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .from {
+        opacity: 0.7;
+        font-size: 0.85em;
+    }
+    .answer .open {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
     .user-row {
         display: flex;
         justify-content: flex-end;

@@ -15,10 +15,11 @@
  */
 
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
-import { Inbox, Policy, Store, commandFactory } from "@agex-ts/world";
+import { Inbox, Policy, Sessions, Store, commandFactory, wsGit } from "@agex-ts/world";
 import workerUrl from "@agex-ts/world/worker?worker&url";
-import { Agent, ScriptedProvider } from "agex-ts";
+import { Agent, RunStream, ScriptedProvider } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
+import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, thinkingOf } from "./model.js";
 import interactiveApp from "./skills/interactive-app.md?raw";
 import media from "./skills/media.md?raw";
@@ -32,7 +33,7 @@ import { applyBundle, bundleFileName, encodeBundle, readBundleHeader } from "./b
 import { fetchGistBundle, latestRevision, parseGistParam, publishGist, slugOf } from "./gist.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
-import { getSettings } from "./settings.js";
+import { getSettings, isConfigured } from "./settings.js";
 
 /** @typedef {import("agex-ts").Run} Run */
 /** @typedef {import("@agex-ts/world").TurnEvent} TurnEvent */
@@ -65,7 +66,8 @@ export const PROFILE = {
         ui: true,
     },
     hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost() },
-    commands: { esbuild },
+    // ws-git: the agent's own git, which brings a delegate's work back
+    commands: { esbuild, "ws-git": wsGit },
     skills: [interactiveApp, media],
 };
 
@@ -138,6 +140,27 @@ export const script = [];
  *  @type {import("@agex-ts/world/conformance").ModelStep} */
 const RAN_OUT = { kind: "model", text: "(the script ran out)", thinking: "", tool_calls: [], fail: "", input_tokens: 0 };
 
+/** The published apps, for `sessions published`. */
+async function publishedNow() {
+    return renderPublished(await openStore());
+}
+
+/**
+ * What a session's delegates run with: its agent (capped as a
+ * delegate's), the `sessions` tool at their depth, and the chat session
+ * open on one, which follows its turns.
+ *
+ * @param {ChatSession} owner
+ * @returns {import("./delegation.svelte.js").RunnerHost}
+ */
+function runnerHost(owner) {
+    return {
+        agent: (opts) => owner.delegateAgent(opts),
+        tools: (helper, depth) => [studioSessionsTool(helper, depth, publishedNow)],
+        observe: (name) => studio.opened(name),
+    };
+}
+
 /** One session, as the chat shows it. */
 export class ChatSession {
     /** @type {string} */
@@ -171,6 +194,32 @@ export class ChatSession {
     /** The inbox outlives each turn's agent: a note queued mid-turn
      *  rides the next tool result. */
     inbox = new Inbox();
+    /** The helper this session delegates through, made when it opens,
+     *  so its delegates outlive each turn's agent. A delegate's own
+     *  session (one with a dot in its name) has none here: its runner
+     *  holds it. @type {Sessions | null} */
+    helper = null;
+    /** Its delegates, as the strip shows them: the helper's job table,
+     *  copied when it changes. @type {import("@agex-ts/world").Job[]} */
+    jobs = $state([]);
+    /** The delegates whose answers this session hasn't read yet (or
+     *  still running). @type {string[]} */
+    unread = $state([]);
+    /** Turns that answers may still start before the person writes
+     *  again; a stopped or failed turn stops them until then. */
+    wakesLeft = WAKES;
+    #wakeOk = true;
+    #wakeNoted = false;
+    /** When the turn running now started: the delegates it asked are
+     *  the ones its stop stops. */
+    #turnAt = 0;
+    /** How the last turn ended. */
+    #lastStatus = "completed";
+    /** Something the studio says about the session (answers waiting,
+     *  say). @type {string | null} */
+    notice = $state(null);
+    /** @type {ReturnType<typeof setInterval> | null} */
+    #poll = null;
     /** @type {Workspace | null} */
     ws = null;
     /** @type {import("agex-ts").Session | null} */
@@ -191,7 +240,57 @@ export class ChatSession {
      *  @param {Workspace} [ws] */
     async open(ws) {
         this.ws = ws ?? (await (await openStore()).open(this.name, { profile: PROFILE }));
+        if (!this.readonly) {
+            const helper = new Sessions(this.ws, new StudioRunner(this.ws, runnerHost(this)));
+            helper.onAnswer = () => {
+                this.syncJobs();
+                void this.#maybeWake();
+            };
+            this.helper = helper;
+        }
         await this.reload();
+    }
+
+    /** A delegate's session, opened to read: its runner works it. */
+    get readonly() {
+        return this.name.includes(".");
+    }
+
+    /** The parent of a delegate's session. */
+    get parent() {
+        return this.readonly ? this.name.slice(0, this.name.lastIndexOf(".")) : null;
+    }
+
+    /** Copy the helper's job table for the strip; poll it while a
+     *  delegate runs, as their state changes away from any turn. */
+    syncJobs() {
+        this.jobs = this.helper?.list().map((j) => ({ ...j })) ?? [];
+        this.unread = this.helper?.outstanding() ?? [];
+        // while a turn runs (an ask may start any time) or a delegate does
+        const running = this.busy || this.jobs.some((j) => j.status === "running");
+        if (running && this.#poll === null && this.helper !== null) this.#poll = setInterval(() => this.syncJobs(), 1000);
+        if (!running && this.#poll !== null) {
+            clearInterval(this.#poll);
+            this.#poll = null;
+        }
+    }
+
+    /** A delegate's turn event, from its runner, when this session is
+     *  that delegate's, open to read. @param {TurnEvent} event */
+    observe(event) {
+        if (!this.busy) {
+            this.busy = true;
+            this.live = [];
+        }
+        this.#apply(event);
+    }
+
+    /** A delegate's turn ended: its record is read again. */
+    async observed() {
+        await this.ws?.refresh();
+        await this.reload();
+        this.live = [];
+        this.busy = false;
     }
 
     /** Whether the last turn was cut short by a provider error, so it
@@ -224,7 +323,9 @@ export class ChatSession {
 
     /** The agent for the next turn: a new one each time, since an agent
      *  holds nothing and the settings may have changed. */
-    #agent() {
+    /** @param {{ delegate?: boolean }} [opts] a delegate's agent caps its
+     *  tool calls per turn */
+    #agent(opts = {}) {
         const s = getSettings();
         const model =
             s.accessMode === "scripted" && import.meta.env.DEV
@@ -235,16 +336,25 @@ export class ChatSession {
             primer: primer(s),
             settings: { thinking: thinkingOf(s), maxTokens: 16000 },
             compaction: s.foldBudget > 0 ? new Policy(s.foldBudget) : null,
+            ...(opts.delegate && { maxToolCalls: DELEGATE_TOOL_CALLS }),
         });
+    }
+
+    /** The agent a delegate of this session runs on: this one's, its
+     *  tool calls capped. @param {{ delegate: boolean }} opts */
+    delegateAgent(opts) {
+        return this.#agent(opts);
     }
 
     /** An agex-ts session over `ws` for the next turn: the world's tools,
      *  `test_app`, and the inbox that outlives each agent.
      *  @param {Workspace} ws */
     #session(ws) {
+        const helper = this.helper;
         return this.#agent().session(ws, {
             inbox: this.inbox,
-            tools: [testAppTool(this)],
+            ...(helper !== null && { sessions: helper }),
+            tools: [testAppTool(this), ...(helper !== null ? [studioSessionsTool(helper, depthOf(this.name), publishedNow)] : [])],
             toolOptions: { vision: getSettings().vision },
         });
     }
@@ -264,6 +374,11 @@ export class ChatSession {
         await this.#held;
         const ws = this.ws;
         if (ws === null) throw new Error("the session isn't open");
+        // the person spoke: answers may wake the session again
+        this.wakesLeft = WAKES;
+        this.#wakeOk = true;
+        this.#wakeNoted = false;
+        this.notice = null;
         const session = this.#session(ws);
         const startedAt = ws.head;
         await this.#runTurn(session, async (apply) => {
@@ -305,6 +420,9 @@ export class ChatSession {
         this.prompt = prompt;
         this.redoHead = null;
         this.#turn = session;
+        this.#turnAt = Date.now();
+        this.#lastStatus = "completed";
+        this.syncJobs();
         const run = (async () => {
             try {
                 await body((event) => this.#apply(event));
@@ -315,7 +433,12 @@ export class ChatSession {
                 await this.reload();
                 this.live = [];
                 this.busy = false;
+                // a turn stopped or failed: no waking until the person writes
+                if (this.#lastStatus !== "completed") this.#wakeOk = false;
+                this.syncJobs();
                 this.onMeta();
+                // answers that landed after its last tool call
+                void this.#maybeWake();
             }
         })();
         this.#running = run;
@@ -329,9 +452,9 @@ export class ChatSession {
     #started(runId, head, prompt) {
         const plane = this.ws?.plane(PLANE);
         if (plane === undefined) return;
-        plane.set(`turns/${runId}`, { before: head });
+        plane.set(`turns/${runId}`, { before: head, at: Date.now() });
         const now = Date.now();
-        const title = this.title || titleFrom(prompt);
+        const title = this.title || titleFrom(prompt ?? "");
         // at once, so the turn's own commits carry it
         plane.set("meta", { title, createdAt: this.createdAt || now, updatedAt: now });
         this.title = title;
@@ -401,9 +524,67 @@ export class ChatSession {
         await this.reload();
     }
 
-    /** Stop the turn running now. */
+    /** Stop the turn running now, and the delegates it asked that are
+     *  still running (those of earlier turns go on). */
     cancel() {
         this.#turn?.cancel("stopped by the person");
+        this.#cancelDelegates(this.#turnAt, { running: true });
+    }
+
+    /**
+     * Cancel the delegates asked since `since`: running ones stop; with
+     * `answered`, an answer not yet read is discarded too.
+     *
+     * @param {number} since @param {{ running?: boolean, answered?: boolean }} which
+     */
+    #cancelDelegates(since, which) {
+        const helper = this.helper;
+        if (helper === null) return;
+        const waiting = new Set(helper.outstanding());
+        for (const job of helper.list()) {
+            if (job.started < since) continue;
+            try {
+                if (which.running && job.status === "running") helper.cancel(job.name);
+                else if (which.answered && job.status !== "running" && waiting.has(job.name)) helper.result(job.name);
+            } catch {
+                // the rest still go
+            }
+        }
+        this.syncJobs();
+    }
+
+    /**
+     * A turn woken by delegates' answers that landed while the session
+     * was idle: up to `WAKES` of them before the person writes again,
+     * none after a turn was stopped or failed, and none without a model.
+     */
+    async #maybeWake() {
+        const helper = this.helper;
+        const ws = this.ws;
+        if (helper === null || ws === null || this.busy || !this.#wakeOk) return;
+        const running = new Set(helper.list().filter((j) => j.status === "running").map((j) => j.name));
+        if (!helper.outstanding().some((name) => !running.has(name))) return;
+        if (!isConfigured(getSettings())) return;
+        if (this.wakesLeft <= 0) {
+            if (!this.#wakeNoted) {
+                this.#wakeNoted = true;
+                this.notice = "Delegates have answered, but their answers have already started as many turns as they may since your last message. The agent will read them when you next write.";
+            }
+            return;
+        }
+        this.wakesLeft -= 1;
+        const session = this.#session(ws);
+        const startedAt = ws.head;
+        await this.#runTurn(
+            session,
+            async (apply) => {
+                for await (const event of new RunStream(session, { wake: true })) {
+                    if (event.kind === "RunStarted") this.#started(event.runId, startedAt, null);
+                    apply(event);
+                }
+            },
+            "(delegates answered)",
+        );
     }
 
     /**
@@ -416,8 +597,10 @@ export class ChatSession {
     async undo(runId) {
         await this.#held;
         if (this.ws === null || this.busy) return;
-        const turn = /** @type {{ before?: string } | null} */ (await this.ws.plane(PLANE).get(`turns/${runId}`));
+        const turn = /** @type {{ before?: string, at?: number } | null} */ (await this.ws.plane(PLANE).get(`turns/${runId}`));
         if (!turn?.before) throw new Error("this turn's starting point isn't recorded, so it can't be undone");
+        // the delegates asked since are unsaid: stopped, their answers dropped
+        if (typeof turn.at === "number") this.#cancelDelegates(turn.at, { running: true, answered: true });
         const head = this.ws.head;
         await this.ws.checkout(turn.before);
         this.redoHead = head;
@@ -448,6 +631,14 @@ export class ChatSession {
     }
 
     async close() {
+        // its delegates stop with it: closing waits for running ones
+        if (this.helper !== null) {
+            for (const job of this.helper.list()) if (job.status === "running") this.helper.cancel(job.name);
+            await this.helper.close();
+            this.helper = null;
+        }
+        if (this.#poll !== null) clearInterval(this.#poll);
+        this.#poll = null;
         await this.ws?.close();
         this.ws = null;
     }
@@ -469,6 +660,7 @@ export class ChatSession {
             case "ToolEnded": {
                 // a call may have written the app; the preview looks again
                 this.appStamp += 1;
+                if (event.name === "sessions") this.syncJobs();
                 const part = this.live.find((p) => p.kind === "tool" && p.callId === event.callId);
                 if (part?.kind === "tool") {
                     part.result = event.result;
@@ -483,6 +675,7 @@ export class ChatSession {
                 this.live.push({ kind: "folded", summary: event.summary ?? "" });
                 break;
             case "RunEnded":
+                this.#lastStatus = event.status;
                 // a turn the person stopped isn't an error: its record says so
                 if (event.status !== "completed" && event.status !== "cancelled") {
                     this.error = `the turn ended ${event.status}${event.message ? `: ${event.message}` : ""}`;
