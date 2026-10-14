@@ -169,7 +169,7 @@ browsers, and a published app opens from its gist link in a fresh one.
 `sessions` tool and `ws-git` on for every session; the studio's own
 runner, so delegates stream to the page (the strip's "doing" line, a
 delegate's transcript live, read-only), on the parent's model with 60
-tool calls a turn and no `test_app`; delegation nesting two deep;
+tool calls a turn and `test_app` (not `live`); delegation nesting two deep;
 waking an idle session when answers land, 10 times before the person
 writes again, none after a stopped or failed turn; stopping a turn
 stops the delegates it asked, and undoing one unsays them; answer
