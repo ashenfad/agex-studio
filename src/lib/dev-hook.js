@@ -7,9 +7,11 @@
  *     await __studio.say('write a haiku to /workspace/haiku.txt')
  *     await __studio.transcript()   // the stored runs, flattened
  *     await __studio.files('/workspace')
+ *     await __studio.upload([{ name: 'doc.pdf', base64 }])   // into uploads/
  *     await __studio.fork('fresh'); await __studio.undo(0); __studio.sessions()
  */
 
+import { base64ToBytes } from "./bytes.js";
 import { script } from "./studio.svelte.js";
 import { getSettings, updateSettings } from "./settings.js";
 
@@ -101,6 +103,11 @@ export function installDevHook(studio) {
         /** @param {string} path */
         async read(path) {
             return session().ws?.files.readText(path);
+        },
+        /** Add files as the drawer's Upload does: under uploads/.
+         *  @param {{ name: string, base64: string }[]} files */
+        async upload(files) {
+            return session().importFiles(files.map((f) => ({ name: f.name, bytes: base64ToBytes(f.base64) })));
         },
         async sessions() {
             await studio.refresh();

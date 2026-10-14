@@ -27,13 +27,14 @@
     "@agex-ts/kvgit": "link:../agex-ts/packages/kvgit-ts",
     "@agex-ts/termish": "link:../agex-ts/packages/termish-ts",
     "@agex-ts/world": "link:../agex-ts/packages/world",
-    "agex-ts": "link:../agex-ts/packages/agex-ts",
     "@ai-sdk/anthropic": "4.0.79",
     "@ai-sdk/openai-compatible": "3.0.68",
     "@openrouter/ai-sdk-provider": "3.1.0",
+    "agex-ts": "link:../agex-ts/packages/agex-ts",
     "dompurify": "^3.4.12",
     "highlight.js": "^11.11.1",
-    "marked": "^17.0.4"
+    "marked": "^17.0.4",
+    "zod": "4.6.5"
   },
   "packageManager": "pnpm@11.0.4"
 }

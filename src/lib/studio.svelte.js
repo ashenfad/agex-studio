@@ -21,9 +21,14 @@ import { Agent, ScriptedProvider } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { buildModel, thinkingOf } from "./model.js";
 import interactiveApp from "./skills/interactive-app.md?raw";
+import media from "./skills/media.md?raw";
+import { mediaHost } from "./media.js";
+import { pdfHost } from "./pdf.js";
+import { webHost } from "./web.js";
+import { writeFile } from "./ws-paths.js";
 import { testAppTool } from "./test-app.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
-import { PRIMER } from "./primer.js";
+import { primer } from "./primer.js";
 import { getSettings } from "./settings.js";
 
 /** @typedef {import("agex-ts").Run} Run */
@@ -43,8 +48,9 @@ const esbuild = commandFactory(
 /**
  * What every world the studio opens is given: code runs in the world's
  * worker, bundled by Vite; a bare import loads from esm.sh; what code
- * puts in `ui` is written under /workspace/ui to show in the reply; `esbuild`
- * in the terminal; and the studio's skills, mounted read-only under
+ * puts in `ui` is written under /workspace/ui to show in the reply; the
+ * studio's host objects (`web`, `media`, `pdf`); `esbuild` in the
+ * terminal; and the studio's skills, mounted read-only under
  * /workspace/skills.
  */
 export const PROFILE = {
@@ -55,8 +61,9 @@ export const PROFILE = {
         // `ui.chart = spec`: shown in the reply
         ui: true,
     },
+    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost() },
     commands: { esbuild },
-    skills: [interactiveApp],
+    skills: [interactiveApp, media],
 };
 
 /** The IndexedDB database every session lives in. */
@@ -215,7 +222,7 @@ export class ChatSession {
                 : buildModel(s, { session: this.name });
         return new Agent({
             model,
-            primer: PRIMER,
+            primer: primer(s),
             settings: { thinking: thinkingOf(s), maxTokens: 16000 },
             compaction: s.foldBudget > 0 ? new Policy(s.foldBudget) : null,
         });
@@ -314,6 +321,29 @@ export class ChatSession {
         // at once, so the turn's own commits carry it
         plane.set("meta", { title, createdAt: this.createdAt || now, updatedAt: now });
         this.title = title;
+    }
+
+    /**
+     * Put files the person brought (uploaded, or from Drive) under
+     * /workspace/uploads, replacing any of the same name, as one
+     * commit; their paths. Not while a turn runs: its commits would take
+     * them in as its own.
+     *
+     * @param {{ name: string, bytes: Uint8Array }[]} files
+     */
+    async importFiles(files) {
+        const ws = this.ws;
+        if (ws === null || files.length === 0) return [];
+        if (this.busy) throw new Error("a turn is running; add files once it ends");
+        // a name is one path segment: no separators, and not . or ..
+        const paths = files.map((f) => `${ws.root}/uploads/${f.name.replace(/[/\\]/g, "_").replace(/^\.*$/, (dots) => `${dots}file`)}`);
+        await ws.exclusive(async () => {
+            for (const [i, f] of files.entries()) await writeFile(ws.files.fs, /** @type {string} */ (paths[i]), f.bytes);
+            await ws.autoCommit({ tool: "import", paths });
+        });
+        this.redoHead = null;
+        await this.refreshFiles();
+        return paths;
     }
 
     /** Wait for the turn running now, if any. */
