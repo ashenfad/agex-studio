@@ -30,6 +30,8 @@
  *   --scripted <file>   a JSON list of model steps (DRIVE_MODE=scripted)
  *   --shot <file>       save a screenshot of the page at the end
  *   --quiet             print only endings and the final reply
+ *   --requests          print each model request (a POST off the studio's
+ *                       origin): its URL and affinity key, no auth headers
  */
 
 import { spawn } from "node:child_process";
@@ -46,6 +48,7 @@ for (let i = 0; i < args.length; i++) {
     else if (a === "--scripted") opts.scripted = args[++i];
     else if (a === "--shot") opts.shot = args[++i];
     else if (a === "--quiet") opts.quiet = true;
+    else if (a === "--requests") opts.requests = true;
     else opts.prompts.push(a);
 }
 
@@ -127,6 +130,15 @@ const context = opts.profile
     : await (await chromium.launch(launch)).newContext();
 const page = context.pages()[0] ?? (await context.newPage());
 page.on("pageerror", (e) => console.log(`[page error] ${e.message}`));
+if (opts.requests) {
+    page.on("request", (r) => {
+        const target = new URL(r.url());
+        // the model's calls are POSTs elsewhere; fonts and modules aren't
+        if (target.origin === new URL(url).origin || r.method() !== "POST") return;
+        const key = r.headers()["x-session-affinity"];
+        console.log(`[request] ${r.method()} ${target.origin}${target.pathname}${key ? ` affinity=${key}` : ""}`);
+    });
+}
 page.on("console", (m) => {
     if (m.type() === "error") console.log(`[console] ${m.text()}`);
 });
