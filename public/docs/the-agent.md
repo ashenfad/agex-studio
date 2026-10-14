@@ -1,56 +1,98 @@
 # The agent
 
-The studio's agent is a code-writing LLM running in a sandboxed
-worker in your browser. You ask in plain language; it picks tools,
-writes code, runs it, and replies in whatever shape fits (prose,
-table, chart, interactive app). The actual code is visible in the
-activity card below each reply.
+The agent works in a workspace of its own: files under `/workspace`,
+a shell, and TypeScript it runs in a sandboxed worker in your browser.
+You ask in plain words; it does the work with its tools and says what
+came of it. Each tool call shows in the chat, and you can open it to
+see exactly what ran and what came back.
 
-## At a glance
+Everything it changes is versioned, so you can undo any turn (see
+[Sessions](#sessions)).
 
-| Capability | What it does | Try saying |
+## What it can do
+
+| | What it does | Try saying |
 | --- | --- | --- |
-| Code | Writes and runs TypeScript (or Python on Py sessions); most npm packages work via on-demand `import`; Python sessions ship with NumPy, pandas, SciPy, scikit-learn. | *"Compute the Collatz sequence from 27 and tell me how many steps to reach 1."* |
-| Tables and charts | Structured answers come back as inline sortable tables or interactive Plotly charts, not described in prose. | *"Load this CSV and chart weekly signups, with a callout for the biggest jump."* |
-| File uploads and PDFs | Drag any file into the chat input. Uploads land in the workspace (visible in the Files drawer). PDFs get rendered as images so the agent can reason visually, not just over extracted text. | *"Render this paper and pull out the key claims with the figures that support each."* |
-| Web search | Perplexity's Sonar via your OpenRouter key; multiple searches run in parallel for multi-topic research. | *"Recent papers on diffusion model alignment, summarize each."* |
-| Calendars | On Python sessions, reasons over `.ics` exports for scheduling questions. | *"What 2-hour blocks of free time do I have this week?"* |
-| Google Drive | The Drive button in the chat input opens Google's file picker; selected files upload into the workspace using the `drive.file` scope (only files you explicitly pick). | *(click the Drive button)* |
+| Code | Writes and runs TypeScript. A package import loads from esm.sh, so most npm packages work. | *"How many steps does the Collatz sequence from 27 take to reach 1?"* |
+| Files and the shell | Reads, writes and edits files, and uses a shell (`ls`, `cat`, `grep` and the like). | *"Tidy up the notes in notes/ into one file."* |
+| Charts, tables, cards | Shows data in its reply: an interactive chart, a sortable table, a row of cards, an image. | *"Chart weekly signups from this CSV."* |
+| Apps | Builds an interactive app under `app/`, which the preview beside the chat shows as it changes, and checks it by clicking through it. | *"Build a flashcard game for multiplication."* |
+| Web search and pages | Searches the web, and reads a page to answer a question about it. *Needs an OpenRouter key.* | *"What changed in the latest Svelte release?"* |
+| Images, speech, music | Makes pictures, spoken audio and music clips, for a reply or an app. *Needs an OpenRouter key.* | *"Make a pixel-art knight sprite for my game."* |
+| PDFs | Reads a PDF's text, and renders pages as images to look at. | *"Summarize the tables in this report."* |
+| Delegates | Hands separable pieces of work to delegates that run alongside it (see below). | *"Have one delegate write the story and another the poem."* |
 
 > [!NOTE]
-> Web search consumes your OpenRouter credits like any other model
-> call. Code runs in a worker. No DOM, no other tabs, no files
-> outside the studio.
+> Web search, page reading and media run on your OpenRouter key and
+> cost like any other model call. With an endpoint of your own, the
+> agent says so instead of using them.
 
-## Interactive apps
+## Giving it files
 
-The most distinctive capability. The agent writes HTML/CSS/JS into
-an `app/` folder; the preview pane on the right renders it in a
-sandboxed iframe. Iterating is conversational — the agent edits
-the same files and you see the change live. Apps survive the
-session and can be published as standalone shareable links.
+Open the **📁 files drawer** (top right): **Upload** adds files from
+your device, and **From Drive** (when available) picks files from
+Google Drive. Either way they land in `/workspace/uploads`, as one
+change you can undo. Then mention them in your message.
 
-```
-Build me a circus-themed flashcard game for 4th-grade
-multiplication. Tracks correct/incorrect, awards "tickets" for
-streaks.
-```
+## While it works
 
-## What it can't (yet)
+- **Stop** ends the turn. Delegates that turn asked stop too.
+- **Typing while it works** adds a note it reads with its next step,
+  rather than starting a new turn.
+- Leaving the page while the agent (or a delegate) is working asks
+  first: the work runs in the page, and leaving stops it.
+- If the model's provider cuts a turn short, **Resume it** carries on
+  where it stopped, or **Set it aside** leaves it as it is.
 
-The agent can't authenticate to most external services on your
-behalf. It can hit public URLs, search the web, and work with
-files you bring in — but it can't log into Gmail, query your
-private databases, or talk to OAuth-protected services beyond the
-Drive picker. Direct Google Calendar OAuth in particular is
-pending Google's app verification for the calendar scope; for
-now, `.ics` exports are the path. OAuth integrations are gated on
-each provider's verification process.
+## Apps
 
-## Other niceties
+The agent writes an app as files under `app/`: an `index.html`, with
+its scripts and styles beside it. The **preview** (toggle it with ▣)
+shows it live, and rebuilds when its files change. The agent checks
+its own work with a hidden copy of the app, clicking and reading it,
+and with screenshots when the model takes images.
 
-- Markdown in responses, including mermaid diagrams.
-- LaTeX-style math typesetting.
-- Reusable code in `helpers/` that survives across turns.
-- Versioned history: every turn is a commit; undo to any prior
-  point or fork to try a parallel direction.
+Apps keep their own saved data (what they store in `localStorage`),
+per session. It stays with the session's app, and syncs with it if you
+sync (see [Sessions](#sessions)).
+
+### Apps that call an agent
+
+An app can ask an agent to do something for it: summarize, rewrite,
+classify, look something up. Each call runs on **the model of
+whoever is using the app**, on their key. The preview's bar shows how
+many calls the app has made this visit (**agent 3/20**). An app gets
+20 calls a visit to begin with; **Allow 20 more** gives it another
+20.
+
+An app made in someone else's session (one you imported, or opened
+from a published link) asks first: *"This app asks to use your
+model…"*. You can allow it or not; an app you don't allow just can't
+use the agent.
+
+## Delegates
+
+For work that splits into independent pieces, the agent can hand
+pieces to **delegates**: copies of the session that work on their own
+and report back. It decides when to; you can also ask for it.
+
+- The **strip above the message box** shows each delegate: what it is
+  doing, and when it answers. Click one to read its conversation (read
+  only), and **← back** to return.
+- The agent can end its turn while delegates work. When their answers
+  come in, the session picks up again on its own to read them and
+  bring their work in: up to 10 times before you next write, and not
+  after you stopped a turn.
+- The session list shows **⑂** beside a session with delegates
+  working or answers waiting.
+- Delegates can have delegates of their own, two levels deep.
+- If the page closes while a delegate works, the delegate stops. When
+  you come back, the strip shows it as interrupted, and the next turn
+  is told, so the agent can pick up what it left or ask again.
+
+## What it can't do
+
+The agent can reach public web pages and APIs your browser can, and
+files you bring in. It can't sign in to your accounts or reach
+private services on your behalf. Its code runs in a sandbox: no access
+to this page, your other tabs, or files outside the studio.

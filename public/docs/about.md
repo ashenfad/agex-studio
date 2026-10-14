@@ -1,38 +1,33 @@
 # About
 
-agex.studio is a free, open-source, browser-based AI agent
-workspace. It runs as a static page. There's no company behind
-it, no servers, no account system, no subscription.
+agex.studio is a free, open-source AI agent workspace that runs in
+your browser. It's a static page: no company behind it, no servers of
+its own, no accounts, no subscription. The model is one you choose,
+on your own key.
 
-For the broader framing of what that means in practice, see
-[Getting started](#getting-started).
+For what that means day to day, see [Getting started](#getting-started).
 
 ## Built with
 
-The studio is a thin shell over a stack of separately-developed
-libraries:
-
-- [agex-ts](https://github.com/ashenfad/agex-ts) — TypeScript agent
-  orchestration. The studio's primary kernel.
-- [agex](https://github.com/ashenfad/agex) — Python agent
-  orchestration. Powers the experimental Python kernel.
-- [Pyodide](https://pyodide.org) — Python in WebAssembly. The
-  Python kernel runs inside it.
-- [calgebra](https://github.com/ashenfad/calgebra) — Calendar
-  interval algebra, used by the Google Calendar integration.
-- [kvgit](https://github.com/ashenfad/kvgit) — Versioned key-value
-  store backing sessions and the agent's filesystem.
-- [Svelte 5](https://svelte.dev) — UI framework.
-
-LLM access is your choice: [OpenRouter](https://openrouter.ai),
-[Anthropic](https://anthropic.com), [OpenAI](https://openai.com),
-or any OpenAI-compatible endpoint.
+- [agex-ts](https://github.com/ashenfad/agex-ts): the agent and
+  everything under it, in four packages. `agex-ts` is the agent's
+  loop (its turns, folding long conversations, delegation, tasks);
+  `@agex-ts/world` is the workspace (sessions, files, the shell, the
+  TypeScript kernel the agent's code runs in); `@agex-ts/kvgit` is the
+  versioned store underneath (every change a commit, and sync); and
+  `@agex-ts/termish` is the shell.
+- The [AI SDK](https://ai-sdk.dev)'s providers, for talking to
+  OpenRouter or an endpoint of your own.
+- [Svelte 5](https://svelte.dev) for the interface.
+- [esbuild](https://esbuild.github.io) (in WebAssembly) for apps
+  written in JSX, [Plotly](https://plotly.com/javascript/) for
+  charts, and [pdf.js](https://mozilla.github.io/pdf.js/) for PDFs.
 
 ## Source
 
-Studio: [github.com/ashenfad/agex-studio](https://github.com/ashenfad/agex-studio).
+The studio: [github.com/ashenfad/agex-studio](https://github.com/ashenfad/agex-studio).
 
 ## Contact
 
-Questions, feedback, gallery submissions: open an issue on
+Questions and feedback: open an issue on
 [GitHub](https://github.com/ashenfad/agex-studio/issues).

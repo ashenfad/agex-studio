@@ -1,6 +1,6 @@
 # Terms
 
-*Last updated: 2026-05-19.*
+*Last updated: 2026-10-14.*
 
 ## Acceptance
 
@@ -23,13 +23,16 @@ Your key is stored in your browser's localStorage and is never
 sent to any agex.studio server, because there isn't one.
 
 Your code, files, and session data are stored locally in your
-browser. The authors of agex.studio have no access to your data
+browser, and, if you turn on sync, in a GitHub repository of
+yours. The authors of agex.studio have no access to your data
 and cannot recover it if you lose it.
 
 ## Third-party services
 
 agex.studio connects to third-party services on your behalf
-(your LLM provider, GitHub, Google APIs when you opt in). Use
+(your LLM provider, OpenRouter for web search and media, GitHub,
+Google APIs when you opt in, and the CDNs that serve code
+packages). Use
 of those services is governed by their respective terms. The
 authors of agex.studio are not responsible for the availability,
 accuracy, or behavior of any third-party service.
