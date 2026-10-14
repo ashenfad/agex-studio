@@ -531,8 +531,9 @@ export class Studio {
     #open = new Map();
 
     /** Open the store, list the sessions, and open the one last looked
-     *  at (or a new one). */
-    async init() {
+     *  at; with none, a new one, unless `empty` (a published session is
+     *  about to open, and is the first). */
+    async init({ empty = false } = {}) {
         await this.refresh();
         let last = null;
         try {
@@ -542,7 +543,7 @@ export class Studio {
         }
         const target = this.sessions.find((s) => s.name === last) ?? this.sessions[0];
         if (target) await this.switchTo(target.name);
-        else await this.create();
+        else if (!empty) await this.create();
     }
 
     /** The sessions the person made, newest first: a delegate's or a
@@ -742,6 +743,10 @@ export class Studio {
         await this.refresh();
         const known = this.sessions.find((s) => s.source?.head === header.head);
         if (known !== undefined) {
+            // opened from a gist now: where its updates come from
+            if (from.gist !== undefined && JSON.stringify(known.source?.gist) !== JSON.stringify(from.gist)) {
+                await this.#setSource(known.name, { head: header.head, gist: from.gist });
+            }
             await this.switchTo(known.name);
             return { name: known.name, existing: true };
         }
@@ -754,6 +759,21 @@ export class Studio {
         });
         await this.switchTo(name);
         return { name, existing: false };
+    }
+
+    /** Record where session `name` came from.
+     *  @param {string} name @param {SessionSource} source */
+    async #setSource(name, source) {
+        const store = await openStore();
+        const open = this.#open.get(name)?.ws ?? null;
+        const ws = open ?? (await store.open(name, { profile: PROFILE }));
+        try {
+            ws.plane(PLANE).set("source", source);
+            await ws.autoCommit({ tool: "studio.source" });
+        } finally {
+            if (open === null) await ws.close();
+        }
+        await this.refresh();
     }
 
     /**
@@ -849,10 +869,12 @@ export class Studio {
     async openGist(param) {
         const ref = parseGistParam(param);
         if (ref === null) throw new Error(`"${param}" isn't a link to a published session`);
-        const bytes = await fetchGistBundle(ref);
-        // the revision opened: where update checks start from
-        const revision = ref.revision ?? (await latestRevision(ref.id).catch(() => null)) ?? "";
-        return this.importBundle(bytes, { gist: { owner: ref.owner, id: ref.id, slug: ref.slug, revision, pinned: ref.revision !== null } });
+        // the revision first, then its bytes, so the revision recorded (where
+        // update checks start from) is the one opened; when GitHub's API
+        // can't say (rate-limited), the latest file, its revision unknown
+        const revision = ref.revision ?? (await latestRevision(ref.id).catch(() => null));
+        const bytes = await fetchGistBundle({ ...ref, revision });
+        return this.importBundle(bytes, { gist: { owner: ref.owner, id: ref.id, slug: ref.slug, revision: revision ?? "", pinned: ref.revision !== null } });
     }
 
     /** Opened gists with a newer revision: session name → revision. */

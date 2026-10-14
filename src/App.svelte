@@ -30,13 +30,17 @@
     const gistParam = params.get('gist')
     /** The app alone, as a published link's `play=1` asks. */
     let playing = $state(params.get('play') === '1')
+    /** While a published link's session is being fetched: until then the
+     *  app alone shows nothing, not the session last looked at. */
+    let fetchingGist = $state(gistParam !== null)
     /** What went wrong opening a published link. @type {string | null} */
     let opening = $state(null)
 
     onMount(() => {
         void (async () => {
             try {
-                await studio.init()
+                // with a published link, no blank session first: it is the first
+                await studio.init({ empty: gistParam !== null })
             } catch (e) {
                 failed = e instanceof Error ? e.message : String(e)
                 return
@@ -47,7 +51,9 @@
                 } catch (e) {
                     opening = e instanceof Error ? e.message : String(e)
                     playing = false
+                    if (studio.current === null) await studio.create()
                 }
+                fetchingGist = false
                 // the session is here now: the plain address from here on
                 history.replaceState({}, '', '/')
             }
@@ -83,7 +89,9 @@
     }
 </script>
 
-{#if playing && studio.current}
+{#if playing && fetchingGist}
+    <div class="play"><p class="note">Opening the published app…</p></div>
+{:else if playing && studio.current}
     <div class="play">
         <div class="app-pane"><AppPreview session={studio.current} /></div>
         <button class="pill" onclick={() => (playing = false)} title="The conversation and files behind this app">agex studio · how it was made</button>
