@@ -12,7 +12,7 @@
  *     await __studio.sync.sweep(); __studio.sync.state()   // with sync connected
  */
 
-import { base64ToBytes } from "./bytes.js";
+import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { script } from "./studio.svelte.js";
 import { getSettings, updateSettings } from "./settings.js";
 
@@ -158,6 +158,16 @@ export function installDevHook(studio, sync) {
         },
         async folds() {
             return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
+        },
+        /** The current session as a bundle: its file name, size, and
+         *  bytes (base64). @param {"everything" | "current"} shape */
+        async exportBundle(shape) {
+            const { bytes, fileName } = await studio.exportBundle(session().name, shape);
+            return { fileName, size: bytes.length, base64: bytesToBase64(bytes) };
+        },
+        /** Open a bundle (base64), as Import does. @param {string} base64 */
+        async importBundle(base64) {
+            return studio.importBundle(base64ToBytes(base64));
         },
         /** The current session's head. */
         head() {

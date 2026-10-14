@@ -1,8 +1,9 @@
 <script>
     /**
      * The sessions: newest first, the one looked at marked, and for
-     * each a menu to rename, fork (with its conversation, or its files
-     * alone) and delete. With sync on, each shows its sync (a glyph,
+     * each a menu to rename, fork (with its conversation, its files
+     * alone, or as it is now without its history), export as a bundle,
+     * and delete. A bundle (.agex) opens as a new session. With sync on, each shows its sync (a glyph,
      * and the choices when it needs the person), and below them the
      * repo's other sessions to download and its trash.
      */
@@ -21,6 +22,34 @@
     }
 
     let emptying = $state(false)
+
+    /** @type {string | null} */
+    let exporting = $state(null)
+    /** @type {HTMLInputElement | undefined} */
+    let picker = $state()
+
+    /** @param {string} name @param {"everything" | "current"} shape */
+    async function exportAs(name, shape) {
+        await act(async () => {
+            const { bytes, fileName } = await studio.exportBundle(name, shape)
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }))
+            a.download = fileName
+            a.click()
+            URL.revokeObjectURL(a.href)
+        })
+        exporting = null
+    }
+
+    async function importPicked() {
+        const file = picker?.files?.[0]
+        if (picker) picker.value = ''
+        if (file === undefined) return
+        await act(async () => {
+            await studio.importBundle(new Uint8Array(await file.arrayBuffer()))
+        })
+        onPicked()
+    }
 
     /** @type {{ onPicked?: () => void }} */
     let { onPicked = () => {} } = $props()
@@ -71,7 +100,11 @@
 </script>
 
 <nav class="sessions">
-    <button class="new" onclick={() => act(() => studio.create()).then(onPicked)}>+ New session</button>
+    <div class="top">
+        <button class="new" onclick={() => act(() => studio.create()).then(onPicked)}>+ New session</button>
+        <button class="import" onclick={() => picker?.click()} title="Open a session bundle (.agex)">Import…</button>
+        <input bind:this={picker} type="file" accept=".agex" hidden onchange={importPicked} />
+    </div>
     {#if failed}<p class="failed">{failed}</p>{/if}
     <ul>
         {#each studio.sessions as s (s.name)}
@@ -103,7 +136,17 @@
                         <button onclick={() => startRename(s.name, s.title)}>Rename</button>
                         <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('full') }).then(onPicked)}>Fork</button>
                         <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('fresh') }).then(onPicked)}>Fork with files only</button>
+                        <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('compact') }).then(onPicked)} title="Everything as it is now, without the history: much smaller">Fork as it is now</button>
+                        <button onclick={() => { exporting = s.name; menuFor = null }}>Export…</button>
                         <button class="danger" onclick={() => { confirming = s.name; menuFor = null }}>Delete…</button>
+                    </div>
+                {/if}
+                {#if exporting === s.name}
+                    <div class="menu">
+                        <span>Export as a bundle (.agex):</span>
+                        <button onclick={() => exportAs(s.name, 'current')} title="Everything as it is now: much smaller">As it is now</button>
+                        <button onclick={() => exportAs(s.name, 'everything')} title="With its history, so each turn can be undone">With its history</button>
+                        <button onclick={() => (exporting = null)}>Cancel</button>
                     </div>
                 {/if}
                 {#if confirming === s.name}
@@ -189,6 +232,21 @@
         padding: 0.6rem;
         height: 100%;
         overflow-y: auto;
+    }
+    .top {
+        display: flex;
+        gap: 0.4rem;
+    }
+    .top .new {
+        flex: 1;
+    }
+    .import {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
     }
     .new {
         background: var(--accent);

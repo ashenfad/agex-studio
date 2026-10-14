@@ -155,10 +155,12 @@ on arrival and on focus, a choice when one changed on two devices
 (the synced version, this device's kept as its own session; or this
 device's, on top of the synced one), cloud sessions to download, and
 the trash. An app's saved data stays on the device for now. S4c:
-bundle export and import, and the compact fork; gist publishing,
-opening and update checks; the published-version tags. Exit: a session
-syncs between two browsers, and a published app opens from its gist
-link in a fresh one.
+bundles (`.agex`: a header line and a kvgit pack), exported with the
+history or as the session is now, opened as a new session; and the
+compact fork, the same snapshot as a session. S4d: gist publishing,
+opening (`/run/?gist=`, viewable without a model key) and update
+checks; the published-version tags. Exit: a session syncs between two
+browsers, and a published app opens from its gist link in a fresh one.
 
 **S5. Agents from apps, and delegation.** The bridge: an app's
 agent-defined tasks on the viewer's own key, with a per-page budget;
