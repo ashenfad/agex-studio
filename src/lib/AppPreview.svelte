@@ -11,13 +11,14 @@
      *
      * It is the iframe `test_app` acts on with `live: true`.
      */
-    import { onDestroy } from 'svelte'
+    import { onDestroy, untrack } from 'svelte'
     import { setLiveIframe } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppHtml } from './app-html.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
+    import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
@@ -86,6 +87,15 @@
     /** This page's budget for the app's agent calls, once it has one. */
     const budget = $derived(appAgent.budgets[session.name] ?? null)
 
+    /** The app data stamp when the app was last built: past it, another
+     *  device's data arrived, and the preview offers to reload. */
+    let seenAppData = $state(untrack(() => session.appDataStamp))
+
+    function reloadWithData() {
+        seenAppData = session.appDataStamp
+        void load(true)
+    }
+
     /** @type {Record<string, string> | null} */
     let storageToWrite = null
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -119,7 +129,10 @@
             if (storageTimer === null) {
                 storageTimer = setTimeout(() => {
                     storageTimer = null
-                    if (storageToWrite !== null) writeAppStorage('ts', name, storageToWrite)
+                    if (storageToWrite !== null) {
+                        writeAppStorage('ts', name, storageToWrite)
+                        sync.appChanged(name)
+                    }
                     storageToWrite = null
                 }, 300)
             }
@@ -166,6 +179,12 @@
         {/if}
         <button onclick={() => load(true)} disabled={empty} title="Rebuild from the files">↻</button>
     </div>
+    {#if session.appDataStamp > seenAppData && !empty}
+        <div class="data-note">
+            The app's data changed on another device.
+            <button onclick={reloadWithData}>Reload the app</button>
+        </div>
+    {/if}
     {#if appAgent.asking[session.name]}
         {@const asking = appAgent.asking[session.name]}
         <div class="consent">
@@ -194,6 +213,23 @@
 </div>
 
 <style>
+    .data-note {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.4rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        font-size: 0.8rem;
+    }
+    .data-note button {
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0.2rem 0.6rem;
+        cursor: pointer;
+    }
     .calls {
         color: var(--text-muted);
         font-size: 0.75rem;
