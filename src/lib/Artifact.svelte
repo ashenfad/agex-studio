@@ -2,16 +2,17 @@
     /**
      * One workspace file shown in a reply, by its kind: a chart, a
      * table, a row of cards, an image, sandboxed HTML, or text. Read
-     * from the session's files as they are now, and again when the
-     * record is (an undo rewinds them).
+     * as the reply's run left it (`at`, the commit the next turn started
+     * from; the files as they are now for the latest reply), and again
+     * when the record is (an undo rewinds them).
      */
     import { artifactKind, looksLikePlotly } from '@agex-ts/world'
     import CardRow from './CardRow.svelte'
     import DataTable from './DataTable.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, name?: string }} */
-    let { session, path, name = '' } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, name?: string, at?: string | null }} */
+    let { session, path, name = '', at = null } = $props()
 
     const IMAGE_TYPES = /** @type {Record<string, string>} */ ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' })
 
@@ -27,11 +28,13 @@
 
     $effect(() => {
         void session.filesStamp
-        const ws = session.ws
-        if (ws === null) return
+        if (session.ws === null) return
         let dead = false
-        ws.files
-            .read(path)
+        // as the reply's run left it: a name reused later shows its
+        // newer version only in the replies after
+        const files = at === null ? Promise.resolve(session.ws) : session.viewAt(at)
+        files
+            .then((ws) => ws.files.read(path))
             .then((bytes) => {
                 if (dead) return
                 const key = `${bytes.length}:${digest(bytes)}`

@@ -15,8 +15,8 @@
     import { studio } from './studio.svelte.js'
     import ToolCall from './ToolCall.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void }} */
-    let { session, run, folds = [], onUndo } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, at?: string | null }} */
+    let { session, run, folds = [], onUndo, at = null } = $props()
 
     /** The folds whose last message is this one: the band goes after it. */
     /** @param {string} id */
@@ -85,7 +85,7 @@
                 {:else if part.kind === 'text' && part.text.startsWith(CLOSING_NOTE)}
                     <div class="closing">{part.text}</div>
                 {:else if part.kind === 'text'}
-                    <ReplyText {session} text={part.text} />
+                    <ReplyText {session} {at} text={part.text} />
                 {:else if part.kind === 'tool_call'}
                     {@const result = results.get(part.callId)}
                     <ToolCall
@@ -108,7 +108,7 @@
         {/each}
     {/each}
     {#each trailing as artifact (artifact.path)}
-        <Artifact {session} path={artifact.path} name={artifact.name} />
+        <Artifact {session} {at} path={artifact.path} name={artifact.name} />
     {/each}
     {#if run.status !== 'completed'}
         <div class="status">{run.status}</div>

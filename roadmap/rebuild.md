@@ -273,9 +273,12 @@ alone.
   file at run time, which a bundler can't follow, hence `?worker&url`.
   A literal `new Worker(new URL('./worker.js', import.meta.url))` for
   the browser target would make that line unnecessary.
-- **A lighter first load.** Stripping types loads the TypeScript
-  compiler (most of a ~4 MB bundle); the studio loads the kernel
-  lazily, and a lighter stripper is worth a look.
+- **A lighter first load** (agex-ts #107): the world loads its type
+  stripper, and with it the TypeScript compiler, on the first run
+  rather than on import, so it is a chunk of its own: the studio's
+  first load went from 1.4 MB gzipped to 387 KB, the compiler (1 MB)
+  coming with the first run. A lighter stripper, and loading the AI
+  SDK with the first turn, would take more off.
 
 Each of these is an agex-ts PR, used through the links before any
 release.

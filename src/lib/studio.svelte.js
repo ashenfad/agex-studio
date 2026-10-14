@@ -224,6 +224,19 @@ export class ChatSession {
     notice = $state(null);
     /** @type {ReturnType<typeof setInterval> | null} */
     #poll = null;
+    /** Each run's starting head, by run id (its undo point): where the
+     *  run before it ended. @type {Record<string, string>} */
+    starts = $state({});
+    /** Frozen views of this session at a commit, for replies' artifacts.
+     *  @type {Map<string, Promise<Workspace>>} */
+    #views = new Map();
+    /** Delegates the page lost: it closed while they ran, so they never
+     *  answered. Shown in the strip until the next turn, which is told.
+     *  @type {string[]} */
+    lostDelegates = $state([]);
+    /** What the plane last recorded of each delegate (answered and read,
+     *  or not). @type {Map<string, boolean>} */
+    #recorded = new Map();
     /** @type {Workspace | null} */
     ws = null;
     /** @type {import("agex-ts").Session | null} */
@@ -253,6 +266,72 @@ export class ChatSession {
             this.helper = helper;
         }
         await this.reload();
+        if (!this.readonly) await this.#findInterrupted();
+    }
+
+    /**
+     * The commit run `i`'s files are read at: where the run after it
+     * started, so its artifacts show as it left them; null for the
+     * latest run (the files as they are now) or one with no record.
+     *
+     * @param {number} i
+     */
+    endOf(i) {
+        const next = this.runs[i + 1];
+        return next === undefined ? null : (this.starts[next.runId] ?? null);
+    }
+
+    /** This session frozen at `commit`, opened once. @param {string} commit */
+    viewAt(commit) {
+        let view = this.#views.get(commit);
+        if (view === undefined) {
+            view = openStore().then((store) => store.resolve(`${this.name}@${commit}`));
+            this.#views.set(commit, view);
+        }
+        return view;
+    }
+
+    /**
+     * Delegates this session asked that never answered: the page they
+     * ran in closed. Each is told to the next turn (its work is on its
+     * branch, to merge or ask again) and shown in the strip; the record
+     * says so, so it is told once. Nothing starts a turn: that waits for
+     * the person.
+     */
+    async #findInterrupted() {
+        const ws = this.ws;
+        if (ws === null) return;
+        const plane = ws.plane(PLANE);
+        const lost = [];
+        for (const key of await plane.keys()) {
+            if (!key.startsWith("delegates/")) continue;
+            const record = /** @type {{ asked?: number, done?: boolean } | null} */ (await plane.get(key));
+            if (record === null || record.done) continue;
+            const name = key.slice("delegates/".length);
+            lost.push(name);
+            this.inbox.put(
+                `[the studio's delegation mechanism speaking, not the person at the keyboard: delegate \`${name}\` was interrupted, since the page it ran in closed, and never answered. Its work so far is on its branch: ws-git diff ${name} --stat shows what it did; merge or check out what is useful, or ask afresh.]`,
+                { kind: "mechanism", label: `delegate ${name}` },
+            );
+            plane.set(key, { ...record, done: true, interrupted: true });
+            this.#recorded.set(name, true);
+        }
+        if (lost.length === 0) return;
+        this.lostDelegates = lost;
+        await ws.autoCommit({ tool: "studio.delegates" });
+    }
+
+    /** Record on the plane each delegate asked, and whether its answer
+     *  was read: what a later page reads to find those it lost. */
+    #recordDelegates() {
+        const plane = this.ws?.plane(PLANE);
+        if (plane === undefined) return;
+        for (const job of this.jobs) {
+            const done = job.status !== "running" && !this.unread.includes(job.name);
+            if (this.#recorded.get(job.name) === done) continue;
+            this.#recorded.set(job.name, done);
+            plane.set(`delegates/${job.name}`, { asked: job.started, done });
+        }
     }
 
     /** A delegate's session, opened to read: its runner works it. */
@@ -270,6 +349,7 @@ export class ChatSession {
     syncJobs() {
         this.jobs = this.helper?.list().map((j) => ({ ...j })) ?? [];
         this.unread = this.helper?.outstanding() ?? [];
+        this.#recordDelegates();
         // while a turn runs (an ask may start any time) or a delegate does
         const running = this.busy || this.jobs.some((j) => j.status === "running");
         if (running && this.#poll === null && this.helper !== null) this.#poll = setInterval(() => this.syncJobs(), 1000);
@@ -309,6 +389,16 @@ export class ChatSession {
         if (ws === null) return;
         const reader = new Agent({ model: new ScriptedProvider([]) }).session(ws);
         this.runs = await reader.runs();
+        /** @type {Record<string, string>} */
+        const starts = {};
+        const plane = ws.plane(PLANE);
+        await Promise.all(
+            this.runs.map(async (run) => {
+                const turn = /** @type {{ before?: string } | null} */ (await plane.get(`turns/${run.runId}`));
+                if (turn?.before) starts[run.runId] = turn.before;
+            }),
+        );
+        this.starts = starts;
         this.folds = await ws.compaction.folds();
         const meta = await metaOf(ws);
         this.title = meta.title;
@@ -428,6 +518,8 @@ export class ChatSession {
         this.#turn = session;
         this.#turnAt = Date.now();
         this.#lastStatus = "completed";
+        // the lost delegates are told to this turn
+        this.lostDelegates = [];
         this.syncJobs();
         const run = (async () => {
             try {
@@ -647,6 +739,8 @@ export class ChatSession {
         }
         if (this.#poll !== null) clearInterval(this.#poll);
         this.#poll = null;
+        for (const view of this.#views.values()) void view.then((v) => v.close(), () => undefined);
+        this.#views.clear();
         await this.ws?.close();
         this.ws = null;
     }
@@ -778,6 +872,15 @@ export class Studio {
         };
         this.#open.set(session.name, session);
         return session;
+    }
+
+    /** Whether work would be lost by leaving the page: a turn running,
+     *  or a delegate (both run in the page). */
+    working() {
+        for (const s of this.#open.values()) {
+            if (s.busy || s.jobs.some((j) => j.status === "running")) return true;
+        }
+        return false;
     }
 
     /** The session `name`, if this page has it open. @param {string} name */

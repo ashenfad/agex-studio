@@ -34,10 +34,17 @@
     })
 </script>
 
-{#if shown.length > 0}
+{#if shown.length > 0 || session.lostDelegates.length > 0}
     <div class="strip">
-        <div class="head">⑂ delegates: {summary}</div>
+        <div class="head">⑂ delegates: {[summary, session.lostDelegates.length && `${session.lostDelegates.length} interrupted (the page closed): the next turn is told`].filter(Boolean).join(' · ')}</div>
         <div class="cards">
+            {#each session.lostDelegates as name (name)}
+                <button class="card" title={`${name}: interrupted when the page closed; its work is on its branch`} onclick={() => studio.switchTo(name)}>
+                    <span class="dot interrupted"></span>
+                    <span class="name">{name.split('.').at(-1)}</span>
+                    <span class="doing">interrupted</span>
+                </button>
+            {/each}
             {#each shown as job (job.name)}
                 <button class="card" title={`${job.name}: ${job.task}`} onclick={() => studio.switchTo(job.name)}>
                     <span class="dot {job.status}"></span>
@@ -115,6 +122,10 @@
     .dot.failed,
     .dot.cancelled {
         background: var(--error);
+    }
+    .dot.interrupted {
+        background: var(--text-muted);
+        opacity: 0.6;
     }
     .dot.capped,
     .dot.declined {
