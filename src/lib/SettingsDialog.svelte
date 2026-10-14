@@ -1,13 +1,18 @@
 <script>
-    /** The model the studio talks to: OpenRouter, or an endpoint of the
-     *  person's own (a direct provider, a local Meridian, a proxy); and
-     *  syncing sessions through a GitHub repo of their own. */
+    /** The settings, in two tabs. Model: the model the studio talks to,
+     *  OpenRouter or an endpoint of the person's own (a direct provider,
+     *  a local Meridian, a proxy). Sync & sharing: syncing sessions
+     *  through a GitHub repo of their own, and the token publishing
+     *  writes gists with. */
+    import { untrack } from 'svelte'
     import { getSettings, updateSettings } from './settings.js'
     import { GIST_TOKEN_URL } from './gist.js'
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
 
-    /** @type {{ onClose: () => void }} */
-    let { onClose } = $props()
+    /** @type {{ onClose: () => void, tab?: 'model' | 'sync' }} */
+    let { onClose, tab: firstTab = 'model' } = $props()
+
+    let tab = $state(untrack(() => firstTab))
 
     let s = $state({ ...getSettings() })
 
@@ -58,7 +63,14 @@
 
 <div class="backdrop" role="presentation" onclick={onClose}>
     <div class="dialog" role="dialog" aria-label="Settings" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === 'Escape' && onClose()}>
-        <h2>Model</h2>
+        <div class="head">
+            <h2>Settings</h2>
+            <div class="tabs" role="tablist">
+                <button role="tab" class="tab" class:on={tab === 'model'} aria-selected={tab === 'model'} onclick={() => (tab = 'model')}>Model</button>
+                <button role="tab" class="tab" class:on={tab === 'sync'} aria-selected={tab === 'sync'} onclick={() => (tab = 'sync')}>Sync &amp; sharing</button>
+            </div>
+        </div>
+        {#if tab === 'model'}
         <label>
             Service
             <select bind:value={s.accessMode}>
@@ -85,6 +97,9 @@
                 Key
                 <input type="password" bind:value={s.apiKey} placeholder={s.accessMode === 'custom' ? 'if the endpoint needs one' : 'sk-or-…'} autocomplete="off" />
             </label>
+            {#if s.accessMode === 'openrouter'}
+                <p class="hint">Make one at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. It stays in this browser, and goes only to OpenRouter.</p>
+            {/if}
             <label>
                 Model
                 <input bind:value={s.model} placeholder="google/gemini-3.8-flash" />
@@ -107,7 +122,8 @@
                 <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
             </label>
         {/if}
-        <h2>Sync</h2>
+        {:else}
+        <h3>Sync</h3>
         {#if s.syncRepo}
             <p class="hint">Sessions sync through <code>{s.syncRepo}</code>: each one a few seconds after it changes, and every one when the studio opens or comes back into view.</p>
             {#if connectNote}<p class="hint warn">{connectNote}</p>{/if}
@@ -139,12 +155,13 @@
                 <button class="secondary" onclick={connect} disabled={connecting || token.trim() === ''}>{connecting ? 'Connecting…' : 'Connect'}</button>
             </div>
         {/if}
-        <h2>Publishing</h2>
+        <h3>Publishing</h3>
         <p class="hint">A session is published as a secret gist, which anyone with its link can open. Publishing needs a token that can write gists: <a href={GIST_TOKEN_URL} target="_blank" rel="noreferrer">a classic one with the gist scope</a>, or a fine-grained one with Gists: read and write.{s.syncRepo ? ' Left empty, the sync token is tried.' : ''}</p>
         <label>
             Token
             <input type="password" bind:value={s.publishToken} placeholder="ghp_… or github_pat_…" autocomplete="off" />
         </label>
+        {/if}
         <div class="actions">
             <button class="secondary" onclick={onClose}>Cancel</button>
             <button onclick={save}>Save</button>
@@ -174,9 +191,41 @@
         flex-direction: column;
         gap: 0.7rem;
     }
+    .head {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        border-bottom: 1px solid var(--border);
+    }
     h2 {
         font-family: var(--font-display);
         font-size: 1.2rem;
+    }
+    h3 {
+        font-family: var(--font-body);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+        margin-top: 0.3rem;
+    }
+    .tabs {
+        display: flex;
+        gap: 1rem;
+    }
+    .tab {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        color: var(--text-muted);
+        padding: 0.2rem 0 0.45rem;
+        font: inherit;
+        font-size: 0.9rem;
+    }
+    .tab.on {
+        color: var(--text);
+        border-bottom-color: var(--accent);
     }
     label {
         display: flex;

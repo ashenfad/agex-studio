@@ -15,8 +15,8 @@
     import { studio } from './studio.svelte.js'
     import UserBubble from './UserBubble.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, at?: string | null }} */
-    let { session, run, folds = [], onUndo, at = null } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, onEdit?: () => void, at?: string | null }} */
+    let { session, run, folds = [], onUndo, onEdit, at = null } = $props()
 
     /** The folds whose last message is this one: the band goes after it. */
     /** @param {string} id */
@@ -92,9 +92,18 @@
 
 {#if opening !== null}
     <div class="user-row">
-        {#if onUndo}
-            <button class="undo" title="Undo this turn and everything after it" onclick={onUndo}>↺ undo</button>
-        {/if}
+        <span class="tools">
+            {#if onEdit && asked === null && delivered === null}
+                <button class="tool" title="Edit: undo this turn and everything after it, and put the message back to change and send again" aria-label="Edit this message" onclick={onEdit}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                </button>
+            {/if}
+            {#if onUndo}
+                <button class="tool" title="Undo this turn and everything after it (Redo brings it back)" aria-label="Undo this turn" onclick={onUndo}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-15-6.7L3 13"></path></svg>
+                </button>
+            {/if}
+        </span>
         {#if asked !== null}
             <div class="user"><span class="from">Task from {asked.parent.split('.').at(-1)}:</span> {asked.task}</div>
         {:else if delivered === null}
@@ -154,17 +163,35 @@
         align-items: center;
         gap: 0.4rem;
     }
-    .undo {
+    /* a message's tools, beside it on hover or focus; always where
+       there's no hovering (a touch screen) */
+    .tools {
+        display: flex;
+        gap: 0.1rem;
         visibility: hidden;
+    }
+    .user-row:hover .tools,
+    .tools:focus-within {
+        visibility: visible;
+    }
+    @media (hover: none) {
+        .tools {
+            visibility: visible;
+        }
+    }
+    .tool {
+        display: flex;
+        align-items: center;
         background: none;
         border: none;
+        border-radius: 5px;
         color: var(--text-muted);
-        font-size: 0.75rem;
         cursor: pointer;
+        padding: 0.3rem;
     }
-    .user-row:hover .undo,
-    .undo:focus {
-        visibility: visible;
+    .tool:hover {
+        color: var(--text);
+        background: var(--surface-hover);
     }
     .user {
         max-width: 80%;

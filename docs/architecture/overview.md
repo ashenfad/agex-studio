@@ -111,6 +111,15 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
 - **A delegate's view**: a delegate's session (a dotted name) opens
   read-only, live while it runs.
 - **Play mode**: `/run/?gist=…&play=1` shows a published app alone.
+- **An empty session** (`EmptyState`): before a model is chosen, what
+  the studio is and a button to choose one; after, things to ask for.
+- **Names** (`titles.js`): the model names a session from its
+  conversation's tail after the first exchange and every 5 of the
+  person's turns, one small side request on their model (thinking at
+  most low), until they rename it.
+- **The docs**: `/docs/` renders `public/docs/*.md` (`Docs.svelte`;
+  `main.js` picks it by the path, and the build copies `index.html` to
+  `docs/` as it does to `run/`); the header's ? opens it.
 
 ## Dev builds
 

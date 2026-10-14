@@ -5,20 +5,23 @@ import { defineConfig } from 'vite'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
-/** `/run/` (a published session's link) is the studio too: a static
- *  host serves it from `run/index.html`, the same page. */
-function runEntryPoint() {
+/** `/run/` (a published session's link) and `/docs/` (the help pages)
+ *  are the studio's page too: a static host serves each from its own
+ *  `index.html`, the same page, which looks at its path. */
+function entryPoints() {
   return {
-    name: 'run-entry-point',
+    name: 'entry-points',
     closeBundle() {
-      mkdirSync(resolve('dist', 'run'), { recursive: true })
-      copyFileSync(resolve('dist', 'index.html'), resolve('dist', 'run', 'index.html'))
+      for (const dir of ['run', 'docs']) {
+        mkdirSync(resolve('dist', dir), { recursive: true })
+        copyFileSync(resolve('dist', 'index.html'), resolve('dist', dir, 'index.html'))
+      }
     },
   }
 }
 
 export default defineConfig({
-  plugins: [svelte(), runEntryPoint()],
+  plugins: [svelte(), entryPoints()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
