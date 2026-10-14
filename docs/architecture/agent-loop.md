@@ -93,8 +93,9 @@ draft.
 
 Files attach before sending (`ChatSession.attached`, added under
 `uploads/` at once); the message names them on a first line,
-`[attached: /workspace/uploads/a.csv, …]` (`withAttachments`), which the
-chat shows as chips.
+`[attached: ["/workspace/uploads/a.csv", …]]` (`withAttachments`; a JSON
+list, so any file name reads back whole), which the chat shows as
+chips. Sending waits until every file attached is in.
 
 ## Folding
 

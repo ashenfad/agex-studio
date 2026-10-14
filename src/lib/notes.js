@@ -8,7 +8,9 @@
 
 import { splitNotes } from "@agex-ts/world";
 
-const ATTACHED = /^\[attached: ([^\]\n]+)\]\n?/;
+/** The first line naming the files: their paths as a JSON list, so a
+ *  name with a comma, a bracket or a line break in it reads back whole. */
+const ATTACHED = /^\[attached: (\[.*\])\]\n?/;
 
 /**
  * A message with files attached: their paths first, for the agent.
@@ -16,7 +18,7 @@ const ATTACHED = /^\[attached: ([^\]\n]+)\]\n?/;
  * @param {string} text @param {readonly string[]} paths
  */
 export function withAttachments(text, paths) {
-    return paths.length === 0 ? text : `[attached: ${paths.join(", ")}]\n${text}`;
+    return paths.length === 0 ? text : `[attached: ${JSON.stringify(paths)}]\n${text}`;
 }
 
 /**
@@ -28,7 +30,15 @@ export function withAttachments(text, paths) {
 export function attachmentsOf(text) {
     const m = ATTACHED.exec(text);
     if (m === null) return { paths: [], text };
-    return { paths: /** @type {string} */ (m[1]).split(", ").filter(Boolean), text: text.slice(m[0].length) };
+    /** @type {unknown} */
+    let paths;
+    try {
+        paths = JSON.parse(/** @type {string} */ (m[1]));
+    } catch {
+        return { paths: [], text };
+    }
+    if (!Array.isArray(paths) || !paths.every((p) => typeof p === "string")) return { paths: [], text };
+    return { paths, text: text.slice(m[0].length) };
 }
 
 /** The frames the world's inbox puts before a note (its default frame):
