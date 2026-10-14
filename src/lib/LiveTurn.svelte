@@ -1,10 +1,11 @@
 <script>
-    /** The turn running now, as its events stream in. */
-    import { renderMarkdown } from './markdown.js'
+    /** The turn running now, as its events stream in. The artifacts a
+     *  reply embeds show as it does; the rest once the turn ends. */
+    import ReplyText from './ReplyText.svelte'
     import ToolCall from './ToolCall.svelte'
 
-    /** @type {{ prompt: string, parts: import('./studio.svelte.js').LivePart[] }} */
-    let { prompt, parts } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, prompt: string, parts: import('./studio.svelte.js').LivePart[] }} */
+    let { session, prompt, parts } = $props()
 </script>
 
 <div class="user">{prompt}</div>
@@ -13,7 +14,7 @@
         {#if part.kind === 'thinking'}
             <details class="thinking" open><summary>thinking</summary>{part.text}</details>
         {:else if part.kind === 'text'}
-            <div class="text">{@html renderMarkdown(part.text)}</div>
+            <ReplyText {session} text={part.text} />
         {:else if part.kind === 'tool'}
             <ToolCall name={part.name} args={part.args} result={part.result} isError={part.isError} />
         {:else if part.kind === 'notes'}
