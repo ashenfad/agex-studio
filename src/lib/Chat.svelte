@@ -6,9 +6,11 @@
      * chosen (a published session opened by a visitor, say), the
      * conversation reads and the composer waits for one.
      */
+    import DelegateStrip from './DelegateStrip.svelte'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
+    import { studio } from './studio.svelte.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
     let { session } = $props()
@@ -66,7 +68,7 @@
 <div class="chat">
     <div class="messages" bind:this={list} onscroll={onScroll}>
         {#each session.runs as run (run.runId)}
-            <RunView {session} {run} folds={session.folds} onUndo={session.busy ? undefined : () => act(() => session.undo(run.runId))} />
+            <RunView {session} {run} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
         {/each}
         {#if session.interrupted && !session.busy}
             <div class="banner">
@@ -88,6 +90,14 @@
             <button onclick={() => act(() => session.redo())}>Redo</button>
         </div>
     {/if}
+    {#if session.notice}<div class="notice">{session.notice}</div>{/if}
+    <DelegateStrip {session} />
+    {#if session.readonly}
+    <div class="delegate-bar">
+        <button onclick={() => studio.switchTo(/** @type {string} */ (session.parent))}>← back to {studio.sessions.find((s) => s.name === session.parent)?.title || session.parent}</button>
+        <span>A delegate: {session.busy ? 'working' : 'its transcript'}, read-only</span>
+    </div>
+    {:else}
     <div class="composer">
         <textarea
             bind:value={draft}
@@ -105,9 +115,33 @@
         {/if}
         <button onclick={send} disabled={draft.trim() === '' || !isConfigured($settingsStore)}>Send</button>
     </div>
+    {/if}
 </div>
 
 <style>
+    .notice {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        border-top: 1px solid var(--border);
+    }
+    .delegate-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        padding: 0.6rem 0.8rem;
+        border-top: 1px solid var(--border);
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+    .delegate-bar button {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 0.3rem 0.7rem;
+        cursor: pointer;
+    }
     .chat {
         display: flex;
         flex-direction: column;

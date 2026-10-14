@@ -181,6 +181,12 @@ export function installDevHook(studio, sync) {
             await studio.checkUpdates({ force: true });
             return { ...studio.updates };
         },
+        /** The current session's delegates: name, status, unread. */
+        jobs() {
+            const s = session();
+            s.syncJobs();
+            return s.jobs.map((j) => ({ name: j.name, status: j.status, unread: s.unread.includes(j.name) }));
+        },
         /** The current session's head. */
         head() {
             return session().ws?.head ?? null;
