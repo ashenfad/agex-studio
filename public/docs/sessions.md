@@ -15,9 +15,11 @@ real history.
 
 ## New sessions and names
 
-**+ New session** starts an empty one. Its first message names it;
-double-click a name in the list to change it, or change it in the
-session's **⋯** dialog.
+**+ New session** starts an empty one. Its first message names it at
+first; then the model names it from the conversation, after the first
+exchange and again every few turns, so the name follows the work. Name
+it yourself (double-click its name in the list, or in its **⋯**
+dialog) and that name stays.
 
 Hover a session in the list for its tools: **⑂** forks it (with its
 conversation), and **⋯** opens its dialog: its name, the other forks,
@@ -25,9 +27,11 @@ export, publish and delete.
 
 ## Undo and redo
 
-Hover one of your messages and click **↺ undo** to go back to where
-that turn began: the files, the conversation, the folds, all of it.
-A **Redo** banner brings it all back, until the next turn.
+Hover one of your messages for its tools. **Undo** (↶) goes back to
+where that turn began: the files, the conversation, the folds, all of
+it. **Edit** (✎) does the same and puts your message back in the box,
+its files attached again, to change and send anew. **Redo** brings it
+all back, until the next turn.
 
 Undo doesn't erase history: it's a new commit restoring the earlier
 state. Delegates asked since that turn are stopped, and answers they

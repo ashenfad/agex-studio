@@ -35,6 +35,7 @@ import { attachmentsOf } from "./notes.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
 import { getSettings, isConfigured } from "./settings.js";
+import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
 
 /** @typedef {import("agex-ts").Run} Run */
 /** @typedef {import("@agex-ts/world").TurnEvent} TurnEvent */
@@ -620,6 +621,8 @@ export class ChatSession {
                 // the records it changed are committed before sync hears of the change
                 await this.#saving;
                 this.onMeta();
+                // the model names the session, when it's due, beside what follows
+                void this.#retitle();
                 // what the person wrote after the agent's last tool call never
                 // reached it: the next turn, or after a stop, theirs to edit
                 const missed = this.#takeQueued();
@@ -827,8 +830,40 @@ export class ChatSession {
         if (this.ws === null) return;
         const plane = this.ws.plane(PLANE);
         const meta = /** @type {object | null} */ (await plane.get("meta")) ?? {};
-        plane.set("meta", { ...meta, title, updatedAt: Date.now() });
+        // the person's name: the model's stop for good
+        plane.set("meta", { ...meta, title, named: true, updatedAt: Date.now() });
         await this.ws.autoCommit({ tool: "studio.rename" });
+        this.title = title;
+        this.onMeta();
+    }
+
+    /**
+     * Let the model name the session from its conversation, when that's
+     * due (see `titles.js`): the person's own sessions only, on their
+     * model, a failure leaving the name as it was.
+     */
+    async #retitle() {
+        const ws = this.ws;
+        const s = getSettings();
+        if (ws === null || this.readonly || !isConfigured(s) || s.accessMode === "scripted") return;
+        const plane = ws.plane(PLANE);
+        const turns = personTurns(this.runs);
+        if (!titleDue(/** @type {any} */ (await plane.get("meta")), turns)) return;
+        /** @type {string | null} */
+        let title;
+        try {
+            title = await generateTitle(buildModel(s, { session: this.name }), transcriptText(this.runs), { thinking: thinkingOf(s) });
+        } catch {
+            return;
+        }
+        if (title === null || this.ws !== ws) return;
+        await this.#held;
+        // read again: the person may have renamed it, or a later turn named it, meanwhile
+        const meta = /** @type {any} */ (await plane.get("meta")) ?? {};
+        if (meta.named === true || (typeof meta.titledAt === "number" && meta.titledAt >= turns)) return;
+        plane.set("meta", { ...meta, title, titledAt: turns });
+        // a turn running now commits it with its own; else a commit of its own
+        if (!this.busy) await ws.autoCommit({ tool: "studio.title" });
         this.title = title;
         this.onMeta();
     }

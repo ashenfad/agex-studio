@@ -10,14 +10,30 @@
      */
     import Composer from './Composer.svelte'
     import DelegateStrip from './DelegateStrip.svelte'
+    import EmptyState from './EmptyState.svelte'
+    import { attachmentsOf } from './notes.js'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
     import { studio } from './studio.svelte.js'
     import UserBubble from './UserBubble.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
-    let { session } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, onSettings?: () => void }} */
+    let { session, onSettings = () => {} } = $props()
+
+    /** Undo a turn and put what the person wrote back in the message
+     *  box, files attached again, to change and send anew.
+     *  @param {import('agex-ts').Run} run */
+    async function edit(run) {
+        const first = run.messages[0]
+        const text = first?.role === 'user' ? first.parts.map((p) => (p.kind === 'text' ? p.text : '')).join('') : ''
+        await act(async () => {
+            await session.undo(run.runId)
+            const { paths, text: words } = attachmentsOf(text)
+            session.draft = words
+            session.attached = paths
+        })
+    }
 
     /** @type {HTMLElement | undefined} */
     let list = $state()
@@ -104,13 +120,24 @@
     {#if dragging}<div class="drop">Drop files to attach</div>{/if}
     <div class="messages" bind:this={list} onscroll={onScroll} onclickcapture={onClick}>
         {#each session.runs as run, i (run.runId)}
-            <RunView {session} {run} at={session.endOf(i)} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
+            {@const editable = !session.busy && !session.readonly}
+            <RunView
+                {session}
+                {run}
+                at={session.endOf(i)}
+                folds={session.folds}
+                onUndo={editable ? () => act(() => session.undo(run.runId)) : undefined}
+                onEdit={editable ? () => edit(run) : undefined}
+            />
         {/each}
+        {#if session.runs.length === 0 && !session.busy && session.queued.length === 0 && !session.readonly}
+            <EmptyState {session} {onSettings} />
+        {/if}
         {#if session.interrupted && !session.busy}
-            <div class="banner">
-                The last turn was cut short by the model's provider.
+            <div class="pill attention">
+                The model's provider cut the last turn short.
                 <button onclick={() => act(() => session.resume())}>Resume it</button>
-                <button class="secondary" onclick={() => act(() => session.abandon())}>Set it aside</button>
+                <button class="quiet" onclick={() => act(() => session.abandon())}>Set it aside</button>
             </div>
         {/if}
         {#if session.busy}
@@ -125,13 +152,19 @@
             <div class="error">{session.error}</div>
         {/if}
     </div>
-    {#if session.redoHead !== null}
-        <div class="banner">
-            Undone: the workspace and the conversation are back where that turn began.
-            <button onclick={() => act(() => session.redo())}>Redo</button>
+    {#if session.redoHead !== null || session.notice || (!isConfigured($settingsStore) && session.runs.length > 0)}
+        <div class="pills">
+            {#if !isConfigured($settingsStore) && session.runs.length > 0}
+                <div class="pill">To carry on the conversation, choose a model. <button onclick={onSettings}>Settings</button></div>
+            {/if}
+            {#if session.redoHead !== null}
+                <div class="pill">Undone: back where that turn began. <button onclick={() => act(() => session.redo())}>Redo</button></div>
+            {/if}
+            {#if session.notice}
+                <div class="pill">{session.notice} <button class="quiet" onclick={() => (session.notice = null)} aria-label="Dismiss">✕</button></div>
+            {/if}
         </div>
     {/if}
-    {#if session.notice}<div class="notice">{session.notice}</div>{/if}
     <DelegateStrip {session} />
     {#if session.readonly}
     <div class="delegate-bar">
@@ -144,12 +177,6 @@
 </div>
 
 <style>
-    .notice {
-        padding: 0.4rem var(--gutter);
-        font-size: 0.8rem;
-        color: var(--text-muted);
-        border-top: 1px solid var(--border);
-    }
     .delegate-bar {
         display: flex;
         align-items: center;
@@ -193,26 +220,45 @@
         color: var(--error);
         font-size: 0.85rem;
     }
-    .banner {
+    /* notices: quiet pills over the message box, or in the transcript
+       where they belong to it */
+    .pills {
         display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.4rem var(--gutter) 0;
+    }
+    .pill {
+        display: inline-flex;
         flex-wrap: wrap;
         align-items: center;
+        justify-content: center;
         gap: 0.5rem;
-        padding: 0.5rem var(--gutter);
-        font-size: 0.85rem;
+        align-self: center;
+        max-width: 100%;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.3rem 0.45rem 0.3rem 0.9rem;
+        font-size: 0.8rem;
         color: var(--text-muted);
-        border-top: 1px solid var(--border);
     }
-    .banner button {
+    .pill.attention {
+        border-color: var(--warning);
+    }
+    .pill button {
         background: var(--accent);
         color: white;
         border: none;
-        border-radius: 6px;
-        padding: 0.25rem 0.7rem;
+        border-radius: 999px;
+        padding: 0.18rem 0.7rem;
+        font: inherit;
         cursor: pointer;
     }
-    .banner .secondary {
+    .pill .quiet {
         background: transparent;
+        color: var(--text-muted);
         border: 1px solid var(--border);
     }
     .composer {

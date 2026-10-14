@@ -30,7 +30,7 @@ with a checkout, come along on a fork and sync:
 
 | key | holds |
 |---|---|
-| `meta` | `{title, createdAt, updatedAt}`; the title comes from the first prompt, or a rename |
+| `meta` | `{title, createdAt, updatedAt, named?, titledAt?}`; the title comes from the first prompt, then the model's (`titles.js`: after the first exchange and every 5 of the person's turns, `titledAt` the count it was written at), until a rename sets `named` |
 | `turns/<runId>` | `{before, at}`: the head a turn started from (its undo point, and where the run before it ended) and when |
 | `source` | where an imported session came from: `{head}` of its bundle, and `gist` when opened from a link |
 | `published` | the gist it was last published to: `{owner, id, slug, revision, shape, session, at}` |

@@ -31,8 +31,9 @@ With no model chosen, the composer is disabled and says to choose one
 in settings; a visitor opening a published link still sees the session
 and its app.
 
-**Undo** (any run's ↺) checks out where the turn began, a forward
-commit, so it is itself undoable (**Redo**).
+**Undo** (a message's ↶; its ✎ edit undoes too, and puts the message
+back in the box) checks out where the turn began, a forward commit, so
+it is itself undoable (**Redo**).
 
 ## The app
 

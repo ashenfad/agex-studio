@@ -120,7 +120,7 @@
     }
 
     const placeholder = $derived(
-        !configured ? 'To carry on the conversation, choose a model in settings' : session.busy ? 'Add a note to the turn running (it reaches the agent with its next step)…' : 'Ask for something…',
+        !configured ? (session.runs.length > 0 ? 'To carry on the conversation, choose a model in settings' : 'Choose a model to start') : session.busy ? 'Add a note to the turn running (it reaches the agent with its next step)…' : 'Ask for something…',
     )
 </script>
 
