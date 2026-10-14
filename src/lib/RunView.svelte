@@ -8,8 +8,12 @@
     import { renderMarkdown } from './markdown.js'
     import ToolCall from './ToolCall.svelte'
 
-    /** @type {{ run: import('agex-ts').Run }} */
-    let { run } = $props()
+    /** @type {{ run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void }} */
+    let { run, folds = [], onUndo } = $props()
+
+    /** The folds whose last message is this one: the band goes after it. */
+    /** @param {string} id */
+    const foldsAfter = (id) => folds.filter((f) => f.through === id)
 
     /** Each call's result, by call id: they come in the tool message
      *  after the reply that made the call. */
@@ -33,7 +37,12 @@
 </script>
 
 {#if opening !== null}
-    <div class="user">{opening}</div>
+    <div class="user-row">
+        {#if onUndo}
+            <button class="undo" title="Undo this turn and everything after it" onclick={onUndo}>↺ undo</button>
+        {/if}
+        <div class="user">{opening}</div>
+    </div>
 {/if}
 <div class="agent">
     {#each rest as message (message.id)}
@@ -58,6 +67,12 @@
         {:else if message.role === 'user'}
             <div class="note">{textOf(message)}</div>
         {/if}
+        {#each foldsAfter(message.id) as fold (fold.through)}
+            <details class="folded">
+                <summary>The conversation up to here is folded into a summary for the model</summary>
+                <div class="summary">{@html renderMarkdown(fold.summary)}</div>
+            </details>
+        {/each}
     {/each}
     {#if run.status !== 'completed'}
         <div class="status">{run.status}</div>
@@ -65,8 +80,36 @@
 </div>
 
 <style>
+    .user-row {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .undo {
+        visibility: hidden;
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+    .user-row:hover .undo,
+    .undo:focus {
+        visibility: visible;
+    }
+    .folded {
+        border-top: 1px dashed var(--border);
+        border-bottom: 1px dashed var(--border);
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin: 0.6rem 0;
+        padding: 0.3rem 0;
+    }
+    .folded summary {
+        cursor: pointer;
+    }
     .user {
-        align-self: flex-end;
         max-width: 80%;
         background: var(--user-bubble);
         padding: 0.5rem 0.8rem;

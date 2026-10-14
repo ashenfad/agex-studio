@@ -7,12 +7,13 @@
  *     await __studio.say('write a haiku to /workspace/haiku.txt')
  *     await __studio.transcript()   // the stored runs, flattened
  *     await __studio.files('/workspace')
+ *     await __studio.fork('fresh'); await __studio.undo(0); __studio.sessions()
  */
 
 import { script } from "./studio.svelte.js";
 import { getSettings, updateSettings } from "./settings.js";
 
-/** @typedef {import("./studio.svelte.js").ChatSession} ChatSession */
+/** @typedef {import("./studio.svelte.js").Studio} Studio */
 
 /**
  * A run flattened for a reader: each message's role and its parts, a
@@ -37,12 +38,20 @@ function flatten(run) {
     };
 }
 
-/** @param {() => ChatSession | null} current */
-export function installDevHook(current) {
+/** @param {Studio} studio */
+export function installDevHook(studio) {
     const session = () => {
-        const s = current();
+        const s = studio.current;
         if (s === null || s.ws === null) throw new Error("no session is open yet");
         return s;
+    };
+    /** A run of the current session by its index, or by its id.
+     *  @param {number | string} which */
+    const runId = (which) => {
+        const runs = session().runs;
+        const run = typeof which === "number" ? runs.at(which) : runs.find((r) => r.runId === which);
+        if (run === undefined) throw new Error(`no run ${JSON.stringify(which)}`);
+        return run.runId;
     };
     /** @type {any} */ (window).__studio = {
         /** @param {Partial<import("./settings.js").Settings>} patch */
@@ -71,11 +80,16 @@ export function installDevHook(current) {
             session().cancel();
         },
         get busy() {
-            return current()?.busy ?? false;
+            return studio.current?.busy ?? false;
         },
-        /** Whether the session is open, so the rest can be called. */
+        /** Whether a session is open, so the rest can be called. */
         get ready() {
-            return (current()?.ws ?? null) !== null;
+            return (studio.current?.ws ?? null) !== null;
+        },
+        /** The session looked at: its name and title. */
+        get current() {
+            const s = studio.current;
+            return s === null ? null : { name: s.name, title: s.title };
         },
         async transcript() {
             return session().runs.map(flatten);
@@ -87,6 +101,51 @@ export function installDevHook(current) {
         /** @param {string} path */
         async read(path) {
             return session().ws?.files.readText(path);
+        },
+        async sessions() {
+            await studio.refresh();
+            return studio.sessions.map((s) => ({ name: s.name, title: s.title }));
+        },
+        async create() {
+            await studio.create();
+            return this.current;
+        },
+        /** @param {string} name */
+        async switchTo(name) {
+            await studio.switchTo(name);
+            return this.current;
+        },
+        /** @param {"full" | "fresh"} inherit */
+        async fork(inherit = "full") {
+            await studio.fork(inherit);
+            return this.current;
+        },
+        /** @param {string} name */
+        async remove(name) {
+            await studio.remove(name);
+            return this.current;
+        },
+        /** @param {string} title */
+        async rename(title) {
+            await session().rename(title);
+            return this.current;
+        },
+        /** Undo a run of the current session (by index or id) and what
+         *  followed it. @param {number | string} which */
+        async undo(which) {
+            await session().undo(runId(which));
+            return { runs: session().runs.length, redo: session().redoHead !== null };
+        },
+        async redo() {
+            await session().redo();
+            return { runs: session().runs.length };
+        },
+        async resume() {
+            await session().resume();
+            return { status: session().runs.at(-1)?.status ?? null, error: session().error };
+        },
+        async folds() {
+            return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
         },
     };
 }
