@@ -11,6 +11,7 @@
     import { installDevHook } from './lib/dev-hook.js'
     import SessionList from './lib/SessionList.svelte'
     import SettingsDialog from './lib/SettingsDialog.svelte'
+    import { appAgent } from './lib/app-tasks.svelte.js'
     import { isConfigured, settingsStore } from './lib/settings.js'
     import SplitPane from './lib/SplitPane.svelte'
     import { studio } from './lib/studio.svelte.js'
@@ -59,10 +60,22 @@
         }
     }
 
+    function openSettings() {
+        drawerOpen = false
+        showSettings = true
+    }
+
     function toggleApp() {
         showApp = !showApp
         store('agex-workbench', showApp)
     }
+
+    // an app asking to use the model waits on the person: on a narrow
+    // screen, its pane comes forward so the question can be seen
+    $effect(() => {
+        const name = studio.current?.name
+        if (name !== undefined && appAgent.asking[name] !== undefined) mobileView = 'app'
+    })
 
     /** @param {KeyboardEvent} e */
     function onKey(e) {
@@ -187,7 +200,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="14" y1="4" x2="14" y2="20"></line></svg>
             </button>
         {/if}
-        <button class="icon" onclick={() => (showSettings = true)} aria-label="Settings" title="Settings: the model, sync and publishing">
+        <button class="icon" onclick={openSettings} aria-label="Settings" title="Settings: the model, sync and publishing">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
     </header>
@@ -208,7 +221,7 @@
                     <p class="note warn">The published session couldn't be opened: {opening}</p>
                 {:else if !isConfigured($settingsStore)}
                     <p class="note">
-                        To work with the agent, choose a model in <button class="link" onclick={() => (showSettings = true)}>settings</button>.
+                        To work with the agent, choose a model in <button class="link" onclick={openSettings}>settings</button>.
                     </p>
                 {/if}
                 {#key studio.current.name}

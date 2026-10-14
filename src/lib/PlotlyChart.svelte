@@ -48,7 +48,19 @@
             loaded = true
         })
 
+        // `responsive` follows the window; the chart's own width changes
+        // too (the split dragged, the chat unfolded, the workbench hidden)
+        let width = 0
+        const observer = new ResizeObserver(([entry]) => {
+            const now = Math.round(entry?.contentRect.width ?? 0)
+            if (now === width) return
+            width = now
+            if (now > 0 && loaded && window.Plotly) window.Plotly.Plots.resize(container)
+        })
+        observer.observe(container)
+
         return () => {
+            observer.disconnect()
             cancelled = true
             if (container && window.Plotly) {
                 window.Plotly.purge(container)

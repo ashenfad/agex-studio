@@ -23,6 +23,12 @@
     let files = $state()
     const drive = isDriveImportAvailable()
 
+    // an app asking to use the model waits on the person, and the
+    // question shows with the app: its tab comes forward
+    $effect(() => {
+        if (appAgent.asking[session.name] !== undefined) tab = 'app'
+    })
+
     /** The files listed, folders aside. */
     const fileCount = $derived(session.files.filter((f) => !session.files.some((o) => o.startsWith(`${f}/`))).length)
 

@@ -69,10 +69,17 @@
         store(FOLDED_KEY, next ? '1' : '0')
     }
 
+    /** Charts in the chat lay themselves out again at its new width,
+     *  once it has it. */
+    function relayout() {
+        requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
+    }
+
     function unfold() {
         ratio = RESTORE_RATIO
         store(RATIO_KEY, String(ratio))
         setFolded(false)
+        relayout()
     }
 
     onMount(() => {
@@ -103,8 +110,7 @@
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
             store(RATIO_KEY, String(ratio))
-            // charts in the chat lay themselves out again
-            window.dispatchEvent(new Event('resize'))
+            relayout()
         }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
@@ -118,6 +124,7 @@
         const width = container?.getBoundingClientRect().width ?? 0
         ratio = clamp(ratio + (e.key === 'ArrowLeft' ? -step : step), width)
         store(RATIO_KEY, String(ratio))
+        relayout()
     }
 
     const chatHidden = $derived(!single && (appOnly || folded))
