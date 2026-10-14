@@ -198,12 +198,13 @@ export function installDevHook(studio, sync) {
         /** This page's budgets for apps' agent calls, and an app asking. */
         async appAgent() {
             const { appAgent } = await import("./app-tasks.svelte.js");
-            return { budgets: { ...appAgent.budgets }, asking: appAgent.asking ? { session: appAgent.asking.session, task: appAgent.asking.task } : null };
+            return { budgets: { ...appAgent.budgets }, asking: Object.fromEntries(Object.entries(appAgent.asking).map(([k, v]) => [k, v.task])) };
         },
-        /** Answer an app's request to use the model. @param {boolean} yes */
+        /** Answer the current session's app's request to use the
+         *  model. @param {boolean} yes */
         async consent(yes) {
             const { appAgent } = await import("./app-tasks.svelte.js");
-            appAgent.asking?.answer(yes);
+            appAgent.asking[session().name]?.answer(yes);
             return this.appAgent();
         },
         /** The current session's head. */
