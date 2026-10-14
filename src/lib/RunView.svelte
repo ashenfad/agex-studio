@@ -2,14 +2,19 @@
     /**
      * One stored run, as the chat shows it: the person's message, then
      * the agent's reply in the order it came (thinking, text, and each
-     * tool call with its result), read from agex-ts's record.
+     * tool call with its result), read from agex-ts's record. The `ui`
+     * artifacts its code wrote are shown where the reply embeds them,
+     * and the rest after it.
      */
     import { CLOSING_NOTE } from 'agex-ts'
+    import Artifact from './Artifact.svelte'
+    import { artifactsOf, unembedded } from './artifacts.js'
     import { renderMarkdown } from './markdown.js'
+    import ReplyText from './ReplyText.svelte'
     import ToolCall from './ToolCall.svelte'
 
-    /** @type {{ run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void }} */
-    let { run, folds = [], onUndo } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void }} */
+    let { session, run, folds = [], onUndo } = $props()
 
     /** The folds whose last message is this one: the band goes after it. */
     /** @param {string} id */
@@ -34,6 +39,14 @@
 
     const opening = $derived(run.messages[0]?.role === 'user' ? textOf(run.messages[0]) : null)
     const rest = $derived(opening === null ? run.messages : run.messages.slice(1))
+
+    /** The artifacts the reply doesn't embed, shown after it. */
+    const trailing = $derived(
+        unembedded(
+            artifactsOf(results.values()),
+            rest.filter((m) => m.role === 'assistant').map(textOf),
+        ),
+    )
 </script>
 
 {#if opening !== null}
@@ -53,7 +66,7 @@
                 {:else if part.kind === 'text' && part.text.startsWith(CLOSING_NOTE)}
                     <div class="closing">{part.text}</div>
                 {:else if part.kind === 'text'}
-                    <div class="text">{@html renderMarkdown(part.text)}</div>
+                    <ReplyText {session} text={part.text} />
                 {:else if part.kind === 'tool_call'}
                     {@const result = results.get(part.callId)}
                     <ToolCall
@@ -74,6 +87,9 @@
                 <div class="summary">{@html renderMarkdown(fold.summary)}</div>
             </details>
         {/each}
+    {/each}
+    {#each trailing as artifact (artifact.path)}
+        <Artifact {session} path={artifact.path} name={artifact.name} />
     {/each}
     {#if run.status !== 'completed'}
         <div class="status">{run.status}</div>
@@ -119,9 +135,6 @@
     }
     .agent {
         max-width: 100%;
-    }
-    .text :global(p) {
-        margin: 0.4rem 0;
     }
     .thinking {
         color: var(--text-muted);

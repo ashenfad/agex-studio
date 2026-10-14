@@ -63,7 +63,7 @@
 <div class="chat">
     <div class="messages" bind:this={list} onscroll={onScroll}>
         {#each session.runs as run (run.runId)}
-            <RunView {run} folds={session.folds} onUndo={session.busy ? undefined : () => act(() => session.undo(run.runId))} />
+            <RunView {session} {run} folds={session.folds} onUndo={session.busy ? undefined : () => act(() => session.undo(run.runId))} />
         {/each}
         {#if session.interrupted && !session.busy}
             <div class="banner">
@@ -73,7 +73,7 @@
             </div>
         {/if}
         {#if session.busy}
-            <LiveTurn prompt={session.prompt} parts={session.live} />
+            <LiveTurn {session} prompt={session.prompt} parts={session.live} />
         {/if}
         {#if session.error}
             <div class="error">{session.error}</div>

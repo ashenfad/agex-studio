@@ -42,7 +42,8 @@ const esbuild = commandFactory(
 
 /**
  * What every world the studio opens is given: code runs in the world's
- * worker, bundled by Vite; a bare import loads from esm.sh; `esbuild`
+ * worker, bundled by Vite; a bare import loads from esm.sh; what code
+ * puts in `ui` is written under /workspace/ui to show in the reply; `esbuild`
  * in the terminal; and the studio's skills, mounted read-only under
  * /workspace/skills.
  */
@@ -51,6 +52,8 @@ export const PROFILE = {
         worker: { target: /** @type {const} */ ("browser"), url: workerUrl },
         /** @param {string} name */
         resolve: (name) => `https://esm.sh/${name}`,
+        // `ui.chart = spec`: shown in the reply
+        ui: true,
     },
     commands: { esbuild },
     skills: [interactiveApp],
@@ -145,6 +148,9 @@ export class ChatSession {
     /** Bumped whenever the app under app/ may have changed (a tool call
      *  that wrote, an undo, a reload), so the preview looks again. */
     appStamp = $state(0);
+    /** Bumped whenever the record is read again (a turn's end, an
+     *  undo), so the artifacts a reply shows are read again too. */
+    filesStamp = $state(0);
     /** The inbox outlives each turn's agent: a note queued mid-turn
      *  rides the next tool result. */
     inbox = new Inbox();
@@ -189,6 +195,7 @@ export class ChatSession {
         this.createdAt = meta.createdAt;
         await this.refreshFiles();
         this.appStamp += 1;
+        this.filesStamp += 1;
     }
 
     async refreshFiles() {

@@ -133,11 +133,12 @@ them; esbuild as a terminal command; app storage and assets; the
 `interactive-app` skill rewritten for the world's tools. Exit: the
 agent builds an app, tests it, and the human uses it in the preview.
 
-**S3. The studio's tools and rich replies.** `ui` artifacts (a world PR
-first) and their rendering, with the rich components salvaged; search,
-media, PDF and Drive import as typed host objects; the primers. Exit: a
-reply with a table, a chart and cards renders inline, and a reload
-renders it the same.
+**S3. The studio's tools and rich replies,** in two PRs. S3a: `ui`
+artifacts (agex-ts #105 first) and their rendering, with the rich
+components salvaged. Exit: a reply with a table, a chart and cards
+renders inline, and a reload renders it the same. S3b: search, media,
+PDF and Drive import as typed host objects, in nontainer-studio's
+later shapes (`web`, `media`), and the primers.
 
 **S4. Sync, bundles and gists.** The sync engine on the store's kvgit v4
 repository and its GitHub remote; bundle export and import, and the
@@ -166,7 +167,7 @@ deploy-day checklist passes on agex.studio.
 
 ## Needed upstream
 
-- **`ui` artifacts** in the world's kernel (S3).
+- **`ui` artifacts** in the world's kernel (S3a: agex-ts #105).
 - **A worker bundlers find on their own:** the world picks its worker's
   file at run time, which a bundler can't follow, hence `?worker&url`.
   A literal `new Worker(new URL('./worker.js', import.meta.url))` for
