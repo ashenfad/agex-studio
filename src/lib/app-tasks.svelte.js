@@ -74,9 +74,10 @@ export function checkSpec(spec) {
 class AppAgent {
     /** This page's budgets, by session. @type {Record<string, Budget>} */
     budgets = $state({});
-    /** A session's app asking to use the model, waiting for the person.
-     *  @type {{ session: string, task: string, answer: (yes: boolean) => void } | null} */
-    asking = $state(null);
+    /** Apps asking to use the model, waiting for the person, by
+     *  session: each its own question, answered for that app alone.
+     *  @type {Record<string, { task: string, answer: (yes: boolean) => void }>} */
+    asking = $state({});
 
     /** Allow session `name`'s app `APP_CALLS` more calls. @param {string} name */
     allowMore(name) {
@@ -84,17 +85,24 @@ class AppAgent {
         this.budgets[name] = { limit: Math.max(b.limit, b.used) + APP_CALLS, used: b.used };
     }
 
-    /** @param {string} session @param {string} task */
+    /** Ask whether session `session`'s app may use the model; a call
+     *  while its question is open waits on the same answer.
+     *  @param {string} session @param {string} task */
     #consent(session, task) {
         return new Promise((resolve) => {
-            // one question at a time: a call made while one is open waits on it
-            const prior = this.asking;
-            this.asking = {
-                session,
+            const open = this.asking[session];
+            if (open !== undefined) {
+                const answer = open.answer;
+                open.answer = (yes) => {
+                    answer(yes);
+                    resolve(yes);
+                };
+                return;
+            }
+            this.asking[session] = {
                 task,
                 answer: (yes) => {
-                    this.asking = null;
-                    prior?.answer(yes);
+                    delete this.asking[session];
                     resolve(yes);
                 },
             };

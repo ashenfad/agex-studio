@@ -166,8 +166,8 @@
         {/if}
         <button onclick={() => load(true)} disabled={empty} title="Rebuild from the files">↻</button>
     </div>
-    {#if appAgent.asking?.session === session.name}
-        {@const asking = appAgent.asking}
+    {#if appAgent.asking[session.name]}
+        {@const asking = appAgent.asking[session.name]}
         <div class="consent">
             <p>This app asks to use your model for an agent task (“{asking.task}”). Each call runs on your key; it may make up to {APP_CALLS} this visit.</p>
             <button onclick={() => asking.answer(true)}>Allow</button>

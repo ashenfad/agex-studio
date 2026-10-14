@@ -387,6 +387,9 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null, 
     return handler;
 }
 
+/** How long a drained queue waits for a call the last result set off. */
+const CHAIN_GRACE_MS = 300;
+
 /**
  * Run a headless app test in a hidden iframe.
  *
@@ -422,7 +425,7 @@ export async function runTestApp(opts) {
 
     let iframe = null;
     let messageHandler = null;
-    let pendingHandlers = [];
+    const pendingHandlers = [];
 
     try {
         if (!appFiles || Object.keys(appFiles).length === 0) {
@@ -539,10 +542,16 @@ export async function runTestApp(opts) {
         // resolved (e.g. a long-running chunk generation kicked off
         // by the final click). Handlers added while we're awaiting
         // get picked up by the next iteration.
-        while (pendingHandlers.length > 0) {
-            const batch = pendingHandlers;
-            pendingHandlers = [];
-            await Promise.allSettled(batch);
+        // One queue, drained in place: the bridge pushes to the array it
+        // was given. A call a result sets off (one task's value starting
+        // the next) arrives a moment after that result goes back, so
+        // once drained, wait a beat for it before calling the app idle.
+        for (;;) {
+            while (pendingHandlers.length > 0) {
+                await Promise.allSettled(pendingHandlers.splice(0));
+            }
+            await new Promise((resolve) => setTimeout(resolve, CHAIN_GRACE_MS));
+            if (pendingHandlers.length === 0) break;
         }
 
         return await collectResults(iframe, actionResults);
