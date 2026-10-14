@@ -9,6 +9,7 @@
  *     await __studio.files('/workspace')
  *     await __studio.upload([{ name: 'doc.pdf', base64 }])   // into uploads/
  *     await __studio.fork('fresh'); await __studio.undo(0); __studio.sessions()
+ *     await __studio.sync.sweep(); __studio.sync.state()   // with sync connected
  */
 
 import { base64ToBytes } from "./bytes.js";
@@ -40,8 +41,11 @@ function flatten(run) {
     };
 }
 
-/** @param {Studio} studio */
-export function installDevHook(studio) {
+/**
+ * @param {Studio} studio
+ * @param {import("./sync.svelte.js").Sync} sync
+ */
+export function installDevHook(studio, sync) {
     const session = () => {
         const s = studio.current;
         if (s === null || s.ws === null) throw new Error("no session is open yet");
@@ -59,8 +63,9 @@ export function installDevHook(studio) {
         /** @param {Partial<import("./settings.js").Settings>} patch */
         configure(patch) {
             updateSettings(patch);
-            const { apiKey, ...rest } = getSettings();
-            return { ...rest, apiKey: apiKey === "" ? "" : "(set)" };
+            const { apiKey, syncToken, ...rest } = getSettings();
+            const masked = (/** @type {string} */ key) => (key === "" ? "" : "(set)");
+            return { ...rest, apiKey: masked(apiKey), syncToken: masked(syncToken) };
         },
         /** The scripted model's next steps (accessMode 'scripted').
          *  @param {import("@agex-ts/world/conformance").ModelStep[]} steps */
@@ -153,6 +158,61 @@ export function installDevHook(studio) {
         },
         async folds() {
             return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
+        },
+        /** The current session's head. */
+        head() {
+            return session().ws?.head ?? null;
+        },
+        /** Sync, as the session list works it. */
+        sync: {
+            /** Each session's sync, the cloud sessions and the trash. */
+            state() {
+                return {
+                    connected: sync.connected,
+                    problem: sync.problem,
+                    status: Object.fromEntries(Object.entries(sync.status).map(([k, v]) => [k, v.state + (v.detail ? `: ${v.detail}` : "")])),
+                    cloud: sync.cloud.map((c) => ({ ...c })),
+                    trash: sync.trash.map((t) => ({ ...t })),
+                };
+            },
+            async sweep() {
+                await sync.sweep({ force: true });
+                return this.state();
+            },
+            /** @param {string} [name] the current session's when left out */
+            async now(name) {
+                await sync.syncNow(name ?? session().name);
+                return this.state();
+            },
+            /** @param {string} name */
+            async download(name) {
+                await sync.download(name);
+                return this.state();
+            },
+            /** @param {string} name */
+            async useSynced(name) {
+                await sync.useSynced(name);
+                return this.state();
+            },
+            /** @param {string} name */
+            async keepMine(name) {
+                await sync.keepMine(name);
+                return this.state();
+            },
+            /** @param {string} name */
+            async deleteEverywhere(name) {
+                await sync.deleteEverywhere(name);
+                return this.state();
+            },
+            /** @param {string} name */
+            async restore(name) {
+                await sync.restore(name);
+                return this.state();
+            },
+            async emptyTrash() {
+                await sync.emptyTrash();
+                return this.state();
+            },
         },
     };
 }

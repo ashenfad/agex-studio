@@ -23,6 +23,10 @@ export const STORAGE_KEY = "agex-studio-settings";
  * @property {boolean} vision — whether the model takes images: a
  *     screenshot `test_app` takes, or an image `view_image` reads, is
  *     sent to it only then.
+ * @property {string} syncRepo — the GitHub repo sessions sync through
+ *     (`owner/name`); empty when sync is off.
+ * @property {string} syncToken — a token for that repo (fine-grained,
+ *     Contents read and write).
  */
 
 /** @type {Settings} */
@@ -35,6 +39,8 @@ export const DEFAULTS = {
     thinking: "medium",
     foldBudget: 150000,
     vision: true,
+    syncRepo: "",
+    syncToken: "",
 };
 
 /** @type {((s: Settings) => void)[]} */

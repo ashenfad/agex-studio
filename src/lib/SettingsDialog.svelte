@@ -1,7 +1,9 @@
 <script>
     /** The model the studio talks to: OpenRouter, or an endpoint of the
-     *  person's own (a direct provider, a local Meridian, a proxy). */
+     *  person's own (a direct provider, a local Meridian, a proxy); and
+     *  syncing sessions through a GitHub repo of their own. */
     import { getSettings, updateSettings } from './settings.js'
+    import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
 
     /** @type {{ onClose: () => void }} */
     let { onClose } = $props()
@@ -11,6 +13,45 @@
     function save() {
         updateSettings({ ...s })
         onClose()
+    }
+
+    let token = $state('')
+    /** @type {{ repo: string, private: boolean, ready: boolean }[]} */
+    let choices = $state([])
+    let chosen = $state('')
+    let connecting = $state(false)
+    let connectNote = $state('')
+
+    async function connect() {
+        connecting = true
+        connectNote = ''
+        try {
+            const out = await connectSync(token.trim(), choices.length > 0 ? { repo: chosen } : {})
+            if ('reason' in out) {
+                connectNote = out.message
+                if (out.reason === 'choose') {
+                    choices = out.choices
+                    chosen = preferredRepo(out.choices)
+                }
+            } else {
+                // at once, beside the rest: connecting doesn't wait for Save
+                s.syncRepo = out.repo
+                s.syncToken = token.trim()
+                updateSettings({ syncRepo: out.repo, syncToken: token.trim() })
+                token = ''
+                choices = []
+                connectNote = out.private ? '' : `${out.repo} is public: anyone can read the sessions synced there.`
+            }
+        } finally {
+            connecting = false
+        }
+    }
+
+    function disconnect() {
+        s.syncRepo = ''
+        s.syncToken = ''
+        updateSettings({ syncRepo: '', syncToken: '' })
+        connectNote = ''
     }
 </script>
 
@@ -65,6 +106,38 @@
                 <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
             </label>
         {/if}
+        <h2>Sync</h2>
+        {#if s.syncRepo}
+            <p class="hint">Sessions sync through <code>{s.syncRepo}</code>: each one a few seconds after it changes, and every one when the studio opens or comes back into view.</p>
+            {#if connectNote}<p class="hint warn">{connectNote}</p>{/if}
+            <div class="row">
+                <button class="secondary" onclick={disconnect}>Disconnect</button>
+                <span class="hint">Forgets the repo on this device only: the repo and its sessions stay.</span>
+            </div>
+        {:else}
+            <p class="hint">Keep your sessions in a private GitHub repo of your own, to work on them from another device.</p>
+            <ol class="hint">
+                <li><a href={NEW_REPO_URL} target="_blank" rel="noreferrer">Make a private repo</a>, and tick "Add a README".</li>
+                <li><a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">Make a fine-grained token</a>: only that repo, with Contents read and write.</li>
+                <li>Paste the token here and connect.</li>
+            </ol>
+            <label>
+                Token
+                <input type="password" bind:value={token} placeholder="github_pat_…" autocomplete="off" />
+            </label>
+            {#if choices.length > 0}
+                <label>
+                    Repo
+                    <select bind:value={chosen}>
+                        {#each choices as c (c.repo)}<option value={c.repo}>{c.repo}{c.private ? '' : ' (public)'}</option>{/each}
+                    </select>
+                </label>
+            {/if}
+            {#if connectNote}<p class="hint warn">{connectNote}</p>{/if}
+            <div class="row">
+                <button class="secondary" onclick={connect} disabled={connecting || token.trim() === ''}>{connecting ? 'Connecting…' : 'Connect'}</button>
+            </div>
+        {/if}
         <div class="actions">
             <button class="secondary" onclick={onClose}>Cancel</button>
             <button onclick={save}>Save</button>
@@ -87,6 +160,8 @@
         border-radius: 10px;
         padding: 1.2rem;
         width: min(28rem, 92vw);
+        max-height: 90vh;
+        overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 0.7rem;
@@ -132,5 +207,31 @@
     .secondary {
         background: transparent;
         border: 1px solid var(--border);
+    }
+    .secondary:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+    .hint {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin: 0;
+    }
+    ol.hint {
+        padding-left: 1.2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+    .hint a {
+        color: var(--accent);
+    }
+    .warn {
+        color: var(--error);
+    }
+    .row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
     }
 </style>
