@@ -24,7 +24,7 @@ also gave it the Gists permission.
 
 ## Publishing
 
-From a session's **⋯** menu, choose **Publish…**:
+From a session's **⋯** dialog, choose **Publish…**:
 
 - **As it is now** (the default): its files and conversation, without
   the history. Smaller.

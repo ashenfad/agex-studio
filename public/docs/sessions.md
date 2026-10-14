@@ -16,7 +16,12 @@ real history.
 ## New sessions and names
 
 **+ New session** starts an empty one. Its first message names it;
-**Rename** (in the session's **⋯** menu) changes the name.
+double-click a name in the list to change it, or change it in the
+session's **⋯** dialog.
+
+Hover a session in the list for its tools: **⑂** forks it (with its
+conversation), and **⋯** opens its dialog: its name, the other forks,
+export, publish and delete.
 
 ## Undo and redo
 
@@ -30,12 +35,12 @@ haven't delivered are dropped.
 
 ## Forks
 
-From a session's **⋯** menu:
+**⑂** beside a session, or **Fork** in its **⋯** dialog:
 
-- **Fork**: a copy with everything, conversation included, to try
-  another direction without losing this one.
-- **Fork with files only**: the same files, a fresh conversation.
-- **Fork as it is now**: the files and the conversation as they are,
+- **With its conversation** (what **⑂** does): a copy with everything,
+  to try another direction without losing this one.
+- **Its files only**: the same files, a fresh conversation.
+- **As it is now**: the files and the conversation as they are,
   without the history behind them. Much smaller, but its earlier
   turns can't be undone.
 
@@ -62,7 +67,7 @@ fold is.
 
 ## Bundles: export and import
 
-**Export…** (in the **⋯** menu) saves a session as a `.agex` file:
+**Export** (in the session's **⋯** dialog) saves it as a `.agex` file:
 
 - **As it is now**: its files and conversation, without the history.
   Smaller.
@@ -78,7 +83,7 @@ your settings or keys, or the data its app saved.
 
 ## Deleting
 
-**Delete…** in the **⋯** menu removes a session from this browser,
+**Delete…** in the **⋯** dialog removes a session from this browser,
 for good. With sync on, a synced session asks:
 
 - **From this device**: it stays in your sync repo, and shows under

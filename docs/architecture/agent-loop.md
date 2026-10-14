@@ -81,9 +81,20 @@ an undo button (not in a delegate's read-only view).
 ## Notes mid-turn
 
 A message sent while a turn runs goes into the session's `Inbox`
-(`inbox.put`) and is delivered with the turn's next tool result, shown
-as a note in the live view. The inbox belongs to the `ChatSession`,
-not the turn's agent, so it outlives each turn.
+(`inbox.put`) and is delivered with the turn's next tool result. Until
+then it shows as *Queued* (`ChatSession.queued`), and `withdraw` takes it
+back; once delivered (the `Delivered` event), it shows as the person's
+bubble where it landed, and a stored run shows it the same way, read
+back out of the tool result (`notesIn`, after the world's `splitNotes`).
+The inbox belongs to the `ChatSession`, not the turn's agent, so it
+outlives each turn: a note still waiting when a turn completes starts
+the next turn, and after a stop or a failure it goes back into the
+draft.
+
+Files attach before sending (`ChatSession.attached`, added under
+`uploads/` at once); the message names them on a first line,
+`[attached: /workspace/uploads/a.csv, …]` (`withAttachments`), which the
+chat shows as chips.
 
 ## Folding
 

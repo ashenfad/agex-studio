@@ -86,10 +86,14 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
 
 ## Around the chat
 
-- **SessionList**: the sessions, newest first; per session: rename,
-  fork (full, files only, or as it is now), export, publish, delete;
-  import a bundle; with sync on, each session's sync state, the repo's
-  other sessions, and its trash.
+- **SessionList**: the sessions, newest first; a double-click renames
+  one, and its hover tray forks it (⑂) or opens its **SessionDialog**
+  (⋯: name, fork full / files only / as it is now, export, publish,
+  delete); import a bundle; with sync on, each session's sync state, the
+  repo's other sessions, and its trash.
+- **Composer**: the message box: files attached as chips (+, a drop on
+  the chat, a pasted image), and Send, which is Stop while a turn runs
+  with nothing written.
 - **The layout**: the session list folds away (☰ or ⌘B; a drawer on a
   narrow screen); the chat and the workbench split where the person
   drags the divider, kept between visits, and dragging it past the left

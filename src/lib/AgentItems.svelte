@@ -3,13 +3,15 @@
      * An agent's turn, stored or streaming, as the transcript lays it
      * out: prose as markdown, with the artifacts it embeds in place;
      * each run of work as one line that opens to its steps; and the
-     * mechanism's own notes, quietly.
+     * mechanism's own notes, quietly; what the person sent mid-turn as
+     * their own bubble, where it reached the agent.
      */
     import { groupWork } from './activity.js'
     import { renderMarkdown } from './markdown.js'
     import ReplyText from './ReplyText.svelte'
     import ThinkingBlock from './ThinkingBlock.svelte'
     import ToolGroup from './ToolGroup.svelte'
+    import UserBubble from './UserBubble.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, items: import('./activity.js').Item[], streaming?: boolean, at?: string | null }} */
     let { session, items, streaming = false, at = null } = $props()
@@ -31,8 +33,10 @@
         {/if}
     {:else if g.kind === 'text'}
         <ReplyText {session} {at} text={g.text} />
+    {:else if g.kind === 'note' && g.from === 'principal'}
+        <div class="mine"><UserBubble {session} text={g.text} label="Sent mid-turn" /></div>
     {:else if g.kind === 'note'}
-        <div class="note">Delivered mid-turn: {g.text}</div>
+        <div class="note">{g.label ? `${g.label}: ` : ''}{g.text.split('\n')[0]}</div>
     {:else if g.kind === 'closing'}
         <div class="note">{g.text}</div>
     {:else if g.kind === 'folded'}
@@ -47,6 +51,11 @@
 {/if}
 
 <style>
+    .mine {
+        display: flex;
+        justify-content: flex-end;
+        margin: 0.4rem 0;
+    }
     .note {
         color: var(--text-muted);
         font-size: 0.85rem;

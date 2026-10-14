@@ -7,11 +7,13 @@
      * and the rest after it.
      */
     import { CLOSING_NOTE } from 'agex-ts'
+    import { notesIn } from './notes.js'
     import AgentItems from './AgentItems.svelte'
     import Artifact from './Artifact.svelte'
     import { artifactsOf, unembedded } from './artifacts.js'
     import { delegateTask, deliveredAnswers } from './delegation.svelte.js'
     import { studio } from './studio.svelte.js'
+    import UserBubble from './UserBubble.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, at?: string | null }} */
     let { session, run, folds = [], onUndo, at = null } = $props()
@@ -57,19 +59,22 @@
                     else if (part.kind === 'text') out.push({ kind: 'text', text: part.text })
                     else if (part.kind === 'tool_call') {
                         const result = results.get(part.callId)
+                        // what the person (or the mechanism) sent mid-turn rode this result
+                        const { bare, notes } = result === undefined ? { bare: null, notes: [] } : notesIn(result.content)
                         out.push({
                             kind: 'tool',
                             name: part.name,
                             args: { ...part.args },
                             // a call the run ended before answering has no result
-                            result: result?.content ?? null,
+                            result: bare,
                             isError: result?.isError ?? false,
                             images: result?.images ?? [],
                         })
+                        for (const n of notes) out.push({ kind: 'note', from: n.kind, label: n.label, text: n.text })
                     }
                 }
             } else if (message.role === 'user') {
-                out.push({ kind: 'note', text: textOf(message) })
+                out.push({ kind: 'note', from: 'mechanism', label: '', text: textOf(message) })
             }
             for (const fold of foldsAfter(message.id)) out.push({ kind: 'folded', summary: fold.summary })
         }
@@ -93,9 +98,9 @@
         {#if asked !== null}
             <div class="user"><span class="from">Task from {asked.parent.split('.').at(-1)}:</span> {asked.task}</div>
         {:else if delivered === null}
-            <div class="user">{opening}</div>
+            <UserBubble {session} text={opening} />
         {:else if delivered.said !== ''}
-            <div class="user">{delivered.said}</div>
+            <UserBubble {session} text={delivered.said} />
         {/if}
     </div>
     {#if delivered !== null}

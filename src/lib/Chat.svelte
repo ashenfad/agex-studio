@@ -1,29 +1,48 @@
 <script>
     /**
-     * The chat: the session's stored runs, the turn running now, and
-     * the composer. A message sent while a turn runs is queued as a
-     * note, delivered with the turn's next tool result. With no model
-     * chosen (a published session opened by a visitor, say), the
-     * conversation reads and the composer waits for one.
+     * The chat: the session's stored runs, the turn running now, the
+     * messages queued for it, and the composer. A message sent while a
+     * turn runs is queued as a note, delivered with the turn's next tool
+     * result, and can be taken back until then. Files dropped on the chat
+     * attach to the next message. With no model chosen (a published
+     * session opened by a visitor, say), the conversation reads and the
+     * composer waits for one.
      */
+    import Composer from './Composer.svelte'
     import DelegateStrip from './DelegateStrip.svelte'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
     import { studio } from './studio.svelte.js'
+    import UserBubble from './UserBubble.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
     let { session } = $props()
 
-    let draft = $state('')
     /** @type {HTMLElement | undefined} */
     let list = $state()
+    /** @type {Composer | undefined} */
+    let composer = $state()
+    /** Files dragged over the chat, to be dropped. */
+    let dragging = $state(false)
 
-    async function send() {
-        const prompt = draft.trim()
-        if (prompt === '' || !isConfigured($settingsStore)) return
-        draft = ''
-        void session.say(prompt)
+    /** Whether a drop can attach here: files, a writable session, no turn running.
+     *  @param {DragEvent} e */
+    const droppable = (e) => !session.readonly && !session.busy && isConfigured($settingsStore) && (e.dataTransfer?.types.includes('Files') ?? false)
+
+    /** @param {DragEvent} e */
+    function onDragOver(e) {
+        if (!droppable(e)) return
+        e.preventDefault()
+        dragging = true
+    }
+
+    /** @param {DragEvent} e */
+    function onDrop(e) {
+        if (!dragging) return
+        e.preventDefault()
+        dragging = false
+        void composer?.attach(e.dataTransfer?.files ?? [])
     }
 
     /** @param {() => Promise<unknown>} fn */
@@ -35,13 +54,6 @@
         }
     }
 
-    /** @param {KeyboardEvent} e */
-    function onKey(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            void send()
-        }
-    }
 
     /** Whether the view follows the newest content: while the person
      *  is at the bottom, and not once they scroll up to read. */
@@ -80,7 +92,16 @@
     })
 </script>
 
-<div class="chat">
+<!-- svelte-ignore a11y_no_static_element_interactions (a drop target; the composer's + does the same) -->
+<div
+    class="chat"
+    ondragover={onDragOver}
+    ondragleave={(e) => {
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) dragging = false
+    }}
+    ondrop={onDrop}
+>
+    {#if dragging}<div class="drop">Drop files to attach</div>{/if}
     <div class="messages" bind:this={list} onscroll={onScroll} onclickcapture={onClick}>
         {#each session.runs as run, i (run.runId)}
             <RunView {session} {run} at={session.endOf(i)} folds={session.folds} onUndo={session.busy || session.readonly ? undefined : () => act(() => session.undo(run.runId))} />
@@ -95,6 +116,11 @@
         {#if session.busy}
             <LiveTurn {session} prompt={session.prompt} parts={session.live} />
         {/if}
+        {#each session.queued as q (q.id)}
+            <div class="mine">
+                <UserBubble {session} text={q.text} label="Queued · reaches the agent with its next step" faded onWithdraw={() => session.withdraw(q.id)} />
+            </div>
+        {/each}
         {#if session.error}
             <div class="error">{session.error}</div>
         {/if}
@@ -113,23 +139,7 @@
         <span>A delegate: {session.busy ? 'working' : 'its transcript'}, read-only</span>
     </div>
     {:else}
-    <div class="composer">
-        <textarea
-            bind:value={draft}
-            onkeydown={onKey}
-            rows="2"
-            disabled={!isConfigured($settingsStore)}
-            placeholder={!isConfigured($settingsStore)
-                ? 'To carry on the conversation, choose a model in settings (⚙)'
-                : session.busy
-                  ? 'Add a note to the turn running…'
-                  : 'Ask for something…'}
-        ></textarea>
-        {#if session.busy}
-            <button class="stop" onclick={() => session.cancel()}>Stop</button>
-        {/if}
-        <button onclick={send} disabled={draft.trim() === '' || !isConfigured($settingsStore)}>Send</button>
-    </div>
+    <div class="composer"><Composer bind:this={composer} {session} /></div>
     {/if}
 </div>
 
@@ -161,6 +171,7 @@
         /* the conversation reads in a column of at most 900px, centered;
            each row pads its sides to it, so it scrolls at the edge */
         --gutter: max(1rem, calc((100% - 900px) / 2));
+        position: relative;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -193,42 +204,36 @@
         border-top: 1px solid var(--border);
     }
     .banner button {
-        padding: 0.25rem 0.7rem;
-    }
-    .secondary {
-        background: transparent;
-        border: 1px solid var(--border);
-    }
-    .composer {
-        display: flex;
-        gap: 0.5rem;
-        padding: 0.6rem var(--gutter);
-        border-top: 1px solid var(--border);
-    }
-    textarea {
-        flex: 1;
-        resize: none;
-        background: var(--input-bg);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 0.5rem;
-        font: inherit;
-    }
-    button {
         background: var(--accent);
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 0 1rem;
+        padding: 0.25rem 0.7rem;
         cursor: pointer;
     }
-    button:disabled {
-        opacity: 0.5;
-        cursor: default;
-    }
-    .stop {
-        background: var(--surface);
+    .banner .secondary {
+        background: transparent;
         border: 1px solid var(--border);
+    }
+    .composer {
+        padding: 0.5rem var(--gutter) 0.8rem;
+    }
+    .mine {
+        display: flex;
+        justify-content: flex-end;
+    }
+    .drop {
+        position: absolute;
+        inset: 0.5rem;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px dashed var(--accent);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--bg) 85%, transparent);
+        color: var(--text);
+        font-size: 1rem;
+        pointer-events: none;
     }
 </style>
