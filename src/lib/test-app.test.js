@@ -17,7 +17,11 @@ describe('the app’s files', () => {
         expect(hasApp(app)).toBe(true)
         const before = appDigest(app)
         await ws.files.write('/workspace/app/index.html', '<div id="app">!</div>')
-        expect(appDigest(await readApp(ws))).not.toBe(before)
+        const edited = appDigest(await readApp(ws))
+        expect(edited).not.toBe(before)
+        // an asset replaced by other bytes of the same size
+        await ws.files.write('/workspace/app/img/logo.png', new Uint8Array([137, 80, 78, 72]))
+        expect(appDigest(await readApp(ws))).not.toBe(edited)
         await ws.close()
     })
 })
@@ -34,5 +38,10 @@ describe('test_app’s result', () => {
         expect(out.images).toEqual([{ data: 'iVBORw0KGgo=', format: 'png' }])
         expect(out.isError).toBe(false)
         expect(formatResults([]).text).toMatch(/no console output/)
+    })
+
+    it('says when an eval threw', () => {
+        const out = formatResults([{ type: 'eval', expr: 'boom()', value: null, error: 'ReferenceError: boom is not defined (in: boom())' }])
+        expect(out.text).toBe('eval boom() threw: ReferenceError: boom is not defined (in: boom())')
     })
 })

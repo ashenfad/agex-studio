@@ -96,6 +96,19 @@ const CONSOLE_INTERCEPTOR = `
 })();
 <\/script>`;
 
+/** The page an app with `app/main.js` and no `app/index.html` gets. */
+const MAIN_JS_PAGE = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
+</style>
+</head><body>
+<div id="app"></div>
+<script type="module" src="./main.js"><\/script>
+</body></html>`;
+
 const HOST_BRIDGE_SCRIPT = `
 <script>
 // getCacheValue(key) — read a value the agent stashed via cache.set(key, value).
@@ -774,45 +787,24 @@ export async function buildAppHtml(appFiles, opts = {}) {
     // `window.appAssets` + the fetch monkey-patch.
     const assetUrls = buildAssetUrlMap(opts.appBinaries || {});
     const assetsScript = buildAssetsScript(assetUrls);
-    let html = appFiles['app/index.html'] || appFiles['index.html'];
-    if (html) {
-        // Resolve multi-file references (JS import map, CSS inlining,
-        // binary asset rewrites).
-        const resolved = _resolveAppModules(appFiles, html, assetUrls);
-        html = resolved.html;
-        const importMapTag = _buildImportMapTag(resolved.importMap);
-        const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
+    // An app with a main script and no page gets a page that loads it,
+    // built as any other: its imports resolve the same way.
+    let html = appFiles['app/index.html'] || appFiles['index.html'] || MAIN_JS_PAGE;
+    // Resolve multi-file references (JS import map, CSS inlining,
+    // binary asset rewrites).
+    const resolved = _resolveAppModules(appFiles, html, assetUrls);
+    html = resolved.html;
+    const importMapTag = _buildImportMapTag(resolved.importMap);
+    const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
 
-        // The storage shim runs before app code (and before the CDN
-        // scripts below: a library might poke localStorage on import),
-        // and the assets script early, so its fetch patch is in place
-        // before any app JS runs.
-        const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
-        html = html.replace('<head>', '<head>' + injected);
-        if (!html.includes('<head>')) {
-            html = injected + html;
-        }
-    } else {
-        const mainJs = appFiles['app/main.js'] || appFiles['main.js'] || '';
-        const importMapTag = _buildImportMapTag({});
-        html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-${CONSOLE_INTERCEPTOR}
-${storageShim}
-${assetsScript}
-${workerScript}
-${HOST_BRIDGE_SCRIPT}
-${AGENT_CONTROL_BRIDGE_SCRIPT}
-${importMapTag}
-${_plotlyScriptTag()}
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
-</style>
-</head><body>
-<div id="app"></div>
-<script type="module">${mainJs}<\/script>
-</body></html>`;
+    // The storage shim runs before app code (and before the CDN
+    // scripts below: a library might poke localStorage on import),
+    // and the assets script early, so its fetch patch is in place
+    // before any app JS runs.
+    const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+    html = html.replace('<head>', '<head>' + injected);
+    if (!html.includes('<head>')) {
+        html = injected + html;
     }
     return html;
 }
