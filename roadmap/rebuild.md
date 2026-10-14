@@ -154,7 +154,9 @@ session pushed a few seconds after it changes and every one compared
 on arrival and on focus, a choice when one changed on two devices
 (the synced version, this device's kept as its own session; or this
 device's, on top of the synced one), cloud sessions to download, and
-the trash. An app's saved data stays on the device for now. S4c:
+the trash; an app's saved data syncs beside its session, on a
+branch of its own (`appdata/<session>`, never bundled or published),
+the later of two devices' writes winning. S4c:
 bundles (`.agex`: a header line and a kvgit pack), exported with the
 history or as the session is now, opened as a new session; and the
 compact fork, the same snapshot as a session. S4d: gist publishing

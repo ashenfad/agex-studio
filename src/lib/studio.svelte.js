@@ -192,6 +192,9 @@ export class ChatSession {
     /** Bumped whenever the app under app/ may have changed (a tool call
      *  that wrote, an undo, a reload), so the preview looks again. */
     appStamp = $state(0);
+    /** Bumped when another device's app data was taken in here: the
+     *  preview offers to reload the app with it. */
+    appDataStamp = $state(0);
     /** Bumped whenever the record is read again (a turn's end, an
      *  undo), so the artifacts a reply shows are read again too. */
     filesStamp = $state(0);
@@ -1152,6 +1155,9 @@ export class Studio {
         const store = await openStore();
         await store.delete(name);
         removeAppStorage("ts", name);
+        // its app data's branch (see app-data.js) goes with it
+        const appData = `appdata/${name}`;
+        if (await store.repo.branches.has(appData)) await store.repo.branches.delete(appData);
         await this.refresh();
         if (this.current?.name === name) {
             this.current = null;

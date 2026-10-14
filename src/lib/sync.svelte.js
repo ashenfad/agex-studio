@@ -18,17 +18,41 @@
  *   everywhere (into the trash).
  * - **What syncs:** sessions with a title (a new, untouched session
  *   stays local until its first turn), not a delegate's or a task's
- *   branch. An app's saved data stays on the device.
+ *   branch; and with each, its app's saved data, on a branch of its own
+ *   (`app-data.js`: never in the session's history, so never in what it
+ *   bundles or publishes), the later of two devices' writes winning.
  */
 
-import { MergeChoice, clearSyncHead, getSyncHead, syncBranch } from "@agex-ts/kvgit";
+import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, PackRemote } from "@agex-ts/kvgit/github";
 import { getSettings, settingsStore } from "./settings.js";
 import { openStore, studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
+import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
+import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
 
 /** How long after a change a session is pushed. */
 export const PUSH_DELAY = 4000;
+/** How long after an app writes its data it is pushed. */
+export const APP_DATA_DELAY = 10_000;
+
+/** When session `name`'s app last wrote its data here. @param {string} name */
+function appWrittenAt(name) {
+    try {
+        return Number(localStorage.getItem(`agex-app-at:${name}`) ?? 0);
+    } catch {
+        return 0;
+    }
+}
+
+/** @param {string} name @param {number} at */
+function setAppWrittenAt(name, at) {
+    try {
+        localStorage.setItem(`agex-app-at:${name}`, String(at));
+    } catch {
+        // for this page only
+    }
+}
 /** How often, at most, the page compares every session with the repo. */
 export const SWEEP_EVERY = 5 * 60 * 1000;
 
@@ -117,6 +141,69 @@ export class Sync {
         return (this.studio.sessions.find((s) => s.name === name)?.title ?? "") !== "";
     }
 
+    /** Session `name`'s app wrote its data here: noted, and pushed a
+     *  little later. @param {string} name */
+    appChanged(name) {
+        setAppWrittenAt(name, Date.now());
+        if (!this.connected || !this.#syncs(name)) return;
+        clearTimeout(this.#appTimers.get(name));
+        this.#appTimers.set(
+            name,
+            setTimeout(() => {
+                this.#appTimers.delete(name);
+                void exclusively(() => this.#syncApp(name).catch(() => undefined));
+            }, APP_DATA_DELAY),
+        );
+    }
+
+    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+    #appTimers = new Map();
+
+    /**
+     * Sync session `name`'s app data: what the app wrote here is
+     * committed, then pulled and pushed; pulled data replaces what is
+     * here, and two devices' writes settle on the later. An app showing
+     * is told, not reloaded under the person.
+     *
+     * @param {string} name
+     */
+    async #syncApp(name) {
+        const store = await openStore();
+        const kv = store.repo.store;
+        const remote = await this.#remoteNow();
+        const branch = appBranch(name);
+        await commitAppData(store, name, { bag: readAppStorage("ts", name), at: appWrittenAt(name) });
+        const here = await store.repo.branches.has(branch);
+        if (!here) {
+            // nothing written here: take what another device wrote, if any
+            const pulled = await pullBranch(kv, remote, branch);
+            if (pulled.status === "created") await this.#takeAppData(name, { branch });
+            return;
+        }
+        let out = await syncBranch(kv, remote, branch);
+        if (out.pull.status === "fast-forwarded" || out.pull.status === "created") await this.#takeAppData(name, { branch });
+        if (out.status === "diverged" && out.pull.remoteHead !== null) {
+            // both wrote: the later wins, on top of the other's, so the push is a fast-forward
+            const theirs = await readAppData(store, { commit: out.pull.remoteHead });
+            const mine = await readAppData(store, { branch });
+            await moveAppData(store, name, out.pull.remoteHead);
+            if (theirs !== null && (mine === null || theirs.at >= mine.at)) await this.#takeAppData(name, { branch });
+            else if (mine !== null) await commitAppData(store, name, mine);
+            out = await syncBranch(kv, remote, branch);
+        }
+    }
+
+    /** Put the app data `ref` holds into the app's storage here, and tell
+     *  a preview showing it. @param {string} name @param {{ branch: string }} ref */
+    async #takeAppData(name, ref) {
+        const data = await readAppData(await openStore(), ref);
+        if (data === null) return;
+        writeAppStorage("ts", name, data.bag);
+        setAppWrittenAt(name, data.at);
+        const open = this.studio.opened(name);
+        if (open !== undefined) open.appDataStamp += 1;
+    }
+
     /** Push session `name` once it has been still for a moment.
      *  @param {string} name @param {number} [delay] */
     schedule(name, delay = PUSH_DELAY) {
@@ -161,6 +248,8 @@ export class Sync {
                     return out;
                 };
                 const out = session === undefined ? await run() : await session.hold(run);
+                // its app's data beside it (a failure there isn't the session's)
+                await this.#syncApp(name).catch(() => undefined);
                 if (out.status === "diverged") this.#mark(name, "diverged", "It changed on another device too.");
                 else if (out.status === "remote-gone") this.#mark(name, "remote-gone", "It was removed from the sync repo elsewhere.");
                 else this.#mark(name, "synced");
@@ -195,7 +284,13 @@ export class Sync {
             const live = new Map();
             /** @type {Map<string, import("@agex-ts/kvgit/github").RosterEntry>} */
             const archived = new Map();
+            /** App-data heads in the repo, by session. @type {Map<string, string>} */
+            const appHeads = new Map();
             for (const r of roster) {
+                if (r.branch.startsWith(APP_DATA)) {
+                    if (!r.archived) appHeads.set(r.branch.slice(APP_DATA.length), r.head);
+                    continue;
+                }
                 if (r.branch.includes(".")) continue;
                 (r.archived ? archived : live).set(r.branch, r);
             }
@@ -214,6 +309,12 @@ export class Sync {
                 const r = live.get(name);
                 if (r?.head === head) {
                     this.#mark(name, "synced");
+                    // the session is level; its app's data may not be
+                    const appHead = (await store.repo.branches.has(appBranch(name))) ? await store.repo.branches.get(appBranch(name)) : null;
+                    const written = appWrittenAt(name) > (appHead === null ? 0 : ((await readAppData(store, { commit: appHead }))?.at ?? 0));
+                    if (this.#syncs(name) && ((appHeads.get(name) ?? null) !== appHead || written)) {
+                        await exclusively(() => this.#syncApp(name).catch(() => undefined));
+                    }
                     continue;
                 }
                 if (r === undefined && archived.has(name)) {
@@ -307,6 +408,8 @@ export class Sync {
         if (!(await remote.archiveBranch(name))) {
             throw new Error("the session changed in the sync repo meanwhile; sync, then delete again");
         }
+        // its app data goes with it (false when it has none there)
+        await remote.archiveBranch(appBranch(name)).catch(() => false);
         await this.studio.remove(name);
         await this.sweep({ force: true });
     }
@@ -316,7 +419,9 @@ export class Sync {
     async restore(name) {
         const remote = await this.#remoteNow();
         if (!(await remote.restoreBranch(name))) throw new Error("it couldn't be restored: is a session of that name back already?");
+        await remote.restoreBranch(appBranch(name)).catch(() => false);
         await clearSyncHead((await openStore()).repo.store, name);
+        await clearSyncHead((await openStore()).repo.store, appBranch(name));
         // out of the trash now, whatever the download does: a failed one
         // leaves it among the cloud sessions, to retry
         const shown = this.trash.find((t) => t.name === name) ?? { name, title: "", updatedAt: Date.now() };
