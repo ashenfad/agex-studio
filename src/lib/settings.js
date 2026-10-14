@@ -20,6 +20,9 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     model thinks per turn, which each provider maps for its model.
  * @property {number} foldBudget — the request size, in tokens, past
  *     which earlier turns are folded into a summary; 0 never folds.
+ * @property {boolean} vision — whether the model takes images: a
+ *     screenshot `test_app` takes, or an image `view_image` reads, is
+ *     sent to it only then.
  */
 
 /** @type {Settings} */
@@ -31,6 +34,7 @@ export const DEFAULTS = {
     baseUrl: "",
     thinking: "medium",
     foldBudget: 150000,
+    vision: true,
 };
 
 /** @type {((s: Settings) => void)[]} */

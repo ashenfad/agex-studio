@@ -61,6 +61,7 @@
                         args={{ ...part.args }}
                         result={result?.content ?? null}
                         isError={result?.isError ?? false}
+                        images={result?.images ?? []}
                     />
                 {/if}
             {/each}

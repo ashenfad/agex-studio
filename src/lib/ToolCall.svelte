@@ -5,8 +5,8 @@
      */
     import { highlightCode } from './highlight.js'
 
-    /** @type {{ name: string, args: Record<string, unknown>, result: string | null, isError?: boolean }} */
-    let { name, args, result, isError = false } = $props()
+    /** @type {{ name: string, args: Record<string, unknown>, result: string | null, isError?: boolean, images?: readonly { data: string, mediaType: string }[] }} */
+    let { name, args, result, isError = false, images = [] } = $props()
 
     /** The argument that says what the call does, shown as code. */
     const shown = $derived.by(() => {
@@ -36,6 +36,9 @@
             <pre class="result">{result}</pre>
         </details>
     {/if}
+    {#each images as image, i (i)}
+        <img class="shot" src={`data:${image.mediaType};base64,${image.data}`} alt={`${name} image ${i + 1}`} />
+    {/each}
 </div>
 
 <style>
@@ -74,6 +77,14 @@
         word-break: break-word;
         max-height: 20rem;
         overflow: auto;
+    }
+    .shot {
+        display: block;
+        max-width: 100%;
+        max-height: 24rem;
+        margin: 0.3rem 0.6rem 0.6rem;
+        border: 1px solid var(--border);
+        border-radius: 4px;
     }
     details summary {
         cursor: pointer;

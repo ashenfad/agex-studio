@@ -56,6 +56,10 @@
                     <option value="high">high</option>
                 </select>
             </label>
+            <label class="check">
+                <input type="checkbox" bind:checked={s.vision} />
+                The model takes images (screenshots of its apps)
+            </label>
             <label>
                 Fold the conversation past (tokens; 0 never folds)
                 <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
@@ -97,6 +101,11 @@
         gap: 0.25rem;
         font-size: 0.85rem;
         color: var(--text-muted);
+    }
+    .check {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
     }
     input,
     select {
