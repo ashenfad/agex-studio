@@ -2,10 +2,13 @@
     /**
      * The chat: the session's stored runs, the turn running now, and
      * the composer. A message sent while a turn runs is queued as a
-     * note, delivered with the turn's next tool result.
+     * note, delivered with the turn's next tool result. With no model
+     * chosen (a published session opened by a visitor, say), the
+     * conversation reads and the composer waits for one.
      */
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
+    import { isConfigured, settingsStore } from './settings.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
     let { session } = $props()
@@ -16,7 +19,7 @@
 
     async function send() {
         const prompt = draft.trim()
-        if (prompt === '') return
+        if (prompt === '' || !isConfigured($settingsStore)) return
         draft = ''
         void session.say(prompt)
     }
@@ -90,12 +93,17 @@
             bind:value={draft}
             onkeydown={onKey}
             rows="2"
-            placeholder={session.busy ? 'Add a note to the turn running…' : 'Ask for something…'}
+            disabled={!isConfigured($settingsStore)}
+            placeholder={!isConfigured($settingsStore)
+                ? 'To carry on the conversation, choose a model in settings (⚙)'
+                : session.busy
+                  ? 'Add a note to the turn running…'
+                  : 'Ask for something…'}
         ></textarea>
         {#if session.busy}
             <button class="stop" onclick={() => session.cancel()}>Stop</button>
         {/if}
-        <button onclick={send} disabled={draft.trim() === ''}>Send</button>
+        <button onclick={send} disabled={draft.trim() === '' || !isConfigured($settingsStore)}>Send</button>
     </div>
 </div>
 

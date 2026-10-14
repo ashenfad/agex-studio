@@ -8,6 +8,7 @@
      * repo's other sessions to download and its trash.
      */
     import { formatDate } from './format-time.js'
+    import PublishDialog from './PublishDialog.svelte'
     import { studio } from './studio.svelte.js'
     import { sync } from './sync.svelte.js'
 
@@ -22,6 +23,8 @@
     }
 
     let emptying = $state(false)
+    /** The session the publish dialog is for. @type {string | null} */
+    let publishing = $state(null)
 
     /** @type {string | null} */
     let exporting = $state(null)
@@ -138,7 +141,15 @@
                         <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('fresh') }).then(onPicked)}>Fork with files only</button>
                         <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('compact') }).then(onPicked)} title="Everything as it is now, without the history: much smaller">Fork as it is now</button>
                         <button onclick={() => { exporting = s.name; menuFor = null }}>Export…</button>
+                        <button onclick={() => { publishing = s.name; menuFor = null }}>Publish…</button>
                         <button class="danger" onclick={() => { confirming = s.name; menuFor = null }}>Delete…</button>
+                    </div>
+                {/if}
+                {#if studio.updates[s.name]}
+                    <div class="menu">
+                        <span>A newer version was published.</span>
+                        <button onclick={() => act(() => studio.update(s.name)).then(onPicked)}>Open it</button>
+                        <button onclick={() => studio.dismissUpdate(s.name)}>Not now</button>
                     </div>
                 {/if}
                 {#if exporting === s.name}
@@ -223,6 +234,10 @@
         {/if}
     {/if}
 </nav>
+
+{#if publishing}
+    <PublishDialog name={publishing} onClose={() => (publishing = null)} />
+{/if}
 
 <style>
     .sessions {

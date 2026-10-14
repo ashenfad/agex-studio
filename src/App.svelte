@@ -24,6 +24,15 @@
 
     if (import.meta.env.DEV) installDevHook(studio, sync)
 
+    /** A published session's link (`/run/?gist=…`), and `&play=1`
+     *  for its app alone. */
+    const params = new URLSearchParams(location.search)
+    const gistParam = params.get('gist')
+    /** The app alone, as a published link's `play=1` asks. */
+    let playing = $state(params.get('play') === '1')
+    /** What went wrong opening a published link. @type {string | null} */
+    let opening = $state(null)
+
     onMount(() => {
         void (async () => {
             try {
@@ -32,8 +41,19 @@
                 failed = e instanceof Error ? e.message : String(e)
                 return
             }
+            if (gistParam !== null) {
+                try {
+                    await studio.openGist(gistParam)
+                } catch (e) {
+                    opening = e instanceof Error ? e.message : String(e)
+                    playing = false
+                }
+                // the session is here now: the plain address from here on
+                history.replaceState({}, '', '/')
+            }
             // every session against the repo, on arrival and on coming back
             void sync.sweep({ force: true })
+            void studio.checkUpdates()
         })()
         const back = () => {
             if (document.visibilityState === 'visible') void sync.sweep()
@@ -63,6 +83,12 @@
     }
 </script>
 
+{#if playing && studio.current}
+    <div class="play">
+        <div class="app-pane"><AppPreview session={studio.current} /></div>
+        <button class="pill" onclick={() => (playing = false)} title="The conversation and files behind this app">agex studio · how it was made</button>
+    </div>
+{:else}
 <div class="shell">
     <header>
         <button class="icon sessions-toggle" onclick={() => (showSessions = !showSessions)} aria-label="Sessions">☰</button>
@@ -83,12 +109,15 @@
             {#if failed}
                 <p class="note">The store couldn't open: {failed}</p>
             {:else if studio.current === null}
-                <p class="note">Opening…</p>
-            {:else if !isConfigured($settingsStore)}
-                <p class="note">
-                    Choose a model to start: <button class="link" onclick={() => (showSettings = true)}>settings</button>.
-                </p>
+                <p class="note">{gistParam ? 'Opening the published session…' : 'Opening…'}</p>
             {:else}
+                {#if opening}
+                    <p class="note warn">The published session couldn't be opened: {opening}</p>
+                {:else if !isConfigured($settingsStore)}
+                    <p class="note">
+                        To work with the agent, choose a model in <button class="link" onclick={() => (showSettings = true)}>settings</button>.
+                    </p>
+                {/if}
                 {#key studio.current.name}
                     <div class="work" class:with-app={showApp}>
                         <div class="chat-pane"><Chat session={studio.current} /></div>
@@ -101,6 +130,8 @@
         </main>
     </div>
 </div>
+
+{/if}
 
 {#if showSettings}
     <SettingsDialog onClose={() => (showSettings = false)} />
@@ -159,11 +190,14 @@
         flex: 1;
         min-width: 0;
         min-height: 0;
+        display: flex;
+        flex-direction: column;
     }
     .work {
         display: grid;
         grid-template-columns: 1fr;
-        height: 100%;
+        flex: 1;
+        min-height: 0;
     }
     .work.with-app {
         grid-template-columns: minmax(20rem, 2fr) 3fr;
@@ -208,6 +242,37 @@
     .note {
         padding: 1rem;
         color: var(--text-muted);
+    }
+    main > .note {
+        padding: 0.4rem 1rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.85rem;
+    }
+    .warn {
+        color: var(--error);
+    }
+    .play {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    .play .app-pane {
+        flex: 1;
+        min-height: 0;
+    }
+    .pill {
+        position: fixed;
+        right: 0.8rem;
+        bottom: 0.8rem;
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.3rem 0.8rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        z-index: 5;
     }
     .link {
         background: none;

@@ -63,9 +63,9 @@ export function installDevHook(studio, sync) {
         /** @param {Partial<import("./settings.js").Settings>} patch */
         configure(patch) {
             updateSettings(patch);
-            const { apiKey, syncToken, ...rest } = getSettings();
+            const { apiKey, syncToken, publishToken, ...rest } = getSettings();
             const masked = (/** @type {string} */ key) => (key === "" ? "" : "(set)");
-            return { ...rest, apiKey: masked(apiKey), syncToken: masked(syncToken) };
+            return { ...rest, apiKey: masked(apiKey), syncToken: masked(syncToken), publishToken: masked(publishToken) };
         },
         /** The scripted model's next steps (accessMode 'scripted').
          *  @param {import("@agex-ts/world/conformance").ModelStep[]} steps */
@@ -168,6 +168,18 @@ export function installDevHook(studio, sync) {
         /** Open a bundle (base64), as Import does. @param {string} base64 */
         async importBundle(base64) {
             return studio.importBundle(base64ToBytes(base64));
+        },
+        /** Publish the current session as a gist; its links.
+         *  @param {"everything" | "current"} [shape] @param {boolean} [fresh] */
+        async publish(shape = "current", fresh = false) {
+            const gist = await studio.publish(session().name, { shape, fresh });
+            const { runUrl } = await import("./gist.js");
+            return { ...gist, play: runUrl(location.origin, gist, { play: true }), run: runUrl(location.origin, gist) };
+        },
+        /** Look for newer revisions of opened gists now. */
+        async checkUpdates() {
+            await studio.checkUpdates({ force: true });
+            return { ...studio.updates };
         },
         /** The current session's head. */
         head() {

@@ -157,9 +157,12 @@ device's, on top of the synced one), cloud sessions to download, and
 the trash. An app's saved data stays on the device for now. S4c:
 bundles (`.agex`: a header line and a kvgit pack), exported with the
 history or as the session is now, opened as a new session; and the
-compact fork, the same snapshot as a session. S4d: gist publishing,
-opening (`/run/?gist=`, viewable without a model key) and update
-checks; the published-version tags. Exit: a session syncs between two
+compact fork, the same snapshot as a session. S4d: gist publishing
+(a secret gist of the bundle as base64, updated in place so its links
+stay), opening (`/run/?gist=`, the app alone with `play=1`, viewable
+without a model key) and update checks; the published-version tags
+(`published/<slug>/<n>`, store tags, so on the publishing device only
+for now). Exit: a session syncs between two
 browsers, and a published app opens from its gist link in a fresh one.
 
 **S5. Agents from apps, and delegation.** The bridge: an app's

@@ -27,6 +27,8 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     (`owner/name`); empty when sync is off.
  * @property {string} syncToken — a token for that repo (fine-grained,
  *     Contents read and write).
+ * @property {string} publishToken — a token that can write gists, to
+ *     publish sessions; the sync token is tried when empty.
  */
 
 /** @type {Settings} */
@@ -41,6 +43,7 @@ export const DEFAULTS = {
     vision: true,
     syncRepo: "",
     syncToken: "",
+    publishToken: "",
 };
 
 /** @type {((s: Settings) => void)[]} */

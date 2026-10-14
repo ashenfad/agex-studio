@@ -29,6 +29,7 @@ import { writeFile } from "./ws-paths.js";
 import { testAppTool } from "./test-app.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { applyBundle, bundleFileName, encodeBundle, readBundleHeader } from "./bundle.js";
+import { fetchGistBundle, latestRevision, parseGistParam, publishGist, slugOf } from "./gist.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
 import { getSettings } from "./settings.js";
@@ -91,7 +92,8 @@ export function openStore() {
  * came from (the head of the bundle it was made from), so opening the
  * same bundle again finds it: kept on the plane apart from `meta`,
  * which a turn and a rename rewrite.
- * @typedef {{ name: string, title: string, createdAt: number, updatedAt: number, source?: { head: string } }} SessionInfo
+ * @typedef {{ name: string, title: string, createdAt: number, updatedAt: number, source?: SessionSource }} SessionInfo
+ * @typedef {{ head: string, gist?: import("./gist.js").GistRef & { pinned: boolean } }} SessionSource
  */
 
 /** A new session's name: a session id, never a delegate's (no dot). */
@@ -499,6 +501,24 @@ export function titleFrom(prompt) {
     return line.length > 60 ? `${line.slice(0, 57)}…` : line || "Untitled";
 }
 
+/** @param {string} key */
+function readLocal(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch {
+        return null;
+    }
+}
+
+/** @param {string} key @param {string} value */
+function writeLocal(key, value) {
+    try {
+        localStorage.setItem(key, value);
+    } catch {
+        // kept for this page only
+    }
+}
+
 /** The sessions, and the one being looked at. */
 export class Studio {
     /** @type {SessionInfo[]} */
@@ -598,6 +618,7 @@ export class Studio {
             const now = Date.now();
             child.plane(PLANE).set("meta", { title, createdAt: now, updatedAt: now });
             await child.plane(PLANE).delete("source");
+            await child.plane(PLANE).delete("published");
             await child.autoCommit({ tool: "studio.fork" });
             copyAppStorage("ts", name, child.session);
             await child.close();
@@ -665,8 +686,9 @@ export class Studio {
             createdAt: now,
             updatedAt: now,
         });
-        // a fork of an imported session isn't that import
+        // a fork of an imported session isn't that import, nor what it published
         await child.plane(PLANE).delete("source");
+        await child.plane(PLANE).delete("published");
         await child.autoCommit({ tool: "studio.fork" });
         // the app's saved data goes with its files, on either kind of fork
         copyAppStorage("ts", from.name, child.session);
@@ -700,6 +722,7 @@ export class Studio {
         // a snapshot or bundle carries the source session's own record
         if (source !== undefined) child.plane(PLANE).set("source", source);
         else await child.plane(PLANE).delete("source");
+        await child.plane(PLANE).delete("published");
         await child.autoCommit({ tool: "studio.adopt" });
         const session = this.#watch(new ChatSession(child.session));
         await session.open(child);
@@ -712,8 +735,9 @@ export class Studio {
      * earlier import of this bundle is here, that one. Its name.
      *
      * @param {Uint8Array} bytes
+     * @param {{ gist?: SessionSource["gist"] }} [from] where it came from
      */
-    async importBundle(bytes) {
+    async importBundle(bytes, from = {}) {
         const { header } = readBundleHeader(bytes);
         await this.refresh();
         const known = this.sessions.find((s) => s.source?.head === header.head);
@@ -724,7 +748,10 @@ export class Studio {
         const store = await openStore();
         const branch = `${newName()}.import`;
         await applyBundle(store.repo.store, bytes, branch);
-        const name = await this.#adopt(branch, { title: header.title || "Imported", source: { head: header.head } });
+        const name = await this.#adopt(branch, {
+            title: header.title || "Imported",
+            source: { head: header.head, ...(from.gist && { gist: from.gist }) },
+        });
         await this.switchTo(name);
         return { name, existing: false };
     }
@@ -755,6 +782,139 @@ export class Studio {
             bytes = await encodeBundle(kv, head, { title, shape });
         }
         return { bytes, fileName: bundleFileName(title) };
+    }
+
+    /**
+     * Publish session `name` as a gist (see `gist.js`): `shape` as for a
+     * bundle; to the gist it was published to before unless `fresh`. The
+     * gist is recorded on the session, and the commit published is
+     * tagged in the store, `published/<slug>/<version>`. What came of it.
+     *
+     * @param {string} name
+     * @param {{ shape: "everything" | "current", fresh?: boolean }} opts
+     */
+    async publish(name, { shape, fresh = false }) {
+        const s = getSettings();
+        const token = s.publishToken.trim() || s.syncToken.trim();
+        if (token === "") throw new Error("publishing needs a GitHub token with gist access: add one in settings");
+        const prior = fresh ? null : await this.published(name);
+        const { bytes } = await this.exportBundle(name, shape);
+        const title = this.sessions.find((x) => x.name === name)?.title || "Untitled";
+        const gist = await publishGist({ token, title, bytes, existing: prior });
+        const store = await openStore();
+        const open = this.#open.get(name)?.ws ?? null;
+        const ws = open ?? (await store.open(name, { profile: PROFILE }));
+        try {
+            // the commit published, tagged as this slug's next version
+            const prefix = `published/${gist.slug}/`;
+            const versions = [...(await store.tags.list()).keys()].filter((t) => t.startsWith(prefix)).length;
+            await store.tags.add(ws, `${prefix}${versions + 1}`, {
+                info: { gist: { owner: gist.owner, id: gist.id, revision: gist.revision }, shape, session: name, title },
+            });
+            ws.plane(PLANE).set("published", { owner: gist.owner, id: gist.id, slug: gist.slug, revision: gist.revision, shape, session: name, at: Date.now() });
+            await ws.autoCommit({ tool: "studio.publish", gist: gist.id });
+        } finally {
+            if (open === null) await ws.close();
+        }
+        this.#open.get(name)?.onMeta();
+        return { ...gist, size: bytes.length };
+    }
+
+    /**
+     * The gist session `name` was published to, if it was, from here
+     * or a device it synced from (a fork's record is its parent's, and
+     * doesn't count).
+     *
+     * @param {string} name
+     * @returns {Promise<import("./gist.js").GistRef | null>}
+     */
+    async published(name) {
+        const store = await openStore();
+        const view = await store.resolve(name);
+        try {
+            const record = /** @type {any} */ (await view.plane(PLANE).get("published"));
+            return record?.session === name ? { owner: record.owner, id: record.id, slug: record.slug, revision: record.revision } : null;
+        } finally {
+            await view.close();
+        }
+    }
+
+    /**
+     * Open a published session from its `?gist=` value: a new session
+     * from the gist's bundle, looked at, or the one an earlier opening
+     * of the same bundle made. Its name.
+     *
+     * @param {string} param
+     */
+    async openGist(param) {
+        const ref = parseGistParam(param);
+        if (ref === null) throw new Error(`"${param}" isn't a link to a published session`);
+        const bytes = await fetchGistBundle(ref);
+        // the revision opened: where update checks start from
+        const revision = ref.revision ?? (await latestRevision(ref.id).catch(() => null)) ?? "";
+        return this.importBundle(bytes, { gist: { owner: ref.owner, id: ref.id, slug: ref.slug, revision, pinned: ref.revision !== null } });
+    }
+
+    /** Opened gists with a newer revision: session name → revision. */
+    /** @type {Record<string, string>} */
+    updates = $state({});
+
+    /**
+     * Look for newer revisions of the gists sessions were opened from
+     * (not those opened at one revision): each gist at most every 12
+     * hours unless `force`, and a revision the person dismissed stays
+     * dismissed.
+     *
+     * @param {{ force?: boolean }} [opts]
+     */
+    async checkUpdates({ force = false } = {}) {
+        const s = getSettings();
+        const token = s.publishToken.trim() || s.syncToken.trim() || undefined;
+        for (const info of this.sessions) {
+            const gist = info.source?.gist;
+            if (gist === undefined || gist.pinned) continue;
+            const key = `agex-gist-checked-${gist.id}`;
+            const last = Number(readLocal(key) ?? 0);
+            if (!force && Date.now() - last < 12 * 3600 * 1000) continue;
+            try {
+                const latest = await latestRevision(gist.id, { ...(token && { token }) });
+                writeLocal(key, String(Date.now()));
+                if (latest !== null && latest !== gist.revision && readLocal(`agex-gist-ignored-${info.name}`) !== latest) {
+                    this.updates[info.name] = latest;
+                }
+            } catch {
+                // offline, or rate-limited: the next look tries again
+            }
+        }
+    }
+
+    /**
+     * Bring session `name` up to its gist's newer revision: the new one
+     * opens as a session; the old one goes if nothing was done in it
+     * since it was opened, else it stays beside the new.
+     *
+     * @param {string} name
+     */
+    async update(name) {
+        const info = this.sessions.find((x) => x.name === name);
+        const gist = info?.source?.gist;
+        const latest = this.updates[name];
+        if (gist === undefined || latest === undefined) return;
+        const bytes = await fetchGistBundle({ ...gist, revision: latest });
+        const store = await openStore();
+        const view = await store.resolve(name);
+        const untouched = (await view.log({ limit: 1 }))[0]?.info?.tool === "studio.adopt";
+        await view.close();
+        delete this.updates[name];
+        await this.importBundle(bytes, { gist: { ...gist, revision: latest } });
+        if (untouched && this.current?.name !== name) await this.remove(name);
+    }
+
+    /** Don't offer this revision of session `name`'s gist again. @param {string} name */
+    dismissUpdate(name) {
+        const latest = this.updates[name];
+        if (latest !== undefined) writeLocal(`agex-gist-ignored-${name}`, latest);
+        delete this.updates[name];
     }
 
     /** Delete session `name` for good. @param {string} name */
