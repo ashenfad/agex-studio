@@ -97,19 +97,39 @@ network calls, most of them opt-in.
 
 ## Local development
 
-Requires Node.js 20+.
+> **The `rebuild` branch** is the studio being rebuilt on the new
+> agex-ts ([roadmap/rebuild.md](roadmap/rebuild.md)); the rest of this
+> README describes `main`, until the switch.
+
+On `rebuild`, the studio depends on agex-ts by link: clone
+[agex-ts](https://github.com/ashenfad/agex-ts) beside this repo and
+build it. Node 22 and pnpm.
 
 ```bash
-npm install
-npm run dev          # local dev server on http://localhost:5173
-npm run build        # production build → dist/
-npx vitest run       # full test suite (one-shot)
-npm test             # watch mode
+(cd ../agex-ts && pnpm install && pnpm -r build)
+pnpm install
+pnpm dev             # http://localhost:5173
+pnpm build           # production build → dist/
+pnpm vitest run      # the tests
+pnpm typecheck
 ```
 
-The TypeScript kernel boots cold in well under a second. The Python
-kernel (Pyodide + PyPI wheels) takes ~30s on first load; later reloads
-are Service-Worker cached.
+An agex-ts change shows up after `pnpm -r build` in `../agex-ts` and a
+reload. For the preview's origin, set `VITE_APPS_ORIGIN` in
+`.env.local` to a local copy of agex-studio-apps.
+
+**Driving the studio** from a terminal, in headless Chromium, through a
+dev-only hook (`window.__studio`): it sends each prompt as a turn and
+prints the tool calls, results, reply and files. The model comes from
+`DRIVE_MODEL` (default `meta/muse-spark-1.3-contributor`, on
+OpenRouter with `OPENROUTER_API_KEY`), a custom endpoint
+(`DRIVE_MODE=custom`, `DRIVE_BASE_URL`, `DRIVE_WIRE`), or a script
+(`--scripted steps.json`, no model call). See `scripts/drive.mjs`.
+
+```bash
+pnpm drive "Write a haiku about rivers to /workspace/haiku.txt"
+pnpm drive --profile .drive-profile --reload    # the record, after a reload
+```
 
 ## Architecture quick-take
 

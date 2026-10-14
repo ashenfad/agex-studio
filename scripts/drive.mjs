@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+/**
+ * Drive the studio from a terminal: a person's checks, and an agent's.
+ *
+ * Starts the dev server (or uses `--url`), opens the studio in headless
+ * Chromium, sets the model, sends each prompt as a turn, and prints what
+ * came of it: each turn's ending, its tool calls and their results, the
+ * agent's reply, and the workspace's files. It works the studio through
+ * its dev-only hook (`window.__studio`), so it doesn't depend on the
+ * markup.
+ *
+ *     pnpm drive "Write a haiku about rivers to /workspace/haiku.txt"
+ *     pnpm drive --profile .drive-profile --reload      # the record, after a reload
+ *     pnpm drive --scripted steps.json "go"             # no model call
+ *
+ * The model and key come from the environment, and the key is never
+ * printed:
+ *   DRIVE_MODE      openrouter (default) | custom | scripted
+ *   DRIVE_MODEL     default meta/muse-spark-1.3-contributor
+ *   OPENROUTER_API_KEY (openrouter), DRIVE_API_KEY (custom, if needed)
+ *   DRIVE_BASE_URL, DRIVE_WIRE (custom: anthropic | openai)
+ *   CHROME          a Chromium executable, if Playwright's isn't installed
+ *
+ * Options:
+ *   --url <url>         a studio already running (default: start `vite`)
+ *   --profile <dir>     keep the browser's data (IndexedDB) in <dir>, so
+ *                       a later run sees this one's sessions (served on
+ *                       DRIVE_PORT, default 5199: the data is the origin's)
+ *   --reload            after the prompts, reload and print the record again
+ *   --scripted <file>   a JSON list of model steps (DRIVE_MODE=scripted)
+ *   --shot <file>       save a screenshot of the page at the end
+ *   --quiet             print only endings and the final reply
+ */
+
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { chromium } from "playwright";
+
+const args = process.argv.slice(2);
+const opts = { prompts: /** @type {string[]} */ ([]) };
+for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--url") opts.url = args[++i];
+    else if (a === "--profile") opts.profile = args[++i];
+    else if (a === "--reload") opts.reload = true;
+    else if (a === "--scripted") opts.scripted = args[++i];
+    else if (a === "--shot") opts.shot = args[++i];
+    else if (a === "--quiet") opts.quiet = true;
+    else opts.prompts.push(a);
+}
+
+const env = process.env;
+const mode = opts.scripted ? "scripted" : (env.DRIVE_MODE ?? "openrouter");
+const settings =
+    mode === "scripted"
+        ? { accessMode: "scripted" }
+        : mode === "custom"
+          ? {
+                accessMode: "custom",
+                baseUrl: env.DRIVE_BASE_URL ?? "",
+                wire: env.DRIVE_WIRE ?? "anthropic",
+                apiKey: env.DRIVE_API_KEY ?? "",
+                model: env.DRIVE_MODEL ?? "",
+            }
+          : {
+                accessMode: "openrouter",
+                apiKey: env.OPENROUTER_API_KEY ?? "",
+                model: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
+            };
+if (mode === "openrouter" && settings.apiKey === "") {
+    console.error("OPENROUTER_API_KEY isn't set (or use --scripted, or DRIVE_MODE=custom)");
+    process.exit(2);
+}
+
+/** Start `vite` on a port of its own; its URL once it is listening. */
+async function startServer() {
+    // A kept profile's IndexedDB belongs to an origin, port and all, so
+    // it gets the same port every run; a fresh one takes any.
+    const port = opts.profile ? Number(env.DRIVE_PORT ?? 5199) : 5180 + Math.floor(Math.random() * 100);
+    const server = spawn("npx", ["vite", "--port", String(port), "--strictPort"], {
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`vite didn't start:\n${output}`)), 30_000);
+        const seen = (/** @type {Buffer} */ d) => {
+            output += d;
+            if (output.includes("Local:")) {
+                clearTimeout(timer);
+                resolve(undefined);
+            }
+        };
+        server.stdout.on("data", seen);
+        server.stderr.on("data", seen);
+        server.on("exit", (code) => reject(new Error(`vite exited ${code}:\n${output}`)));
+    });
+    return { url: `http://localhost:${port}/`, stop: () => server.kill() };
+}
+
+/** @param {unknown} value @param {number} n */
+const cut = (value, n) => {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.length > n ? `${text.slice(0, n)}… (${text.length} chars)` : text;
+};
+
+/** Print one stored run. */
+function printRun(run) {
+    console.log(`\n── run ${run.runId.slice(0, 8)}: ${run.status}`);
+    for (const message of run.messages) {
+        for (const part of message.parts) {
+            if (message.role === "user" && part.kind === "text") console.log(`  person: ${cut(part.text, 400)}`);
+            else if (part.kind === "thinking" && !opts.quiet) console.log(`  thinking: ${cut(part.text, 200)}`);
+            else if (part.kind === "text") console.log(`  agent: ${part.text}`);
+            else if (part.kind === "tool_call" && !opts.quiet) console.log(`  → ${part.name} ${cut(part.args, 600)}`);
+            else if (part.kind === "tool_result" && !opts.quiet) {
+                console.log(`  ← ${part.name}${part.isError ? " (error)" : ""}: ${cut(part.content, 600)}`);
+            }
+        }
+    }
+}
+
+const server = opts.url ? null : await startServer();
+const url = opts.url ?? server.url;
+const launch = { headless: true, ...(env.CHROME && { executablePath: env.CHROME }) };
+const context = opts.profile
+    ? await chromium.launchPersistentContext(opts.profile, launch)
+    : await (await chromium.launch(launch)).newContext();
+const page = context.pages()[0] ?? (await context.newPage());
+page.on("pageerror", (e) => console.log(`[page error] ${e.message}`));
+page.on("console", (m) => {
+    if (m.type() === "error") console.log(`[console] ${m.text()}`);
+});
+
+const ready = async () => {
+    await page.goto(url);
+    // the hook is there at once; the session opens a moment after
+    await page.waitForFunction(() => /** @type {any} */ (window).__studio?.ready === true);
+};
+
+let failed = false;
+try {
+    await ready();
+    const shown = await page.evaluate((s) => /** @type {any} */ (window).__studio.configure(s), settings);
+    console.log(`studio at ${url} — ${shown.accessMode}${shown.model ? ` ${shown.model}` : ""}`);
+    if (opts.scripted) {
+        const steps = JSON.parse(readFileSync(opts.scripted, "utf-8"));
+        await page.evaluate((s) => /** @type {any} */ (window).__studio.script(s), steps);
+    }
+    const before = (await page.evaluate(() => /** @type {any} */ (window).__studio.transcript())).length;
+    for (const prompt of opts.prompts) {
+        const started = Date.now();
+        const ended = await page.evaluate((p) => /** @type {any} */ (window).__studio.say(p), prompt);
+        console.log(`\nturn: ${ended.status}${ended.error ? ` (${ended.error})` : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+        if (ended.status !== "completed") failed = true;
+    }
+    const runs = await page.evaluate(() => /** @type {any} */ (window).__studio.transcript());
+    // with no prompts, what the record holds (once: after the reload, if asked)
+    if (opts.prompts.length > 0) for (const run of runs.slice(before)) printRun(run);
+    else if (!opts.reload) for (const run of runs) printRun(run);
+    if (opts.reload) {
+        await ready();
+        const again = await page.evaluate(() => /** @type {any} */ (window).__studio.transcript());
+        console.log(`\nafter a reload: ${again.length} run(s) in the record`);
+        if (opts.prompts.length === 0) for (const run of again) printRun(run);
+    }
+    const files = await page.evaluate(() => /** @type {any} */ (window).__studio.files("/workspace"));
+    console.log(`\nfiles: ${files.length === 0 ? "(none)" : files.join(", ")}`);
+    if (opts.shot) {
+        await page.screenshot({ path: opts.shot, fullPage: true });
+        console.log(`screenshot: ${opts.shot}`);
+    }
+} catch (e) {
+    failed = true;
+    console.error(e instanceof Error ? e.message : String(e));
+} finally {
+    await context.close();
+    server?.stop();
+}
+process.exit(failed ? 1 : 0);

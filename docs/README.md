@@ -1,5 +1,8 @@
 # Agex Studio — implementation docs
 
+> These describe `main`, the studio before the rebuild; the `rebuild`
+> branch rewrites them as its last step ([roadmap/rebuild.md](../roadmap/rebuild.md)).
+
 How the studio is put together. Aimed at someone (human or agent)
 who's about to touch a piece of the codebase and wants the context
 that isn't in the code or git history.

@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, rebuild ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, rebuild ]
 
 jobs:
   test:
@@ -12,21 +12,38 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        path: agex-studio
+
+    # During the rebuild the studio depends on agex-ts by link, to a
+    # built clone beside it (`link:../agex-ts/packages/...`).
+    - uses: actions/checkout@v4
+      with:
+        repository: ashenfad/agex-ts
+        ref: main
+        path: agex-ts
+
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.0.4
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
-        cache: npm
+        node-version: 22
+
+    - name: Build agex-ts
+      working-directory: agex-ts
+      run: pnpm install --frozen-lockfile && pnpm -r build
 
     - name: Install dependencies
-      run: npm ci
+      working-directory: agex-studio
+      run: pnpm install --frozen-lockfile
 
     - name: Typecheck
-      run: npm run typecheck
+      working-directory: agex-studio
+      run: pnpm typecheck
 
     - name: Run tests
-      run: npx vitest run
-
-    - name: Build
-      run: npm run build
+      working-directory: agex-studio
+      run: pnpm vitest run
