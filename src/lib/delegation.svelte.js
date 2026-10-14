@@ -44,6 +44,11 @@ export function depthOf(name) {
  *  @type {Record<string, string>} */
 export const doing = $state({});
 
+/** How a running delegate's turn opened (its brief and task, or the
+ *  answers that woke it), by session name: for a view of it opened
+ *  mid-turn. @type {Record<string, string>} */
+export const openings = {};
+
 /** @param {import("@agex-ts/world").TurnEvent} event */
 function doingOf(event) {
     switch (event.kind) {
@@ -152,7 +157,7 @@ function cancelRunning(helper) {
 /** @typedef {import("agex-ts").Agent} Agent */
 /** @typedef {import("@agex-ts/world").Tool} Tool */
 /** @typedef {import("@agex-ts/world").TurnEvent} TurnEvent */
-/** @typedef {{ observe: (event: TurnEvent) => void, observed: () => Promise<void> }} Observer */
+/** @typedef {{ begin: (prompt: string) => void, opened: (text: string) => void, observe: (event: TurnEvent) => void, observed: () => Promise<void> }} Observer */
 /**
  * What a runner needs from the studio: the agent a delegate runs on,
  * its tools at a depth, and the chat session open on a delegate.
@@ -182,9 +187,20 @@ export class StudioRunner {
         const child = await this.ws.store.open(session, this.ws.settings);
         const depth = depthOf(session);
         const helper = new Sessions(child, new StudioRunner(child, this.host));
+        /** A woken turn is starting, its opening (its own delegates'
+         *  answers) not yet delivered. */
+        let awaiting = false;
+        const inbox = new Inbox({
+            onDelivered: (notes) => {
+                if (!awaiting) return;
+                awaiting = false;
+                openings[session] = inbox.render(notes);
+                this.host.observe(session)?.opened(openings[session]);
+            },
+        });
         const delegate = this.host.agent({ delegate: true }).session(child, {
             sessions: helper,
-            inbox: new Inbox(),
+            inbox,
             tools: this.host.tools(helper, depth, child),
             // the parent's: view_image when the model takes images, and agex's guide
             toolOptions: this.host.toolOptions(),
@@ -201,6 +217,11 @@ export class StudioRunner {
             const settled = await untilSettled(
                 async (prompt) => {
                     if (signal.aborted) throw new Ended({ text: "stopped", status: "failed" });
+                    // the view open on it, if any, opens the turn as its record will:
+                    // the brief and task, or for a woken turn, the answers it's told of
+                    awaiting = prompt === null;
+                    openings[session] = prompt ?? "";
+                    this.host.observe(session)?.begin(openings[session]);
                     /** @param {import("@agex-ts/world").TurnEvent} event */
                     const onEvent = (event) => {
                         const now = doingOf(event);
@@ -226,6 +247,7 @@ export class StudioRunner {
             throw e;
         } finally {
             delete doing[session];
+            delete openings[session];
             signal.removeEventListener("abort", stop);
             await helper.close();
             await child.close();

@@ -11,9 +11,7 @@
     import AgentItems from './AgentItems.svelte'
     import Artifact from './Artifact.svelte'
     import { artifactsOf, unembedded } from './artifacts.js'
-    import { delegateTask, deliveredAnswers } from './delegation.svelte.js'
-    import { studio } from './studio.svelte.js'
-    import UserBubble from './UserBubble.svelte'
+    import TurnOpening from './TurnOpening.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, onEdit?: () => void, at?: string | null }} */
     let { session, run, folds = [], onUndo, onEdit, at = null } = $props()
@@ -40,10 +38,6 @@
         message.parts.map((p) => (p.kind === 'text' ? p.text : '')).join('')
 
     const opening = $derived(run.messages[0]?.role === 'user' ? textOf(run.messages[0]) : null)
-    /** Delegates' answers the opening delivered: shown as cards. */
-    const delivered = $derived(opening === null ? null : deliveredAnswers(opening))
-    /** A delegate's first turn: the task it was given, not its brief. */
-    const asked = $derived(opening === null ? null : delegateTask(opening))
     const rest = $derived(opening === null ? run.messages : run.messages.slice(1))
 
     /** The reply, as the transcript lays it out: each call with its
@@ -91,34 +85,7 @@
 </script>
 
 {#if opening !== null}
-    <div class="user-row">
-        <span class="tools">
-            {#if onEdit && asked === null && delivered === null}
-                <button class="tool" title="Edit: undo this turn and everything after it, and put the message back to change and send again" aria-label="Edit this message" onclick={onEdit}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
-                </button>
-            {/if}
-            {#if onUndo}
-                <button class="tool" title="Undo this turn and everything after it (Redo brings it back)" aria-label="Undo this turn" onclick={onUndo}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-15-6.7L3 13"></path></svg>
-                </button>
-            {/if}
-        </span>
-        {#if asked !== null}
-            <div class="user"><span class="from">Task from {asked.parent.split('.').at(-1)}:</span> {asked.task}</div>
-        {:else if delivered === null}
-            <UserBubble {session} text={opening} />
-        {:else if delivered.said !== ''}
-            <UserBubble {session} text={delivered.said} />
-        {/if}
-    </div>
-    {#if delivered !== null}
-        {#each delivered.answers as answer (answer.name)}
-            <button class="answer" title="Open {answer.name}" onclick={() => studio.switchTo(answer.name)}>
-                ⑂ <b>{answer.name.split('.').at(-1)}</b> answered{answer.preview ? `: ${answer.preview}` : ''} <span class="open">open →</span>
-            </button>
-        {/each}
-    {/if}
+    <TurnOpening {session} text={opening} {onUndo} {onEdit} />
 {/if}
 <div class="agent">
     <AgentItems {session} {at} {items} />
@@ -131,75 +98,6 @@
 </div>
 
 <style>
-    .answer {
-        display: block;
-        flex-shrink: 0;
-        width: 100%;
-        text-align: left;
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-left: 3px solid var(--accent);
-        color: var(--text);
-        border-radius: 6px;
-        padding: 0.4rem 0.6rem;
-        margin: 0.3rem 0;
-        font-size: 0.85rem;
-        cursor: pointer;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .from {
-        opacity: 0.7;
-        font-size: 0.85em;
-    }
-    .answer .open {
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
-    .user-row {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 0.4rem;
-    }
-    /* a message's tools, beside it on hover or focus; always where
-       there's no hovering (a touch screen) */
-    .tools {
-        display: flex;
-        gap: 0.1rem;
-        visibility: hidden;
-    }
-    .user-row:hover .tools,
-    .tools:focus-within {
-        visibility: visible;
-    }
-    @media (hover: none) {
-        .tools {
-            visibility: visible;
-        }
-    }
-    .tool {
-        display: flex;
-        align-items: center;
-        background: none;
-        border: none;
-        border-radius: 5px;
-        color: var(--text-muted);
-        cursor: pointer;
-        padding: 0.3rem;
-    }
-    .tool:hover {
-        color: var(--text);
-        background: var(--surface-hover);
-    }
-    .user {
-        max-width: 80%;
-        background: var(--user-bubble);
-        padding: 0.5rem 0.8rem;
-        border-radius: 10px;
-        white-space: pre-wrap;
-    }
     .agent {
         max-width: 100%;
     }

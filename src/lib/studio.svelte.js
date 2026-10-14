@@ -19,7 +19,7 @@ import { Inbox, Policy, Sessions, Store, commandFactory, wsGit } from "@agex-ts/
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
-import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
+import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, thinkingOf } from "./model.js";
 import interactiveApp from "./skills/interactive-app.md?raw";
 import media from "./skills/media.md?raw";
@@ -258,8 +258,12 @@ export class ChatSession {
      *  undo), so the artifacts a reply shows are read again too. */
     filesStamp = $state(0);
     /** The inbox outlives each turn's agent: a note queued mid-turn
-     *  rides the next tool result. */
-    inbox = new Inbox();
+     *  rides the next tool result. What opens a woken turn (the answers
+     *  that woke it) is told here as it is delivered, and shown as the
+     *  live turn's opening. */
+    inbox = new Inbox({ onDelivered: (notes) => this.#delivered(notes) });
+    /** A woken turn is starting, its opening not yet delivered. */
+    #awaitingOpening = false;
     /** The helper this session delegates through, made when it opens,
      *  so its delegates outlive each turn's agent. A delegate's own
      *  session (one with a dot in its name) has none here: its runner
@@ -329,6 +333,8 @@ export class ChatSession {
         }
         await this.reload();
         if (!this.readonly) await this.#findInterrupted();
+        // a delegate opened while it runs: its turn, live from here, opening as it did
+        else if (openings[this.name] !== undefined) this.begin(openings[this.name] ?? "");
     }
 
     /**
@@ -435,12 +441,35 @@ export class ChatSession {
         }
     }
 
+    /** Notes reached the model: a woken turn's first are its opening.
+     *  @param {readonly import("@agex-ts/world").Note[]} notes */
+    #delivered(notes) {
+        if (!this.#awaitingOpening) return;
+        this.#awaitingOpening = false;
+        this.opened(this.inbox.render(notes));
+    }
+
+    /** The turn running opened with `text` (a woken turn's, delivered
+     *  once it started). @param {string} text */
+    opened(text) {
+        this.prompt = text;
+    }
+
+    /** A delegate's turn starts, when this session is that delegate's,
+     *  open to read: with `prompt`, or as a woken turn, its opening to
+     *  come. @param {string} prompt */
+    begin(prompt) {
+        this.busy = true;
+        this.live = [];
+        this.prompt = prompt;
+    }
+
     /** A delegate's turn event, from its runner, when this session is
      *  that delegate's, open to read. @param {TurnEvent} event */
     observe(event) {
         if (!this.busy) {
-            this.busy = true;
-            this.live = [];
+            // opened mid-turn: how the turn opened, from its runner
+            this.begin(openings[this.name] ?? "");
         }
         this.#apply(event);
     }
@@ -617,6 +646,8 @@ export class ChatSession {
                 this.#lastStatus = "failed";
             } finally {
                 this.#turn = null;
+                // a woken turn that found nothing waiting opened on nothing
+                this.#awaitingOpening = false;
                 await this.reload();
                 this.live = [];
                 this.busy = false;
@@ -787,6 +818,7 @@ export class ChatSession {
         this.wakesLeft -= 1;
         const session = this.#session(ws);
         const startedAt = ws.head;
+        this.#awaitingOpening = true;
         await this.#runTurn(
             session,
             async (apply) => {
@@ -795,7 +827,8 @@ export class ChatSession {
                     apply(event);
                 }
             },
-            "(delegates answered)",
+            // its opening is the answers, told as they're delivered
+            "",
         );
     }
 

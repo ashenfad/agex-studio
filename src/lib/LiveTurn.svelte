@@ -1,9 +1,11 @@
 <script>
-    /** The turn running now, as its events stream in. The artifacts a
-     *  reply embeds show as it does; the rest once the turn ends. */
+    /** The turn running now, as its events stream in, opening as the
+     *  stored turn will (the person's message, a delegate's task, or the
+     *  answers that woke it). The artifacts a reply embeds show as it
+     *  does; the rest once the turn ends. */
     import AgentItems from './AgentItems.svelte'
     import { notesIn } from './notes.js'
-    import UserBubble from './UserBubble.svelte'
+    import TurnOpening from './TurnOpening.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, prompt: string, parts: import('./studio.svelte.js').LivePart[] }} */
     let { session, prompt, parts } = $props()
@@ -22,14 +24,9 @@
     )
 </script>
 
-<div class="user-row"><UserBubble {session} text={prompt} /></div>
+<!-- a woken turn's opening comes as it starts: until then, nothing -->
+{#if prompt !== ''}<TurnOpening {session} text={prompt} />{/if}
 <div class="agent">
     <AgentItems {session} {items} streaming />
 </div>
 
-<style>
-    .user-row {
-        display: flex;
-        justify-content: flex-end;
-    }
-</style>
