@@ -23,7 +23,10 @@
     /** @type {HTMLInputElement | undefined} */
     let picker = $state()
     let menuOpen = $state(false)
-    let attaching = $state(false)
+    /** Attachments under way (read, fetched, or being added): the
+     *  message waits for them, so it goes with every file it was given. */
+    let pending = $state(0)
+    const attaching = $derived(pending > 0)
     /** What went wrong attaching, or what didn't come. */
     let problem = $state('')
     const drive = isDriveImportAvailable()
@@ -47,36 +50,42 @@
     async function attachFiles(files, errors = []) {
         problem = errors.join('; ')
         if (files.length === 0) return
-        attaching = true
+        const paths = await session.importFiles(files)
+        session.attached = [...new Set([...session.attached, ...paths])]
+    }
+
+    /** Run an attachment, counted as under way from its first step (a
+     *  file's read included) to its last. @param {() => Promise<void>} fn */
+    async function underway(fn) {
+        pending += 1
         try {
-            const paths = await session.importFiles(files)
-            session.attached = [...new Set([...session.attached, ...paths])]
+            await fn()
         } catch (e) {
             problem = e instanceof Error ? e.message : String(e)
         } finally {
-            attaching = false
+            pending -= 1
         }
     }
 
     /** Attach files the browser handed over (picked, dropped, pasted).
      *  @param {Iterable<File>} list @param {(f: File, i: number) => string} [nameOf] */
-    export async function attach(list, nameOf = (f) => f.name) {
+    export function attach(list, nameOf = (f) => f.name) {
         const files = [...list]
-        await attachFiles(await Promise.all(files.map(async (f, i) => ({ name: nameOf(f, i), bytes: new Uint8Array(await f.arrayBuffer()) }))))
+        return underway(async () => {
+            await attachFiles(await Promise.all(files.map(async (f, i) => ({ name: nameOf(f, i), bytes: new Uint8Array(await f.arrayBuffer()) }))))
+        })
     }
 
-    async function fromDrive() {
+    function fromDrive() {
         menuOpen = false
-        try {
+        return underway(async () => {
             const { files, errors } = await pickFromDrive()
             await attachFiles(files, errors)
-        } catch (e) {
-            problem = e instanceof Error ? e.message : String(e)
-        }
+        })
     }
 
     function send() {
-        if (!written || !configured) return
+        if (!written || !configured || attaching) return
         const message = withAttachments(session.draft.trim(), session.attached)
         session.draft = ''
         session.attached = []
@@ -160,7 +169,7 @@
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
             </button>
         {:else}
-            <button class="send" onclick={send} disabled={!written || !configured} title={session.busy ? 'Queue it for the turn running (Enter)' : 'Send (Enter)'} aria-label="Send">
+            <button class="send" onclick={send} disabled={!written || !configured || attaching} title={attaching ? 'Adding the files…' : session.busy ? 'Queue it for the turn running (Enter)' : 'Send (Enter)'} aria-label="Send">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
             </button>
         {/if}

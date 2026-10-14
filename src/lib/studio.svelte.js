@@ -607,6 +607,8 @@ export class ChatSession {
                 await body((event) => this.#apply(event));
             } catch (e) {
                 this.error = e instanceof Error ? e.message : String(e);
+                // a turn that threw ended no better than one that failed
+                this.#lastStatus = "failed";
             } finally {
                 this.#turn = null;
                 await this.reload();
