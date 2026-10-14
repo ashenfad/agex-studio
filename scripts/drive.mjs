@@ -23,11 +23,14 @@
  *   DRIVE_BASE_URL, DRIVE_WIRE (custom: anthropic | openai)
  *   CHROME          a Chromium executable, if Playwright's isn't installed
  *   DRIVE_SYNC_REPO, DRIVE_SYNC_TOKEN   connect sync to this repo (owner/name)
+ *   DRIVE_PUBLISH_TOKEN   a token that can write gists, for publishing
  *
  * Options:
  *   --url <url>         a studio already running (default: start `vite`)
  *   --profile <dir>     keep the browser's data (IndexedDB) in <dir>, so
  *                       a later run sees this one's sessions
+ *   --open <path>       open the studio at this path first (a published
+ *                       session's /run/?gist=… link, say)
  *   --apps <dir>        serve this agex-studio-apps clone as the preview's
  *                       origin, rather than apps.agex.studio
  *
@@ -64,6 +67,7 @@ for (let i = 0; i < args.length; i++) {
     else if (a === "--quiet") opts.quiet = true;
     else if (a === "--requests") opts.requests = true;
     else if (a === "--apps") opts.apps = args[++i];
+    else if (a === "--open") opts.open = args[++i];
     else if (a === "--exec") opts.steps.push({ kind: "exec", text: args[++i] });
     else {
         opts.prompts.push(a);
@@ -89,6 +93,7 @@ const settings =
                 apiKey: env.OPENROUTER_API_KEY ?? "",
                 model: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
             };
+if (env.DRIVE_PUBLISH_TOKEN) settings.publishToken = env.DRIVE_PUBLISH_TOKEN;
 if (env.DRIVE_SYNC_REPO && env.DRIVE_SYNC_TOKEN) {
     Object.assign(settings, { syncRepo: env.DRIVE_SYNC_REPO, syncToken: env.DRIVE_SYNC_TOKEN });
 }
@@ -189,8 +194,10 @@ page.on("console", (m) => {
     if (m.type() === "error") console.log(`[console] ${m.text()}`);
 });
 
+let first = true;
 const ready = async () => {
-    await page.goto(url);
+    await page.goto(first && opts.open ? new URL(opts.open, url).href : url);
+    first = false;
     // the hook is there at once; the session opens a moment after
     await page.waitForFunction(() => /** @type {any} */ (window).__studio?.ready === true);
 };

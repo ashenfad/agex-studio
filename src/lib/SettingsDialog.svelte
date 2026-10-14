@@ -3,6 +3,7 @@
      *  person's own (a direct provider, a local Meridian, a proxy); and
      *  syncing sessions through a GitHub repo of their own. */
     import { getSettings, updateSettings } from './settings.js'
+    import { GIST_TOKEN_URL } from './gist.js'
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
 
     /** @type {{ onClose: () => void }} */
@@ -138,6 +139,12 @@
                 <button class="secondary" onclick={connect} disabled={connecting || token.trim() === ''}>{connecting ? 'Connecting…' : 'Connect'}</button>
             </div>
         {/if}
+        <h2>Publishing</h2>
+        <p class="hint">A session is published as a secret gist, which anyone with its link can open. Publishing needs a token that can write gists: <a href={GIST_TOKEN_URL} target="_blank" rel="noreferrer">a classic one with the gist scope</a>, or a fine-grained one with Gists: read and write.{s.syncRepo ? ' Left empty, the sync token is tried.' : ''}</p>
+        <label>
+            Token
+            <input type="password" bind:value={s.publishToken} placeholder="ghp_… or github_pat_…" autocomplete="off" />
+        </label>
         <div class="actions">
             <button class="secondary" onclick={onClose}>Cancel</button>
             <button onclick={save}>Save</button>
