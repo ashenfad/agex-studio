@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Pdf, _setPdfjsForTesting } from "./pdf.js";
+import { Pdf, _setPdfjsForTesting, pageText } from "./pdf.js";
 
 /** A stand-in for pdf.js: a document of `texts.length` pages, each
  *  page's text its entry, rendered 100x150 per unit of scale. */
@@ -14,7 +14,9 @@ function fakePdfjs(/** @type {string[]} */ texts) {
                               getViewport: ({ scale }) => ({ width: 100 * scale, height: 150 * scale }),
                               render: () => ({ promise: Promise.resolve() }),
                               getTextContent: async () => ({
-                                  items: (texts[n - 1] ?? "").split(" ").map((str, i, all) => ({ str, hasEOL: i < all.length - 1 })),
+                                  items: (texts[n - 1] ?? "")
+                                      .split(" ")
+                                      .map((str, i, all) => ({ str, hasEOL: i < all.length - 1, transform: [10, 0, 0, 10, 0, 700 - 12 * i], width: 20 })),
                               }),
                           }),
                       })
@@ -89,5 +91,28 @@ describe("pdf", () => {
         await expect(pdf.pages("notes.txt")).rejects.toThrow(/could not be read as a PDF: Invalid PDF structure/);
         await expect(pdf.render("docs/report.pdf", { pages: [0] })).rejects.toThrow("pdf.render: there is no page 0; the PDF has 3, numbered from 1");
         await expect(pdf.text("/etc/x.pdf")).rejects.toThrow(/is outside \/workspace/);
+    });
+});
+
+describe("pageText", () => {
+    /** An item of `str` at (x, y), `width` wide, in a 10pt font. */
+    const at = (str, x, y, width, hasEOL = false) => ({ str, transform: [10, 0, 0, 10, x, y], width, height: 10, hasEOL });
+
+    it("puts a space at a gap along a line, a break where the line changes, and nothing between abutting runs", () => {
+        const items = [
+            at("Total:", 72, 700, 30),
+            at("$10", 106, 700, 18), // a gap: a space
+            at("Cardamom", 72, 686, 50), // the next line, no hasEOL: a break
+            at("bun", 122, 686, 18), // abutting (a font change mid-word): nothing
+            { type: "beginMarkedContent" },
+            at("4.00", 200, 686, 20, true),
+            at("", 0, 0, 0, true), // an empty line end
+            at("Rye", 72, 660, 18),
+        ];
+        expect(pageText(items)).toBe("Total: $10\nCardamombun 4.00\n\nRye");
+    });
+
+    it("doesn't double a space the text already has", () => {
+        expect(pageText([at("a ", 0, 0, 10), at("b", 20, 0, 5), at(" c", 40, 0, 5)])).toBe("a b c");
     });
 });

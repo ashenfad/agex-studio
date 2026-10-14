@@ -43,6 +43,35 @@ async function pngOf(canvas) {
     return new Uint8Array(await /** @type {Blob} */ (blob).arrayBuffer());
 }
 
+/**
+ * A page's text from pdf.js's text items, with the separators their
+ * positions imply: pdf.js marks some line ends (`hasEOL`) but not the
+ * space between two runs of text (a change of font, a table's cells),
+ * so a gap along the line is a space and a move to another line is a
+ * line break.
+ *
+ * @param {any[]} items
+ */
+export function pageText(items) {
+    let text = "";
+    /** @type {{ y: number, end: number } | null} */
+    let last = null;
+    for (const item of items) {
+        if (typeof item?.str !== "string") continue; // marked content, no text
+        const [, , c = 0, d = 0, x = 0, y = 0] = Array.isArray(item.transform) ? item.transform : [];
+        // the font's size, from its matrix
+        const size = Math.hypot(c, d) || item.height || 1;
+        if (last !== null && item.str !== "" && !text.endsWith("\n")) {
+            if (Math.abs(y - last.y) > size / 2) text += "\n";
+            else if (x - last.end > size * 0.1 && !/\s$/.test(text) && !/^\s/.test(item.str)) text += " ";
+        }
+        text += item.str;
+        if (item.hasEOL) text += "\n";
+        if (item.str !== "" || item.hasEOL) last = { y, end: x + (item.width ?? 0) };
+    }
+    return text.trim();
+}
+
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 /** @typedef {import("@agex-ts/world").HostCall} HostCall */
 
@@ -113,12 +142,7 @@ export class Pdf {
             const out = [];
             for (const n of this._pages("pdf.text", doc.numPages, options.pages, doc.numPages)) {
                 const content = await (await doc.getPage(n)).getTextContent();
-                let text = "";
-                for (const item of content.items) {
-                    if (typeof item.str !== "string") continue;
-                    text += item.str + (item.hasEOL ? "\n" : "");
-                }
-                out.push({ page: n, text: text.trim() });
+                out.push({ page: n, text: pageText(content.items) });
             }
             return out;
         },
