@@ -266,6 +266,7 @@ export class ChatSession {
 
     /** Continue the last turn, which an interruption cut short. */
     async resume() {
+        await this.#held;
         if (this.ws === null || this.busy || !this.interrupted) return;
         const session = this.#session(this.ws);
         await this.#runTurn(session, async () => {
@@ -276,6 +277,7 @@ export class ChatSession {
 
     /** End the last turn, which an interruption cut short, as it stands. */
     async abandon() {
+        await this.#held;
         if (this.ws === null || this.busy || !this.interrupted) return;
         await this.#agent().session(this.ws).abandon("set aside by the person");
         await this.reload();
@@ -334,6 +336,7 @@ export class ChatSession {
      * @param {{ name: string, bytes: Uint8Array }[]} files
      */
     async importFiles(files) {
+        await this.#held;
         const ws = this.ws;
         if (ws === null || files.length === 0) return [];
         if (this.busy) throw new Error("a turn is running; add files once it ends");
@@ -354,7 +357,9 @@ export class ChatSession {
         await this.#running;
     }
 
-    /** A sync of this session in flight: a turn waits for it. */
+    /** A sync of this session in flight: a turn, and every other change
+     *  to the workspace from here (resume, undo, redo, rename, files
+     *  added), waits for it. */
     /** @type {Promise<unknown> | null} */
     #held = null;
 
@@ -399,6 +404,7 @@ export class ChatSession {
      * @param {string} runId
      */
     async undo(runId) {
+        await this.#held;
         if (this.ws === null || this.busy) return;
         const turn = /** @type {{ before?: string } | null} */ (await this.ws.plane(PLANE).get(`turns/${runId}`));
         if (!turn?.before) throw new Error("this turn's starting point isn't recorded, so it can't be undone");
@@ -411,6 +417,7 @@ export class ChatSession {
 
     /** Bring back what the last undo took away. */
     async redo() {
+        await this.#held;
         if (this.ws === null || this.busy || this.redoHead === null) return;
         await this.ws.checkout(this.redoHead);
         this.redoHead = null;
@@ -420,6 +427,7 @@ export class ChatSession {
 
     /** Give the session a title. @param {string} title */
     async rename(title) {
+        await this.#held;
         if (this.ws === null) return;
         const plane = this.ws.plane(PLANE);
         const meta = /** @type {object | null} */ (await plane.get("meta")) ?? {};
