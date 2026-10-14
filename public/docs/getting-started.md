@@ -95,7 +95,7 @@ any time; the next turn uses it.
 Give the agent something to *do*:
 
 - "Build me a study app for 4th-grade multiplication."
-- "Chart this CSV for me." *(after adding it from the 📁 files drawer)*
+- "Chart this CSV for me." *(after adding it in the Files tab)*
 - "Find three recent articles on diffusion models and summarize each."
 - "What are the key claims in this PDF?" *(after adding one)*
 

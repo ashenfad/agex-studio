@@ -9,7 +9,9 @@
      * model within this page's budget). The preview rebuilds when the
      * app's files change.
      *
-     * It is the iframe `test_app` acts on with `live: true`.
+     * It is the iframe `test_app` acts on with `live: true`. Its bar is
+     * the workbench's: it says whether it is loading and whether there is
+     * an app, and rebuilds when asked.
      */
     import { onDestroy, untrack } from 'svelte'
     import { setLiveIframe } from './app-control.js'
@@ -21,16 +23,14 @@
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
-    let { session } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, loading?: boolean, empty?: boolean }} */
+    let { session, loading = $bindable(false), empty = $bindable(false) } = $props()
 
     /** @type {HTMLIFrameElement | null} */
     let iframe = $state(null)
     /** The bootloader's URL, cache-busted per load so each load reloads it. */
     /** @type {string | null} */
     let appsUrl = $state(null)
-    let empty = $state(false)
-    let loading = $state(false)
     /** @type {string | null} */
     let failed = $state(null)
     /** @type {string[]} */
@@ -71,6 +71,11 @@
 
     // Rebuild when the session's app may have changed (a tool call that
     // wrote, an undo), and only if its files actually did.
+    /** Build the app again from its files. */
+    export function rebuild() {
+        void load(true)
+    }
+
     /** @type {ReturnType<typeof setTimeout> | null} */
     let timer = null
     $effect(() => {
@@ -83,9 +88,6 @@
         setLiveIframe(iframe)
         return () => setLiveIframe(null)
     })
-
-    /** This page's budget for the app's agent calls, once it has one. */
-    const budget = $derived(appAgent.budgets[session.name] ?? null)
 
     /** The app data stamp when the app was last built: past it, another
      *  device's data arrived, and the preview offers to reload. */
@@ -168,17 +170,6 @@
 <svelte:window onmessage={onMessage} />
 
 <div class="preview">
-    <div class="bar">
-        <span>App</span>
-        {#if loading}<span class="muted">loading…</span>{/if}
-        {#if budget}
-            <span class="calls" title="The app's calls to an agent this visit, on your model">agent {budget.used}/{budget.limit}</span>
-            {#if budget.used >= budget.limit}
-                <button class="more" onclick={() => appAgent.allowMore(session.name)}>Allow {APP_CALLS} more</button>
-            {/if}
-        {/if}
-        <button onclick={() => load(true)} disabled={empty} title="Rebuild from the files">↻</button>
-    </div>
     {#if session.appDataStamp > seenAppData && !empty}
         <div class="data-note">
             The app's data changed on another device.
@@ -230,11 +221,6 @@
         padding: 0.2rem 0.6rem;
         cursor: pointer;
     }
-    .calls {
-        color: var(--text-muted);
-        font-size: 0.75rem;
-    }
-    .more,
     .consent button {
         background: var(--accent);
         color: white;
@@ -269,26 +255,6 @@
         height: 100%;
         min-height: 0;
         background: var(--bg);
-    }
-    .bar {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.35rem 0.8rem;
-        border-bottom: 1px solid var(--border);
-        font-size: 0.85rem;
-    }
-    .bar span:first-child {
-        flex: 1;
-    }
-    .bar button {
-        background: none;
-        border: none;
-        color: var(--text);
-        cursor: pointer;
-    }
-    .muted {
-        color: var(--text-muted);
     }
     iframe {
         flex: 1;

@@ -72,7 +72,7 @@ goes to the copy you already have.
 **Included:** the session's files and its conversation (with the
 history, if you chose that). That means anything the agent could see:
 files you uploaded or brought in from Drive, what it fetched, what it
-wrote. Before publishing, look through the **📁 files drawer** and
+wrote. Before publishing, look through the **Files** tab and
 remove anything private.
 
 **Not included:** your settings and keys, your tokens, the data the

@@ -1,9 +1,10 @@
 # Sessions
 
 A **session** is one conversation and its workspace: its files, its
-apps, and the full history of both. The session list is on the left
-(on a narrow screen, open it with ☰). Each session keeps to itself:
-different files, a different conversation.
+apps, and the full history of both. The session list is on the left;
+fold it away and back with the panel button at the top left, or ⌘B
+(Ctrl+B). Each session keeps to itself: different files, a different
+conversation.
 
 ## The mental model
 
@@ -42,8 +43,8 @@ A fork is a session like any other: rename it, delete it, publish it.
 
 ## Files
 
-The **📁 files drawer** (top right) shows the session's files as a
-tree. Open one to read it (text, Markdown or an image), **Download**
+The **Files** tab (beside **App**, right of the chat) shows the
+session's files as a tree. Open one to read it (text, Markdown or an image), **Download**
 it, or **Delete** it. **Upload** and **From Drive** add files under
 `uploads/`.
 

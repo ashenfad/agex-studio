@@ -105,7 +105,7 @@ and on **agex.studio**, in a fresh browser profile:
 - [ ] **An app that calls an agent**: publish an app using `agex.task`;
       in a fresh browser with a model key, its first call asks ("This
       app asks to use your model…"), and allowing it runs the task.
-- [ ] **Google Drive import** (file drawer, "From Drive"): sign-in, the
+- [ ] **Google Drive import** (the Files tab, "From Drive"): sign-in, the
       Picker, a file lands in `uploads/`. The OAuth client must list
       `https://agex.studio` among its JavaScript origins. *Not verified
       before the switch: sign-in can't run headless.*
