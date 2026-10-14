@@ -18,6 +18,8 @@ export const STORAGE_KEY = "agex-studio-settings";
  * @property {string} baseUrl — a custom endpoint's URL.
  * @property {"off" | "low" | "medium" | "high"} thinking — how hard the
  *     model thinks per turn, which each provider maps for its model.
+ * @property {number} foldBudget — the request size, in tokens, past
+ *     which earlier turns are folded into a summary; 0 never folds.
  */
 
 /** @type {Settings} */
@@ -28,6 +30,7 @@ export const DEFAULTS = {
     wire: "anthropic",
     baseUrl: "",
     thinking: "medium",
+    foldBudget: 150000,
 };
 
 /** @type {((s: Settings) => void)[]} */

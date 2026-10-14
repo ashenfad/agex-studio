@@ -56,6 +56,10 @@
                     <option value="high">high</option>
                 </select>
             </label>
+            <label>
+                Fold the conversation past (tokens; 0 never folds)
+                <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
+            </label>
         {/if}
         <div class="actions">
             <button class="secondary" onclick={onClose}>Cancel</button>

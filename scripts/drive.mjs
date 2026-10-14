@@ -12,6 +12,8 @@
  *     pnpm drive "Write a haiku about rivers to /workspace/haiku.txt"
  *     pnpm drive --profile .drive-profile --reload      # the record, after a reload
  *     pnpm drive --scripted steps.json "go"             # no model call
+ *     pnpm drive "write a.txt" --exec "s.fork('fresh')" --exec "s.files()"
+ *                                       # hook calls (s = __studio), in order
  *
  * The model and key come from the environment, and the key is never
  * printed:
@@ -29,6 +31,8 @@
  *   --reload            after the prompts, reload and print the record again
  *   --scripted <file>   a JSON list of model steps (DRIVE_MODE=scripted)
  *   --shot <file>       save a screenshot of the page at the end
+ *   --exec <expr>       evaluate `<expr>` in the page with `s` the hook,
+ *                       in order among the prompts, and print its result
  *   --quiet             print only endings and the final reply
  *   --requests          print each model request (a POST off the studio's
  *                       origin): its URL and affinity key, no auth headers
@@ -39,7 +43,11 @@ import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 const args = process.argv.slice(2);
-const opts = { prompts: /** @type {string[]} */ ([]) };
+const opts = {
+    prompts: /** @type {string[]} */ ([]),
+    /** prompts and hook calls, in the order given */
+    steps: /** @type {{ kind: "say" | "exec", text: string }[]} */ ([]),
+};
 for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--url") opts.url = args[++i];
@@ -49,7 +57,11 @@ for (let i = 0; i < args.length; i++) {
     else if (a === "--shot") opts.shot = args[++i];
     else if (a === "--quiet") opts.quiet = true;
     else if (a === "--requests") opts.requests = true;
-    else opts.prompts.push(a);
+    else if (a === "--exec") opts.steps.push({ kind: "exec", text: args[++i] });
+    else {
+        opts.prompts.push(a);
+        opts.steps.push({ kind: "say", text: a });
+    }
 }
 
 const env = process.env;
@@ -159,9 +171,18 @@ try {
         await page.evaluate((s) => /** @type {any} */ (window).__studio.script(s), steps);
     }
     const before = (await page.evaluate(() => /** @type {any} */ (window).__studio.transcript())).length;
-    for (const prompt of opts.prompts) {
+    for (const step of opts.steps) {
+        if (step.kind === "exec") {
+            const result = await page.evaluate(async (expr) => {
+                const s = /** @type {any} */ (window).__studio;
+                const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+                return await new AsyncFunction("s", `return (${expr})`)(s);
+            }, step.text);
+            console.log(`\n> ${step.text}\n${JSON.stringify(result, null, 2)}`);
+            continue;
+        }
         const started = Date.now();
-        const ended = await page.evaluate((p) => /** @type {any} */ (window).__studio.say(p), prompt);
+        const ended = await page.evaluate((p) => /** @type {any} */ (window).__studio.say(p), step.text);
         console.log(`\nturn: ${ended.status}${ended.error ? ` (${ended.error})` : ""} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
         if (ended.status !== "completed") failed = true;
     }

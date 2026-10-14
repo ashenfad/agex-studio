@@ -21,6 +21,15 @@
         void session.say(prompt)
     }
 
+    /** @param {() => Promise<unknown>} fn */
+    async function act(fn) {
+        try {
+            await fn()
+        } catch (e) {
+            session.error = e instanceof Error ? e.message : String(e)
+        }
+    }
+
     /** @param {KeyboardEvent} e */
     function onKey(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -54,8 +63,15 @@
 <div class="chat">
     <div class="messages" bind:this={list} onscroll={onScroll}>
         {#each session.runs as run (run.runId)}
-            <RunView {run} />
+            <RunView {run} folds={session.folds} onUndo={session.busy ? undefined : () => act(() => session.undo(run.runId))} />
         {/each}
+        {#if session.interrupted && !session.busy}
+            <div class="banner">
+                The last turn was cut short by the model's provider.
+                <button onclick={() => act(() => session.resume())}>Resume it</button>
+                <button class="secondary" onclick={() => act(() => session.abandon())}>Set it aside</button>
+            </div>
+        {/if}
         {#if session.busy}
             <LiveTurn prompt={session.prompt} parts={session.live} />
         {/if}
@@ -63,6 +79,12 @@
             <div class="error">{session.error}</div>
         {/if}
     </div>
+    {#if session.redoHead !== null}
+        <div class="banner">
+            Undone: the workspace and the conversation are back where that turn began.
+            <button onclick={() => act(() => session.redo())}>Redo</button>
+        </div>
+    {/if}
     <div class="composer">
         <textarea
             bind:value={draft}
@@ -95,6 +117,23 @@
     .error {
         color: var(--error);
         font-size: 0.85rem;
+    }
+    .banner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        border-top: 1px solid var(--border);
+    }
+    .banner button {
+        padding: 0.25rem 0.7rem;
+    }
+    .secondary {
+        background: transparent;
+        border: 1px solid var(--border);
     }
     .composer {
         display: flex;
