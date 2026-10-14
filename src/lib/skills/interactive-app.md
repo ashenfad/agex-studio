@@ -289,3 +289,5 @@ page. Arguments and results must be structured-cloneable.
   data, and full URLs (CORS permitting) for public APIs.
 - **`SharedArrayBuffer` / threaded WASM**: the page isn't
   cross-origin-isolated.
+- **`window.env`, `agex.fetch`, `app/agex.json`**: reserved for the
+  studio's own use; don't define them in an app.
