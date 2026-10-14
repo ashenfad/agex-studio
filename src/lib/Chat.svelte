@@ -43,14 +43,14 @@
     let following = true
 
     function onScroll() {
-        if (list === undefined) return
+        if (list == null) return
         following = list.scrollHeight - list.scrollTop - list.clientHeight < 80
     }
 
     // follow the content as it grows, a streamed reply's deltas included
     $effect(() => {
         const el = list
-        if (el === undefined) return
+        if (el == null) return
         const observer = new MutationObserver(() => {
             if (following) el.scrollTop = el.scrollHeight
         })

@@ -28,7 +28,9 @@ import { webHost } from "./web.js";
 import { writeFile } from "./ws-paths.js";
 import { testAppTool } from "./test-app.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
+import { applyBundle, bundleFileName, encodeBundle, readBundleHeader } from "./bundle.js";
 import { primer } from "./primer.js";
+import { snapshotBranch } from "./snapshot.js";
 import { getSettings } from "./settings.js";
 
 /** @typedef {import("agex-ts").Run} Run */
@@ -85,8 +87,10 @@ export function openStore() {
 }
 
 /**
- * A session as the list shows it.
- * @typedef {{ name: string, title: string, createdAt: number, updatedAt: number }} SessionInfo
+ * A session as the list shows it. `source` says where an imported one
+ * came from (the head of the bundle it was made from), so opening the
+ * same bundle again finds it.
+ * @typedef {{ name: string, title: string, createdAt: number, updatedAt: number, source?: { head: string } }} SessionInfo
  */
 
 /** A new session's name: a session id, never a delegate's (no dot). */
@@ -102,6 +106,7 @@ async function metaOf(ws) {
         title: meta?.title ?? "",
         createdAt: meta?.createdAt ?? 0,
         updatedAt: meta?.updatedAt ?? meta?.createdAt ?? 0,
+        ...(meta?.source && { source: meta.source }),
     };
 }
 
@@ -629,13 +634,25 @@ export class Studio {
 
     /**
      * Fork the session being looked at: `full` carries its conversation,
-     * `fresh` only its files. The fork is looked at next.
+     * `fresh` only its files, `compact` everything as it is now without
+     * the history behind it (much smaller; its earlier turns can't be
+     * undone). The fork is looked at next.
      *
-     * @param {"full" | "fresh"} inherit
+     * @param {"full" | "fresh" | "compact"} inherit
      */
     async fork(inherit) {
         const from = this.current;
         if (from?.ws == null || from.busy) return;
+        if (inherit === "compact") {
+            const store = await openStore();
+            if (from.ws.uncommitted) await from.ws.commit({ tool: "studio.fork" });
+            const snap = `${from.name}.snapshot-${Math.random().toString(36).slice(2, 8)}`;
+            await snapshotBranch(store, from.ws.head, snap, { session: from.name });
+            const name = await this.#adopt(snap, { title: `${from.title || "Untitled"} (compact)` });
+            copyAppStorage("ts", from.name, name);
+            await this.switchTo(name);
+            return;
+        }
         const child = await from.ws.fork(newName(), { inherit });
         const now = Date.now();
         const base = from.title || "Untitled";
@@ -651,6 +668,83 @@ export class Studio {
         await session.open(child);
         await this.refresh();
         await this.switchTo(session.name);
+    }
+
+    /**
+     * A new session made from branch `branch` (a bundle's commits, or a
+     * snapshot): a full fork of it, so the conversation is the new
+     * session's own, with `meta` its record. `branch` goes. Its name.
+     *
+     * @param {string} branch @param {Record<string, unknown>} meta
+     */
+    async #adopt(branch, meta) {
+        const store = await openStore();
+        const from = await store.open(branch, { profile: PROFILE });
+        /** @type {Workspace} */
+        let child;
+        try {
+            child = await from.fork(newName(), { inherit: "full" });
+        } finally {
+            await from.close();
+            await store.repo.branches.delete(branch);
+        }
+        const now = Date.now();
+        child.plane(PLANE).set("meta", { title: "", createdAt: now, updatedAt: now, ...meta });
+        await child.autoCommit({ tool: "studio.adopt" });
+        const session = this.#watch(new ChatSession(child.session));
+        await session.open(child);
+        await this.refresh();
+        return child.session;
+    }
+
+    /**
+     * Open a bundle: a new session from it, looked at; or, when an
+     * earlier import of this bundle is here, that one. Its name.
+     *
+     * @param {Uint8Array} bytes
+     */
+    async importBundle(bytes) {
+        const { header } = readBundleHeader(bytes);
+        await this.refresh();
+        const known = this.sessions.find((s) => s.source?.head === header.head);
+        if (known !== undefined) {
+            await this.switchTo(known.name);
+            return { name: known.name, existing: true };
+        }
+        const store = await openStore();
+        const branch = `${newName()}.import`;
+        await applyBundle(store.repo.store, bytes, branch);
+        const name = await this.#adopt(branch, { title: header.title || "Imported", source: { head: header.head } });
+        await this.switchTo(name);
+        return { name, existing: false };
+    }
+
+    /**
+     * Session `name` as a bundle: `everything` (its history) or `current`
+     * (as it is now; see `snapshot.js`). What a turn left pending here
+     * is committed first.
+     *
+     * @param {string} name @param {"everything" | "current"} shape
+     */
+    async exportBundle(name, shape) {
+        const store = await openStore();
+        const open = this.#open.get(name)?.ws;
+        if (open?.uncommitted) await open.commit({ tool: "studio.export" });
+        const title = this.sessions.find((s) => s.name === name)?.title || "Untitled";
+        const head = await store.repo.branches.get(name);
+        const kv = store.repo.store;
+        let bytes;
+        if (shape === "current") {
+            const snap = `${name}.snapshot-${Math.random().toString(36).slice(2, 8)}`;
+            try {
+                bytes = await encodeBundle(kv, await snapshotBranch(store, head, snap, { session: name }), { title, shape });
+            } finally {
+                await store.repo.branches.delete(snap).catch(() => undefined);
+            }
+        } else {
+            bytes = await encodeBundle(kv, head, { title, shape });
+        }
+        return { bytes, fileName: bundleFileName(title) };
     }
 
     /** Delete session `name` for good. @param {string} name */
