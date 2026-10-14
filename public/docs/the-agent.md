@@ -68,7 +68,8 @@ many calls the app has made this visit (**agent 3/20**). An app gets
 An app made in someone else's session (one you imported, or opened
 from a published link) asks first: *"This app asks to use your
 model…"*. You can allow it or not; an app you don't allow just can't
-use the agent.
+use the agent. Until you've allowed it in the preview, the agent's
+own tests of that app (`test_app`) can't make its agent calls either.
 
 ## Delegates
 

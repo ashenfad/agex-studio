@@ -90,7 +90,12 @@ export function testAppTool(session) {
                         buildAppHtml,
                         cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
                         // the app's agent tasks run for real, counted in its session's budget
-                        taskHandler: (/** @type {{ spec: unknown, inputs: unknown }} */ call) => appAgent.call(session.name, call, { ask: false }),
+                        taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
+                            // an app from elsewhere runs here only once the person allowed it in the preview
+                            const { studio } = await import("./studio.svelte.js");
+                            const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
+                            return appAgent.call(session.name, call, { ask: imported, prompt: false });
+                        },
                         viewport: /** @type {any} */ (args.viewport) ?? null,
                     });
                 }

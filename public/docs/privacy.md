@@ -16,7 +16,13 @@ Your sessions, files, message history, agent state, apps' saved
 data, and settings are stored in your browser's IndexedDB and
 localStorage. None of this leaves your device unless you
 explicitly trigger an action that connects to an external
-service.
+service, with one exception: apps.
+
+An app is code, written by the agent or, for one you imported or
+opened from a published link, by someone else's agent. It runs in
+the preview with network access, like any web page, so it can send
+what you enter into it, and its own saved data, wherever its code
+says. Open apps from people you trust, as you would any website.
 
 The agex.studio static site itself uses no analytics, no tracking
 pixels, no cookies, and no form of user identification. Loading
@@ -86,8 +92,11 @@ for, is sent only to Google's APIs, and is not stored.
 
 ## Deletion
 
-- **All local data**: delete sessions from the session list, or
-  clear this site's data in your browser's settings.
+- **Sessions**: delete them from the session list, which removes
+  each one and its app's saved data. Your settings stay, keys and
+  tokens included.
+- **All local data**, settings, keys and tokens included: clear this
+  site's data in your browser's settings.
 - **Synced sessions**: delete them everywhere from the session
   list and empty the trash, or delete the repository on GitHub.
 - **Google access**: visit your

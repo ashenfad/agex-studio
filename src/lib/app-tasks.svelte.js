@@ -115,16 +115,22 @@ class AppAgent {
      *
      * @param {string} session
      * @param {{ spec: unknown, inputs: unknown }} call
-     * @param {{ ask: boolean }} opts ask before the first call (an app
-     *   from elsewhere), or allow it at once (the person's own)
+     * @param {{ ask: boolean, prompt?: boolean }} opts `ask`: the app
+     *   needs the person's say before its first call (an app from
+     *   elsewhere), or is allowed at once (the person's own). `prompt:
+     *   false` (a hidden test, nobody looking at it) refuses a call that
+     *   would need asking rather than asking, and sets no budget
      */
-    async call(session, { spec, inputs }, { ask }) {
+    async call(session, { spec, inputs }, { ask, prompt = true }) {
         const task = checkSpec(spec);
         if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
             throw new Error(`agex.task ${task.name}: call it with an object of its inputs`);
         }
         const s = getSettings();
         if (!isConfigured(s)) throw new Error("the person viewing this app hasn't chosen a model: its agent needs one (settings, ⚙)");
+        if (this.budgets[session] === undefined && ask && !prompt) {
+            throw new Error("the person hasn't allowed this app to use their model yet: they can try it in the preview, which asks");
+        }
         if (this.budgets[session] === undefined) {
             if (ask && !(await this.#consent(session, task.name))) {
                 this.budgets[session] ??= { limit: 0, used: 0 };
