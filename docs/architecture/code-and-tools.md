@@ -107,7 +107,7 @@ them. Delegates inherit the profile, so they have them too.
   how an app uses the files.
 
 The world lists the skills in the tool instructions; the agent reads
-one with `cat`. The file drawer hides `skills/`.
+one with `cat`. The Files tab hides `skills/`.
 
 ## `ui` artifacts
 
@@ -139,7 +139,7 @@ every turn) changes only the replies after.
 
 ## Files the person adds
 
-The file drawer's Upload and From Drive (`drive-import.js`, Google
+The Files tab's Upload and From Drive (`drive-import.js`, Google
 Identity Services and the Picker, the token held only for the
 downloads) write into `/workspace/uploads` as one commit
 (`ChatSession.importFiles`, `{tool: "import"}`); a Google Doc, Sheet

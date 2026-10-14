@@ -1,26 +1,78 @@
 <script>
     /**
-     * The studio: the session list beside the chat (a drawer on a
-     * narrow screen), the files, and the settings for the model.
+     * The studio: the session list (folded away with ☰ or ⌘B; a drawer
+     * on a narrow screen), the chat, and beside it the workbench (the
+     * app and the files), split where the person drags it; the app full
+     * screen; and the settings for the model.
      */
     import { onMount } from 'svelte'
     import AppPreview from './lib/AppPreview.svelte'
     import Chat from './lib/Chat.svelte'
     import { installDevHook } from './lib/dev-hook.js'
-    import FilesDrawer from './lib/FilesDrawer.svelte'
     import SessionList from './lib/SessionList.svelte'
     import SettingsDialog from './lib/SettingsDialog.svelte'
     import { isConfigured, settingsStore } from './lib/settings.js'
+    import SplitPane from './lib/SplitPane.svelte'
     import { studio } from './lib/studio.svelte.js'
     import { sync } from './lib/sync.svelte.js'
+    import Workbench from './lib/Workbench.svelte'
+
+    /** @param {string} key */
+    function stored(key) {
+        try {
+            return localStorage.getItem(key)
+        } catch {
+            return null
+        }
+    }
+    /** @param {string} key @param {boolean} on */
+    function store(key, on) {
+        try {
+            localStorage.setItem(key, on ? '1' : '0')
+        } catch {
+            // kept for this visit only
+        }
+    }
 
     /** @type {string | null} */
     let failed = $state(null)
     let showSettings = $state(false)
-    let showFiles = $state(false)
-    let showSessions = $state(false)
-    /** The preview beside the chat (on a narrow screen, instead of it). */
-    let showApp = $state(true)
+    /** A narrow screen: the session list a drawer, one pane at a time. */
+    const narrowQuery = matchMedia('(max-width: 768px)')
+    let narrow = $state(narrowQuery.matches)
+    /** The session list beside the chat, on a wide screen (kept). */
+    let railOpen = $state(stored('agex-rail') !== '0')
+    /** The session list over the chat, on a narrow screen. */
+    let drawerOpen = $state(false)
+    /** The workbench beside the chat, on a wide screen (kept). */
+    let showApp = $state(stored('agex-workbench') !== '0')
+    /** On a narrow screen, which pane shows. @type {'chat' | 'app'} */
+    let mobileView = $state('chat')
+    /** The app alone, filling the window. */
+    let fullscreen = $state(false)
+
+    function toggleSessions() {
+        if (narrow) drawerOpen = !drawerOpen
+        else {
+            railOpen = !railOpen
+            store('agex-rail', railOpen)
+        }
+    }
+
+    function toggleApp() {
+        showApp = !showApp
+        store('agex-workbench', showApp)
+    }
+
+    /** @param {KeyboardEvent} e */
+    function onKey(e) {
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
+            e.preventDefault()
+            toggleSessions()
+        } else if (e.key === 'Escape' && fullscreen) {
+            fullscreen = false
+        }
+    }
 
     if (import.meta.env.DEV) installDevHook(studio, sync)
 
@@ -74,7 +126,14 @@
             e.returnValue = ''
         }
         window.addEventListener('beforeunload', leaving)
+        /** @param {MediaQueryListEvent} e */
+        const resized = (e) => {
+            narrow = e.matches
+            drawerOpen = false
+        }
+        narrowQuery.addEventListener('change', resized)
         return () => {
+            narrowQuery.removeEventListener('change', resized)
             window.removeEventListener('focus', back)
             document.removeEventListener('visibilitychange', back)
             window.removeEventListener('beforeunload', leaving)
@@ -91,11 +150,6 @@
         if (states.some((s) => s === 'syncing')) return { glyph: '↻', title: 'Syncing' }
         return null
     })
-
-    async function openFiles() {
-        await studio.current?.refreshFiles()
-        showFiles = true
-    }
 </script>
 
 {#if playing && fetchingGist}
@@ -106,21 +160,43 @@
         <button class="pill" onclick={() => (playing = false)} title="The conversation and files behind this app">agex studio · how it was made</button>
     </div>
 {:else}
-<div class="shell">
+<div class="shell" class:fullscreen>
     <header>
-        <button class="icon sessions-toggle" onclick={() => (showSessions = !showSessions)} aria-label="Sessions">☰</button>
+        <button
+            class="icon"
+            class:on={narrow ? drawerOpen : railOpen}
+            onclick={toggleSessions}
+            aria-label={(narrow ? drawerOpen : railOpen) ? 'Hide the sessions' : 'Show the sessions'}
+            title="{(narrow ? drawerOpen : railOpen) ? 'Hide' : 'Show'} the sessions (⌘B)"
+        >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="9" y1="4" x2="9" y2="20"></line></svg>
+        </button>
         <span class="brand">agex studio</span>
         <span class="title">{studio.current?.title || ''}</span>
         {#if syncMark}
-            <button class="icon sync-mark" title={syncMark.title} aria-label={syncMark.title} onclick={() => (showSessions = true)}>{syncMark.glyph}</button>
+            <button class="icon sync-mark" title={syncMark.title} aria-label={syncMark.title} onclick={() => (narrow ? (drawerOpen = true) : (railOpen = true))}>{syncMark.glyph}</button>
         {/if}
-        <button class="icon" class:on={showApp} onclick={() => (showApp = !showApp)} aria-label="App preview" title="App preview">▣</button>
-        <button class="icon" onclick={openFiles} aria-label="Files" disabled={studio.current === null}>📁</button>
-        <button class="icon" onclick={() => (showSettings = true)} aria-label="Settings">⚙</button>
+        {#if !narrow}
+            <button
+                class="icon"
+                class:on={showApp}
+                onclick={toggleApp}
+                aria-label={showApp ? 'Hide the app and files' : 'Show the app and files'}
+                title={showApp ? 'Hide the app and files' : 'Show the app and files'}
+            >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="14" y1="4" x2="14" y2="20"></line></svg>
+            </button>
+        {/if}
+        <button class="icon" onclick={() => (showSettings = true)} aria-label="Settings" title="Settings: the model, sync and publishing">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
     </header>
     <div class="body">
-        <aside class:open={showSessions}>
-            <SessionList onPicked={() => (showSessions = false)} />
+        {#if narrow && drawerOpen}
+            <button class="scrim" onclick={() => (drawerOpen = false)} aria-label="Close the sessions"></button>
+        {/if}
+        <aside class:rail={!narrow && railOpen} class:drawer={narrow && drawerOpen}>
+            <SessionList onPicked={() => (drawerOpen = false)} />
         </aside>
         <main>
             {#if failed}
@@ -136,12 +212,18 @@
                     </p>
                 {/if}
                 {#key studio.current.name}
-                    <div class="work" class:with-app={showApp}>
-                        <div class="chat-pane"><Chat session={studio.current} /></div>
-                        {#if showApp}
-                            <div class="app-pane"><AppPreview session={studio.current} /></div>
-                        {/if}
-                    </div>
+                    {@const session = studio.current}
+                    <SplitPane
+                        single={!narrow && !showApp && !fullscreen}
+                        appOnly={fullscreen}
+                        {mobileView}
+                        onToggleMobile={() => (mobileView = mobileView === 'chat' ? 'app' : 'chat')}
+                    >
+                        <Chat {session} />
+                        {#snippet side()}
+                            <Workbench {session} {fullscreen} onFullscreen={(on) => (fullscreen = on)} />
+                        {/snippet}
+                    </SplitPane>
                 {/key}
             {/if}
         </main>
@@ -150,12 +232,14 @@
 
 {/if}
 
+{#if fullscreen}
+    <button class="pill" onclick={() => (fullscreen = false)} title="Back to the chat (Esc)">agex studio · back to the chat</button>
+{/if}
 {#if showSettings}
     <SettingsDialog onClose={() => (showSettings = false)} />
 {/if}
-{#if showFiles && studio.current}
-    <FilesDrawer session={studio.current} onClose={() => (showFiles = false)} />
-{/if}
+
+<svelte:window onkeydown={onKey} />
 
 <style>
     .shell {
@@ -183,25 +267,63 @@
         color: var(--text-muted);
     }
     .icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
         background: none;
         border: none;
-        color: var(--text);
-        font-size: 1.1rem;
+        border-radius: 6px;
+        color: var(--text-muted);
+        font-size: 1.05rem;
         cursor: pointer;
     }
-    .sessions-toggle {
-        display: none;
+    .icon:hover {
+        color: var(--text);
+        background: var(--surface-hover);
+    }
+    .icon.on {
+        color: var(--text);
+    }
+    .sync-mark {
+        color: var(--warning);
     }
     .body {
         flex: 1;
         min-height: 0;
         display: flex;
+        position: relative;
     }
     aside {
+        display: none;
         width: 16rem;
         flex-shrink: 0;
         border-right: 1px solid var(--border);
         background: var(--surface);
+        min-height: 0;
+    }
+    aside.rail {
+        display: block;
+    }
+    aside.drawer {
+        display: block;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 25;
+        width: min(18rem, 85vw);
+        box-shadow: 4px 0 20px rgb(0 0 0 / 40%);
+    }
+    .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 24;
+        border: none;
+        padding: 0;
+        background: rgb(0 0 0 / 45%);
+        cursor: pointer;
     }
     main {
         flex: 1;
@@ -210,51 +332,14 @@
         display: flex;
         flex-direction: column;
     }
-    .work {
-        display: grid;
-        grid-template-columns: 1fr;
+    main > :global(.split) {
         flex: 1;
-        min-height: 0;
     }
-    .work.with-app {
-        grid-template-columns: minmax(20rem, 2fr) 3fr;
-    }
-    .chat-pane,
-    .app-pane {
-        min-width: 0;
-        min-height: 0;
-    }
-    .app-pane {
-        border-left: 1px solid var(--border);
-    }
-    .icon.on {
-        color: var(--accent);
-    }
-    @media (max-width: 720px) {
-        .sessions-toggle {
-            display: block;
-        }
-        aside {
-            display: none;
-            position: fixed;
-            top: 3rem;
-            bottom: 0;
-            left: 0;
-            z-index: 5;
-        }
-        aside.open {
-            display: block;
-        }
-        /* one pane at a time: the app instead of the chat while shown */
-        .work.with-app {
-            grid-template-columns: 1fr;
-        }
-        .work.with-app .chat-pane {
-            display: none;
-        }
-        .app-pane {
-            border-left: none;
-        }
+    /* the app alone: the studio's chrome steps aside */
+    .shell.fullscreen header,
+    .shell.fullscreen aside,
+    .shell.fullscreen main > .note {
+        display: none;
     }
     .note {
         padding: 1rem;
@@ -274,7 +359,7 @@
         display: flex;
         flex-direction: column;
     }
-    .play .app-pane {
+    .app-pane {
         flex: 1;
         min-height: 0;
     }
@@ -289,7 +374,7 @@
         padding: 0.3rem 0.8rem;
         font-size: 0.8rem;
         cursor: pointer;
-        z-index: 5;
+        z-index: 40;
     }
     .link {
         background: none;

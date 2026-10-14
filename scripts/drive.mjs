@@ -40,6 +40,7 @@
  *   --reload            after the prompts, reload and print the record again
  *   --scripted <file>   a JSON list of model steps (DRIVE_MODE=scripted)
  *   --shot <file>       save a screenshot of the page at the end
+ *   --viewport <WxH>    the page's size (default 1280x720; 390x844 a phone)
  *   --exec <expr>       evaluate `<expr>` in the page with `s` the hook,
  *                       in order among the prompts, and print its result
  *   --quiet             print only endings and the final reply
@@ -64,6 +65,7 @@ for (let i = 0; i < args.length; i++) {
     else if (a === "--reload") opts.reload = true;
     else if (a === "--scripted") opts.scripted = args[++i];
     else if (a === "--shot") opts.shot = args[++i];
+    else if (a === "--viewport") opts.viewport = args[++i];
     else if (a === "--quiet") opts.quiet = true;
     else if (a === "--requests") opts.requests = true;
     else if (a === "--apps") opts.apps = args[++i];
@@ -175,10 +177,12 @@ function printRun(run) {
 const apps = opts.apps ? await serveApps(opts.apps) : null;
 const server = opts.url ? null : await startServer(apps?.url);
 const url = opts.url ?? server.url;
+const [width, height] = (opts.viewport ?? "1280x720").split("x").map(Number);
+const viewport = { width, height };
 const launch = { headless: true, ...(env.CHROME && { executablePath: env.CHROME }) };
 const context = opts.profile
-    ? await chromium.launchPersistentContext(opts.profile, launch)
-    : await (await chromium.launch(launch)).newContext();
+    ? await chromium.launchPersistentContext(opts.profile, { ...launch, viewport })
+    : await (await chromium.launch(launch)).newContext({ viewport });
 const page = context.pages()[0] ?? (await context.newPage());
 page.on("pageerror", (e) => console.log(`[page error] ${e.message}`));
 if (opts.requests) {

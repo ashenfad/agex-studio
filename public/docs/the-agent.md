@@ -30,9 +30,9 @@ Everything it changes is versioned, so you can undo any turn (see
 
 ## Giving it files
 
-Open the **📁 files drawer** (top right): **Upload** adds files from
-your device, and **From Drive** (when available) picks files from
-Google Drive. Either way they land in `/workspace/uploads`, as one
+Open the **Files** tab (beside **App**, right of the chat): **Upload**
+adds files from your device, and **From Drive** (when available) picks
+files from Google Drive. Either way they land in `/workspace/uploads`, as one
 change you can undo. Then mention them in your message.
 
 ## While it works
@@ -48,8 +48,9 @@ change you can undo. Then mention them in your message.
 ## Apps
 
 The agent writes an app as files under `app/`: an `index.html`, with
-its scripts and styles beside it. The **preview** (toggle it with ▣)
-shows it live, and rebuilds when its files change. The agent checks
+its scripts and styles beside it. The **App** tab beside the
+chat shows it live, and rebuilds when its files change; its ⤢ shows the
+app alone, full screen (Esc to come back). The agent checks
 its own work with a hidden copy of the app, clicking and reading it,
 and with screenshots when the model takes images.
 

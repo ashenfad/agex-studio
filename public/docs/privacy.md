@@ -52,7 +52,7 @@ agex.studio connects out only when you choose to:
   OpenRouter. These may include short excerpts from your
   conversation that the agent decides are relevant.
 - **Google Drive (file picker).** When you use **From Drive** in
-  the files drawer, the studio requests the `drive.file` scope —
+  the Files tab, the studio requests the `drive.file` scope —
   access only to the specific files you select through Google's
   own picker UI. API calls go directly from your browser to
   Google. The studio does not relay, store, or retain your Drive

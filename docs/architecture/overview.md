@@ -14,8 +14,9 @@ repo for sync, gists for publishing) as the only shared place.
 agex.studio (static SPA)                         apps.agex.studio
 ┌──────────────────────────────────────────┐    ┌──────────────────┐
 │ App.svelte                               │    │ bootloader       │
-│  SessionList · Chat · AppPreview ────────┼───►│ (the app's page, │
-│  FilesDrawer · SettingsDialog            │◄───┤  another origin) │
+│  SessionList · Chat · SplitPane ·        │    │ (the app's page, │
+│  Workbench (AppPreview ──────────────────┼───►│  another origin) │
+│   · FilesPanel) · SettingsDialog         │◄───┤                  │
 │                                          │    └──────────────────┘
 │ studio.svelte.js                         │
 │  Studio: the sessions, the one shown     │
@@ -89,8 +90,16 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   fork (full, files only, or as it is now), export, publish, delete;
   import a bundle; with sync on, each session's sync state, the repo's
   other sessions, and its trash.
-- **FilesDrawer**: the session's files to browse, read, download and
-  delete; upload from the device or Google Drive into `uploads/`.
+- **The layout**: the session list folds away (☰ or ⌘B; a drawer on a
+  narrow screen); the chat and the workbench split where the person
+  drags the divider, kept between visits, and dragging it past the left
+  edge hides the chat; on a narrow screen one pane shows at a time, a
+  round button switching them.
+- **Workbench**: beside the chat, two tabs under one bar. App: the
+  preview, rebuilt on request, its agent calls, and full screen (Esc
+  back). Files: the session's files as a tree, each opening in a modal
+  to read, download or delete; upload from the device or Google Drive
+  into `uploads/`.
 - **SettingsDialog**: the model (OpenRouter or an endpoint of the
   person's own), thinking, vision, the fold budget; sync (a repo and a
   token); a token for publishing. Settings live in `localStorage`
