@@ -1,66 +1,96 @@
 <script>
-    import { preloadPlotly } from './lib/app-html.js'
-    import { handleVfsClick } from './lib/vfs-download.js'
-    import { viewingFile } from './lib/viewing-file.js'
-    import ChatShell from './lib/ChatShell.svelte'
-    import Gallery from './lib/Gallery.svelte'
-    import Docs from './lib/Docs.svelte'
-    import FileModal from './lib/FileModal.svelte'
+    /**
+     * The studio: one session for now (the session list comes in S1),
+     * opened on the world's store, and the settings for the model.
+     */
+    import { onMount } from 'svelte'
+    import Chat from './lib/Chat.svelte'
+    import { installDevHook } from './lib/dev-hook.js'
+    import SettingsDialog from './lib/SettingsDialog.svelte'
+    import { isConfigured, settingsStore } from './lib/settings.js'
+    import { ChatSession } from './lib/studio.svelte.js'
 
-    // Route detection at mount. The studio has four SPA entry
-    // points sharing one bundle (see vite.config.js):
-    //   /         → ChatShell (the editor)
-    //   /run/     → ChatShell (with ?gist= triggering an import)
-    //   /gallery/ → Gallery (curated showcase)
-    //   /docs/    → Docs (help / explanation)
-    // Path-based switch keeps the SPA approach simple; future
-    // routes follow the same pattern.
-    const isGalleryRoute = (() => {
-        if (typeof window === 'undefined') return false
-        const path = window.location.pathname
-        return path === '/gallery/' || path === '/gallery'
-    })()
-    const isDocsRoute = (() => {
-        if (typeof window === 'undefined') return false
-        const path = window.location.pathname
-        return path === '/docs/' || path === '/docs'
-    })()
+    /** @type {ChatSession | null} */
+    let session = $state(null)
+    /** @type {string | null} */
+    let failed = $state(null)
+    let showSettings = $state(false)
 
-    // Pyodide boot is now driven lazily by `kernelRegistry.ensure('py', ...)`
-    // in ChatShell — fired only after settings are configured. The shell
-    // renders immediately; the warming-up state shows once init begins.
-    // No eager `startWorker()` here, so users on a TS-only path don't
-    // pay the Pyodide download cost.
+    if (import.meta.env.DEV) installDevHook(() => session)
 
-    // Pre-fetch Plotly.js on the parent origin. Sandboxed iframes use
-    // opaque origins and don't share the HTTP cache across loads, so
-    // without this each session-switch re-downloads ~3MB of Plotly
-    // (a 16+ second wait on slower connections). Once prefetched,
-    // buildAppHtml inlines the bytes directly.  This is shell-side
-    // prefetch unrelated to kernel boot — keep eager.
-    // Skip the eager Plotly prefetch on the static side-routes —
-    // gallery is a card grid, docs is rendered markdown; neither
-    // renders Plotly content, and the prefetch would just be
-    // wasted bandwidth.
-    if (!isGalleryRoute && !isDocsRoute) preloadPlotly()
+    onMount(async () => {
+        const opening = new ChatSession('main')
+        try {
+            await opening.open()
+            session = opening
+        } catch (e) {
+            failed = e instanceof Error ? e.message : String(e)
+        }
+    })
 </script>
 
-<!-- App-wide click delegation for [label](vfs:path) markdown links —
-     non-matching clicks are no-ops, matching clicks open the shared
-     `FileModal` via the `viewingFile` store.  Lives at the App level
-     so it works wherever rendered markdown surfaces in the UI. -->
-<svelte:window onclick={handleVfsClick} />
+<div class="shell">
+    <header>
+        <span class="brand">agex studio</span>
+        <button class="gear" onclick={() => (showSettings = true)} aria-label="Settings">⚙</button>
+    </header>
+    <main>
+        {#if failed}
+            <p class="note">The workspace couldn't open: {failed}</p>
+        {:else if session === null}
+            <p class="note">Opening…</p>
+        {:else if !isConfigured($settingsStore)}
+            <p class="note">
+                Choose a model to start: <button class="link" onclick={() => (showSettings = true)}>settings</button>.
+            </p>
+        {:else}
+            <Chat {session} />
+        {/if}
+    </main>
+</div>
 
-{#if isGalleryRoute}
-    <Gallery />
-{:else if isDocsRoute}
-    <Docs />
-{:else}
-    <ChatShell />
+{#if showSettings}
+    <SettingsDialog onClose={() => (showSettings = false)} />
 {/if}
 
-<!-- Single app-level `FileModal` instance.  Both the file-drawer's
-     list-click and the markdown-link click route through the shared
-     `viewingFile` store, so the modal is reachable from anywhere a
-     VFS path is clickable. -->
-<FileModal path={$viewingFile} onClose={() => viewingFile.set(null)} />
+<style>
+    .shell {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .brand {
+        font-family: var(--font-display);
+        font-size: 1.2rem;
+    }
+    .gear {
+        background: none;
+        border: none;
+        color: var(--text);
+        font-size: 1.2rem;
+        cursor: pointer;
+    }
+    main {
+        flex: 1;
+        min-height: 0;
+    }
+    .note {
+        padding: 1rem;
+        color: var(--text-muted);
+    }
+    .link {
+        background: none;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        font: inherit;
+        text-decoration: underline;
+    }
+</style>
