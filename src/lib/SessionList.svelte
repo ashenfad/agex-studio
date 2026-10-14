@@ -1,14 +1,16 @@
 <script>
     /**
-     * The sessions: newest first, the one looked at marked, and for
-     * each a menu to rename, fork (with its conversation, its files
-     * alone, or as it is now without its history), export as a bundle,
-     * and delete. A bundle (.agex) opens as a new session. With sync on, each shows its sync (a glyph,
-     * and the choices when it needs the person), and below them the
-     * repo's other sessions to download and its trash.
+     * The sessions: newest first, the one looked at marked. A name is
+     * renamed by a double-click; a row's tray, on hover, forks it (⑂,
+     * with its conversation) or opens its dialog (⋯: its name, the
+     * other forks, export, publish, delete). A bundle (.agex) opens as a
+     * new session. With sync on, each shows its sync (a glyph, and the
+     * choices when it needs the person), and below them the repo's other
+     * sessions to download and its trash.
      */
     import { formatDate } from './format-time.js'
     import PublishDialog from './PublishDialog.svelte'
+    import SessionDialog from './SessionDialog.svelte'
     import { studio } from './studio.svelte.js'
     import { sync } from './sync.svelte.js'
 
@@ -26,23 +28,8 @@
     /** The session the publish dialog is for. @type {string | null} */
     let publishing = $state(null)
 
-    /** @type {string | null} */
-    let exporting = $state(null)
     /** @type {HTMLInputElement | undefined} */
     let picker = $state()
-
-    /** @param {string} name @param {"everything" | "current"} shape */
-    async function exportAs(name, shape) {
-        await act(async () => {
-            const { bytes, fileName } = await studio.exportBundle(name, shape)
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }))
-            a.download = fileName
-            a.click()
-            URL.revokeObjectURL(a.href)
-        })
-        exporting = null
-    }
 
     async function importPicked() {
         const file = picker?.files?.[0]
@@ -57,10 +44,8 @@
     /** @type {{ onPicked?: () => void }} */
     let { onPicked = () => {} } = $props()
 
-    /** @type {string | null} */
-    let menuFor = $state(null)
-    /** @type {string | null} */
-    let confirming = $state(null)
+    /** The session whose dialog is open. @type {string | null} */
+    let dialogFor = $state(null)
     /** @type {string | null} */
     let renaming = $state(null)
     let draft = $state('')
@@ -70,7 +55,6 @@
     /** @param {() => Promise<unknown>} fn */
     async function act(fn) {
         failed = null
-        menuFor = null
         try {
             await fn()
         } catch (e) {
@@ -88,7 +72,6 @@
     function startRename(name, title) {
         renaming = name
         draft = title
-        menuFor = null
     }
 
     async function finishRename() {
@@ -124,7 +107,7 @@
                         onblur={finishRename}
                     />
                 {:else}
-                    <button class="row" onclick={() => pick(s.name)}>
+                    <button class="row" onclick={() => pick(s.name)} ondblclick={() => startRename(s.name, s.title)} title="Open it; double-click to rename">
                         <span class="title">{s.title || 'New session'}</span>
                         <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
                     </button>
@@ -140,45 +123,21 @@
                         {@const m = mark(s.name)}
                         <span class="sync" title={m?.title}>{m?.glyph}</span>
                     {/if}
-                    <button class="more" aria-label="Session actions" onclick={() => (menuFor = menuFor === s.name ? null : s.name)}>⋯</button>
-                {/if}
-                {#if menuFor === s.name}
-                    <div class="menu">
-                        <button onclick={() => startRename(s.name, s.title)}>Rename</button>
-                        <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('full') }).then(onPicked)}>Fork</button>
-                        <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('fresh') }).then(onPicked)}>Fork with files only</button>
-                        <button onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('compact') }).then(onPicked)} title="Everything as it is now, without the history: much smaller">Fork as it is now</button>
-                        <button onclick={() => { exporting = s.name; menuFor = null }}>Export…</button>
-                        <button onclick={() => { publishing = s.name; menuFor = null }}>Publish…</button>
-                        <button class="danger" onclick={() => { confirming = s.name; menuFor = null }}>Delete…</button>
-                    </div>
+                    <span class="tray">
+                        <button
+                            class="tool"
+                            aria-label="Fork it"
+                            title="Fork: a new session with this one's conversation and files, to try something else"
+                            onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('full') }).then(onPicked)}
+                        >⑂</button>
+                        <button class="tool" aria-label="More for this session" title="Rename, fork, export, publish, delete" onclick={() => (dialogFor = s.name)}>⋯</button>
+                    </span>
                 {/if}
                 {#if studio.updates[s.name]}
                     <div class="menu">
                         <span>A newer version was published.</span>
                         <button onclick={() => act(() => studio.update(s.name)).then(onPicked)}>Open it</button>
                         <button onclick={() => studio.dismissUpdate(s.name)}>Not now</button>
-                    </div>
-                {/if}
-                {#if exporting === s.name}
-                    <div class="menu">
-                        <span>Export as a bundle (.agex):</span>
-                        <button onclick={() => exportAs(s.name, 'current')} title="Everything as it is now: much smaller">As it is now</button>
-                        <button onclick={() => exportAs(s.name, 'everything')} title="With its history, so each turn can be undone">With its history</button>
-                        <button onclick={() => (exporting = null)}>Cancel</button>
-                    </div>
-                {/if}
-                {#if confirming === s.name}
-                    <div class="menu">
-                        {#if sync.synced(s.name)}
-                            <span>Delete “{s.title || 'New session'}”?</span>
-                            <button onclick={() => act(() => studio.remove(s.name)).then(() => (confirming = null))} title="It stays in the sync repo, and shows below as a cloud session">From this device</button>
-                            <button class="danger" onclick={() => act(() => sync.deleteEverywhere(s.name)).then(() => (confirming = null))} title="Into the sync repo's trash, on every device: restorable until it's emptied">Everywhere</button>
-                        {:else}
-                            <span>Delete “{s.title || 'New session'}” for good?</span>
-                            <button class="danger" onclick={() => act(() => studio.remove(s.name)).then(() => (confirming = null))}>Delete</button>
-                        {/if}
-                        <button onclick={() => (confirming = null)}>Keep</button>
                     </div>
                 {/if}
                 {#if sync.connected && sync.status[s.name]?.state === 'diverged'}
@@ -243,6 +202,18 @@
     {/if}
 </nav>
 
+{#if dialogFor}
+    {@const name = dialogFor}
+    <SessionDialog
+        {name}
+        onClose={() => (dialogFor = null)}
+        onPublish={() => {
+            dialogFor = null
+            publishing = name
+        }}
+        {onPicked}
+    />
+{/if}
 {#if publishing}
     <PublishDialog name={publishing} onClose={() => (publishing = null)} />
 {/if}
@@ -317,12 +288,35 @@
         font-size: 0.75rem;
         color: var(--text-muted);
     }
-    .more {
+    /* a row's tools: on hover or focus, and always on the session open,
+       or where there's no hovering (a touch screen) */
+    .tray {
+        display: flex;
+        visibility: hidden;
+        padding-right: 0.2rem;
+    }
+    li:hover .tray,
+    li:focus-within .tray,
+    li.current .tray {
+        visibility: visible;
+    }
+    @media (hover: none) {
+        .tray {
+            visibility: visible;
+        }
+    }
+    .tool {
         background: none;
         border: none;
+        border-radius: 4px;
         color: var(--text-muted);
         cursor: pointer;
-        padding: 0 0.5rem;
+        padding: 0.15rem 0.35rem;
+        font-size: 0.9rem;
+    }
+    .tool:hover {
+        color: var(--text);
+        background: var(--surface);
     }
     .menu {
         width: 100%;

@@ -15,7 +15,7 @@
  *   | { kind: "thinking", text: string }
  *   | { kind: "tool", name: string, args: Record<string, unknown>, result: string | null,
  *       isError: boolean, images: readonly { data: string, mediaType: string }[] }
- *   | { kind: "note", text: string }
+ *   | { kind: "note", from: "principal" | "mechanism", label: string, text: string }
  *   | { kind: "closing", text: string }
  *   | { kind: "folded", summary: string }
  * )} Item

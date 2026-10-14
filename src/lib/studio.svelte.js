@@ -31,6 +31,7 @@ import { testAppTool } from "./test-app.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { applyBundle, bundleFileName, encodeBundle, readBundleHeader } from "./bundle.js";
 import { fetchGistBundle, latestRevision, parseGistParam, publishGist, slugOf } from "./gist.js";
+import { attachmentsOf } from "./notes.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -171,7 +172,7 @@ async function metaOf(ws) {
  *   | { kind: "thinking", text: string }
  *   | { kind: "tool", callId: string, name: string, args: Record<string, unknown>,
  *       result: string | null, isError: boolean }
- *   | { kind: "notes", texts: string[] }
+ *   | { kind: "notes", notes: { kind: "principal" | "mechanism", label: string, text: string }[] }
  *   | { kind: "folded", summary: string }
  * )} LivePart
  */
@@ -224,6 +225,14 @@ export class ChatSession {
     folds = $state([]);
     /** @type {LivePart[]} */
     live = $state([]);
+    /** What the person is writing, kept while they look elsewhere. */
+    draft = $state("");
+    /** Files attached to the next message: added under uploads/ already,
+     *  named to the agent with it. @type {string[]} */
+    attached = $state([]);
+    /** Messages written while a turn runs, waiting for the agent's next
+     *  tool result. @type {{ id: string, text: string }[]} */
+    queued = $state([]);
     busy = $state(false);
     /** The prompt of the turn running now. */
     prompt = $state("");
@@ -529,7 +538,8 @@ export class ChatSession {
         this.#wakeNoted = false;
         this.notice = null;
         if (this.busy) {
-            this.inbox.put(prompt);
+            const note = this.inbox.put(prompt);
+            this.queued = [...this.queued, { id: note.id, text: prompt }];
             return;
         }
         await this.#held;
@@ -543,6 +553,15 @@ export class ChatSession {
                 apply(event);
             }
         }, prompt);
+    }
+
+    /** Take back a message still waiting for the turn running; whether
+     *  it was still waiting (one on its way to the model can't be).
+     *  @param {string} id */
+    withdraw(id) {
+        const taken = this.inbox.withdraw(id);
+        if (taken) this.queued = this.queued.filter((q) => q.id !== id);
+        return taken;
     }
 
     /** Continue the last turn, which an interruption cut short. */
@@ -599,12 +618,29 @@ export class ChatSession {
                 // the records it changed are committed before sync hears of the change
                 await this.#saving;
                 this.onMeta();
-                // answers that landed after its last tool call
-                void this.#maybeWake();
+                // what the person wrote after the agent's last tool call never
+                // reached it: the next turn, or after a stop, theirs to edit
+                const missed = this.#takeQueued();
+                if (missed !== "" && this.#lastStatus === "completed") void this.say(missed);
+                else {
+                    if (missed !== "") this.draft = this.draft === "" ? missed : `${missed}\n\n${this.draft}`;
+                    // answers that landed after its last tool call
+                    void this.#maybeWake();
+                }
             }
         })();
         this.#running = run;
         await run;
+    }
+
+    /** The person's messages still waiting, taken back, as one. */
+    #takeQueued() {
+        const texts = [];
+        for (const note of this.inbox.pending()) {
+            if (note.kind === "principal" && this.inbox.withdraw(note.id)) texts.push(note.text);
+        }
+        this.queued = [];
+        return texts.join("\n\n");
     }
 
     /** A turn has started: note where it started from (what undoing it
@@ -616,7 +652,8 @@ export class ChatSession {
         if (plane === undefined) return;
         plane.set(`turns/${runId}`, { before: head, at: Date.now() });
         const now = Date.now();
-        const title = this.title || titleFrom(prompt ?? "");
+        // named for what was asked, not for the files attached to it
+        const title = this.title || titleFrom(attachmentsOf(prompt ?? "").text);
         // at once, so the turn's own commits carry it
         plane.set("meta", { title, createdAt: this.createdAt || now, updatedAt: now });
         this.title = title;
@@ -834,9 +871,12 @@ export class ChatSession {
                 }
                 break;
             }
-            case "Delivered":
-                this.live.push({ kind: "notes", texts: event.notes.map((n) => n.text) });
+            case "Delivered": {
+                this.live.push({ kind: "notes", notes: event.notes.map((n) => ({ kind: n.kind, label: n.label, text: n.text })) });
+                const gone = new Set(event.notes.map((n) => n.id));
+                this.queued = this.queued.filter((q) => !gone.has(q.id));
                 break;
+            }
             case "Compacted":
                 this.live.push({ kind: "folded", summary: event.summary ?? "" });
                 break;

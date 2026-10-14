@@ -30,16 +30,22 @@ Everything it changes is versioned, so you can undo any turn (see
 
 ## Giving it files
 
-Open the **Files** tab (beside **App**, right of the chat): **Upload**
-adds files from your device, and **From Drive** (when available) picks
-files from Google Drive. Either way they land in `/workspace/uploads`, as one
-change you can undo. Then mention them in your message.
+Attach them to your message: the **+** in the message box offers
+**Upload from this device** and **From Google Drive** (when available),
+and you can drop files on the chat or paste an image. They land in
+`/workspace/uploads` at once, as one change you can undo, and show as
+chips on the message, which names them to the agent when you send it.
+The **Files** tab (beside **App**) adds files too, without naming them
+in a message.
 
 ## While it works
 
-- **Stop** ends the turn. Delegates that turn asked stop too.
-- **Typing while it works** adds a note it reads with its next step,
-  rather than starting a new turn.
+- **Stop** (the send button, while it works) ends the turn. Delegates
+  that turn asked stop too.
+- **Typing while it works** queues a note, shown as *Queued* until the
+  agent reads it with its next step (✕ takes it back till then). A note
+  that comes after its last step starts the next turn instead; after a
+  Stop, it goes back into the message box.
 - Leaving the page while the agent (or a delegate) is working asks
   first: the work runs in the page, and leaving stops it.
 - If the model's provider cuts a turn short, **Resume it** carries on
