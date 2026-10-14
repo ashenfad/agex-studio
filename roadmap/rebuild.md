@@ -21,6 +21,38 @@ holds the foundation's decisions; this is the studio's half.
   switch the links become released versions.
 - **One step is one PR,** into `rebuild`, usable from S1 on.
 
+## Testing
+
+- **It runs locally, whole.** `pnpm dev` serves the studio against the
+  linked agex-ts, and a local copy of agex-studio-apps serves the
+  preview's origin (`VITE_APPS_ORIGIN`, as today), so nothing depends
+  on agex.studio or apps.agex.studio while building.
+- **A driver an agent can use.** `scripts/drive.mjs` runs the studio in
+  headless Chromium (Playwright) and works it as a person would: opens
+  or creates a session, sends a message, waits for the turn to end,
+  and prints the transcript, the tool calls and their results, the
+  files, and a screenshot of the preview. It reads the model and key
+  from the environment and never prints a key. It goes through a
+  dev-only hook (`window.__studio`: sessions, `say`, `wait`, the
+  record, the files), present only in dev builds, so it doesn't break
+  when the markup moves, and a UI test drives the markup itself where
+  the markup is what's tested. With a scripted model selectable in
+  dev, the same driver runs a step's checks without a model call.
+- **Live testing on Muse Spark.** `meta/muse-spark-1.3-contributor` on
+  OpenRouter is the model for live tests: cheap, with tool calling, and
+  agex-ts's smoke script passes on it end to end (sessions, folding,
+  delegation, tasks, agent-defined tasks, cancelling; 2026-10-13).
+  Each step's exit is checked by driving it on Muse.
+- **Meridian stays reachable.** A custom Anthropic-shaped endpoint
+  (a local Meridian, say) keeps working, with today's
+  `x-session-affinity` key per conversation so Meridian resumes its
+  backing session and keeps its cache warm: the session's name and its
+  conversation's first tool_use id, sent only to a custom endpoint, and
+  dropped for an origin whose CORS refuses the header. On the new
+  stack it is an AI SDK Anthropic model with that base URL and a
+  `fetch` adding the key, built per session (an `Agent` holds nothing,
+  so one per session costs nothing).
+
 ## Decided
 
 - **One kernel.** The Python kernel goes, with Pyodide and its bridge,
@@ -81,9 +113,12 @@ and `link:` dependencies on agex-ts's four packages; Vite with the
 world's worker bundled (`import workerUrl from
 '@agex-ts/world/worker?worker&url'`, passed as each profile's
 `code.worker`); settings with a key and a model, on the AI SDK's
-OpenRouter provider and a direct one; one session on an IndexedDB store,
-streaming. Exit: a conversation with a real model writes files, and a
-reload shows it again from the record.
+OpenRouter provider, a direct one, and a custom Anthropic-shaped
+endpoint with the Meridian affinity key; one session on an IndexedDB
+store, streaming; the driver and its dev hook, and a scripted model
+for dev. Exit: driven on Muse, a conversation writes files, and a
+reload shows it again from the record; the same conversation works
+through a local Meridian.
 
 **S1. Sessions.** The session list from the store, with its metadata;
 create, switch, delete; fork, full and keeping only the files
@@ -145,9 +180,12 @@ release.
 
 ## Open
 
+- **OpenRouter's forced-tool fallback** (`openrouter.js`) looks
+  unneeded: agex-ts sends no `tool_choice`, and Muse, the route it was
+  written for, passes agex-ts's smoke script. It goes unless a route
+  shows otherwise.
+
 - **The per-page budget** for an app's agent calls: what it counts
   (calls, tokens or cost), and where the viewer sees and resets it.
-- **OpenRouter's forced-tool fallback** (`openrouter.js`): whether the
-  AI SDK provider still needs it.
 - **Model presets:** which providers the settings offer directly, beside
   OpenRouter.
