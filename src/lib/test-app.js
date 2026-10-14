@@ -34,9 +34,12 @@ viewport sets the hidden iframe's starting size (default 800x600); fresh: true s
 The result lists the app's console output, then each action's result.`;
 
 /**
- * The tool, over `session`.
+ * The tool, over `session`: a chat session, or a delegate's workspace
+ * (`ws`, and `name` the session whose app storage seeds the test). A
+ * delegate's `live` is refused: the preview shows another session's
+ * app.
  *
- * @param {import("./studio.svelte.js").ChatSession} session
+ * @param {{ ws: import("@agex-ts/world").Workspace | null, name: string, delegate?: boolean }} session
  * @returns {import("@agex-ts/world").Tool}
  */
 export function testAppTool(session) {
@@ -64,6 +67,9 @@ export function testAppTool(session) {
             /** @type {any[]} */
             let results;
             try {
+                if (args.live === true && session.delegate) {
+                    return { text: "live: true acts on the preview the person is looking at, which shows the session that asked you, not your app: test without live", images: [], isError: true };
+                }
                 if (args.live === true) {
                     const iframe = getLiveIframe();
                     if (iframe === null) {

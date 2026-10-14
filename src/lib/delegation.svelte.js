@@ -8,8 +8,9 @@
  *
  * - **Its own runner**, so a delegate's turns stream to the page (the
  *   strip's "doing" line, and its transcript live when opened), and a
- *   delegate runs as the parent's agent does, less the tools that need
- *   the page (`test_app`), with a cap on its tool calls per turn.
+ *   delegate runs as the parent's agent does, with `test_app` in a
+ *   hidden page of its own (not `live`: the preview is the parent's),
+ *   and a cap on its tool calls per turn.
  * - **A depth cap:** delegation nests two levels deep, past which
  *   `sessions ask` is refused, saying to do the work itself.
  * - **`sessions published`:** the apps the person published (the
@@ -74,7 +75,7 @@ export function delegateTask(text) {
 }
 
 const BRIEF = (/** @type {string} */ parent) =>
-    `[the studio's delegation mechanism speaking, not the person at the keyboard: you are a delegate of \`${parent}\`, working on a fork of its workspace. Your reply is the whole of what reaches it: say what you did and what you found, in prose. It brings your files back itself (ws-git merge or checkout of your branch). There is no preview here, so test_app isn't yours: say what should be checked.]${TASK_FOLLOWS}`;
+    `[the studio's delegation mechanism speaking, not the person at the keyboard: you are a delegate of \`${parent}\`, working on a fork of its workspace. Your reply is the whole of what reaches it: say what you did and what you found, in prose. It brings your files back itself (ws-git merge or checkout of your branch). test_app checks an app here, in a hidden page of its own; the person's preview shows the session that asked, so live isn't yours.]${TASK_FOLLOWS}`;
 
 const DEPTH_REFUSAL = (/** @type {number} */ cap) =>
     `sessions ask refused: delegation nests ${cap} levels deep here and this session is already that deep, so there is no fork to hand this to. Do the task yourself, or answer with what you have found: your reply is the whole of what reaches the session that asked. list, result, keep, cancel and published still work.`;
@@ -156,7 +157,7 @@ function cancelRunning(helper) {
  * What a runner needs from the studio: the agent a delegate runs on,
  * its tools at a depth, and the chat session open on a delegate.
  *
- * @typedef {{ agent: (opts: { delegate: boolean }) => Agent, tools: (helper: Sessions, depth: number) => Tool[], observe: (name: string) => Observer | undefined }} RunnerHost
+ * @typedef {{ agent: (opts: { delegate: boolean }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined }} RunnerHost
  */
 
 /**
@@ -184,7 +185,7 @@ export class StudioRunner {
         const delegate = this.host.agent({ delegate: true }).session(child, {
             sessions: helper,
             inbox: new Inbox(),
-            tools: this.host.tools(helper, depth),
+            tools: this.host.tools(helper, depth, child),
         });
         const stop = () => {
             delegate.cancel("stopped");

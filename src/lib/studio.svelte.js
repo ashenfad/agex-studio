@@ -147,8 +147,8 @@ async function publishedNow() {
 
 /**
  * What a session's delegates run with: its agent (capped as a
- * delegate's), the `sessions` tool at their depth, and the chat session
- * open on one, which follows its turns.
+ * delegate's), `test_app` and the `sessions` tool at their depth, and
+ * the chat session open on one, which follows its turns.
  *
  * @param {ChatSession} owner
  * @returns {import("./delegation.svelte.js").RunnerHost}
@@ -156,7 +156,11 @@ async function publishedNow() {
 function runnerHost(owner) {
     return {
         agent: (opts) => owner.delegateAgent(opts),
-        tools: (helper, depth) => [studioSessionsTool(helper, depth, publishedNow)],
+        // a delegate tests its own app, seeded with its top session's storage
+        tools: (helper, depth, ws) => [
+            testAppTool({ ws, name: ws.session.split(".")[0] ?? ws.session, delegate: true }),
+            studioSessionsTool(helper, depth, publishedNow),
+        ],
         observe: (name) => studio.opened(name),
     };
 }
