@@ -22,6 +22,7 @@ import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { buildModel, thinkingOf } from "./model.js";
 import interactiveApp from "./skills/interactive-app.md?raw";
 import { testAppTool } from "./test-app.js";
+import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { PRIMER } from "./primer.js";
 import { getSettings } from "./settings.js";
 
@@ -507,6 +508,8 @@ export class Studio {
             updatedAt: now,
         });
         await child.autoCommit({ tool: "studio.fork" });
+        // the app's saved data goes with its files, on either kind of fork
+        copyAppStorage("ts", from.name, child.session);
         const session = this.#watch(new ChatSession(child.session));
         await session.open(child);
         await this.refresh();
@@ -521,6 +524,7 @@ export class Studio {
         this.#open.delete(name);
         const store = await openStore();
         await store.delete(name);
+        removeAppStorage("ts", name);
         await this.refresh();
         if (this.current?.name === name) {
             this.current = null;

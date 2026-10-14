@@ -64,7 +64,9 @@ export function appDigest(app) {
     }
     for (const key of Object.keys(app.binaries).sort()) {
         add(key);
-        add(String(app.binaries[key]?.length ?? 0));
+        const bytes = app.binaries[key] ?? new Uint8Array();
+        add(String(bytes.length));
+        for (let i = 0; i < bytes.length; i++) h = (Math.imul(h, 31) + (bytes[i] ?? 0)) | 0;
     }
     return `${Object.keys(app.files).length}:${Object.keys(app.binaries).length}:${h}`;
 }

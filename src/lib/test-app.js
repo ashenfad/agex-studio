@@ -108,6 +108,8 @@ export function formatResults(results) {
     for (const r of results) {
         if (r?.type === "log") {
             lines.push(`[${r.level}] ${shown(r.message)}`);
+        } else if (r?.type === "eval" && r.error) {
+            lines.push(`eval ${shown(r.expr, 200)} threw: ${shown(r.error)}`);
         } else if (r?.type === "eval") {
             lines.push(`eval ${shown(r.expr, 200)} → ${shown(r.value)}`);
         } else if (r?.type === "read") {
