@@ -193,6 +193,23 @@ export class Sync {
         }
     }
 
+    /**
+     * Whether session `name`'s app data here holds what the repo doesn't:
+     * a write not committed yet, or a commit not pushed.
+     *
+     * @param {string} name
+     */
+    async #appDataUnpushed(name) {
+        const store = await openStore();
+        const branch = appBranch(name);
+        const held = await readAppData(store, { branch });
+        const bag = readAppStorage("ts", name);
+        const written = held === null ? Object.keys(bag).length > 0 : JSON.stringify(held.bag) !== JSON.stringify(bag);
+        if (written) return true;
+        if (held === null) return false;
+        return (await getSyncHead(store.repo.store, branch)) !== (await store.repo.branches.get(branch));
+    }
+
     /** Put the app data `ref` holds into the app's storage here, and tell
      *  a preview showing it. @param {string} name @param {{ branch: string }} ref */
     async #takeAppData(name, ref) {
@@ -322,7 +339,8 @@ export class Sync {
                     if (synced !== null) {
                         // archived elsewhere: unchanged here since, it goes
                         // (it's in the trash); changed here, the person decides
-                        if (synced === head && this.studio.current?.name !== name) await this.studio.remove(name);
+                        // ...and its app data unchanged too: a write not yet pushed keeps it here
+                        if (synced === head && this.studio.current?.name !== name && !(await this.#appDataUnpushed(name))) await this.studio.remove(name);
                         else this.#mark(name, "remote-gone", "It was moved to the trash on another device.");
                         continue;
                     }
@@ -397,7 +415,10 @@ export class Sync {
     /** Push a session the repo lost (archived or deleted elsewhere) as a
      *  new one. @param {string} name */
     async syncAgain(name) {
-        await clearSyncHead((await openStore()).repo.store, name);
+        const kv = (await openStore()).repo.store;
+        await clearSyncHead(kv, name);
+        // its app data is pushed again with it
+        await clearSyncHead(kv, appBranch(name));
         await this.syncNow(name);
     }
 
@@ -405,11 +426,17 @@ export class Sync {
      *  @param {string} name */
     async deleteEverywhere(name) {
         const remote = await this.#remoteNow();
+        // its app data first, so a failure changes nothing; then the session,
+        // whose failure puts the app data back
+        const app = appBranch(name);
+        const hasApp = (await remote.listRefs()).some((r) => r.branch === app);
+        if (hasApp && !(await remote.archiveBranch(app))) {
+            throw new Error("the session's app data changed in the sync repo meanwhile; sync, then delete again");
+        }
         if (!(await remote.archiveBranch(name))) {
+            if (hasApp) await remote.restoreBranch(app).catch(() => false);
             throw new Error("the session changed in the sync repo meanwhile; sync, then delete again");
         }
-        // its app data goes with it (false when it has none there)
-        await remote.archiveBranch(appBranch(name)).catch(() => false);
         await this.studio.remove(name);
         await this.sweep({ force: true });
     }
