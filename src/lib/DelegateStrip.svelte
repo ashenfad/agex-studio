@@ -60,7 +60,7 @@
 <style>
     .strip {
         border-top: 1px solid var(--border);
-        padding: 0.4rem 0.8rem;
+        padding: 0.4rem var(--gutter, 0.8rem);
         display: flex;
         flex-direction: column;
         gap: 0.3rem;

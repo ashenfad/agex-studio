@@ -7,13 +7,11 @@
      * and the rest after it.
      */
     import { CLOSING_NOTE } from 'agex-ts'
+    import AgentItems from './AgentItems.svelte'
     import Artifact from './Artifact.svelte'
     import { artifactsOf, unembedded } from './artifacts.js'
     import { delegateTask, deliveredAnswers } from './delegation.svelte.js'
-    import { renderMarkdown } from './markdown.js'
-    import ReplyText from './ReplyText.svelte'
     import { studio } from './studio.svelte.js'
-    import ToolCall from './ToolCall.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, at?: string | null }} */
     let { session, run, folds = [], onUndo, at = null } = $props()
@@ -46,6 +44,38 @@
     const asked = $derived(opening === null ? null : delegateTask(opening))
     const rest = $derived(opening === null ? run.messages : run.messages.slice(1))
 
+    /** The reply, as the transcript lays it out: each call with its
+     *  result, and a fold's band after the message it ends at. */
+    const items = $derived.by(() => {
+        /** @type {import('./activity.js').Item[]} */
+        const out = []
+        for (const message of rest) {
+            if (message.role === 'assistant') {
+                for (const part of message.parts) {
+                    if (part.kind === 'thinking') out.push({ kind: 'thinking', text: part.text })
+                    else if (part.kind === 'text' && part.text.startsWith(CLOSING_NOTE)) out.push({ kind: 'closing', text: part.text })
+                    else if (part.kind === 'text') out.push({ kind: 'text', text: part.text })
+                    else if (part.kind === 'tool_call') {
+                        const result = results.get(part.callId)
+                        out.push({
+                            kind: 'tool',
+                            name: part.name,
+                            args: { ...part.args },
+                            // a call the run ended before answering has no result
+                            result: result?.content ?? '',
+                            isError: result?.isError ?? false,
+                            images: result?.images ?? [],
+                        })
+                    }
+                }
+            } else if (message.role === 'user') {
+                out.push({ kind: 'note', text: textOf(message) })
+            }
+            for (const fold of foldsAfter(message.id)) out.push({ kind: 'folded', summary: fold.summary })
+        }
+        return out
+    })
+
     /** The artifacts the reply doesn't embed, shown after it. */
     const trailing = $derived(
         unembedded(
@@ -77,36 +107,7 @@
     {/if}
 {/if}
 <div class="agent">
-    {#each rest as message (message.id)}
-        {#if message.role === 'assistant'}
-            {#each message.parts as part, i (i)}
-                {#if part.kind === 'thinking' && part.text.trim() !== ''}
-                    <details class="thinking"><summary>thinking</summary>{part.text}</details>
-                {:else if part.kind === 'text' && part.text.startsWith(CLOSING_NOTE)}
-                    <div class="closing">{part.text}</div>
-                {:else if part.kind === 'text'}
-                    <ReplyText {session} {at} text={part.text} />
-                {:else if part.kind === 'tool_call'}
-                    {@const result = results.get(part.callId)}
-                    <ToolCall
-                        name={part.name}
-                        args={{ ...part.args }}
-                        result={result?.content ?? null}
-                        isError={result?.isError ?? false}
-                        images={result?.images ?? []}
-                    />
-                {/if}
-            {/each}
-        {:else if message.role === 'user'}
-            <div class="note">{textOf(message)}</div>
-        {/if}
-        {#each foldsAfter(message.id) as fold (fold.through)}
-            <details class="folded">
-                <summary>The conversation up to here is folded into a summary for the model</summary>
-                <div class="summary">{@html renderMarkdown(fold.summary)}</div>
-            </details>
-        {/each}
-    {/each}
+    <AgentItems {session} {at} {items} />
     {#each trailing as artifact (artifact.path)}
         <Artifact {session} {at} path={artifact.path} name={artifact.name} />
     {/each}
@@ -160,17 +161,6 @@
     .undo:focus {
         visibility: visible;
     }
-    .folded {
-        border-top: 1px dashed var(--border);
-        border-bottom: 1px dashed var(--border);
-        color: var(--text-muted);
-        font-size: 0.8rem;
-        margin: 0.6rem 0;
-        padding: 0.3rem 0;
-    }
-    .folded summary {
-        cursor: pointer;
-    }
     .user {
         max-width: 80%;
         background: var(--user-bubble);
@@ -181,17 +171,6 @@
     .agent {
         max-width: 100%;
     }
-    .thinking {
-        color: var(--text-muted);
-        font-size: 0.85rem;
-        white-space: pre-wrap;
-        margin: 0.3rem 0;
-    }
-    .thinking summary {
-        cursor: pointer;
-    }
-    .note,
-    .closing,
     .status {
         color: var(--text-muted);
         font-size: 0.85rem;

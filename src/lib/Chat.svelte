@@ -120,7 +120,7 @@
 
 <style>
     .notice {
-        padding: 0.4rem 0.8rem;
+        padding: 0.4rem var(--gutter);
         font-size: 0.8rem;
         color: var(--text-muted);
         border-top: 1px solid var(--border);
@@ -129,7 +129,7 @@
         display: flex;
         align-items: center;
         gap: 0.8rem;
-        padding: 0.6rem 0.8rem;
+        padding: 0.6rem var(--gutter);
         border-top: 1px solid var(--border);
         font-size: 0.8rem;
         color: var(--text-muted);
@@ -143,6 +143,9 @@
         cursor: pointer;
     }
     .chat {
+        /* the conversation reads in a column of at most 900px, centered;
+           each row pads its sides to it, so it scrolls at the edge */
+        --gutter: max(1rem, calc((100% - 900px) / 2));
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -154,7 +157,7 @@
         display: flex;
         flex-direction: column;
         gap: 0.6rem;
-        padding: 1rem;
+        padding: 1rem var(--gutter);
     }
     .error {
         color: var(--error);
@@ -165,7 +168,7 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 0.5rem;
-        padding: 0.5rem 1rem;
+        padding: 0.5rem var(--gutter);
         font-size: 0.85rem;
         color: var(--text-muted);
         border-top: 1px solid var(--border);
@@ -180,7 +183,7 @@
     .composer {
         display: flex;
         gap: 0.5rem;
-        padding: 0.6rem 1rem;
+        padding: 0.6rem var(--gutter);
         border-top: 1px solid var(--border);
     }
     textarea {
