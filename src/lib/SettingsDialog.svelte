@@ -159,7 +159,8 @@
         background: rgb(0 0 0 / 50%);
         display: grid;
         place-items: center;
-        z-index: 10;
+        /* the modal layer: above the drawer, the switch button, the pill */
+        z-index: 50;
     }
     .dialog {
         background: var(--surface);

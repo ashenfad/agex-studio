@@ -97,7 +97,8 @@
         position: fixed;
         inset: 0;
         background: rgb(0 0 0 / 50%);
-        z-index: 30;
+        /* the modal layer: above the drawer, the switch button, the pill */
+        z-index: 50;
         display: flex;
         align-items: center;
         justify-content: center;
