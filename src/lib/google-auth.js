@@ -55,7 +55,9 @@ function loadGIS() {
  * resolves silently; otherwise the user sees the consent screen.
  *
  * @param {string[]} [scopes] - OAuth scopes to request. Defaults to drive.file.
- * @returns {Promise<string|null>} Access token, or null if user cancelled.
+ * @returns {Promise<string|null>} Access token, or null if the user
+ *   cancelled (closing the popup included); throws if the popup was
+ *   blocked.
  */
 export async function requestAccessToken(scopes = [DRIVE_SCOPE]) {
     if (!CLIENT_ID) {
@@ -75,11 +77,21 @@ export async function requestAccessToken(scopes = [DRIVE_SCOPE]) {
                 pendingResolve = null;
             }
         },
+        // A popup closed or blocked is reported here, not to `callback`:
+        // without it the request would never settle.
+        error_callback: (error) => {
+            if (pendingResolve) {
+                pendingResolve({ error: error?.type ?? "unknown" });
+                pendingResolve = null;
+            }
+        },
     });
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
         pendingResolve = (response) => {
-            if (response.error) {
+            if (response.error === "popup_failed_to_open") {
+                reject(new Error("the Google sign-in popup was blocked; allow popups for this site and try again"));
+            } else if (response.error) {
                 resolve(null);
             } else {
                 resolve(response.access_token);
