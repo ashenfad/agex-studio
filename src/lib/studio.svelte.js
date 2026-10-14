@@ -89,7 +89,8 @@ export function openStore() {
 /**
  * A session as the list shows it. `source` says where an imported one
  * came from (the head of the bundle it was made from), so opening the
- * same bundle again finds it.
+ * same bundle again finds it: kept on the plane apart from `meta`,
+ * which a turn and a rename rewrite.
  * @typedef {{ name: string, title: string, createdAt: number, updatedAt: number, source?: { head: string } }} SessionInfo
  */
 
@@ -100,13 +101,15 @@ function newName() {
 
 /** @param {Workspace} ws */
 async function metaOf(ws) {
-    const meta = /** @type {Partial<SessionInfo> | null} */ (await ws.plane(PLANE).get("meta"));
+    const plane = ws.plane(PLANE);
+    const meta = /** @type {Partial<SessionInfo> | null} */ (await plane.get("meta"));
+    const source = /** @type {SessionInfo["source"] | null} */ (await plane.get("source"));
     return {
         name: ws.session,
         title: meta?.title ?? "",
         createdAt: meta?.createdAt ?? 0,
         updatedAt: meta?.updatedAt ?? meta?.createdAt ?? 0,
-        ...(meta?.source && { source: meta.source }),
+        ...(source && { source }),
     };
 }
 
@@ -594,6 +597,7 @@ export class Studio {
             const child = await ws.fork(newName(), { inherit: "full" });
             const now = Date.now();
             child.plane(PLANE).set("meta", { title, createdAt: now, updatedAt: now });
+            await child.plane(PLANE).delete("source");
             await child.autoCommit({ tool: "studio.fork" });
             copyAppStorage("ts", name, child.session);
             await child.close();
@@ -661,6 +665,8 @@ export class Studio {
             createdAt: now,
             updatedAt: now,
         });
+        // a fork of an imported session isn't that import
+        await child.plane(PLANE).delete("source");
         await child.autoCommit({ tool: "studio.fork" });
         // the app's saved data goes with its files, on either kind of fork
         copyAppStorage("ts", from.name, child.session);
@@ -689,7 +695,11 @@ export class Studio {
             await store.repo.branches.delete(branch);
         }
         const now = Date.now();
-        child.plane(PLANE).set("meta", { title: "", createdAt: now, updatedAt: now, ...meta });
+        const { source, ...rest } = meta;
+        child.plane(PLANE).set("meta", { title: "", createdAt: now, updatedAt: now, ...rest });
+        // a snapshot or bundle carries the source session's own record
+        if (source !== undefined) child.plane(PLANE).set("source", source);
+        else await child.plane(PLANE).delete("source");
         await child.autoCommit({ tool: "studio.adopt" });
         const session = this.#watch(new ChatSession(child.session));
         await session.open(child);
