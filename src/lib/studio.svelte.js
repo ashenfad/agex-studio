@@ -988,7 +988,10 @@ export class Studio {
         const store = await openStore();
         const open = this.#open.get(name)?.ws;
         if (open?.uncommitted) await open.commit({ tool: "studio.export" });
-        const title = this.sessions.find((s) => s.name === name)?.title || "Untitled";
+        // the title as the session holds it (the list may not have caught up)
+        const view = await store.resolve(name);
+        const title = (await metaOf(view)).title || "Untitled";
+        await view.close();
         const head = await store.repo.branches.get(name);
         const kv = store.repo.store;
         let bytes;

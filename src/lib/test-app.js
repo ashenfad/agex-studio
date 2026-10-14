@@ -11,6 +11,7 @@ import { buildAppHtml } from "./app-html.js";
 import { readApp, hasApp } from "./app-files.js";
 import { getLiveIframe, runLiveApp, runTestApp } from "./app-control.js";
 import { read as readAppStorage } from "./app-storage.js";
+import { appAgent } from "./app-tasks.svelte.js";
 
 /** What the model reads of a value: JSON, cut at `max` characters. */
 const shown = (/** @type {unknown} */ value, max = 4000) => {
@@ -88,6 +89,8 @@ export function testAppTool(session) {
                         appStorageSeed: args.fresh === true ? {} : readAppStorage("ts", session.name),
                         buildAppHtml,
                         cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
+                        // the app's agent tasks run for real, counted in its session's budget
+                        taskHandler: (/** @type {{ spec: unknown, inputs: unknown }} */ call) => appAgent.call(session.name, call, { ask: false }),
                         viewport: /** @type {any} */ (args.viewport) ?? null,
                     });
                 }

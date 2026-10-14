@@ -135,6 +135,36 @@ window.getCacheValue = function(key) {
     });
 };
 
+// agex.task({ name, instructions, params, returns }) — an agent task the
+// app calls: params maps each input's name to its JSON Schema, returns is
+// the value's JSON Schema. The studio runs it on the viewer's model and
+// resolves with the value; it rejects with what went wrong (no model
+// chosen, the viewer didn't allow it, the visit's calls used up, the task
+// failed). const summarize = agex.task({...}); await summarize({ text }).
+// NOTE: this whole block is inside a template literal — no backticks.
+window.agex = {
+    task: function(spec) {
+        var fn = function(inputs) {
+            var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+            return new Promise(function(resolve, reject) {
+                function handler(event) {
+                    if (!event.data || event.data.type !== 'agex-task-result' || event.data.id !== id) return;
+                    window.removeEventListener('message', handler);
+                    if (event.data.error) reject(new Error(event.data.error));
+                    else resolve(event.data.value);
+                }
+                window.addEventListener('message', handler);
+                if (!window.__agexPost({ type: 'agex-task', id: id, spec: spec, inputs: inputs || {} })) {
+                    window.removeEventListener('message', handler);
+                    reject(new Error('agex parent origin not configured'));
+                }
+            });
+        };
+        fn.spec = spec;
+        return fn;
+    },
+};
+
 // notify(title, body?) — show a desktop notification via the host.
 // The sandbox can't construct Notifications (or prompt for permission)
 // itself, so the studio does it on your behalf, behind a permission

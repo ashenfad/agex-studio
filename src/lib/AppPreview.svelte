@@ -4,8 +4,10 @@
      * app/ and rendered in an iframe at the apps origin (a separate
      * origin, so the app can't reach the studio's storage or DOM). The
      * studio posts the built HTML to the origin's bootloader, and
-     * answers the app's calls to it: `getCacheValue`, its storage, and
-     * `notify`. The preview rebuilds when the app's files change.
+     * answers the app's calls to it: `getCacheValue`, its storage,
+     * `notify`, and its agent tasks (`agex.task`, run on the viewer's
+     * model within this page's budget). The preview rebuilds when the
+     * app's files change.
      *
      * It is the iframe `test_app` acts on with `live: true`.
      */
@@ -14,7 +16,9 @@
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppHtml } from './app-html.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
+    import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
+    import { studio } from './studio.svelte.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
     let { session } = $props()
@@ -79,6 +83,9 @@
         return () => setLiveIframe(null)
     })
 
+    /** This page's budget for the app's agent calls, once it has one. */
+    const budget = $derived(appAgent.budgets[session.name] ?? null)
+
     /** @type {Record<string, string> | null} */
     let storageToWrite = null
     /** @type {ReturnType<typeof setTimeout> | null} */
@@ -118,6 +125,18 @@
             }
             return
         }
+        if (data.type === 'agex-task') {
+            const frame = iframe
+            // an app opened from elsewhere asks before spending the viewer's key
+            const ask = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null
+            try {
+                const value = await appAgent.call(session.name, { spec: data.spec, inputs: data.inputs }, { ask })
+                replyToApp(frame, { type: 'agex-task-result', id: data.id, value: value === undefined ? null : value, error: null })
+            } catch (e) {
+                replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: e instanceof Error ? e.message : String(e) })
+            }
+            return
+        }
         if (data.type === 'agex-notify') {
             // notifications come with the studio's own (a later step)
             replyToApp(iframe, { type: 'agex-notify-result', id: data.id, shown: false })
@@ -139,8 +158,22 @@
     <div class="bar">
         <span>App</span>
         {#if loading}<span class="muted">loading…</span>{/if}
+        {#if budget}
+            <span class="calls" title="The app's calls to an agent this visit, on your model">agent {budget.used}/{budget.limit}</span>
+            {#if budget.used >= budget.limit}
+                <button class="more" onclick={() => appAgent.allowMore(session.name)}>Allow {APP_CALLS} more</button>
+            {/if}
+        {/if}
         <button onclick={() => load(true)} disabled={empty} title="Rebuild from the files">↻</button>
     </div>
+    {#if appAgent.asking?.session === session.name}
+        {@const asking = appAgent.asking}
+        <div class="consent">
+            <p>This app asks to use your model for an agent task (“{asking.task}”). Each call runs on your key; it may make up to {APP_CALLS} this visit.</p>
+            <button onclick={() => asking.answer(true)}>Allow</button>
+            <button class="secondary" onclick={() => asking.answer(false)}>Don't allow</button>
+        </div>
+    {/if}
     {#if failed}
         <p class="note error">The app couldn't be built: {failed}</p>
     {:else if empty}
@@ -161,6 +194,39 @@
 </div>
 
 <style>
+    .calls {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+    }
+    .more,
+    .consent button {
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0.2rem 0.6rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+    .consent {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.6rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        font-size: 0.85rem;
+    }
+    .consent p {
+        width: 100%;
+        margin: 0;
+    }
+    .consent .secondary {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+    }
     .preview {
         display: flex;
         flex-direction: column;

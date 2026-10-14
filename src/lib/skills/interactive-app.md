@@ -115,6 +115,46 @@ files. To apply a new one to the open preview at once, re-run the apply
 step with `test_app` and `live: true` (`{eval: ...}`), rather than
 reloading the page.
 
+## An agent in the app: `agex.task`
+
+An app can call an agent: for what code can't do well (summarize,
+classify, extract, write, answer about the web). Define a task as you
+would in run_ts, its inputs and value as JSON Schema, and call it with
+an object of its inputs:
+
+```js
+const summarize = agex.task({
+  name: 'summarize',
+  instructions: 'Summarize the text in two plain sentences.',
+  params: { text: { type: 'string' } },
+  returns: { type: 'string' },
+})
+
+button.onclick = async () => {
+  out.textContent = 'Thinking…'
+  try {
+    out.textContent = await summarize({ text: input.value })
+  } catch (e) {
+    out.textContent = `Couldn't: ${e.message}`
+  }
+}
+```
+
+- **It runs on the viewer's model and key,** in a world of its own
+  (with `web` when their key is OpenRouter's), and takes seconds: show
+  that something is happening, and keep the button from being pressed
+  again meanwhile.
+- **Calls are budgeted:** 20 a visit to begin with. Someone opening a
+  shared app is asked first whether it may use their model; they can
+  refuse, and anyone may have no model chosen. A call that can't run
+  rejects saying why: catch it and show it, and leave the rest of the
+  app working.
+- **Ask for structure** when the app reads the value: `returns: {type:
+  'object', properties: {…}, required: […]}`, and the value comes back
+  checked against it.
+- `test_app` runs tasks for real, on the same budget: wait for the
+  value (`{wait: 15000}`, then `{read: …}`) rather than assuming it.
+
 ## Checking your app: `test_app`
 
 After writing the app, **check it before you say it's done.** `test_app`

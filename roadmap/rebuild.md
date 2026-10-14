@@ -175,8 +175,14 @@ writes again, none after a stopped or failed turn; stopping a turn
 stops the delegates it asked, and undoing one unsays them; answer
 cards in the transcript; the rail's ⑂ count; `sessions published`.
 The job table is the page's: a reload keeps the delegates' branches,
-not their jobs. S5b: the bridge: an app's agent-defined tasks on the
-viewer's own key, with a per-page budget. Exit: an app calls an agent
+not their jobs. S5b: the bridge: an app defines its own agent tasks
+(`agex.task({name, instructions, params, returns})`, JSON Schema, as
+agent code does) and calls them; the studio runs each on the viewer's
+model and key, in a world of its own (`web` in it on an OpenRouter
+key), counted per session for the page's life: 20 calls at once for
+the person's own session, a question first for one opened from
+elsewhere, the count in the preview's bar with more to allow.
+`test_app` runs them for real, on the same count. Exit: an app calls an agent
 on a click within its budget, and a session delegates, is woken by the
 answer, and merges it.
 
@@ -213,7 +219,5 @@ release.
   written for, passes agex-ts's smoke script. It goes unless a route
   shows otherwise.
 
-- **The per-page budget** for an app's agent calls: what it counts
-  (calls, tokens or cost), and where the viewer sees and resets it.
 - **Model presets:** which providers the settings offer directly, beside
   OpenRouter.
