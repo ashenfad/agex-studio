@@ -127,7 +127,9 @@ agex-ts's; `delegation.svelte.js` adds:
   message is a brief from the mechanism, then the task.
 - **The delegate's agent** is the parent's, with `maxToolCalls: 60`
   (`DELEGATE_TOOL_CALLS`). It has `test_app` in a hidden page of its
-  own (`live` is refused) and the `sessions` tool at its depth.
+  own (`live` is refused), the `sessions` tool at its depth, and the
+  parent's tool options (`view_image` when the model takes images,
+  `agex`'s guide).
 - **A depth cap**: `DEPTH_CAP`, 2. At that depth `sessions ask` is
   refused, saying to do the work itself (`studioSessionsTool`).
 - **`sessions published`**: the published apps, from the store's
