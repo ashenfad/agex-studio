@@ -67,16 +67,27 @@ agex-ts drives directly:
 `Chat.svelte` renders the stored runs (`RunView.svelte`) and, while a
 turn runs, the live one (`LiveTurn.svelte`). A run's parts are the
 record's: `text`, `thinking`, `tool_call` and `tool_result`. A run's
-first user message is shown as the person's, except:
+first user message (`TurnOpening.svelte`, for the live turn and the
+stored alike) is shown as the person's, except:
 
 - one that delivered delegates' answers (a woken turn) shows each as
-  an answer card (`deliveredAnswers`);
+  an answer card (`deliveredAnswers`), with whatever the person said
+  beside them;
 - a delegate's first message, its brief, shows as "Task from
   <parent>: …" (`delegateTask`).
 
+The live turn opens as the stored one will. A woken turn's opening is
+the answers' delivery, which the inbox reports as it happens
+(`onDelivered`); a delegate's runner tells the view open on it each
+turn's prompt (`begin`, `opened`), and keeps it (`openings`) for a view
+opened mid-turn.
+
 Replies render markdown with `ui` artifacts spliced in where the reply
-embeds them (see [code-and-tools.md](code-and-tools.md)). Each run has
-an undo button (not in a delegate's read-only view).
+embeds them (see [code-and-tools.md](code-and-tools.md)). Only what the
+person said offers undo (and, for an ordinary message, edit): not a
+delegate's task, not a turn the answers alone started (undoing the
+turn before it takes that one too), and nothing in a delegate's
+read-only view.
 
 ## Notes mid-turn
 

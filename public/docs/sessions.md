@@ -27,7 +27,9 @@ export, publish and delete.
 
 ## Undo and redo
 
-Hover one of your messages for its tools. **Undo** (↶) goes back to
+Hover one of your messages for its tools (the turns your delegates'
+answers started have none: undoing the message before them takes them
+too). **Undo** (↶) goes back to
 where that turn began: the files, the conversation, the folds, all of
 it. **Edit** (✎) does the same and puts your message back in the box,
 its files attached again, to change and send anew. **Redo** brings it
