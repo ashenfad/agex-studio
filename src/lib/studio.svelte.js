@@ -371,6 +371,11 @@ export class ChatSession {
      */
     async say(prompt) {
         if (this.ws === null) throw new Error("the session isn't open");
+        // the person spoke (a note mid-turn too): answers may wake the session again
+        this.wakesLeft = WAKES;
+        this.#wakeOk = true;
+        this.#wakeNoted = false;
+        this.notice = null;
         if (this.busy) {
             this.inbox.put(prompt);
             return;
@@ -378,11 +383,6 @@ export class ChatSession {
         await this.#held;
         const ws = this.ws;
         if (ws === null) throw new Error("the session isn't open");
-        // the person spoke: answers may wake the session again
-        this.wakesLeft = WAKES;
-        this.#wakeOk = true;
-        this.#wakeNoted = false;
-        this.notice = null;
         const session = this.#session(ws);
         const startedAt = ws.head;
         await this.#runTurn(session, async (apply) => {
@@ -400,6 +400,8 @@ export class ChatSession {
         const session = this.#session(this.ws);
         await this.#runTurn(session, async () => {
             const out = await session.resume();
+            // how it ended decides waking, as RunEnded does for a streamed turn
+            this.#lastStatus = out.status;
             if (out.status !== "completed" && out.status !== "cancelled") this.error = `the turn ended ${out.status}${out.message ? `: ${out.message}` : ""}`;
         }, "(resuming)");
     }
@@ -563,6 +565,8 @@ export class ChatSession {
      * none after a turn was stopped or failed, and none without a model.
      */
     async #maybeWake() {
+        // a sync of this session in flight finishes first; then look again
+        await this.#held;
         const helper = this.helper;
         const ws = this.ws;
         if (helper === null || ws === null || this.busy || !this.#wakeOk) return;
