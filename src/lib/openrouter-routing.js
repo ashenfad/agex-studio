@@ -133,6 +133,21 @@ export function withRoute(routing, id, route) {
 }
 
 /**
+ * The privacy settings as OpenRouter's provider preferences: they narrow
+ * the providers for every request to OpenRouter, the model's and those
+ * `web` and `media` make. Empty when neither is set.
+ *
+ * @param {Settings} s
+ * @returns {{ data_collection?: "deny", zdr?: true }}
+ */
+export function privacyOf(s) {
+    return {
+        ...(s.routerDenyTraining && { data_collection: /** @type {const} */ ("deny") }),
+        ...(s.routerZdr && { zdr: /** @type {const} */ (true) }),
+    };
+}
+
+/**
  * The `provider` object an OpenRouter request carries for the model in
  * use, or undefined when everything is left to OpenRouter.
  *
@@ -154,8 +169,7 @@ export function routingOf(s) {
     } else if (route.sort !== null) {
         provider.sort = route.sort;
     }
-    if (s.routerDenyTraining) provider.data_collection = "deny";
-    if (s.routerZdr) provider.zdr = true;
+    Object.assign(provider, privacyOf(s));
     return Object.keys(provider).length > 0 ? provider : undefined;
 }
 

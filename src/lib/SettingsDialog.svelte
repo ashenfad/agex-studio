@@ -230,7 +230,7 @@
                     <input type="checkbox" bind:checked={s.routerDenyTraining} />
                     Skip providers that may train on my prompts
                 </label>
-                <p class="hint">Only providers whose stated policy is not to store prompts or train on them. For every model.</p>
+                <p class="hint">Only providers whose stated policy is not to store prompts or train on them. For every request to OpenRouter: the model, web search and media.</p>
                 <label class="check">
                     <input type="checkbox" bind:checked={s.routerZdr} />
                     Zero data retention only

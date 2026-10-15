@@ -73,7 +73,10 @@ On OpenRouter, the settings also say which provider serves a model
 for the page's life), and `routerRouting` keeps a route per model id:
 a provider by its routing tag (`google-vertex/global`), whether it's
 that one only, or, with none chosen, a sort by price, throughput or
-latency. `routerDenyTraining` and `routerZdr` hold for every model.
+latency. `routerDenyTraining` and `routerZdr` hold for every model, and for
+every other request to OpenRouter: `routerPost` (`web`, `media`)
+merges `privacyOf(settings)` into each body's `provider`, beside the
+call's own provider options.
 `routingOf` turns these into the request's `provider` object (`order`
 with `allow_fallbacks`, `sort`, `data_collection: "deny"`, `zdr`), or
 nothing when all is left to OpenRouter; `buildModel` passes it to the
