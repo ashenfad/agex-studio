@@ -37,6 +37,7 @@ import { snapshotBranch } from "./snapshot.js";
 import { looking, onScreen } from "./status.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { getSettings, isConfigured } from "./settings.js";
+import { keepUnchanged } from "./runs.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
 
 /** @typedef {import("agex-ts").Run} Run */
@@ -512,7 +513,7 @@ export class ChatSession {
         const ws = this.ws;
         if (ws === null) return;
         const reader = new Agent({ model: new ScriptedProvider([]) }).session(ws);
-        this.runs = await reader.runs();
+        this.runs = keepUnchanged(this.runs, await reader.runs());
         /** @type {Record<string, string>} */
         const starts = {};
         const plane = ws.plane(PLANE);

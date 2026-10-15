@@ -349,16 +349,18 @@ export function mermaidFallback(source, error) {
 }
 
 /**
- * Find and render all <pre class="mermaid"> blocks inside a container.
+ * Find and render all <pre class="mermaid"> blocks inside a container
+ * (or the container itself, when it's one).
  * Uses mermaid.render() with textContent to avoid HTML-entity escaping
  * issues (marked escapes `"` → `&quot;`, `>` → `&gt;` which breaks mermaid parsing).
  * A block that doesn't render (a parse error, or Mermaid not loading)
  * keeps its source and says why.
- * @param {HTMLElement} container
+ * @param {Element} container
  */
 export async function renderMermaidBlocks(container) {
     if (!container) return;
-    const blocks = container.querySelectorAll("pre.mermaid:not([data-processed])");
+    const selector = "pre.mermaid:not([data-processed])";
+    const blocks = container.matches(selector) ? [container] : [...container.querySelectorAll(selector)];
     if (blocks.length === 0) return;
 
     /** @type {any} */

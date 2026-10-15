@@ -11,6 +11,7 @@
     import Composer from './Composer.svelte'
     import DelegateStrip from './DelegateStrip.svelte'
     import EmptyState from './EmptyState.svelte'
+    import { Nearby, provideNearby } from './lazy.js'
     import { attachmentsOf } from './notes.js'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
@@ -94,6 +95,29 @@
             onScroll()
         })
     }
+
+    /** What's drawn as it comes near the view, and resized after. */
+    /** @type {Nearby | null} */
+    let nearby = $state(null)
+    provideNearby(() => nearby)
+
+    // The list keeps its own place (the browser's anchoring is off, see
+    // below): an embed drawn late grows, so while the reader follows the
+    // end it's followed, and when it's above what they're reading what
+    // they're reading is kept still.
+    $effect(() => {
+        const el = list
+        if (el == null) return
+        const n = new Nearby(el, (node, delta) => {
+            if (following && !revealing) el.scrollTop = el.scrollHeight
+            else if (node.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += delta
+        })
+        nearby = n
+        return () => {
+            n.disconnect()
+            nearby = null
+        }
+    })
 
     // follow the content as it grows, a streamed reply's deltas included
     $effect(() => {

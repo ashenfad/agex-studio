@@ -4,11 +4,13 @@
      * table, a row of cards, an image, sandboxed HTML, or text. Read
      * as the reply's run left it (`at`, the commit the next turn started
      * from; the files as they are now for the latest reply), and again
-     * when the record is (an undo rewinds them).
+     * when the record is (an undo rewinds them). In the chat it's read
+     * and drawn once it comes near the view (`Deferred`).
      */
     import { artifactKind, looksLikePlotly } from '@agex-ts/world'
     import CardRow from './CardRow.svelte'
     import DataTable from './DataTable.svelte'
+    import Deferred from './Deferred.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, name?: string, at?: string | null }} */
@@ -26,9 +28,18 @@
      *  rendering alone. */
     let lastKey = ''
 
+    /** Whether it's near enough the view to be read and drawn. */
+    let shown = $state(false)
+    /** An image's pixels are in, so it has its height. */
+    let decoded = $state(false)
+
+    /** The room held for it until it's drawn, by its kind. */
+    const PLACEHOLDER = /** @type {Record<string, number>} */ ({ plotly: 320, table: 400, image: 240, html: 322, cards: 140 })
+
     $effect(() => {
-        void session.filesStamp
-        if (session.ws === null) return
+        // an earlier reply's files are fixed at its commit; the latest's follow the files
+        if (at === null) void session.filesStamp
+        if (session.ws === null || !shown) return
         let dead = false
         // as the reply's run left it: a name reused later shows its
         // newer version only in the replies after
@@ -91,31 +102,33 @@
 </script>
 
 <div class="artifact">
-    {#if file === null}
-        <div class="muted">loading {label}…</div>
-    {:else if file.missing}
-        <div class="muted">{label}: {path} isn't in the workspace now</div>
-    {:else if kind === 'image'}
-        <img src={file.url} alt={label} title={path} />
-    {:else if (kind === 'plotly' || kind === 'json') && looksLikePlotly(parsed)}
-        <PlotlyChart figure={parsed} />
-    {:else if table !== null}
-        <DataTable columns={table.columns} rows={table.rows} />
-        {#if table.total > table.rows.length}
-            <div class="muted">showing {table.rows.length.toLocaleString()} of {table.total.toLocaleString()} rows</div>
+    <Deferred height={PLACEHOLDER[kind] ?? 60} key={`${session.name}:${at ?? 'now'}:${path}`} label={label} ready={file !== null && (kind !== 'image' || file.url === undefined || decoded)} bind:shown>
+        {#if file === null}
+            <div class="muted">loading {label}…</div>
+        {:else if file.missing}
+            <div class="muted">{label}: {path} isn't in the workspace now</div>
+        {:else if kind === 'image'}
+            <img src={file.url} alt={label} title={path} onload={() => (decoded = true)} onerror={() => (decoded = true)} />
+        {:else if (kind === 'plotly' || kind === 'json') && looksLikePlotly(parsed)}
+            <PlotlyChart figure={parsed} />
+        {:else if table !== null}
+            <DataTable columns={table.columns} rows={table.rows} />
+            {#if table.total > table.rows.length}
+                <div class="muted">showing {table.rows.length.toLocaleString()} of {table.total.toLocaleString()} rows</div>
+            {/if}
+        {:else if kind === 'cards' && Array.isArray(parsed?.items)}
+            <CardRow items={parsed.items} />
+        {:else if kind === 'html'}
+            <iframe title={label} sandbox="allow-scripts" srcdoc={PRELUDE + file.text}></iframe>
+        {:else if file.text !== undefined && kind !== 'binary'}
+            <details open>
+                <summary>{label}</summary>
+                <pre>{file.text}</pre>
+            </details>
+        {:else}
+            <div class="muted">{label}: {path}</div>
         {/if}
-    {:else if kind === 'cards' && Array.isArray(parsed?.items)}
-        <CardRow items={parsed.items} />
-    {:else if kind === 'html'}
-        <iframe title={label} sandbox="allow-scripts" srcdoc={PRELUDE + file.text}></iframe>
-    {:else if file.text !== undefined && kind !== 'binary'}
-        <details open>
-            <summary>{label}</summary>
-            <pre>{file.text}</pre>
-        </details>
-    {:else}
-        <div class="muted">{label}: {path}</div>
-    {/if}
+    </Deferred>
 </div>
 
 <style>

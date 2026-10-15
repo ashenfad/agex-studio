@@ -5,11 +5,13 @@
      * and each link to one (`[plan](/workspace/notes/plan.md)`)
      * opening that file, as it is now, in the file viewer. Its
      * ```mermaid blocks draw as diagrams once it's no longer streaming
-     * in, so a half-written diagram never shows as a parse error.
+     * in, so a half-written diagram never shows as a parse error; in the
+     * chat, each once it comes near the view.
      */
     import { splice } from './artifacts.js'
     import Artifact from './Artifact.svelte'
     import FileModal from './FileModal.svelte'
+    import { useNearby } from './lazy.js'
     import { fileLinkTarget, renderMarkdown, renderMermaidBlocks } from './markdown.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
@@ -19,9 +21,26 @@
     /** @type {HTMLElement | undefined} */
     let el = $state()
 
+    const nearby = useNearby()
+
     $effect(() => {
         void parts
-        if (!live && el) void renderMermaidBlocks(el)
+        if (live || el == null) return
+        if (nearby === null) {
+            void renderMermaidBlocks(el)
+            return
+        }
+        const n = nearby()
+        if (n == null) return
+        /** @type {(() => void)[]} */
+        const undo = []
+        for (const block of el.querySelectorAll('pre.mermaid:not([data-processed])')) {
+            undo.push(
+                n.whenNear(block, () => void renderMermaidBlocks(block)),
+                n.watchSize(block),
+            )
+        }
+        return () => undo.forEach((fn) => fn())
     })
     /** The opened file, relative to /workspace as the viewer takes it. */
     /** @type {string | null} */
