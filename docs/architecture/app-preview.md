@@ -57,8 +57,11 @@ page's HTML and its assets:
    map, rewriting the app's own imports to it (`__app/…`). Bare
    imports go to esm.sh, with pinned entries for preact (and `react`
    as `preact/compat`), htm (its subpaths' own imports resolved
-   through the map), marked, dayjs and dompurify. Plotly loads as a
-   script, only for an app whose page or scripts name `Plotly`.
+   through the map), marked, dayjs and dompurify. Any other package
+   is asked for with `?external=preact,react,react-dom`, so its own
+   imports of those come through the map too: one Preact on the page,
+   whatever library the app uses. Plotly loads as a script, only for an
+   app whose page or scripts name `Plotly`.
 4. Bundles `*.worker.js` files with esbuild into module sources,
    started with `appWorker(name)`.
 5. Injects, at the start of the page's head (after the doctype and
