@@ -12,7 +12,8 @@
     import Artifact from './Artifact.svelte'
     import FileModal from './FileModal.svelte'
     import { useNearby } from './lazy.js'
-    import { fileLinkTarget, renderMarkdown, renderMermaidBlocks } from './markdown.js'
+    import { fileLinkTarget, renderMarkdown } from './markdown.js'
+    import { renderMermaidBlocks } from './mermaid.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
     let { session, text, at = null, live = false } = $props()

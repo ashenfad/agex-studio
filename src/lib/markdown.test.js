@@ -4,7 +4,7 @@
 // but mis-sanitizes (drops <strong>, passes <script> through), so the
 // sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
-import { fileLinkTarget, mermaidErrorLine, mermaidFallback, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
+import { fileLinkTarget, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
 
 /** How a reply renders: its workspace links open files. */
 const REPLY = { linkBase: "/workspace" };
@@ -62,6 +62,49 @@ describe("prepare (via renderMarkdown)", () => {
         const html = renderMarkdown("text\n```\ncode\n```");
         expect(html).toContain("<pre>");
         expect(html).toContain("code");
+    });
+
+    // ---- fenced code is left as written --------------------------
+
+    /** The text of the code blocks `md` renders, entities decoded. */
+    function codeOf(md) {
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        return [...doc.querySelectorAll("pre > code")].map((c) => c.textContent);
+    }
+
+    it("keeps a code block's #, -, and 1. lines as written", () => {
+        const body = "x = 1\n# comment\n## another\n- not a list\n* nor this\n1. nor this\n2) nor this\ny = 2";
+        expect(codeOf(`Here:\n\`\`\`python\n${body}\n\`\`\``)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps a YAML list in a tilde fence as written", () => {
+        const body = "steps:\n  - one\n  - two\nnext:\n- three";
+        expect(codeOf(`Config:\n~~~yaml\n${body}\n~~~\nafter`)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps a fence indented up to three spaces, and a longer one, as written", () => {
+        const body = "a\n# b\n- c\n```\nd";
+        expect(codeOf(`step one\n   \`\`\`\`sh\n${body}\n   \`\`\`\``)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps an unclosed fence's lines as written, to the end", () => {
+        const body = "x\n# y\n- z";
+        expect(codeOf(`text\n\`\`\`\n${body}`)).toEqual([`${body}\n`]);
+    });
+
+    it("still breaks out lists and headings around a code block", () => {
+        const html = renderMarkdown("intro\n- a\n- b\n```\n# kept\n```\nafter\n## Heading\nmore\n1. one");
+        expect(html).toContain("<ul>");
+        expect(html).toContain("<h2");
+        expect(html).toContain("<ol>");
+        expect(html).not.toContain("<h1");
+        expect(codeOf("intro\n```\n# kept\n```")).toEqual(["# kept\n"]);
+    });
+
+    it("treats a closing fence as prose's start, not another opening", () => {
+        const html = renderMarkdown("```\na\n```\ntext\n# Title\n```\nb\n```");
+        expect(html).toContain("<h1");
+        expect(codeOf("```\na\n```\ntext\n# Title\n```\nb\n```")).toEqual(["a\n", "b\n"]);
     });
 
     it("renders mermaid blocks as pre.mermaid", () => {
@@ -315,23 +358,6 @@ describe("fileLinkTarget", () => {
     });
 });
 
-
-describe("mermaid fallback", () => {
-    it("shows the source and a short error line, both escaped", () => {
-        const html = mermaidFallback("graph TD\n  A --> <img src=x onerror=alert(1)>", new Error("Parse error on line 2:\nA --> <b\n---^\nExpecting 'NODE', got 'TAGSTART'"));
-        expect(html).not.toContain("<img");
-        expect(html).not.toContain("<b");
-        expect(html).toContain('<code class="mermaid-source">graph TD\n  A --&gt; &lt;img src=x onerror=alert(1)&gt;</code>');
-        expect(html).toContain("<span class=\"mermaid-error\">Diagram didn't render: Parse error on line 2: unexpected 'TAGSTART'</span>");
-    });
-
-    it("cuts a long error to one readable line", () => {
-        expect(mermaidErrorLine(new Error("x".repeat(500)))).toHaveLength(200);
-        expect(mermaidErrorLine(new Error("one line"))).toBe("one line");
-        expect(mermaidErrorLine("a\n\nb\nc")).toBe("a c");
-        expect(mermaidErrorLine(new Error(""))).toBe("unknown error");
-    });
-});
 
 describe("workspace links, by where they're rendered", () => {
     it("are ordinary links where there's no file viewer (no linkBase)", () => {
