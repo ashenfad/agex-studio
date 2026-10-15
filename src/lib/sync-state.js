@@ -50,3 +50,32 @@ export async function adoptRepo(repo, name, noted) {
     noted.set(name);
     return was !== null;
 }
+
+/**
+ * A note kept in localStorage under `key`, and in this page's memory
+ * too, so it holds for the page's life where localStorage is blocked.
+ *
+ * @param {string} key
+ * @returns {{ get(): string | null, set(value: string): void }}
+ */
+export function localNote(key) {
+    /** @type {string | null} */
+    let page = null;
+    return {
+        get() {
+            try {
+                return localStorage.getItem(key) ?? page;
+            } catch {
+                return page;
+            }
+        },
+        set(value) {
+            page = value;
+            try {
+                localStorage.setItem(key, value);
+            } catch {
+                // noted for this page only
+            }
+        },
+    };
+}
