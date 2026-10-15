@@ -240,7 +240,7 @@ export function rewriteHtmlAssetRefs(html, assetUrls) {
             `(\\b${attrs}\\s*=\\s*["'])(?:\\./)?${escapeRegex(rel)}(["'])`,
             "g",
         );
-        out = out.replace(pattern, `$1${url}$2`);
+        out = out.replace(pattern, (_m, open, close) => open + url + close);
     }
     return out;
 }
@@ -262,7 +262,7 @@ export function rewriteCssAssetRefs(css, assetUrls) {
             `url\\(\\s*(["']?)(?:\\./)?${escapeRegex(rel)}\\1\\s*\\)`,
             "g",
         );
-        out = out.replace(pattern, `url("${url}")`);
+        out = out.replace(pattern, () => `url("${url}")`);
     }
     return out;
 }

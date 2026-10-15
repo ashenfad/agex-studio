@@ -1,31 +1,20 @@
 /**
  * App-storage — per-session key/value bag for iframe apps' localStorage shim.
  *
- * Backed by the parent's `localStorage` directly. Each entry lives at
- * `agex-app:<kernel>:<branch>:<key>` so different sessions don't collide
- * and the py / ts kernels keep separate namespaces (in anticipation of
- * the unified-app split — today everything is `py`).
+ * Backed by the studio's own `localStorage`. Each entry lives at
+ * `agex-app:<kernel>:<branch>:<key>` so different sessions don't
+ * collide; every bag today is the `ts` kernel's.
  *
- * History note: pre-Phase-4 design lived in kvgit's raw KV store under
- * `__app_storage__<branch>`. That worked for the agex-py kernel but
- * would have required a new public API on agex-ts (raw KV access on
- * versioned backends). Moving to the parent's localStorage:
- *
- *   - keeps both kernels uniform (no per-kernel app-storage wiring)
- *   - sidesteps expanding agex-ts's public API
- *   - drops bundle export of app-storage (intentional — the previous
- *     design was non-versioned anyway, so no agent-undo behavior is
- *     lost; bundling can be re-added later by reading back the
- *     prefixed entries if it ever matters)
- *
- * Quota: localStorage is ~5MB per origin in most browsers. The iframe
- * shim already enforces a 5MB-per-bag check (matching the original
- * `app_storage.py` quota), and posts here only when within bounds, so
- * this module doesn't double-enforce. Multi-session users could in
- * theory exhaust origin quota across many bags; that's acceptable
- * given typical usage and is the same constraint anyone using
- * `localStorage` directly would face.
+ * Quota: the iframe shim holds a bag to `APP_STORAGE_QUOTA`, measured
+ * as its JSON. The bag reaches the studio in a message the app's page
+ * posts, which the app can post itself, so the studio checks it again
+ * (`checkBag`) before writing it. Multi-session users could in theory
+ * exhaust the origin's quota across many bags; a write that runs out
+ * of room leaves the bag as it was.
  */
+
+/** The most a bag holds, as the length of its JSON. */
+export const APP_STORAGE_QUOTA = 5 * 1024 * 1024;
 
 const PREFIX = 'agex-app:';
 const SEP = ':';
@@ -60,18 +49,46 @@ export function read(kernel, branch) {
 /**
  * Replace the (kernel, branch) bag entirely with the given dict. Wipes
  * any prior entries for the bag, then writes each key/value as a
- * separate localStorage entry.
+ * separate localStorage entry. All or nothing: when a write fails (the
+ * studio's storage is full), the bag is put back as it was and the
+ * error thrown.
  *
  * @param {Kernel} kernel
  * @param {string} branch
  * @param {Record<string, string>} data
  */
 export function write(kernel, branch, data) {
-    remove(kernel, branch);
+    const before = read(kernel, branch);
     const prefix = _branchPrefix(kernel, branch);
-    for (const [k, v] of Object.entries(data)) {
-        localStorage.setItem(prefix + k, String(v));
+    remove(kernel, branch);
+    try {
+        for (const [k, v] of Object.entries(data)) {
+            localStorage.setItem(prefix + k, String(v));
+        }
+    } catch (e) {
+        remove(kernel, branch);
+        for (const [k, v] of Object.entries(before)) {
+            localStorage.setItem(prefix + k, v);
+        }
+        throw e;
     }
+}
+
+/**
+ * `data` as a bag fit to write, or null: a plain object of string
+ * values whose JSON is within `APP_STORAGE_QUOTA`, as the shim keeps
+ * it. Anything else posted as an app's storage is refused whole.
+ *
+ * @param {unknown} data
+ * @returns {Record<string, string> | null}
+ */
+export function checkBag(data) {
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+    if (Object.getPrototypeOf(data) !== Object.prototype && Object.getPrototypeOf(data) !== null) return null;
+    const bag = /** @type {Record<string, unknown>} */ (data);
+    if (!Object.values(bag).every((v) => typeof v === "string")) return null;
+    if (JSON.stringify(bag).length > APP_STORAGE_QUOTA) return null;
+    return /** @type {Record<string, string>} */ (bag);
 }
 
 /**

@@ -73,10 +73,3 @@ interface Window {
    *  calls it indirectly so evaluated code sees app-level bindings. */
   eval: typeof eval
 }
-
-interface HTMLIFrameElement {
-  /** Latch set by the parent-side bridge's load listener so a frame
-   *  that navigates again isn't re-wired. Studio-stamped, not
-   *  standard. */
-  __navigated?: boolean
-}

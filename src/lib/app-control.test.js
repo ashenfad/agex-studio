@@ -13,14 +13,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
     _enforceTotalCap,
+    callDone,
+    callStarted,
     capResults,
     executeActions,
     resolveViewport,
     runLiveApp,
+    waitForIdle,
 } from "./app-control.js";
-import { sendControl } from "./iframe-bridge.js";
+import { sendControl } from "./send-control.js";
 
-vi.mock("./iframe-bridge.js", () => ({ sendControl: vi.fn() }));
+vi.mock("./send-control.js", () => ({ sendControl: vi.fn() }));
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -249,5 +252,94 @@ describe("an assertion failure", () => {
         expect(failure.results[0].message).toMatch(/^\[truncated: dropped 2 /);
         expect(failure.results.slice(1).every((r) => r.type === "read")).toBe(true);
         expect(failure.results).toHaveLength(6);
+    });
+});
+
+describe("waitForIdle", () => {
+    /** Whether `p` has settled, without waiting for it. */
+    async function settled(p) {
+        let done = false;
+        p.then(() => { done = true; });
+        await Promise.resolve();
+        await Promise.resolve();
+        return done;
+    }
+
+    it("settles after the quiet gap when no call is in flight", async () => {
+        vi.useFakeTimers();
+        try {
+            const p = waitForIdle({}, 15000, 400);
+            await vi.advanceTimersByTimeAsync(399);
+            expect(await settled(p)).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await settled(p)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("waits out a call in flight, however long, then the quiet gap", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = {};
+            const p = waitForIdle(iframe, 15000, 400);
+            // a click set off an agent task, which takes seconds
+            await vi.advanceTimersByTimeAsync(100);
+            callStarted(iframe);
+            await vi.advanceTimersByTimeAsync(3000);
+            expect(await settled(p)).toBe(false);
+            callDone(iframe);
+            await vi.advanceTimersByTimeAsync(399);
+            expect(await settled(p)).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await settled(p)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("counts a call that was already in flight when the wait began", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = {};
+            callStarted(iframe);
+            const p = waitForIdle(iframe, 15000, 400);
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(await settled(p)).toBe(false);
+            callDone(iframe);
+            await vi.advanceTimersByTimeAsync(400);
+            expect(await settled(p)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("gives up at maxMs on a call that never answers", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = {};
+            callStarted(iframe);
+            const p = waitForIdle(iframe, 5000, 400);
+            await vi.advanceTimersByTimeAsync(4999);
+            expect(await settled(p)).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await settled(p)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe("a page that stops answering", () => {
+    it("ends the run at the action that timed out", async () => {
+        const sent = [];
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+            sent.push(action);
+            if (action.eval) throw new Error("TimeoutError: the app didn't answer");
+            return null;
+        });
+        const results = await executeActions(/** @type {any} */ ({}), [{ eval: "hang()" }, { read: "#a" }, { read: "#b" }]);
+        expect(sent).toEqual([{ eval: "hang()" }]);
+        expect(results).toEqual([{ type: "log", level: "error", message: "TimeoutError: the app didn't answer" }]);
     });
 });

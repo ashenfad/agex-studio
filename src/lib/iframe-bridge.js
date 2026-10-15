@@ -1,11 +1,13 @@
 /**
  * Iframe control bridge — installed inside the app preview iframe.
  *
- * The parent (agex-studio) posts control messages to the iframe via
- * window.postMessage; this module dispatches them against the iframe's
- * own DOM and posts results back. Designed to work with
- * `sandbox="allow-scripts"` (opaque origin) where the parent cannot
- * reach into iframe.contentDocument directly.
+ * The studio posts control messages to the iframe via postMessage; this
+ * module dispatches them against the iframe's own DOM and posts results
+ * back. The app runs at the apps origin, a different origin from the
+ * studio's, so the studio can't reach into `iframe.contentDocument`
+ * directly. This file is shipped as text into every app page (see
+ * `AGENT_CONTROL_BRIDGE_SCRIPT` in `app-html.js`); the studio's side,
+ * `sendControl`, lives in `send-control.js`.
  *
  * Factored as a pure module so each action dispatcher can be unit-tested
  * with happy-dom/jsdom; installControlBridge wires it to a window for
@@ -46,11 +48,9 @@ function _capString(s, max) {
 
 let _htmlToImagePromise = null;
 async function loadHtmlToImage() {
-    // Use html-to-image (SVG foreignObject-based) rather than html2canvas.
-    // html2canvas creates a render iframe internally, which under opaque-
-    // origin sandbox gets a *different* opaque origin than ours and can't
-    // be read back cross-origin. html-to-image serializes to an inline
-    // SVG foreignObject embedded as a data URI — no iframes involved.
+    // html-to-image serializes the DOM to an inline SVG foreignObject
+    // embedded as a data URI, drawn to a canvas: no render iframe of
+    // its own to load and read back.
     //
     // Loaded from a vendored copy in agex-studio-apps rather than
     // esm.sh. Two reasons: (1) verification can't depend on a CDN
@@ -72,18 +72,6 @@ async function loadHtmlToImage() {
     }
     return _htmlToImagePromise;
 }
-
-/**
- * The minimal frame contract the parent-side helpers need. Real usage
- * passes an `HTMLIFrameElement`; tests pass a double, so the listener
- * methods are optional and guarded at each call site.
- *
- * @typedef {object} BridgeFrame
- * @property {any} contentWindow
- * @property {boolean} [__navigated] - load-listener latch
- * @property {(type: string, fn: any, opts?: any) => void} [addEventListener]
- * @property {(type: string, fn: any, opts?: any) => void} [removeEventListener]
- */
 
 /**
  * Resolve once the next animation frame has painted, or after
@@ -251,9 +239,9 @@ export async function dispatchAction(doc, action, global) {
             return {
                 type: 'eval',
                 expr: action.eval,
-                // JSON-encode the value (always, even primitives) so the
-                // Python side can parse and route through reprobate for
-                // budget-bounded rendering.  Replacer handles common
+                // JSON-encode the value (always, even primitives) so
+                // every result reads the same way and its size can be
+                // capped.  Replacer handles common
                 // non-JSON-friendly cases (circular refs, DOM nodes,
                 // functions, Dates) without throwing.
                 value: _jsonifyEvalResult(val),
@@ -335,8 +323,8 @@ export async function dispatchAction(doc, action, global) {
  * and functions, drops circular refs, and serializes Dates as ISO
  * strings — anything else is left to JSON.stringify's defaults.
  *
- * Always JSON-encoded (even primitives) so the Python side can
- * uniformly JSON.parse and render through reprobate.
+ * Always JSON-encoded (even primitives), so a result reads the same
+ * whatever its type, and is capped at `MAX_VALUE_BYTES`.
  * @param {*} val
  * @returns {string|null}
  */
@@ -415,13 +403,12 @@ export function installControlBridge(win) {
     win.__agex_bridge_installed = true;
     win.addEventListener('message', async (event) => {
         // Validate sender. The bootloader sets `__AGEX_PARENT_ORIGIN`
-        // to the verified parent origin after the handshake; if it's
-        // set, reject messages from any other origin. Without this,
-        // any page that can post to this window could drive the
-        // bridge's `eval` action. Fallback to `'*'` is only for tests
-        // or local setups where the global isn't installed.
+        // to the verified parent origin after the handshake; only
+        // messages from it are obeyed, and with it unset none are.
+        // Without this, any page that can post to this window could
+        // drive the bridge's `eval` action.
         const parentOrigin = win.__AGEX_PARENT_ORIGIN;
-        if (parentOrigin && event.origin !== parentOrigin) return;
+        if (!parentOrigin || event.origin !== parentOrigin) return;
         const response = await handleControlMessage(win.document, event.data, win);
         if (!response) return;
         // `MessageEventSource` also covers MessagePort / ServiceWorker,
@@ -429,110 +416,6 @@ export function installControlBridge(win) {
         // origin. Control messages only ever arrive from the parent
         // window, so narrow before replying.
         const source = /** @type {Window | null} */ (event.source);
-        source?.postMessage(response, parentOrigin || '*');
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Parent side: sendControl — post an action to an iframe and await its result.
-// ---------------------------------------------------------------------------
-
-let _controlIdCounter = 0;
-
-/**
- * Send a control action to an iframe and await the response.
- *
- * Parent-side counterpart to installControlBridge. The iframe must have
- * the bridge installed (via AGENT_CONTROL_BRIDGE_SCRIPT) for this to
- * resolve.
- *
- * Resolves with the action's data payload (may be `null` for
- * click/type/select which produce no result entry). Rejects on error
- * responses from the bridge (unknown action shape, etc.). Does NOT
- * reject on sub-errors captured into the data payload itself (e.g., an
- * eval that threw — that's returned as `data.error`).
- *
- * Identity check on `event.source` confirms the response came from
- * the expected iframe; we don't filter on `event.origin` here because
- * the parent-side message handler runs across all iframes (test_app /
- * live_app / AppPreview) and the apps origin can vary in dev. Callers
- * that need stricter validation can compare `event.origin` themselves.
- *
- * @param {HTMLIFrameElement | BridgeFrame} iframe
- * @param {object} action
- * @returns {Promise<any>}
- */
-export function sendControl(iframe, action) {
-    // Once the iframe has navigated, the bridge is gone and no further
-    // `load` event will fire — so a later call (e.g. `collectResults`'
-    // get-logs, which runs after `executeActions`) would wait forever.
-    // `onNavigate` marks the iframe; short-circuit here so those calls
-    // reject immediately instead of hanging to the emission timeout.
-    if (iframe?.__navigated) {
-        return Promise.reject(
-            new Error(
-                "NavigationError: the app already navigated/reloaded and can't " +
-                "accept further actions (the control bridge is gone).",
-            ),
-        );
-    }
-    const id = `ctrl-${++_controlIdCounter}-${Math.random().toString(36).slice(2, 8)}`;
-    return new Promise((resolve, reject) => {
-        function cleanup() {
-            window.removeEventListener('message', handler);
-            iframe.removeEventListener?.('load', onNavigate);
-        }
-        function handler(event) {
-            if (event.source !== iframe.contentWindow) return;
-            const data = event.data;
-            if (data?.type !== 'agex-control-result' || data.id !== id) return;
-            cleanup();
-            if (data.error) {
-                reject(new Error(data.error));
-            } else {
-                resolve(data.data);
-            }
-        }
-        // The iframe fires `load` when it (re)navigates — e.g. the app
-        // called `location.reload()` / set `location.href`, or a link /
-        // form navigated it. agex apps are `document.write`n into the
-        // sandbox host rather than served at a URL, so any navigation
-        // throws the app (and the control bridge) away: the reply we're
-        // waiting for is lost in the unload, and the one-shot host
-        // handshake won't re-inject the app, so the bridge never comes
-        // back. Without this the pending promise would hang until the
-        // agent's emission timeout (~180s). Fail fast with a message the
-        // agent can act on instead. The `NavigationError:` prefix lets
-        // `executeActions` stop the run (later actions would hang too).
-        function onNavigate() {
-            cleanup();
-            // Mark the iframe dead so subsequent sendControl calls bail
-            // fast (see the guard above) rather than hanging.
-            try {
-                iframe.__navigated = true;
-            } catch {
-                // Frozen/exotic object — best-effort.
-            }
-            reject(
-                new Error(
-                    "NavigationError: the app navigated or reloaded during this " +
-                    "action (e.g. location.reload(), location.href = ..., or a link/" +
-                    "form navigation). agex apps are injected into the sandbox host, " +
-                    "not served at a URL, so navigation tears down the app and isn't " +
-                    "supported — reset in-app state to 're-render' instead of reloading.",
-                ),
-            );
-        }
-        window.addEventListener('message', handler);
-        iframe.addEventListener?.('load', onNavigate);
-        // Target origin '*' here lets the same code path serve both
-        // the cross-origin apps-host iframes (prod / staging) and any
-        // future same-origin fallback. The iframe-side handler
-        // validates messages against `__AGEX_PARENT_ORIGIN` already
-        // so this isn't a leak vector for control payloads.
-        iframe.contentWindow?.postMessage(
-            { type: 'agex-control', id, action },
-            '*',
-        );
+        source?.postMessage(response, parentOrigin);
     });
 }
