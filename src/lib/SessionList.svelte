@@ -107,31 +107,33 @@
                         onblur={finishRename}
                     />
                 {:else}
-                    <button class="row" onclick={() => pick(s.name)} ondblclick={() => startRename(s.name, s.title)} title="Open it; double-click to rename">
-                        <span class="title">{s.title || 'New session'}</span>
-                        <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
-                    </button>
-                    {#if studio.opened(s.name)?.jobs.length}
-                        {@const open = /** @type {import('./studio.svelte.js').ChatSession} */ (studio.opened(s.name))}
-                        {@const working = open.jobs.filter((j) => j.status === 'running').length}
-                        {@const waiting = open.unread.length - working}
-                        {#if working || waiting}
-                            <span class="delegates" title={`${working} delegate(s) working, ${waiting} answer(s) unread`}>⑂{working || waiting}</span>
+                    <div class="line">
+                        <button class="row" onclick={() => pick(s.name)} ondblclick={() => startRename(s.name, s.title)} title="Open it; double-click to rename">
+                            <span class="title">{s.title || 'New session'}</span>
+                            <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
+                        </button>
+                        {#if studio.opened(s.name)?.jobs.length}
+                            {@const open = /** @type {import('./studio.svelte.js').ChatSession} */ (studio.opened(s.name))}
+                            {@const working = open.jobs.filter((j) => j.status === 'running').length}
+                            {@const waiting = open.unread.length - working}
+                            {#if working || waiting}
+                                <span class="delegates" title={`${working} delegate(s) working, ${waiting} answer(s) unread`}>⑂{working || waiting}</span>
+                            {/if}
                         {/if}
-                    {/if}
-                    {#if mark(s.name)}
-                        {@const m = mark(s.name)}
-                        <span class="sync" title={m?.title}>{m?.glyph}</span>
-                    {/if}
-                    <span class="tray">
-                        <button
-                            class="tool"
-                            aria-label="Fork it"
-                            title="Fork: a new session with this one's conversation and files, to try something else"
-                            onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('full') }).then(onPicked)}
-                        >⑂</button>
-                        <button class="tool" aria-label="More for this session" title="Rename, fork, export, publish, delete" onclick={() => (dialogFor = s.name)}>⋯</button>
-                    </span>
+                        {#if mark(s.name)}
+                            {@const m = mark(s.name)}
+                            <span class="sync" title={m?.title}>{m?.glyph}</span>
+                        {/if}
+                        <span class="tray">
+                            <button
+                                class="tool"
+                                aria-label="Fork it"
+                                title="Fork: a new session with this one's conversation and files, to try something else"
+                                onclick={() => act(async () => { await studio.switchTo(s.name); await studio.fork('full') }).then(onPicked)}
+                            >⑂</button>
+                            <button class="tool" aria-label="More for this session" title="Rename, fork, export, publish, delete" onclick={() => (dialogFor = s.name)}>⋯</button>
+                        </span>
+                    </div>
                 {/if}
                 {#if studio.updates[s.name]}
                     <div class="menu">
@@ -265,6 +267,24 @@
     li.current {
         background: var(--surface-hover);
     }
+    /* A row: its title, its badges, and its tools over the end of it. */
+    .line {
+        /* what the tools fade into: the row's own background */
+        --row-bg: var(--surface);
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        border-radius: 6px;
+    }
+    li.current .line {
+        --row-bg: var(--surface-hover);
+    }
+    .line:hover {
+        --row-bg: var(--surface-hover);
+        background: var(--row-bg);
+    }
     .row {
         flex: 1;
         min-width: 0;
@@ -288,21 +308,41 @@
         font-size: 0.75rem;
         color: var(--text-muted);
     }
-    /* a row's tools: on hover or focus, and always on the session open,
-       or where there's no hovering (a touch screen) */
+    /* A row's tools sit over the end of its title, not beside it:
+       hidden and click-through at rest, so the title has the row's
+       whole width and a click anywhere on it opens the session; shown
+       on hover, and on keyboard focus within the row. Keyboard focus,
+       not any focus: a click leaves the row's button focused, and
+       :focus-within would keep the tools over the title of the session
+       just opened. */
     .tray {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
         display: flex;
-        visibility: hidden;
-        padding-right: 0.2rem;
+        align-items: center;
+        padding: 0 0.2rem 0 1.4rem;
+        border-radius: 0 6px 6px 0;
+        background: linear-gradient(to right, transparent, var(--row-bg) 1.1rem);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s;
     }
-    li:hover .tray,
-    li:focus-within .tray,
-    li.current .tray {
-        visibility: visible;
+    .line:hover .tray,
+    .line:has(:focus-visible) .tray {
+        opacity: 1;
+        pointer-events: auto;
     }
+    /* where there's no hovering (a touch screen), the tools stay, beside
+       the title */
     @media (hover: none) {
         .tray {
-            visibility: visible;
+            position: static;
+            padding-left: 0;
+            background: none;
+            opacity: 1;
+            pointer-events: auto;
         }
     }
     .tool {
