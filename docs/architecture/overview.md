@@ -77,7 +77,7 @@ a fork, and syncs with the session. See
 ## The app preview
 
 An app is files under `/workspace/app`. `AppPreview.svelte` builds
-them into one HTML page (`buildAppHtml`) and posts it to a bootloader
+them into one HTML page (`buildAppPage`) and posts it to a bootloader
 served from a separate origin (`APPS_ORIGIN`, `apps.agex.studio` in
 production), so an app's code can't reach the studio's storage, DOM or
 keys. The app talks back to the studio by `postMessage`: its storage,

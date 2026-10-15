@@ -1,23 +1,29 @@
 /**
- * App asset plumbing — turns binary files under `app/` (images,
- * fonts) into something the iframe preview can actually use.
+ * App asset plumbing: turns the files under `app/` that aren't the
+ * app's code (images, fonts, audio, data files) into something the
+ * iframe preview can actually use.
  *
- * The iframe loads from a `blob:` URL with no meaningful base path,
- * so `<img src="logo.png">` and `fetch("logo.png")` from agent app
- * code both fail by default. This module does three things:
+ * The iframe's page is written by a bootloader at the apps origin, so
+ * it has no meaningful base path: `<img src="logo.png">` and
+ * `fetch("logo.png")` from agent app code both fail by default. This
+ * module does four things:
  *
- *   1. Encodes binaries as `data:` URLs via base64.
- *   2. Rewrites known HTML/CSS asset references to point at the
- *      data URLs (handles the static cases — most real apps).
+ *   1. Collects the assets, each once, as bytes with a MIME type, and
+ *      stands a token (`agex-asset:<n>:`) for each one's URL.
+ *   2. Rewrites known HTML/CSS asset references to the tokens (handles
+ *      the static cases: most real apps).
  *   3. Builds an injected script that exposes
- *      `window.appAssets = { 'logo.png': 'data:...', ... }` plus a
- *      `fetch` monkey-patch so dynamic JS `fetch("logo.png")` calls
- *      also resolve.
+ *      `window.appAssets = { 'logo.png': <url>, ... }` plus a `fetch`
+ *      monkey-patch so dynamic JS `fetch("logo.png")` calls also
+ *      resolve.
+ *   4. Turns the tokens into URLs when the page is sent: a bootloader
+ *      that says it takes assets gets them as Blobs beside the HTML and
+ *      mints a `blob:` URL for each in the frame, so each asset crosses
+ *      once, as bytes; an older one gets `data:` URLs written in.
  *
  * What's NOT covered: imperatively-set `<img>.src = "x.png"` after
  * page load (browsers route those through the image loader, not
- * `fetch`). For that we'd need a service worker — deferred until
- * a real use case demands it.
+ * `fetch`): `window.appAssets` gives the URL to set.
  */
 
 import { bytesToBase64 } from "./bytes.js";
@@ -95,34 +101,103 @@ export function isBinaryAppFile(path) {
     return BINARY_EXTS.includes(extOf(path));
 }
 
+/** The MIME types of the app's data files: text files under `app/`
+ *  that aren't its page, scripts or styles. */
+const DATA_TYPES = {
+    ".json": "application/json",
+    ".geojson": "application/geo+json",
+    ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".html": "text/html",
+    ".xml": "application/xml",
+    ".vtt": "text/vtt",
+    ".srt": "text/plain",
+};
+
+/** The token a built page holds for asset `n`'s URL, until it's sent.
+ *  @param {number} n */
+export const assetToken = (n) => `agex-asset:${n}:`;
+const TOKEN_RE = /agex-asset:(\d+):/g;
+
+/** @typedef {{ type: string, bytes: Uint8Array }} AppAsset */
+
 /**
- * Build a `data:` URL from raw bytes. MIME comes from the path's
- * extension; unknown extensions fall back to
- * `application/octet-stream`.
- * @param {string} path
- * @param {Uint8Array} bytes
- * @returns {string}
+ * The app's assets, each once: its binaries, and its data files (text
+ * files other than the page, scripts and styles). `urls` maps each
+ * reference path (no `app/` prefix: `logo.png`, as agents write them)
+ * to its token; `assets[n]` is what token `n` stands for.
+ *
+ * @param {Record<string, Uint8Array>} appBinaries
+ * @param {Record<string, string>} [appFiles]
+ * @returns {{ urls: Record<string, string>, assets: AppAsset[] }}
  */
-export function bytesToDataUrl(path, bytes) {
-    const mime = MIME_TYPES[extOf(path)] ?? "application/octet-stream";
-    return `data:${mime};base64,${bytesToBase64(bytes)}`;
+export function collectAssets(appBinaries, appFiles = {}) {
+    /** @type {Record<string, string>} */
+    const urls = {};
+    /** @type {AppAsset[]} */
+    const assets = [];
+    const add = (/** @type {string} */ path, /** @type {string} */ type, /** @type {Uint8Array} */ bytes) => {
+        urls[path.replace(/^app\//, "")] = assetToken(assets.length);
+        assets.push({ type, bytes });
+    };
+    for (const [path, bytes] of Object.entries(appBinaries)) {
+        add(path, MIME_TYPES[extOf(path)] ?? "application/octet-stream", bytes);
+    }
+    const encoder = new TextEncoder();
+    for (const [path, text] of Object.entries(appFiles)) {
+        const type = DATA_TYPES[extOf(path)];
+        if (type === undefined || /^(app\/)?index\.html$/.test(path)) continue;
+        add(path, type, encoder.encode(text));
+    }
+    return { urls, assets };
 }
 
-/** Build the `{ relativePath: dataUrl }` map the rewriters consume.
- *  `appBinaries` keys come in as full paths (`app/logo.png`); we
- *  strip the `app/` prefix so the lookup keys match the references
- *  agents write in HTML/JS (`logo.png`).
- * @param {Record<string, Uint8Array>} appBinaries
- * @returns {Record<string, string>}
+/**
+ * `html` with each asset token swapped for `url(asset, n)`.
+ *
+ * @param {string} html @param {readonly AppAsset[]} assets
+ * @param {(asset: AppAsset, n: number) => string} url
  */
-export function buildAssetUrlMap(appBinaries) {
-    /** @type {Record<string, string>} */
-    const out = {};
-    for (const [path, bytes] of Object.entries(appBinaries)) {
-        const rel = path.replace(/^app\//, "");
-        out[rel] = bytesToDataUrl(path, bytes);
+export function resolveAssetTokens(html, assets, url) {
+    if (assets.length === 0) return html;
+    /** @type {Map<number, string>} */
+    const made = new Map();
+    return html.replace(TOKEN_RE, (match, n) => {
+        const i = Number(n);
+        const asset = assets[i];
+        if (asset === undefined) return match;
+        if (!made.has(i)) made.set(i, url(asset, i));
+        return /** @type {string} */ (made.get(i));
+    });
+}
+
+/** `html` with its asset tokens as `data:` URLs: a page that stands on
+ *  its own. @param {{ html: string, assets: readonly AppAsset[] }} page */
+export function inlineAssets(page) {
+    return resolveAssetTokens(page.html, page.assets, (a) => `data:${a.type};base64,${bytesToBase64(a.bytes)}`);
+}
+
+/**
+ * The `agex-host-init` message that sends `page` to the bootloader whose
+ * `agex-host-ready` was `ready`. One that takes assets (`assets: 1`)
+ * gets them as Blobs, its page's tokens left for it to resolve; an
+ * older one gets the page with `data:` URLs in.
+ *
+ * @param {{ html: string, assets: readonly AppAsset[] }} page
+ * @param {unknown} ready
+ */
+export function hostInit(page, ready) {
+    const takesAssets = /** @type {any} */ (ready)?.assets === 1;
+    if (!takesAssets || page.assets.length === 0) {
+        return { type: "agex-host-init", html: inlineAssets(page) };
     }
-    return out;
+    return {
+        type: "agex-host-init",
+        html: page.html,
+        assets: page.assets.map((a) => new Blob([/** @type {BlobPart} */ (a.bytes)], { type: a.type })),
+    };
 }
 
 /** Escape a string for use as a literal in a RegExp. */
@@ -146,7 +221,7 @@ function escapeRegex(s) {
  * or paths that don't match a known asset.
  *
  * @param {string} html
- * @param {Record<string, string>} assetUrls relative-path → data URL
+ * @param {Record<string, string>} assetUrls relative-path → URL (or token)
  * @returns {string}
  */
 export function rewriteHtmlAssetRefs(html, assetUrls) {
@@ -160,12 +235,12 @@ export function rewriteHtmlAssetRefs(html, assetUrls) {
     // sandbox-iframe context that's probably fine too. Keep it
     // tight for now.
     const attrs = "(?:src|href|poster|data)";
-    for (const [rel, dataUrl] of Object.entries(assetUrls)) {
+    for (const [rel, url] of Object.entries(assetUrls)) {
         const pattern = new RegExp(
             `(\\b${attrs}\\s*=\\s*["'])(?:\\./)?${escapeRegex(rel)}(["'])`,
             "g",
         );
-        out = out.replace(pattern, `$1${dataUrl}$2`);
+        out = out.replace(pattern, `$1${url}$2`);
     }
     return out;
 }
@@ -182,12 +257,12 @@ export function rewriteHtmlAssetRefs(html, assetUrls) {
 export function rewriteCssAssetRefs(css, assetUrls) {
     if (!css || Object.keys(assetUrls).length === 0) return css;
     let out = css;
-    for (const [rel, dataUrl] of Object.entries(assetUrls)) {
+    for (const [rel, url] of Object.entries(assetUrls)) {
         const pattern = new RegExp(
             `url\\(\\s*(["']?)(?:\\./)?${escapeRegex(rel)}\\1\\s*\\)`,
             "g",
         );
-        out = out.replace(pattern, `url("${dataUrl}")`);
+        out = out.replace(pattern, `url("${url}")`);
     }
     return out;
 }
@@ -195,7 +270,7 @@ export function rewriteCssAssetRefs(css, assetUrls) {
 /**
  * Build a `<script>` tag exposing the asset map as
  * `window.appAssets` plus a `fetch` monkey-patch so
- * `fetch("logo.png")` from agent JS resolves to the data URL.
+ * `fetch("logo.png")` from agent JS resolves to the asset's URL.
  *
  * The monkey-patch only intercepts relative-path strings that
  * look like asset filenames; absolute URLs (`https://...`,
@@ -210,9 +285,8 @@ export function rewriteCssAssetRefs(css, assetUrls) {
 export function buildAssetsScript(assetUrls) {
     const count = Object.keys(assetUrls).length;
     if (count === 0) return "";
-    // Stringify the asset map into the script. Data URLs are long
-    // but base64 is JSON-safe; no special escaping needed beyond
-    // `JSON.stringify` which handles quotes / backslashes.
+    // Stringify the asset map into the script: tokens, blob: and data:
+    // URLs are all JSON-safe; `JSON.stringify` handles the paths.
     const json = JSON.stringify(assetUrls);
     return `<script>(function(){
   window.appAssets = ${json};

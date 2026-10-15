@@ -13,10 +13,13 @@ import { describe, expect, it } from "vitest";
 
 import {
     BINARY_EXTS,
+    assetToken,
     buildAssetsScript,
-    buildAssetUrlMap,
-    bytesToDataUrl,
+    collectAssets,
+    hostInit,
+    inlineAssets,
     isBinaryAppFile,
+    resolveAssetTokens,
     rewriteCssAssetRefs,
     rewriteHtmlAssetRefs,
 } from "./app-assets.js";
@@ -53,50 +56,66 @@ describe("isBinaryAppFile", () => {
     });
 });
 
-describe("bytesToDataUrl", () => {
-    it("encodes PNG bytes with the right MIME", () => {
-        const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-        const url = bytesToDataUrl("app/logo.png", bytes);
-        expect(url.startsWith("data:image/png;base64,")).toBe(true);
-        // 4 input bytes → 8-char base64 string (with padding)
-        expect(url.slice("data:image/png;base64,".length)).toBe("iVBORw==");
-    });
-
-    it("maps jpg / jpeg to the same image/jpeg MIME", () => {
-        const bytes = new Uint8Array([0xff, 0xd8, 0xff]);
-        expect(bytesToDataUrl("a.jpg", bytes).startsWith("data:image/jpeg;base64,"))
-            .toBe(true);
-        expect(bytesToDataUrl("a.jpeg", bytes).startsWith("data:image/jpeg;base64,"))
-            .toBe(true);
-    });
-
-    it("uses application/octet-stream for unknown extensions", () => {
-        const bytes = new Uint8Array([1, 2, 3]);
-        const url = bytesToDataUrl("app/strange.xyz", bytes);
-        expect(url.startsWith("data:application/octet-stream;base64,")).toBe(true);
-    });
-});
-
-describe("buildAssetUrlMap", () => {
-    it("strips the app/ prefix from keys", () => {
-        const map = buildAssetUrlMap({
+describe("collectAssets", () => {
+    it("names each asset by a token, keyed without the app/ prefix", () => {
+        const { urls, assets } = collectAssets({
             "app/logo.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
             "app/icons/star.svg": new Uint8Array([0x3c, 0x73, 0x76]),
         });
-        expect(Object.keys(map).sort()).toEqual(["icons/star.svg", "logo.png"]);
+        expect(urls).toEqual({ "logo.png": assetToken(0), "icons/star.svg": assetToken(1) });
+        expect(assets.map((a) => a.type)).toEqual(["image/png", "image/svg+xml"]);
+        expect(assets[0].bytes).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
     });
 
-    it("preserves nested paths under app/", () => {
-        const map = buildAssetUrlMap({
-            "app/assets/img/hero.jpg": new Uint8Array([0xff, 0xd8]),
+    it("takes the app's data files too, not its page, scripts or styles", () => {
+        const { urls, assets } = collectAssets({}, {
+            "app/index.html": "<html></html>",
+            "app/main.js": "go()",
+            "app/style.css": "body{}",
+            "app/data/sales.csv": "a,b\n1,2",
+            "app/config.json": "{}",
+            "app/help.html": "<p>help</p>",
         });
-        expect(Object.keys(map)).toEqual(["assets/img/hero.jpg"]);
-        expect(map["assets/img/hero.jpg"].startsWith("data:image/jpeg;base64,"))
-            .toBe(true);
+        expect(Object.keys(urls)).toEqual(["data/sales.csv", "config.json", "help.html"]);
+        expect(assets.map((a) => a.type)).toEqual(["text/csv", "application/json", "text/html"]);
+        expect(new TextDecoder().decode(assets[0].bytes)).toBe("a,b\n1,2");
     });
 
-    it("returns an empty map for an empty input", () => {
-        expect(buildAssetUrlMap({})).toEqual({});
+    it("falls back to application/octet-stream for an unknown binary type", () => {
+        expect(collectAssets({ "app/x.bin": new Uint8Array([1]) }).assets[0].type).toBe("application/octet-stream");
+    });
+});
+
+describe("sending a page's assets", () => {
+    const page = {
+        html: `<img src="${assetToken(0)}"><script>window.appAssets={"a.png":"${assetToken(0)}","b.wav":"${assetToken(1)}"}</script>`,
+        assets: [
+            { type: "image/png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) },
+            { type: "audio/wav", bytes: new Uint8Array([1, 2, 3]) },
+        ],
+    };
+
+    it("inlines each token as a data URL for a page that stands alone", () => {
+        expect(inlineAssets(page)).toBe(
+            '<img src="data:image/png;base64,iVBORw=="><script>window.appAssets={"a.png":"data:image/png;base64,iVBORw==","b.wav":"data:audio/wav;base64,AQID"}</script>',
+        );
+    });
+
+    it("leaves a token with no asset alone", () => {
+        expect(resolveAssetTokens(`x ${assetToken(5)}`, page.assets, () => "u")).toBe(`x ${assetToken(5)}`);
+    });
+
+    it("sends a bootloader that takes assets the bytes once, as Blobs", async () => {
+        const init = hostInit(page, { type: "agex-host-ready", assets: 1 });
+        expect(init.html).toBe(page.html);
+        expect(init.assets).toHaveLength(2);
+        expect(init.assets?.[1]?.type).toBe("audio/wav");
+        expect(new Uint8Array(await /** @type {Blob} */ (init.assets?.[1]).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+    });
+
+    it("sends an older bootloader the page with data URLs in", () => {
+        const init = hostInit(page, { type: "agex-host-ready" });
+        expect(init).toEqual({ type: "agex-host-init", html: inlineAssets(page) });
     });
 });
 

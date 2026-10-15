@@ -37,7 +37,7 @@ it is itself undoable (**Redo**).
 
 ## The app
 
-- **The page couldn't be built** (`buildAppHtml` threw, e.g. an
+- **The page couldn't be built** (`buildAppPage` threw, e.g. an
   esbuild failure for a worker): the preview says so instead of the
   app.
 - **A resource failed to load** (an image, a script): the preview

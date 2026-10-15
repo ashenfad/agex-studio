@@ -7,7 +7,7 @@
  * that sees images looks at it on its next call.
  */
 
-import { buildAppHtml } from "./app-html.js";
+import { buildAppPage } from "./app-html.js";
 import { readApp, hasApp } from "./app-files.js";
 import { getLiveIframe, runLiveApp, runTestApp } from "./app-control.js";
 import { read as readAppStorage } from "./app-storage.js";
@@ -89,7 +89,7 @@ export function testAppTool(session) {
                         appBinaries: app.binaries,
                         actions,
                         appStorageSeed: args.fresh === true ? {} : readAppStorage("ts", session.name),
-                        buildAppHtml,
+                        buildAppPage,
                         cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
                         // the app's agent tasks run for real, counted in its session's budget
                         taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
