@@ -170,9 +170,13 @@ Designing one:
 - **Call it from a person's action** (a button, a form), never on load
   or from code that re-runs (a render, an effect): the page would wait
   on it, and every reload would spend the budget again.
-- **Keep what you got.** Store answers in `localStorage` keyed by the
-  input, and answer a repeat from there before calling. Several inputs
-  at once: `Promise.all` runs the calls together (each counts).
+- **Keep what you got.** Store answers in `localStorage`, and answer a
+  repeat from there before calling. Key each by the task's definition
+  as well as its input (`` `triage:${JSON.stringify(spec)}:${input}` ``,
+  or a version you bump), since app storage outlives your edits: an
+  answer kept under the input alone comes back unchanged after you
+  change the instructions or the `returns`. Several inputs at once:
+  `Promise.all` runs the calls together (each counts).
 - **Show the answer as text** (`textContent`, or a template's
   `${value}`), never through `innerHTML`: a model's text can hold
   markup, and the input it read may have been written to put it there.
