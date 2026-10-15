@@ -104,8 +104,9 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   `IntersectionObserver` and a `ResizeObserver`), a box of about their
   size holding their place until then (`Deferred.svelte`; a height once
   drawn is remembered). The chat keeps its own place as they grow: at
-  the end it follows them, and one above what's being read scrolls the
-  list by as much, so the reader's view stays still. A new kind of
+  the end it follows them, and one wholly above what's being read
+  scrolls the list by as much, so the reader's view stays still (one
+  they're partway into keeps its top, as the browser's anchoring would). A new kind of
   embed gets the same by being wrapped in `Deferred` with its
   placeholder's height. At a turn's end only the runs that changed are
   new objects (`runs.js`), so the rest aren't drawn again, and an
