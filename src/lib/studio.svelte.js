@@ -197,18 +197,23 @@ export class Studio {
      */
     async fork(inherit) {
         const from = this.current;
-        if (from?.ws == null || from.busy) return;
+        if (from === null) return;
         if (inherit === "compact") {
             const store = await openStore();
-            if (from.ws.uncommitted) await from.ws.commit({ tool: "studio.fork" });
             const snap = `${from.name}.snapshot-${Math.random().toString(36).slice(2, 8)}`;
-            await snapshotBranch(store, from.ws.head, snap, { session: from.name });
+            const made = await from.edit(async (ws) => {
+                if (ws.uncommitted) await ws.commit({ tool: "studio.fork" });
+                await snapshotBranch(store, ws.head, snap, { session: from.name });
+                return true;
+            });
+            if (made === null) return;
             const name = await this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` });
             copyAppStorage("ts", from.name, name);
             await this.switchTo(name);
             return;
         }
-        const child = await from.ws.fork(newName(), { inherit });
+        const child = await from.edit((ws) => ws.fork(newName(), { inherit }));
+        if (child === null) return;
         const now = Date.now();
         const base = from.title || "Untitled";
         // a fork of an imported session isn't that import, nor what it published

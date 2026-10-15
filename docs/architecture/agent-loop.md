@@ -9,8 +9,9 @@ how it shows what comes back. The code is `ChatSession` in
 
 `ChatSession.say(prompt)`:
 
-1. Waits for a sync of the session in flight (`#held`), and refills
-   the session's wakes (see Delegation).
+1. Refills the session's wakes (see Delegation) and takes the
+   session's gate for the turn (below): a turn running takes the
+   message as a note instead.
 2. Builds an `Agent` for this turn (`#agent`): the model from the
    settings, the primer, `settings: { thinking, maxTokens: 16000 }`,
    and `compaction: new Policy(foldBudgetOf(settings))` when the fold
@@ -51,6 +52,24 @@ means a change to the settings applies to the next turn.
 `resume()` continues a run a provider error cut short; `abandon()`
 closes it as it stands ("set aside by the person"). See
 [errors-and-recovery.md](errors-and-recovery.md).
+
+### One thing at a time
+
+A session's workspace is had by one thing at a time: a turn (the
+person's, a resumed one, a woken one), a fold, a sync, or an edit (an
+undo, a redo, files added, an interrupted turn set aside, a fork taken
+of it). Each takes the session's gate (`Gate`, `gate.js`) before it
+starts and lets it go when it's done. Each says what it gives way to,
+at once, instead of waiting: a message gives way to a turn (it rides
+it as a note); a fold, an undo, a redo and a resume give way to a turn
+or a fold (they're not wanted then); a sync gives way to a turn or a
+fold (`SessionBusy`: their ends schedule it again); files added give
+way to a turn. Anything else, it waits for. Whether there's anything
+to do is checked as the gate comes free and in the same step as taking
+it, so nothing can start between the check and the take, and nothing
+holds the gate that won't run. A rename and the model's title wait
+only for a sync or an edit: beside a turn or a fold, those commits
+take them in.
 
 ## Models
 
@@ -201,8 +220,8 @@ Its popover offers **Fold now** (`ChatSession.foldNow`, agex-ts's
 whatever the budget, and committed on its own. It's disabled while a
 turn runs, after an interrupted turn, and with nothing new since the
 last fold (`foldable`). Stop stops it (without the delegates a turn's
-stop takes down); a message sent meanwhile waits for it; undo, redo
-and deleting the session wait too.
+stop takes down); a message sent meanwhile waits for it, and an undo
+or a redo isn't done while it runs.
 
 ## The primer
 

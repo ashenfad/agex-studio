@@ -105,8 +105,10 @@ an undo, a rename, files added: `Studio.onChanged`). Every session is
 compared with the roster on arrival and when the page comes back into
 view, at most every 5 minutes (`sweep`), and synced if it differs. A
 sync pulls, then pushes, fast-forward only (`syncBranch`), one at a
-time per browser (a Web Lock), never during the session's turn (which
-waits for it). A session open here takes in what was pulled
+time per browser (a Web Lock), never beside the session's turn or
+fold: a sync that finds one waits to be scheduled again at its end,
+and a turn asked for during a sync waits for it (the session's gate,
+`gate.js`). A session open here takes in what was pulled
 (`adoptPulled`: what is pending commits onto it, else it refreshes).
 A new session that has never been used stays local; dotted branches
 don't sync.

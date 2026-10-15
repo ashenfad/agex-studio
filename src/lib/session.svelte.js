@@ -19,6 +19,7 @@ import { keepUnchanged } from "./runs.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { looking } from "./status.js";
+import { Gate, SessionBusy } from "./gate.js";
 import { PLANE, metaOf, openStore } from "./store.js";
 import { testAppTool } from "./test-app.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
@@ -108,8 +109,9 @@ export class ChatSession {
     unseen = $state(false);
     /** One of those turns ended failed or interrupted. */
     attention = $state(false);
-    /** That fold, settling when it's done. @type {Promise<void>} */
-    #folding = Promise.resolve();
+    /** What has the session's workspace to itself: a turn, a fold, a
+     *  sync or an edit. */
+    #gate = new Gate();
     /** The person stopped that fold: its ending isn't an error. */
     #foldStopped = false;
     /** The prompt of the turn running now. */
@@ -194,6 +196,8 @@ export class ChatSession {
     constructor(name, studio) {
         this.name = name;
         this.studio = studio;
+        // what a fold, a sync or an edit kept from committing goes now
+        this.#gate.onFree = () => this.#saveRecords();
     }
 
     /** Open the session's workspace (or take one already open) and read
@@ -307,10 +311,10 @@ export class ChatSession {
         this.jobs = this.helper?.list().map((j) => ({ ...j })) ?? [];
         this.unread = this.helper?.outstanding() ?? [];
         // a turn's own commits carry what changes during it; outside one,
-        // commit it now, so what syncs never says an answer read is unread
-        if (this.#recordDelegates() && !this.busy && this.ws !== null) {
-            this.#saving = this.ws.commit({ tool: "studio.delegates" }).catch(() => undefined);
-        }
+        // commit it now (or once a fold, sync or edit lets the session
+        // go), so what syncs never says an answer read is unread
+        if (this.#recordDelegates()) this.#recordsDirty = true;
+        this.#saveRecords();
         // while a turn runs (an ask may start any time) or a delegate does
         const running = this.busy || this.jobs.some((j) => j.status === "running");
         if (running && this.#poll === null && this.helper !== null) this.#poll = setInterval(() => this.syncJobs(), 1000);
@@ -318,6 +322,18 @@ export class ChatSession {
             clearInterval(this.#poll);
             this.#poll = null;
         }
+    }
+
+    /** Delegate records written since the last commit: one waits for the
+     *  session to be free. */
+    #recordsDirty = false;
+
+    /** Commit the delegate records written, if nothing holds the session
+     *  (a turn's own commits carry them). */
+    #saveRecords() {
+        if (!this.#recordsDirty || this.ws === null || this.#gate.holder !== null || this.busy) return;
+        this.#recordsDirty = false;
+        this.#saving = this.ws.commit({ tool: "studio.delegates" }).catch(() => undefined);
     }
 
     /** Notes reached the model: a woken turn's first are its opening.
@@ -435,9 +451,9 @@ export class ChatSession {
      * message sent meanwhile waits for it.
      */
     async foldNow() {
-        await this.#held;
+        const release = await this.#gate.take("fold", ["turn", "fold"], () => this.ws !== null && !this.interrupted && this.foldable);
         const ws = this.ws;
-        if (ws === null || this.busy || this.folding || this.interrupted || !this.foldable) return;
+        if (release === null || ws === null) return release?.();
         const session = this.#session(ws);
         this.folding = true;
         this.#foldStopped = false;
@@ -451,15 +467,15 @@ export class ChatSession {
                 if (!this.#foldStopped) this.error = `couldn't fold: ${e instanceof Error ? e.message : String(e)}`;
             } finally {
                 this.#turn = null;
-                this.folding = false;
                 await this.#reloadAfter();
+                this.folding = false;
+                release();
                 await this.#saving;
                 this.onMeta();
                 // answers that landed while it folded
                 void this.#maybeWake();
             }
         })();
-        this.#folding = run;
         await run;
     }
 
@@ -517,18 +533,17 @@ export class ChatSession {
         this.#wakeOk = true;
         this.#wakeNoted = false;
         this.notice = null;
-        if (this.busy) return this.#queue(prompt);
-        // a fold being written, or a sync of this session, goes first: the
-        // turn starts from it; a turn another call started meanwhile (a
-        // message sent beside this one, answers waking the session) takes
-        // this one as a note
-        do {
-            await this.#folding;
-            await this.#held;
-        } while (this.folding || this.#held !== null);
-        if (this.busy) return this.#queue(prompt);
+        // a fold, a sync or an edit of this session goes first: the turn
+        // starts from it; a turn running (or one another call started
+        // meanwhile: a message sent beside this one, answers waking the
+        // session) takes this one as a note
+        const release = await this.#gate.take("turn", ["turn"], () => this.ws !== null);
         const ws = this.ws;
-        if (ws === null) throw new Error("the session isn't open");
+        if (ws === null) {
+            release?.();
+            throw new Error("the session isn't open");
+        }
+        if (release === null) return this.#queue(prompt);
         const session = this.#session(ws);
         const startedAt = ws.head;
         await this.#runTurn(session, async (apply) => {
@@ -536,7 +551,7 @@ export class ChatSession {
                 if (event.kind === "RunStarted") this.#started(event.runId, startedAt, prompt);
                 apply(event);
             }
-        }, prompt);
+        }, prompt, release);
     }
 
     /** Queue `prompt` for the turn running, to ride its next tool result.
@@ -557,31 +572,40 @@ export class ChatSession {
 
     /** Continue the last turn, which an interruption cut short. */
     async resume() {
-        await this.#held;
-        if (this.ws === null || this.busy || this.folding || !this.interrupted) return;
+        const release = await this.#gate.take("turn", ["turn", "fold"], () => this.ws !== null && this.interrupted);
+        if (release === null || this.ws === null) return release?.();
         const session = this.#session(this.ws);
         await this.#runTurn(session, async () => {
             const out = await session.resume();
             // how it ended decides waking, as RunEnded does for a streamed turn
             this.#lastStatus = out.status;
             if (out.status !== "completed" && out.status !== "cancelled") this.error = `the turn ended ${out.status}${out.message ? `: ${out.message}` : ""}`;
-        }, "(resuming)");
+        }, "(resuming)", release);
     }
 
     /** End the last turn, which an interruption cut short, as it stands. */
     async abandon() {
-        await this.#held;
-        if (this.ws === null || this.busy || this.folding || !this.interrupted) return;
-        await this.#agent().session(this.ws).abandon("set aside by the person");
-        await this.reload();
+        const release = await this.#gate.take("edit", ["turn", "fold"], () => this.ws !== null && this.interrupted);
+        if (release === null) return;
+        try {
+            if (this.ws === null) return;
+            await this.#agent().session(this.ws).abandon("set aside by the person");
+            await this.reload();
+        } finally {
+            release();
+        }
     }
 
     /**
+     * Run a turn, the session's gate taken for it: let go once its record
+     * is read back.
+     *
      * @param {import("agex-ts").Session} session
      * @param {(apply: (event: TurnEvent) => void) => Promise<void>} body
      * @param {string} prompt
+     * @param {() => void} release
      */
-    async #runTurn(session, body, prompt) {
+    async #runTurn(session, body, prompt, release) {
         this.busy = true;
         this.error = null;
         this.live = [];
@@ -607,6 +631,11 @@ export class ChatSession {
                 await this.#reloadAfter();
                 this.live = [];
                 this.busy = false;
+                // what the person wrote after the agent's last tool call never
+                // reached it: taken back before the session is let go, so a
+                // turn starting next doesn't take it as its own note
+                const missed = this.#takeQueued();
+                release();
                 this.#ended();
                 // the next request's size, now the turn's reply is in it
                 void this.#measure();
@@ -618,9 +647,7 @@ export class ChatSession {
                 this.onMeta();
                 // the model names the session, when it's due, beside what follows
                 void this.#retitle();
-                // what the person wrote after the agent's last tool call never
-                // reached it: the next turn, or after a stop, theirs to edit
-                const missed = this.#takeQueued();
+                // the next turn, or after a stop, theirs to edit
                 if (missed !== "" && this.#lastStatus === "completed") void this.say(missed);
                 else {
                     if (missed !== "") this.draft = this.draft === "" ? missed : `${missed}\n\n${this.draft}`;
@@ -686,20 +713,25 @@ export class ChatSession {
      * @param {{ name: string, bytes: Uint8Array }[]} files
      */
     async importFiles(files) {
-        await this.#held;
-        const ws = this.ws;
-        if (ws === null || files.length === 0) return [];
-        if (this.busy) throw new Error("a turn is running; add files once it ends");
-        // a name is one path segment: no separators, and not . or ..
-        const paths = files.map((f) => `${ws.root}/uploads/${f.name.replace(/[/\\]/g, "_").replace(/^\.*$/, (dots) => `${dots}file`)}`);
-        await ws.exclusive(async () => {
-            for (const [i, f] of files.entries()) await writeFile(ws.files.fs, /** @type {string} */ (paths[i]), f.bytes);
-            await ws.autoCommit({ tool: "import", paths });
-        });
-        this.redoHead = null;
-        await this.refreshFiles();
-        this.onMeta();
-        return paths;
+        if (this.ws === null || files.length === 0) return [];
+        const release = await this.#gate.take("edit", ["turn"]);
+        if (release === null) throw new Error("a turn is running; add files once it ends");
+        try {
+            const ws = this.ws;
+            if (ws === null) return [];
+            // a name is one path segment: no separators, and not . or ..
+            const paths = files.map((f) => `${ws.root}/uploads/${f.name.replace(/[/\\]/g, "_").replace(/^\.*$/, (dots) => `${dots}file`)}`);
+            await ws.exclusive(async () => {
+                for (const [i, f] of files.entries()) await writeFile(ws.files.fs, /** @type {string} */ (paths[i]), f.bytes);
+                await ws.autoCommit({ tool: "import", paths });
+            });
+            this.redoHead = null;
+            await this.refreshFiles();
+            this.onMeta();
+            return paths;
+        } finally {
+            release();
+        }
     }
 
     /** Wait for the turn running now, if any. */
@@ -707,29 +739,45 @@ export class ChatSession {
         await this.#running;
     }
 
-    /** A sync of this session in flight: a turn, and every other change
-     *  to the workspace from here (resume, undo, redo, rename, files
-     *  added), waits for it. */
-    /** @type {Promise<unknown> | null} */
-    #held = null;
-
     /**
-     * Run `fn` (a sync of this session) with no turn starting until it
-     * ends: `say` waits for it. Refused while a turn or fold runs, so a
-     * caller that awaited something since it last looked can't run `fn`
-     * beside one.
+     * Run `fn` (a sync of this session) with the session to itself: it
+     * waits for an edit, and nothing else starts until it ends. Refused
+     * (`SessionBusy`) while a turn or a fold has it; their ends schedule
+     * the sync again.
      *
      * @template T
      * @param {() => Promise<T>} fn
      */
     async hold(fn) {
-        if (this.busy || this.folding) throw new Error("a turn is running in that session; stop it first");
-        const run = fn();
-        this.#held = run.catch(() => undefined);
+        const release = await this.#gate.take("sync", ["turn", "fold"]);
+        if (release === null) throw new SessionBusy();
         try {
-            return await run;
+            return await fn();
         } finally {
-            this.#held = null;
+            release();
+        }
+    }
+
+    /**
+     * Run `fn` on the session's workspace (a fork taken of it, say) with
+     * the session to itself: it waits for a sync or an edit; null, without
+     * running it, while a turn or a fold has it.
+     *
+     * @template T
+     * @param {(ws: Workspace) => Promise<T>} fn
+     * @returns {Promise<T | null>}
+     */
+    async edit(fn) {
+        const release = await this.#gate.take("edit", ["turn", "fold"], () => this.ws !== null);
+        const ws = this.ws;
+        if (release === null || ws === null) {
+            release?.();
+            return null;
+        }
+        try {
+            return await fn(ws);
+        } finally {
+            release();
         }
     }
 
@@ -784,22 +832,11 @@ export class ChatSession {
      * none after a turn was stopped or failed, and none without a model.
      */
     async #maybeWake() {
-        // a sync of this session in flight finishes first; then look again
-        await this.#held;
-        const helper = this.helper;
+        // a sync or an edit of this session finishes first; a turn or a
+        // fold looks again when it ends
+        const release = await this.#gate.take("turn", ["turn", "fold"], () => this.#wakeDue());
         const ws = this.ws;
-        // a fold being written wakes it once it lands (foldNow looks again)
-        if (helper === null || ws === null || this.busy || this.folding || !this.#wakeOk) return;
-        const running = new Set(helper.list().filter((j) => j.status === "running").map((j) => j.name));
-        if (!helper.outstanding().some((name) => !running.has(name))) return;
-        if (!isConfigured(getSettings())) return;
-        if (this.wakesLeft <= 0) {
-            if (!this.#wakeNoted) {
-                this.#wakeNoted = true;
-                this.notice = "Delegates have answered, but their answers have already started as many turns as they may since your last message. The agent will read them when you next write.";
-            }
-            return;
-        }
+        if (release === null || ws === null) return release?.();
         this.wakesLeft -= 1;
         const session = this.#session(ws);
         const startedAt = ws.head;
@@ -814,7 +851,24 @@ export class ChatSession {
             },
             // its opening is the answers, told as they're delivered
             "",
+            release,
         );
+    }
+
+    /** Whether answers are waiting that a woken turn may read now; out
+     *  of wakes, the person is told so, once. */
+    #wakeDue() {
+        const helper = this.helper;
+        if (helper === null || this.ws === null || !this.#wakeOk) return false;
+        const running = new Set(helper.list().filter((j) => j.status === "running").map((j) => j.name));
+        if (!helper.outstanding().some((name) => !running.has(name))) return false;
+        if (!isConfigured(getSettings())) return false;
+        if (this.wakesLeft > 0) return true;
+        if (!this.#wakeNoted) {
+            this.#wakeNoted = true;
+            this.notice = "Delegates have answered, but their answers have already started as many turns as they may since your last message. The agent will read them when you next write.";
+        }
+        return false;
     }
 
     /**
@@ -825,32 +879,45 @@ export class ChatSession {
      * @param {string} runId
      */
     async undo(runId) {
-        await this.#held;
-        if (this.ws === null || this.busy || this.folding) return;
-        const turn = /** @type {{ before?: string, at?: number } | null} */ (await this.ws.plane(PLANE).get(`turns/${runId}`));
-        if (!turn?.before) throw new Error("this turn's starting point isn't recorded, so it can't be undone");
-        // the delegates asked since are unsaid: stopped, their answers dropped
-        if (typeof turn.at === "number") this.#cancelDelegates(turn.at, { running: true, answered: true });
-        const head = this.ws.head;
-        await this.ws.checkout(turn.before);
-        this.redoHead = head;
-        await this.reload();
+        const release = await this.#gate.take("edit", ["turn", "fold"], () => this.ws !== null);
+        if (release === null) return;
+        try {
+            const ws = this.ws;
+            if (ws === null) return;
+            const turn = /** @type {{ before?: string, at?: number } | null} */ (await ws.plane(PLANE).get(`turns/${runId}`));
+            if (!turn?.before) throw new Error("this turn's starting point isn't recorded, so it can't be undone");
+            // the delegates asked since are unsaid: stopped, their answers dropped
+            if (typeof turn.at === "number") this.#cancelDelegates(turn.at, { running: true, answered: true });
+            const head = ws.head;
+            await ws.checkout(turn.before);
+            this.redoHead = head;
+            await this.reload();
+        } finally {
+            release();
+        }
         this.onMeta();
     }
 
     /** Bring back what the last undo took away. */
     async redo() {
-        await this.#held;
-        if (this.ws === null || this.busy || this.folding || this.redoHead === null) return;
-        await this.ws.checkout(this.redoHead);
-        this.redoHead = null;
-        await this.reload();
+        const release = await this.#gate.take("edit", ["turn", "fold"], () => this.ws !== null && this.redoHead !== null);
+        if (release === null) return;
+        try {
+            if (this.ws === null || this.redoHead === null) return;
+            await this.ws.checkout(this.redoHead);
+            this.redoHead = null;
+            await this.reload();
+        } finally {
+            release();
+        }
         this.onMeta();
     }
 
     /** Give the session a title. @param {string} title */
     async rename(title) {
-        await this.#held;
+        // beside a turn or a fold, whose commits take it in too; not
+        // beside a sync or an edit, which move the workspace under it
+        await this.#gate.clearOf(["sync", "edit"]);
         if (this.ws === null) return;
         const plane = this.ws.plane(PLANE);
         const meta = /** @type {object | null} */ (await plane.get("meta")) ?? {};
@@ -882,7 +949,7 @@ export class ChatSession {
             return;
         }
         if (title === null || this.ws !== ws) return;
-        await this.#held;
+        await this.#gate.clearOf(["sync", "edit"]);
         // read again: the person may have renamed it, or a later turn named it, meanwhile
         const meta = /** @type {any} */ (await plane.get("meta")) ?? {};
         if (meta.named === true || (typeof meta.titledAt === "number" && meta.titledAt >= turns)) return;
