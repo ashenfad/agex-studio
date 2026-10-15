@@ -22,6 +22,44 @@ function loadMermaid() {
     });
 }
 
+/** The SVG each diagram source drew as, the latest last: a block of
+ *  the same source drawn again (the live turn's reply giving way to the
+ *  stored one, a session reopened) takes it, and Mermaid isn't asked
+ *  twice. @type {Map<string, string>} */
+const drawn = new Map();
+const DRAWN_MAX = 50;
+
+/** @param {string} source @param {string} svg */
+function remember(source, svg) {
+    drawn.delete(source);
+    drawn.set(source, svg);
+    if (drawn.size > DRAWN_MAX) drawn.delete(drawn.keys().next().value ?? "");
+}
+
+const SELECTOR = "pre.mermaid:not([data-processed])";
+
+/** The undrawn blocks in `container`, or the container itself when
+ *  it's one. @param {Element} container */
+function undrawn(container) {
+    return container.matches(SELECTOR) ? [container] : [...container.querySelectorAll(SELECTOR)];
+}
+
+/**
+ * Draw at once, with no Mermaid, each block in `container` whose source
+ * was drawn before: called as the blocks come into the page, so a
+ * diagram shown again is in place, at its size, from its first frame.
+ *
+ * @param {Element} container
+ */
+export function redrawKnown(container) {
+    for (const block of undrawn(container)) {
+        const svg = drawn.get(block.textContent ?? "");
+        if (svg === undefined) continue;
+        block.innerHTML = svg;
+        block.setAttribute("data-processed", "true");
+    }
+}
+
 /** HTML text escape for element content. @param {string} s */
 function escapeHtml(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -67,8 +105,8 @@ export function mermaidFallback(source, error) {
  */
 export async function renderMermaidBlocks(container) {
     if (!container) return;
-    const selector = "pre.mermaid:not([data-processed])";
-    const blocks = container.matches(selector) ? [container] : [...container.querySelectorAll(selector)];
+    redrawKnown(container);
+    const blocks = undrawn(container);
     if (blocks.length === 0) return;
 
     /** @type {any} */
@@ -87,8 +125,16 @@ export async function renderMermaidBlocks(container) {
         if (block.hasAttribute("data-processed")) continue;
         const code = block.textContent ?? "";
         const id = `mermaid-${Math.random().toString(36).slice(2)}`;
+        const known = drawn.get(code);
+        if (known !== undefined) {
+            // drawn while Mermaid was loading, or by another block's render
+            block.innerHTML = known;
+            block.setAttribute("data-processed", "true");
+            continue;
+        }
         try {
             const { svg } = await mermaid.render(id, code);
+            remember(code, svg);
             block.innerHTML = svg;
             block.setAttribute("data-processed", "true");
         } catch (e) {
