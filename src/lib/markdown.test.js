@@ -6,6 +6,9 @@
 import { describe, it, expect } from "vitest";
 import { fileLinkTarget, mermaidErrorLine, mermaidFallback, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
 
+/** How a reply renders: its workspace links open files. */
+const REPLY = { linkBase: "/workspace" };
+
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
         const html = renderMarkdown("hello world");
@@ -70,7 +73,7 @@ describe("prepare (via renderMarkdown)", () => {
     // ---- workspace file links ----------------------------------
 
     it("renders a /workspace path as a file link", () => {
-        const html = renderMarkdown("[the plan](/workspace/notes/plan.md)");
+        const html = renderMarkdown("[the plan](/workspace/notes/plan.md)", REPLY);
         expect(html).toContain('class="ws-file"');
         expect(html).toContain('data-ws-path="/workspace/notes/plan.md"');
         expect(html).toContain('href="#"');
@@ -78,8 +81,8 @@ describe("prepare (via renderMarkdown)", () => {
     });
 
     it("resolves a relative path against /workspace", () => {
-        expect(renderMarkdown("[p](notes/plan.md)")).toContain('data-ws-path="/workspace/notes/plan.md"');
-        expect(renderMarkdown("[p](./notes/plan.md)")).toContain('data-ws-path="/workspace/notes/plan.md"');
+        expect(renderMarkdown("[p](notes/plan.md)", REPLY)).toContain('data-ws-path="/workspace/notes/plan.md"');
+        expect(renderMarkdown("[p](./notes/plan.md)", REPLY)).toContain('data-ws-path="/workspace/notes/plan.md"');
     });
 
     it("renders the link's inline markdown", () => {
@@ -90,7 +93,7 @@ describe("prepare (via renderMarkdown)", () => {
 
     it("renders a path that climbs out of /workspace as text alone", () => {
         for (const href of ["../etc/passwd", "/workspace/../etc/passwd", "notes/../../x"]) {
-            const html = renderMarkdown(`[secret](${href})`);
+            const html = renderMarkdown(`[secret](${href})`, REPLY);
             expect(html).not.toContain("<a");
             expect(html).not.toContain("data-ws-path");
             expect(html).toContain("secret");
@@ -116,7 +119,7 @@ describe("prepare (via renderMarkdown)", () => {
     });
 
     it("escapes a path with special characters in the attribute", () => {
-        const html = renderMarkdown('[bad](<weird"name<x>.md>)');
+        const html = renderMarkdown('[bad](<weird"name<x>.md>)', REPLY);
         const doc = new DOMParser().parseFromString(html, "text/html");
         const a = doc.querySelector("a.ws-file");
         expect(a?.getAttribute("data-ws-path")).toBe('/workspace/weird"name<x>.md');
@@ -124,7 +127,7 @@ describe("prepare (via renderMarkdown)", () => {
     });
 
     it("supports several file links inline alongside prose", () => {
-        const html = renderMarkdown("Saved [a](a.png) and [b](/workspace/b.png) — done.");
+        const html = renderMarkdown("Saved [a](a.png) and [b](/workspace/b.png) — done.", REPLY);
         expect(html).toContain('data-ws-path="/workspace/a.png"');
         expect(html).toContain('data-ws-path="/workspace/b.png"');
         expect(html).toContain("Saved ");
@@ -162,10 +165,10 @@ describe("renderMarkdownInline", () => {
         expect(html).toContain("<code>foo()</code>");
     });
 
-    it("renders workspace file links", () => {
+    it("renders links as ordinary links: a cell has no file viewer", () => {
         const html = renderMarkdownInline("[open](docs/doc.pdf)");
-        expect(html).toContain('class="ws-file"');
-        expect(html).toContain('data-ws-path="/workspace/docs/doc.pdf"');
+        expect(html).not.toContain("data-ws-path");
+        expect(html).toContain('href="docs/doc.pdf"');
     });
 
     it("does NOT produce block elements (no paragraphs, no headings, no lists)", () => {
@@ -248,7 +251,7 @@ describe("sanitization", () => {
     it("keeps benign markup: file links, callouts, code, emphasis", () => {
         const html = renderMarkdown(
             "> [!NOTE]\n> heads up\n\n**bold** [f](/workspace/a.png) `code`"
-        );
+        , REPLY);
         expect(html).toContain('class="callout callout-note"');
         expect(html).toContain('data-ws-path="/workspace/a.png"');
         expect(html).toContain("<strong>bold</strong>");
@@ -256,7 +259,7 @@ describe("sanitization", () => {
     });
 
     it("strips script vectors from a file link's text and title", () => {
-        const html = renderMarkdown('[<img src=x onerror=alert(1)>](notes/a.md "x\\" onclick=\\"alert(1)")');
+        const html = renderMarkdown('[<img src=x onerror=alert(1)>](notes/a.md "x\\" onclick=\\"alert(1)")', REPLY);
         const doc = new DOMParser().parseFromString(html, "text/html");
         const a = doc.querySelector("a.ws-file");
         expect(a?.getAttribute("data-ws-path")).toBe("/workspace/notes/a.md");
@@ -329,3 +332,26 @@ describe("mermaid fallback", () => {
         expect(mermaidErrorLine(new Error(""))).toBe("unknown error");
     });
 });
+
+describe("workspace links, by where they're rendered", () => {
+    it("are ordinary links where there's no file viewer (no linkBase)", () => {
+        const html = renderMarkdown("[details](details.md) and [plan](/workspace/notes/plan.md)");
+        expect(html).not.toContain("data-ws-path");
+        expect(html).toContain('href="details.md"');
+    });
+
+    it("resolve from a file's own folder, as the file viewer renders them", () => {
+        const base = { linkBase: "/workspace/notes" };
+        expect(renderMarkdown("[d](details.md)", base)).toContain('data-ws-path="/workspace/notes/details.md"');
+        expect(renderMarkdown("[d](../data/sales.csv)", base)).toContain('data-ws-path="/workspace/data/sales.csv"');
+        expect(renderMarkdown("[d](/workspace/app/index.html)", base)).toContain('data-ws-path="/workspace/app/index.html"');
+        // climbing out of the workspace from a folder is still refused
+        expect(renderMarkdown("[d](../../etc/passwd)", base)).not.toContain("data-ws-path");
+    });
+
+    it("leave the next render alone: the base holds for one text", () => {
+        renderMarkdown("[d](details.md)", REPLY);
+        expect(renderMarkdown("[d](details.md)")).not.toContain("data-ws-path");
+    });
+});
+

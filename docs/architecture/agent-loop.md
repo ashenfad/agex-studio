@@ -108,8 +108,14 @@ workspace file, by its path (`[plan](/workspace/notes/plan.md)`, or
 `notes/plan.md` relative to /workspace), renders as a file link
 (`markdown.js` marks it with `data-ws-path`, the normalized path, and
 renders one whose `..` climbs out of /workspace as its text alone);
-`ReplyText` opens it in `FileModal`, as the file is now. A URL with a
-scheme, `//host/…`, `#…` and other root paths stay ordinary links.
+`ReplyText` opens it in `FileModal`, as the file is now, checking the
+attribute again on click (`fileLinkTarget`), since raw HTML can set it
+too. A URL with a scheme, `//host/…`, `#…` and other root paths stay
+ordinary links. The rewriting is opt-in, by `renderMarkdown`'s
+`linkBase`: a reply's is /workspace, and a Markdown file's in
+`FileModal` is its own folder, so its relative links open the files
+beside it in the same viewer. Elsewhere (thinking, summaries, cards,
+table cells) there's no viewer to open, and links stay ordinary.
 A ```` ```mermaid ```` block renders as `<pre class="mermaid">` holding
 its source; `ReplyText` draws it (`renderMermaidBlocks`, Mermaid loaded
 once from a pinned jsDelivr URL, `securityLevel: 'strict'`) when the
