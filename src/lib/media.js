@@ -14,6 +14,7 @@ import { hostFactory, typedHost, withCall } from "@agex-ts/world";
 import { z } from "zod";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { costOf, routerJson, routerPost } from "./openrouter-api.js";
+import { canEncodeOpus, encodeOpus } from "./ogg-opus.js";
 import { inWorkspace, writeFile } from "./ws-paths.js";
 
 /** Real transparency (an alpha channel, not a painted checkerboard) is
@@ -93,10 +94,15 @@ const MUSIC_TIMEOUT = 150;
  * Each method takes its arguments by name, as one object.
  */
 export class Media {
-    /** @param {Workspace} ws @param {{ fetchImpl?: typeof fetch }} [opts] */
-    constructor(ws, { fetchImpl } = {}) {
+    /**
+     * @param {Workspace} ws
+     * @param {{ fetchImpl?: typeof fetch, opus?: { can: typeof canEncodeOpus, encode: typeof encodeOpus } }} [opts]
+     *   `opus`: the Opus encoder (the browser's by default)
+     */
+    constructor(ws, { fetchImpl, opus = { can: canEncodeOpus, encode: encodeOpus } } = {}) {
         this._ws = ws;
         this._fetch = fetchImpl;
+        this._opus = opus;
     }
 
     /**
@@ -137,8 +143,11 @@ export class Media {
     );
 
     /**
-     * Speak `text` in `voice` and write a WAV to `path`. The text is
-     * spoken word for word; `style` says how, in plain words.
+     * Speak `text` in `voice` and write it to `path`: Opus in an Ogg
+     * file for `*.ogg`, a tenth the size of the WAV a `*.wav` gets. The
+     * text is spoken word for word; `style` says how, in plain words.
+     * A browser that can't encode Opus writes a WAV beside the name
+     * asked for (`*.wav`), and returns that path.
      */
     speech = withCall(
         /**
@@ -149,7 +158,7 @@ export class Media {
             const fs = this._fs(call);
             const text = spec.text.trim();
             if (text === "") throw new Error("media.speech: the text is empty");
-            const dest = this._dest("media.speech", spec.path, ".wav");
+            let dest = this._dest("media.speech", spec.path, ".ogg", ".wav");
             /** @type {Record<string, unknown>} */
             const body = { model: SPEECH_MODEL, input: text, voice: spec.voice ?? "Kore", response_format: "pcm" };
             const style = spec.style?.trim();
@@ -158,7 +167,15 @@ export class Media {
             const pcm = new Uint8Array(await r.arrayBuffer());
             if (pcm.length === 0) throw new Error("media.speech: the response held no audio");
             const { rate, channels } = pcmFormat(r.headers.get("content-type") ?? "");
-            await writeFile(fs, dest, wav(pcm, rate, channels));
+            /** @type {Uint8Array} */
+            let audio;
+            if (dest.toLowerCase().endsWith(".ogg") && (await this._opus.can(rate, channels))) {
+                audio = await this._opus.encode(pcm, rate, channels);
+            } else {
+                dest = dest.replace(/\.ogg$/i, ".wav");
+                audio = wav(pcm, rate, channels);
+            }
+            await writeFile(fs, dest, audio);
             return { path: dest, seconds: round2(pcm.length / (2 * rate * channels)) };
         },
     );
@@ -205,11 +222,13 @@ export class Media {
         return (call?.ws ?? this._ws).files.fs;
     }
 
-    /** @param {string} label @param {string} path @param {string} ext */
-    _dest(label, path, ext) {
+    /** @param {string} label @param {string} path @param {...string} exts the names it may have, the first the one to use */
+    _dest(label, path, ...exts) {
         const dest = inWorkspace(label, this._ws.root, path);
-        if (!dest.toLowerCase().endsWith(ext)) {
-            throw new Error(`${label}: the file is ${ext.slice(1).toUpperCase()}, so name it *${ext}`);
+        if (!exts.some((ext) => dest.toLowerCase().endsWith(ext))) {
+            const ext = /** @type {string} */ (exts[0]);
+            const or = exts.slice(1).map((e) => ` (or *${e})`).join("");
+            throw new Error(`${label}: the file is ${ext.slice(1).toUpperCase()}, so name it *${ext}${or}`);
         }
         return dest;
     }
