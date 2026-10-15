@@ -4,6 +4,7 @@
      * Markdown rendered (its ```mermaid blocks drawn), an image shown; downloaded or deleted from here.
      * One that isn't there (moved, deleted, a folder) says so instead.
      */
+    import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
     import { highlightCode } from './highlight.js'
     import { untrack } from 'svelte'
@@ -78,7 +79,7 @@
         const code = e instanceof Error && 'code' in e ? e.code : null
         if (code === 'ENOENT' || code === 'ENOTDIR') return `There's no file at ${shown} now: it may have been moved, renamed or deleted.`
         if (code === 'EISDIR') return `${shown} is a folder, not a file: the Files tab shows what's in it.`
-        return `This file can't be read: ${e instanceof Error ? e.message : String(e)}`
+        return `This file can't be read: ${errorText(e)}`
     }
 
     async function download() {

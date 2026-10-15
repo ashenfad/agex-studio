@@ -10,6 +10,7 @@
      * choices when it needs the person), and below them the repo's other
      * sessions to download and its trash.
      */
+    import { errorText } from './errors.js'
     import { formatDate } from './format-time.js'
     import { STATUS_TITLES, statusOf } from './status.js'
     import PublishDialog from './PublishDialog.svelte'
@@ -62,7 +63,7 @@
         try {
             await fn()
         } catch (e) {
-            failed = e instanceof Error ? e.message : String(e)
+            failed = errorText(e)
         }
     }
 

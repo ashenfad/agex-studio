@@ -6,6 +6,7 @@
      * deleting it (with sync on, from this device or everywhere).
      */
     import { untrack } from 'svelte'
+    import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
     import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
@@ -32,7 +33,7 @@
             if (after.close) onClose()
             if (after.picked) onPicked()
         } catch (e) {
-            failed = e instanceof Error ? e.message : String(e)
+            failed = errorText(e)
         } finally {
             working = false
         }

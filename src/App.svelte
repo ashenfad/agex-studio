@@ -6,6 +6,8 @@
      * screen; and the settings for the model.
      */
     import { onMount } from 'svelte'
+    import { errorText } from './lib/errors.js'
+    import { readLocal, writeLocal } from './lib/local.js'
     import { loadModels } from './lib/openrouter-models.js'
     import { getSettings } from './lib/settings.js'
     import AppPreview from './lib/AppPreview.svelte'
@@ -23,21 +25,9 @@
     import { sync } from './lib/sync.svelte.js'
     import Workbench from './lib/Workbench.svelte'
 
-    /** @param {string} key */
-    function stored(key) {
-        try {
-            return localStorage.getItem(key)
-        } catch {
-            return null
-        }
-    }
     /** @param {string} key @param {boolean} on */
     function store(key, on) {
-        try {
-            localStorage.setItem(key, on ? '1' : '0')
-        } catch {
-            // kept for this visit only
-        }
+        writeLocal(key, on ? '1' : '0')
     }
 
     /** @type {string | null} */
@@ -47,11 +37,11 @@
     const narrowQuery = matchMedia('(max-width: 768px)')
     let narrow = $state(narrowQuery.matches)
     /** The session list beside the chat, on a wide screen (kept). */
-    let railOpen = $state(stored('agex-rail') !== '0')
+    let railOpen = $state(readLocal('agex-rail') !== '0')
     /** The session list over the chat, on a narrow screen. */
     let drawerOpen = $state(false)
     /** The workbench beside the chat, on a wide screen (kept). */
-    let showApp = $state(stored('agex-workbench') !== '0')
+    let showApp = $state(readLocal('agex-workbench') !== '0')
     /** On a narrow screen, which pane shows. @type {'chat' | 'app'} */
     let mobileView = $state('chat')
     /** The app alone, filling the window. */
@@ -138,14 +128,14 @@
                 // with a published link, no blank session first: it is the first
                 await studio.init({ empty: gistParam !== null })
             } catch (e) {
-                failed = e instanceof Error ? e.message : String(e)
+                failed = errorText(e)
                 return
             }
             if (gistParam !== null) {
                 try {
                     await distribution.openGist(gistParam)
                 } catch (e) {
-                    opening = e instanceof Error ? e.message : String(e)
+                    opening = errorText(e)
                     playing = false
                     if (studio.current === null) await studio.create()
                 }

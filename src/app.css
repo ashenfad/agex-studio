@@ -145,7 +145,8 @@ code, kbd, samp, pre {
  * inside modals, document-view padding inside FileModal, etc.).
  *
  * The baseline matches the chat-bubble look — that's the most frequent
- * context (MessageList) and the visual standard most callers want to track.
+ * context (the agent's replies) and the visual standard most callers want
+ * to track.
  * Override sparingly; if you find yourself duplicating a rule, fold the
  * shared form back here instead.
  * --------------------------------------------------------------------------- */

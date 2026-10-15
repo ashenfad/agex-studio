@@ -183,7 +183,7 @@ export class Sync {
         const kv = store.repo.store;
         const remote = await this.#remoteNow();
         const branch = appBranch(name);
-        await commitAppData(store, name, { bag: readAppStorage("ts", name), at: appWrittenAt(name) });
+        await commitAppData(store, name, { bag: readAppStorage(name), at: appWrittenAt(name) });
         const here = await store.repo.branches.has(branch);
         if (!here) {
             // nothing written here: take what another device wrote, if any
@@ -214,7 +214,7 @@ export class Sync {
         const store = await openStore();
         const branch = appBranch(name);
         const held = await readAppData(store, { branch });
-        const bag = readAppStorage("ts", name);
+        const bag = readAppStorage(name);
         const written = held === null ? Object.keys(bag).length > 0 : JSON.stringify(held.bag) !== JSON.stringify(bag);
         if (written) return true;
         if (held === null) return false;
@@ -226,7 +226,7 @@ export class Sync {
     async #takeAppData(name, ref) {
         const data = await readAppData(await openStore(), ref);
         if (data === null) return;
-        writeAppStorage("ts", name, data.bag);
+        writeAppStorage(name, data.bag);
         setAppWrittenAt(name, data.at);
         const open = this.studio.opened(name);
         if (open !== undefined) open.appDataStamp += 1;

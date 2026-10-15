@@ -14,6 +14,7 @@
      * an app, and rebuilds when asked.
      */
     import { onDestroy, untrack } from 'svelte'
+    import { errorText } from './errors.js'
     import { callStarted, callsLost, setLiveIframe } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
@@ -75,14 +76,14 @@
         try {
             const page = await buildAppPage(app.files, {
                 appBinaries: app.binaries,
-                appStorage: { seed: readAppStorage('ts', name), writeable: true },
+                appStorage: { seed: readAppStorage(name), writeable: true },
             })
             if (ticket !== latest) return
             current = { page, name }
             appsUrl = `${APPS_ORIGIN}/?t=${Date.now()}`
         } catch (e) {
             if (ticket !== latest) return
-            failed = e instanceof Error ? e.message : String(e)
+            failed = errorText(e)
             loading = false
         }
     }
@@ -130,7 +131,7 @@
         const { name, bag } = storageToWrite
         storageToWrite = null
         try {
-            writeAppStorage('ts', name, bag)
+            writeAppStorage(name, bag)
             sync.appChanged(name)
         } catch (e) {
             // the studio's storage is full: the app's saved data stays as it was
@@ -148,7 +149,7 @@
             // that's what it was built with, after a reload of its own
             // it's what it saved before reloading
             flushStorage()
-            const page = reseedAppPage(current.page, { seed: readAppStorage('ts', current.name), writeable: true })
+            const page = reseedAppPage(current.page, { seed: readAppStorage(current.name), writeable: true })
             replyToApp(iframe, hostInit(page, data))
             loading = false
             return
@@ -168,7 +169,7 @@
                 const value = await session.ws?.cache.get(String(key))
                 replyToApp(frame, { type: 'agex-cache-get-result', id, data: value ?? null, error: null })
             } catch (e) {
-                replyToApp(frame, { type: 'agex-cache-get-result', id, data: null, error: e instanceof Error ? e.message : String(e) })
+                replyToApp(frame, { type: 'agex-cache-get-result', id, data: null, error: errorText(e) })
             } finally {
                 done()
             }
@@ -193,7 +194,7 @@
                 const value = await appAgent.call(session.name, { spec: data.spec, inputs: data.inputs }, { ask })
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: value === undefined ? null : value, error: null })
             } catch (e) {
-                replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: e instanceof Error ? e.message : String(e) })
+                replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: errorText(e) })
             } finally {
                 done()
             }

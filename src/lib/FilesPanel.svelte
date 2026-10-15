@@ -5,6 +5,7 @@
      * download, or delete. Files are added (uploaded, or from Google
      * Drive) under uploads/, from the workbench's bar.
      */
+    import { errorText } from './errors.js'
     import { pickFromDrive } from './drive-import.js'
     import FileModal from './FileModal.svelte'
 
@@ -52,7 +53,7 @@
             const done = paths.length > 0 ? `Added ${paths.map((p) => p.replace('/workspace/', '')).join(', ')}` : ''
             added = [done, ...errors].filter(Boolean).join('; ')
         } catch (e) {
-            added = e instanceof Error ? e.message : String(e)
+            added = errorText(e)
         }
     }
 
@@ -73,7 +74,7 @@
             const { files, errors } = await pickFromDrive()
             await add(files, errors)
         } catch (e) {
-            added = e instanceof Error ? e.message : String(e)
+            added = errorText(e)
         }
     }
 </script>

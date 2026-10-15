@@ -10,6 +10,7 @@
      * switches between them.
      */
     import { onMount } from 'svelte'
+    import { readLocal, writeLocal } from './local.js'
 
     /** @type {{
      *   single?: boolean,
@@ -34,25 +35,8 @@
     /** The workbench's narrowest. */
     const MIN_SIDE_PX = 120
 
-    /** @param {string} key */
-    function stored(key) {
-        try {
-            return localStorage.getItem(key)
-        } catch {
-            return null
-        }
-    }
-    /** @param {string} key @param {string} value */
-    function store(key, value) {
-        try {
-            localStorage.setItem(key, value)
-        } catch {
-            // kept for this visit only
-        }
-    }
-
-    let ratio = $state(Number(stored(RATIO_KEY)) || DEFAULT_RATIO)
-    let folded = $state(stored(FOLDED_KEY) === '1')
+    let ratio = $state(Number(readLocal(RATIO_KEY)) || DEFAULT_RATIO)
+    let folded = $state(readLocal(FOLDED_KEY) === '1')
     let dragging = $state(false)
     /** @type {HTMLElement | undefined} */
     let container = $state()
@@ -66,7 +50,7 @@
     /** @param {boolean} next */
     function setFolded(next) {
         folded = next
-        store(FOLDED_KEY, next ? '1' : '0')
+        writeLocal(FOLDED_KEY, next ? '1' : '0')
     }
 
     /** Charts in the chat lay themselves out again at its new width,
@@ -77,7 +61,7 @@
 
     function unfold() {
         ratio = RESTORE_RATIO
-        store(RATIO_KEY, String(ratio))
+        writeLocal(RATIO_KEY, String(ratio))
         setFolded(false)
         relayout()
     }
@@ -109,7 +93,7 @@
             dragging = false
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
-            store(RATIO_KEY, String(ratio))
+            writeLocal(RATIO_KEY, String(ratio))
             relayout()
         }
         window.addEventListener('pointermove', onMove)
@@ -123,7 +107,7 @@
         e.preventDefault()
         const width = container?.getBoundingClientRect().width ?? 0
         ratio = clamp(ratio + (e.key === 'ArrowLeft' ? -step : step), width)
-        store(RATIO_KEY, String(ratio))
+        writeLocal(RATIO_KEY, String(ratio))
         relayout()
     }
 

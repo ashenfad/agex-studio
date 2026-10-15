@@ -7,6 +7,7 @@
      * asked for. Any id typed stands, listed or not.
      */
     import { onMount } from 'svelte'
+    import { errorText } from './errors.js'
     import { contextLabel, loadModels, priceLabel, searchModels } from './openrouter-models.js'
 
     /** @type {{ value: string }} */
@@ -29,7 +30,7 @@
     onMount(() => {
         loadModels()
             .then((m) => (models = m))
-            .catch((e) => (failed = e instanceof Error ? e.message : String(e)))
+            .catch((e) => (failed = errorText(e)))
             .finally(() => (loaded = true))
     })
 
