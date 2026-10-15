@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitPrompt, fittingImages } from "./image-fit.js";
+import { fitPrompt, fittingImages, sizeOf } from "./image-fit.js";
 
 /** A fit that marks what it fitted, as a smaller WebP. */
 const fit = async (/** @type {{ data: string, mediaType: string }} */ image) =>
@@ -71,5 +71,56 @@ describe("fitting a request's images", () => {
         const tiny = [{ role: "user", content: [{ type: "file", mediaType: "image/png", data: "tiny" }] }];
         expect(await wrapped.doStream({ prompt: tiny, maxOutputTokens: 9 })).toEqual({ stream: "s" });
         expect(seen[0]).toEqual({ prompt: tiny, maxOutputTokens: 9 });
+    });
+
+    it("fits one image at a time", async () => {
+        let running = 0;
+        let most = 0;
+        const slow = async (/** @type {{ data: string, mediaType: string }} */ image) => {
+            running += 1;
+            most = Math.max(most, running);
+            await new Promise((r) => setTimeout(r, 5));
+            running -= 1;
+            return image;
+        };
+        await fitPrompt(prompt, { fit: slow });
+        expect(most).toBe(1);
+    });
+});
+
+describe("an image's size, from its header", () => {
+    const b64 = (/** @type {number[]} */ bytes) => Buffer.from(bytes).toString("base64");
+    const be32 = (/** @type {number} */ n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+    const le16 = (/** @type {number} */ n) => [n & 255, (n >>> 8) & 255];
+    const le24 = (/** @type {number} */ n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255];
+    const ascii = (/** @type {string} */ t) => [...t].map((c) => c.charCodeAt(0));
+
+    it("reads PNG and GIF", () => {
+        const png = [0x89, ...ascii("PNG"), 13, 10, 26, 10, 0, 0, 0, 13, ...ascii("IHDR"), ...be32(9000), ...be32(300), 8, 6];
+        expect(sizeOf(b64(png))).toEqual({ width: 9000, height: 300 });
+        expect(sizeOf(b64([...ascii("GIF89a"), ...le16(640), ...le16(480), 0, 0]))).toEqual({ width: 640, height: 480 });
+    });
+
+    it("reads WebP, each kind", () => {
+        const riff = (/** @type {string} */ chunk, /** @type {number[]} */ rest) => [...ascii("RIFF"), 0, 0, 0, 0, ...ascii("WEBP"), ...ascii(chunk), ...rest];
+        const vp8x = riff("VP8X", [0, 0, 0, 0, 0, 0, 0, 0, ...le24(8999), ...le24(4999), 0, 0]);
+        expect(sizeOf(b64(vp8x))).toEqual({ width: 9000, height: 5000 });
+        const bits = (1919 & 0x3fff) | ((1079 & 0x3fff) << 14);
+        const vp8l = riff("VP8L", [0, 0, 0, 0, 0x2f, bits & 255, (bits >>> 8) & 255, (bits >>> 16) & 255, (bits >>> 24) & 255, 0, 0, 0, 0, 0]);
+        expect(sizeOf(b64(vp8l))).toEqual({ width: 1920, height: 1080 });
+        const vp8 = riff("VP8 ", [0, 0, 0, 0, 0, 0, 0, 0x9d, 0x01, 0x2a, ...le16(800), ...le16(600), 0, 0]);
+        expect(sizeOf(b64(vp8))).toEqual({ width: 800, height: 600 });
+    });
+
+    it("reads a JPEG's frame header, past its other segments", () => {
+        const app1 = [0xff, 0xe1, 0x00, 0x10, ...new Array(14).fill(0)];
+        const sof0 = [0xff, 0xc0, 0x00, 0x11, 8, ...[0x1f, 0x40], ...[0x23, 0x28], 3, ...new Array(9).fill(0)];
+        // height 8000 (0x1f40), width 9000 (0x2328)
+        expect(sizeOf(b64([0xff, 0xd8, ...app1, ...sof0, 0, 0]))).toEqual({ width: 9000, height: 8000 });
+    });
+
+    it("says nothing for what it can't read", () => {
+        expect(sizeOf(b64(ascii("not an image at all")))).toBeNull();
+        expect(sizeOf("@@@@")).toBeNull();
     });
 });
