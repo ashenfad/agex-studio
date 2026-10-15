@@ -17,18 +17,19 @@ describe('settings', () => {
         const { getSettings, settingsStore, updateSettings, STORAGE_KEY } = await import('./settings.js')
         expect(getSettings().accessMode).toBe('openrouter')
         const seen = []
-        const stop = settingsStore.subscribe((s) => seen.push(s.model))
-        updateSettings({ model: 'meta/muse-spark-1.3-contributor' })
+        const stop = settingsStore.subscribe((s) => seen.push(s.routerModel))
+        updateSettings({ routerModel: 'meta/muse-spark-1.3-contributor' })
         stop()
         expect(seen).toEqual(['google/gemini-3.8-flash', 'meta/muse-spark-1.3-contributor'])
-        expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).model).toBe('meta/muse-spark-1.3-contributor')
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).routerModel).toBe('meta/muse-spark-1.3-contributor')
     })
 
     it('say when a model can be reached', async () => {
         const { DEFAULTS, isConfigured } = await import('./settings.js')
         expect(isConfigured(DEFAULTS)).toBe(false)
         expect(isConfigured({ ...DEFAULTS, routerKey: 'k' })).toBe(true)
-        expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456' })).toBe(true)
+        expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456' })).toBe(false)
+        expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456', endpointModel: 'local' })).toBe(true)
         expect(isConfigured({ ...DEFAULTS, accessMode: 'scripted' })).toBe(true)
     })
 
@@ -48,4 +49,13 @@ describe('settings', () => {
         const { getSettings } = await import('./settings.js')
         expect(getSettings()).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
     })
+
+    it('move a saved model to the model of its service', async () => {
+        const { DEFAULTS, migrate } = await import('./settings.js')
+        const saved = (over) => ({ ...DEFAULTS, ...over })
+        expect(migrate(saved({ accessMode: 'openrouter', model: 'anthropic/claude-sonnet-5' }))).toMatchObject({ routerModel: 'anthropic/claude-sonnet-5', endpointModel: '' })
+        expect(migrate(saved({ accessMode: 'custom', model: 'claude-local' }))).toMatchObject({ routerModel: DEFAULTS.routerModel, endpointModel: 'claude-local' })
+        expect(migrate(saved({ model: 'x' }))).not.toHaveProperty('model')
+    })
 })
+

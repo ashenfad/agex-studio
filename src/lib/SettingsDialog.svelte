@@ -6,6 +6,9 @@
      *  through a GitHub repo of their own, and the token publishing
      *  writes gists with. */
     import { untrack } from 'svelte'
+    import ModelPicker from './ModelPicker.svelte'
+    import { WINDOW_SHARE, foldBudgetOf } from './model.js'
+    import { contextLabel, loadModels, modelInfo, priceLabel } from './openrouter-models.js'
     import { getSettings, updateSettings } from './settings.js'
     import { GIST_TOKEN_URL } from './gist.js'
     import { notificationPermission, requestNotificationPermission } from './notify.js'
@@ -19,6 +22,27 @@
     let permission = $state(notificationPermission())
     // notifications on only while the browser allows them (it may have stopped since)
     let s = $state({ ...getSettings(), ...(notificationPermission() !== 'granted' && { notifyOnFinish: false }) })
+
+    /** Bumped once OpenRouter's catalog is at hand, so what's read off it
+     *  is read again. */
+    let catalogAt = $state(0)
+    loadModels().then(() => (catalogAt += 1), () => {})
+    /** What OpenRouter's catalog says of the model chosen there; null for
+     *  another service, or a model it doesn't list. */
+    const info = $derived((void catalogAt, s.accessMode === 'openrouter' ? modelInfo(s.routerModel) : null))
+    /** The chosen model's facts, in a line. */
+    const facts = $derived(
+        info === null
+            ? ''
+            : [
+                  info.name,
+                  info.context !== null ? `${contextLabel(info.context)} context` : null,
+                  info.input !== null ? `${priceLabel(info.input)} in, ${priceLabel(info.output)} out per million tokens` : null,
+                  info.images ? 'takes images' : 'text only',
+              ]
+                  .filter((part) => part !== null)
+                  .join(' · '),
+    )
 
     function save() {
         updateSettings({ ...s })
@@ -126,27 +150,49 @@
             {:else}
                 <p class="hint">For the agent's web search and its images, speech and music, which run on OpenRouter whatever the model. It goes only to OpenRouter, never to the endpoint above.</p>
             {/if}
-            <label>
-                Model
-                <input bind:value={s.model} placeholder="google/gemini-3.8-flash" />
-            </label>
+            {#if s.accessMode === 'openrouter'}
+                <div class="field">
+                    <span>Model</span>
+                    <ModelPicker bind:value={s.routerModel} />
+                </div>
+                {#if info !== null}
+                    <p class="hint">
+                        {facts}{#if !info.tools}<span class="warn-text">{' · '}can't call tools, so the agent can't work with it</span>{/if}
+                    </p>
+                {:else if s.routerModel.trim() !== ''}
+                    <p class="hint">Not in OpenRouter's list as far as the studio knows: it's used as typed.</p>
+                {/if}
+            {:else}
+                <label>
+                    Model
+                    <input bind:value={s.endpointModel} placeholder="the endpoint's name for it" />
+                </label>
+            {/if}
             <label>
                 Thinking
-                <select bind:value={s.thinking}>
+                <select bind:value={s.thinking} disabled={info !== null && !info.reasoning}>
                     <option value="off">off</option>
                     <option value="low">low</option>
                     <option value="medium">medium</option>
                     <option value="high">high</option>
                 </select>
             </label>
-            <label class="check">
-                <input type="checkbox" bind:checked={s.vision} />
-                The model takes images (screenshots of its apps)
-            </label>
+            {#if info !== null && !info.reasoning}
+                <p class="hint">This model doesn't reason, so thinking doesn't apply.</p>
+            {/if}
+            {#if info === null}
+                <label class="check">
+                    <input type="checkbox" bind:checked={s.vision} />
+                    The model takes images (screenshots of its apps)
+                </label>
+            {/if}
             <label>
                 Fold the conversation past (tokens; 0 never folds)
                 <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
             </label>
+            {#if info !== null && info.context !== null && s.foldBudget > 0 && foldBudgetOf(s) < s.foldBudget}
+                <p class="hint">The model's window holds {contextLabel(info.context)}, so it folds by {contextLabel(foldBudgetOf(s))} ({Math.round(WINDOW_SHARE * 100)}% of it), leaving room to reply.</p>
+            {/if}
         {/if}
         <h3>Notifications</h3>
         <label class="check">
@@ -272,6 +318,16 @@
         gap: 0.25rem;
         font-size: 0.85rem;
         color: var(--text-muted);
+    }
+    .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+    }
+    .warn-text {
+        color: var(--caution, #d9a441);
     }
     .check {
         flex-direction: row;

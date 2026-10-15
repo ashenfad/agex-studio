@@ -21,7 +21,7 @@ import workerUrl from "@agex-ts/world/worker?worker&url";
 import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
-import { buildModel, thinkingOf } from "./model.js";
+import { buildModel, foldBudgetOf, thinkingOf, visionOf } from "./model.js";
 import { SKILLS } from "./skills/index.js";
 import { mediaHost } from "./media.js";
 import { pdfHost } from "./pdf.js";
@@ -93,7 +93,7 @@ const agex = agentTasks(new Agent({ model: currentModel, settings: { maxTokens: 
 /** What a turn's tools are told, beside the world's own: whether the
  *  model takes images, and how to use `agex`. */
 export function toolOptionsNow() {
-    return { vision: getSettings().vision, codePrimer: AGEX_GUIDE };
+    return { vision: visionOf(getSettings()), codePrimer: AGEX_GUIDE };
 }
 
 /**
@@ -609,7 +609,7 @@ export class ChatSession {
             model,
             primer: primer(s),
             settings: { thinking: thinkingOf(s), maxTokens: 16000 },
-            compaction: s.foldBudget > 0 ? new Policy(s.foldBudget) : null,
+            compaction: foldBudgetOf(s) > 0 ? new Policy(foldBudgetOf(s)) : null,
             ...(opts.delegate && { maxToolCalls: DELEGATE_TOOL_CALLS }),
         });
     }

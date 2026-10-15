@@ -5,6 +5,7 @@
  * model that takes no images should do instead.
  */
 
+import { visionOf } from "./model.js";
 import { hasRouterKey } from "./openrouter-api.js";
 
 const STUDIO = `You are the agent in agex studio, a browser app where a person works with you in a workspace of their own: files under /workspace, a shell, and TypeScript you run in a sandboxed worker. Everything you change there is versioned, so the person can rewind it. Files the person adds (uploaded, or from Google Drive) land in /workspace/uploads.
@@ -39,6 +40,6 @@ export function primer(settings) {
     if (hasRouterKey(settings)) parts.push(WEB, MEDIA);
     else parts.push(NO_ROUTER);
     parts.push(PDF, DELEGATION);
-    if (!settings.vision) parts.push(NO_VISION);
+    if (!visionOf(settings)) parts.push(NO_VISION);
     return parts.join("\n\n");
 }

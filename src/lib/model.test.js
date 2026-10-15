@@ -9,7 +9,7 @@ import {
 } from './model.js'
 import { DEFAULTS } from './settings.js'
 
-const custom = (over = {}) => ({ ...DEFAULTS, accessMode: 'custom', wire: 'anthropic', baseUrl: 'http://localhost:3456', model: 'claude-sonnet-5', ...over })
+const custom = (over = {}) => ({ ...DEFAULTS, accessMode: 'custom', wire: 'anthropic', baseUrl: 'http://localhost:3456', endpointModel: 'claude-sonnet-5', ...over })
 
 const body = (messages) => JSON.stringify({ model: 'm', messages })
 
@@ -67,10 +67,10 @@ describe('the model', () => {
     })
 
     it('is built for each service', () => {
-        const or = buildModel({ ...DEFAULTS, routerKey: 'k', model: 'meta/muse-spark-1.3-contributor' }, { session: 's' })
+        const or = buildModel({ ...DEFAULTS, routerKey: 'k', routerModel: 'meta/muse-spark-1.3-contributor' }, { session: 's' })
         expect(or.modelId).toBe('meta/muse-spark-1.3-contributor')
         expect(buildModel(custom(), { session: 's' }).provider).toMatch(/anthropic/)
-        expect(buildModel(custom({ wire: 'openai', model: 'llama' }), { session: 's' }).modelId).toBe('llama')
+        expect(buildModel(custom({ wire: 'openai', endpointModel: 'llama' }), { session: 's' }).modelId).toBe('llama')
         expect(() => buildModel({ ...DEFAULTS, accessMode: 'scripted' }, { session: 's' })).toThrow(/no model/)
     })
 
@@ -85,7 +85,7 @@ describe('the model', () => {
         const both = { routerKey: 'sk-or-ROUTER', endpointKey: 'ENDPOINT' }
         await call(buildModel(custom({ ...both, baseUrl: 'https://api.anthropic.com' }), { session: 's', fetch }))
         await call(buildModel(custom({ ...both, wire: 'openai', baseUrl: 'http://localhost:8080/v1' }), { session: 's', fetch }))
-        await call(buildModel({ ...DEFAULTS, ...both, model: 'x/y' }, { session: 's', fetch }))
+        await call(buildModel({ ...DEFAULTS, ...both, routerModel: 'x/y' }, { session: 's', fetch }))
         expect(sent[0]?.['x-api-key']).toBe('ENDPOINT')
         expect(sent[1]?.authorization).toBe('Bearer ENDPOINT')
         expect(sent[2]?.authorization).toBe('Bearer sk-or-ROUTER')

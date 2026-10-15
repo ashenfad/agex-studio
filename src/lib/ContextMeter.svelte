@@ -4,14 +4,18 @@
      * the size past which earlier turns fold into a summary. A click
      * says what it means and offers to fold now.
      */
-    import { getSettings, settingsStore } from './settings.js'
+    import { foldBudgetOf } from './model.js'
+    import { modelInfo } from './openrouter-models.js'
+    import { settingsStore } from './settings.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
     let { session } = $props()
 
     let open = $state(false)
 
-    const budget = $derived($settingsStore.foldBudget ?? getSettings().foldBudget)
+    const budget = $derived(foldBudgetOf($settingsStore))
+    /** The model's context window, when OpenRouter's catalog says. */
+    const window = $derived($settingsStore.accessMode === 'openrouter' ? (modelInfo($settingsStore.routerModel)?.context ?? null) : null)
     const tokens = $derived(session.context)
     const share = $derived(budget > 0 && tokens !== null ? Math.min(1, tokens / budget) : 0)
     const level = $derived(share >= 0.9 ? 'high' : share >= 0.6 ? 'mid' : 'low')
@@ -61,6 +65,7 @@
                     {:else}
                         Folding is off (Settings): the conversation grows until the model's limit.
                     {/if}
+                    {#if window !== null}The model's window holds {k(window)}.{/if}
                     {#if session.folds.length}Folded {session.folds.length === 1 ? 'once' : `${session.folds.length} times`} so far.{/if}
                 </p>
                 <button class="fold" onclick={foldNow} disabled={session.busy || !session.foldable || session.interrupted}>Fold now</button>
