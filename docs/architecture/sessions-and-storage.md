@@ -2,9 +2,10 @@
 
 Where a session's state lives, how it rewinds and forks, and how it
 leaves the browser: bundles, sync, and gists. The code is
-`studio.svelte.js` (`Studio`, `ChatSession`), `snapshot.js`,
-`bundle.js`, `sync.svelte.js`, `sync-connect.js`, `app-data.js` and
-`gist.js`.
+`store.js`, `studio.svelte.js` (`Studio`), `session.svelte.js`
+(`ChatSession`), `snapshot.js`, `distribution.svelte.js` (bundles and
+gists), `bundle.js`, `sync.svelte.js`, `sync-connect.js`, `app-data.js`
+and `gist.js`.
 
 ## The store
 
@@ -36,8 +37,8 @@ with a checkout, come along on a fork and sync:
 | `published` | the gist it was last published to: `{owner, id, slug, revision, shape, session, at}` |
 | `delegates/<name>` | `{asked, done}`: a delegate it asked, and whether its answer was read |
 
-A fork drops `source` and `published` (a fork is neither the import
-nor what was published).
+A fork drops `source` and `published` (`settleFork` in `store.js`: a
+fork is neither the import nor what was published).
 
 ## Undo and redo
 
@@ -68,7 +69,7 @@ one commit holding what `at` holds, less what only makes sense with the
 history behind it (`kept`): the cache (`__cache__/`), the agent's own
 git (`__ws_git__`), and the undo points (`__plane__/studio/turns/`).
 
-`#adopt(branch, meta)` turns a branch made outside the world (a
+`Studio.adopt(branch, meta)` turns a branch made outside the world (a
 snapshot, a bundle's commits) into a session: a full fork of it, so
 the conversation becomes the new session's own, then the branch is
 deleted.
@@ -138,7 +139,7 @@ and never listed as a session.
 
 ## Gists and links
 
-Publishing (`PublishDialog.svelte`, `Studio.publish`, `gist.js`) puts
+Publishing (`PublishDialog.svelte`, `Distribution.publish`, `gist.js`) puts
 a session's bundle (as it is now, or with its history) in a **secret
 gist** as one file, `<slug>.agex.b64`. Publishing again updates the
 same gist (`PATCH`, keeping the file), so its links stay; a gist gone

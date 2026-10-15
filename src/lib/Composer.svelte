@@ -16,7 +16,7 @@
     import { withAttachments } from './notes.js'
     import { isConfigured, settingsStore } from './settings.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession }} */
     let { session } = $props()
 
     /** @type {HTMLTextAreaElement | undefined} */

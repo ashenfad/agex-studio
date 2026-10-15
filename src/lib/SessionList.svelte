@@ -14,6 +14,7 @@
     import { STATUS_TITLES, statusOf } from './status.js'
     import PublishDialog from './PublishDialog.svelte'
     import SessionDialog from './SessionDialog.svelte'
+    import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
     import { sync } from './sync.svelte.js'
 
@@ -39,7 +40,7 @@
         if (picker) picker.value = ''
         if (file === undefined) return
         await act(async () => {
-            await studio.importBundle(new Uint8Array(await file.arrayBuffer()))
+            await distribution.importBundle(new Uint8Array(await file.arrayBuffer()))
         })
         onPicked()
     }
@@ -120,7 +121,7 @@
                             <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
                         </button>
                         {#if studio.opened(s.name)?.jobs.length}
-                            {@const open = /** @type {import('./studio.svelte.js').ChatSession} */ (studio.opened(s.name))}
+                            {@const open = /** @type {import('./session.svelte.js').ChatSession} */ (studio.opened(s.name))}
                             {@const working = open.jobs.filter((j) => j.status === 'running').length}
                             {@const waiting = open.unread.length - working}
                             {#if working || waiting}
@@ -142,11 +143,11 @@
                         </span>
                     </div>
                 {/if}
-                {#if studio.updates[s.name]}
+                {#if distribution.updates[s.name]}
                     <div class="menu">
                         <span>A newer version was published.</span>
-                        <button onclick={() => act(() => studio.update(s.name)).then(onPicked)}>Open it</button>
-                        <button onclick={() => studio.dismissUpdate(s.name)}>Not now</button>
+                        <button onclick={() => act(() => distribution.update(s.name)).then(onPicked)}>Open it</button>
+                        <button onclick={() => distribution.dismissUpdate(s.name)}>Not now</button>
                     </div>
                 {/if}
                 {#if sync.connected && sync.status[s.name]?.state === 'diverged'}

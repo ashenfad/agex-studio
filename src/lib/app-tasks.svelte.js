@@ -17,9 +17,10 @@
  */
 
 import workerUrl from "@agex-ts/world/worker?worker&url";
-import { Agent, ScriptedProvider, fromJsonSchema } from "agex-ts";
+import { Agent, fromJsonSchema } from "agex-ts";
 import { buildModel, thinkingOf } from "./model.js";
 import { hasRouterKey } from "./openrouter-api.js";
+import { scriptedNow } from "./scripted.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { webHost } from "./web.js";
 
@@ -148,7 +149,7 @@ class AppAgent {
         }
         this.budgets[session] = { ...budget, used: budget.used + 1 };
         const agent = new Agent({
-            model: await modelFor(s, session),
+            model: modelFor(s, session),
             settings: { thinking: thinkingOf(s), maxTokens: 8000 },
             maxSteps: TASK_STEPS,
             profile: { ...TASK_PROFILE, ...(hasRouterKey(s) && { hostObjects: { web: webHost() } }) },
@@ -169,12 +170,8 @@ class AppAgent {
  *
  * @param {import("./settings.js").Settings} s @param {string} session
  */
-async function modelFor(s, session) {
-    if (s.accessMode === "scripted" && import.meta.env.DEV) {
-        const { script } = await import("./studio.svelte.js");
-        return new ScriptedProvider(() => script.shift() ?? { kind: "model", text: "(the script ran out)", thinking: "", tool_calls: [], fail: "", input_tokens: 0 });
-    }
-    return buildModel(s, { session });
+function modelFor(s, session) {
+    return scriptedNow(s) ?? buildModel(s, { session });
 }
 
 /** This page's app agent. */

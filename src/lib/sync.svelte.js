@@ -26,7 +26,8 @@
 import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, PackRemote } from "@agex-ts/kvgit/github";
 import { getSettings, settingsStore } from "./settings.js";
-import { openStore, studio } from "./studio.svelte.js";
+import { openStore } from "./store.js";
+import { studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";

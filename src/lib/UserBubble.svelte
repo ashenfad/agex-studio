@@ -7,7 +7,7 @@
     import FileModal from './FileModal.svelte'
     import { attachmentsOf } from './notes.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, label?: string, faded?: boolean, onWithdraw?: () => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, text: string, label?: string, faded?: boolean, onWithdraw?: () => void }} */
     let { session, text, label = '', faded = false, onWithdraw } = $props()
 
     const parts = $derived(attachmentsOf(text))

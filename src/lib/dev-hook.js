@@ -13,7 +13,8 @@
  */
 
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
-import { script } from "./studio.svelte.js";
+import { distribution } from "./distribution.svelte.js";
+import { script } from "./scripted.js";
 import { getSettings, updateSettings } from "./settings.js";
 
 /** @typedef {import("./studio.svelte.js").Studio} Studio */
@@ -179,24 +180,24 @@ export function installDevHook(studio, sync) {
         /** The current session as a bundle: its file name, size, and
          *  bytes (base64). @param {"everything" | "current"} shape */
         async exportBundle(shape) {
-            const { bytes, fileName } = await studio.exportBundle(session().name, shape);
+            const { bytes, fileName } = await distribution.exportBundle(session().name, shape);
             return { fileName, size: bytes.length, base64: bytesToBase64(bytes) };
         },
         /** Open a bundle (base64), as Import does. @param {string} base64 */
         async importBundle(base64) {
-            return studio.importBundle(base64ToBytes(base64));
+            return distribution.importBundle(base64ToBytes(base64));
         },
         /** Publish the current session as a gist; its links.
          *  @param {"everything" | "current"} [shape] @param {boolean} [fresh] */
         async publish(shape = "current", fresh = false) {
-            const gist = await studio.publish(session().name, { shape, fresh });
+            const gist = await distribution.publish(session().name, { shape, fresh });
             const { runUrl } = await import("./gist.js");
             return { ...gist, play: runUrl(location.origin, gist, { play: true }), run: runUrl(location.origin, gist) };
         },
         /** Look for newer revisions of opened gists now. */
         async checkUpdates() {
-            await studio.checkUpdates({ force: true });
-            return { ...studio.updates };
+            await distribution.checkUpdates({ force: true });
+            return { ...distribution.updates };
         },
         /** The current session's delegates: name, status, unread. */
         jobs() {

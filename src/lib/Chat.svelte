@@ -19,7 +19,7 @@
     import { studio } from './studio.svelte.js'
     import UserBubble from './UserBubble.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, onSettings?: () => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, onSettings?: () => void }} */
     let { session, onSettings = () => {} } = $props()
 
     /** Undo a turn and put what the person wrote back in the message

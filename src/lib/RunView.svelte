@@ -13,7 +13,7 @@
     import { artifactsOf, unembedded } from './artifacts.js'
     import TurnOpening from './TurnOpening.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, onEdit?: () => void, at?: string | null }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, run: import('agex-ts').Run, folds?: import('@agex-ts/world').Fold[], onUndo?: () => void, onEdit?: () => void, at?: string | null }} */
     let { session, run, folds = [], onUndo, onEdit, at = null } = $props()
 
     /** The folds whose last message is this one: the band goes after it. */

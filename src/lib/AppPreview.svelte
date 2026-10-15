@@ -26,7 +26,7 @@
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, loading?: boolean, empty?: boolean }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, loading?: boolean, empty?: boolean }} */
     let { session, loading = $bindable(false), empty = $bindable(false) } = $props()
 
     /** @type {HTMLIFrameElement | null} */

@@ -5,6 +5,7 @@
      * and, once published, the links that open it.
      */
     import { runUrl } from './gist.js'
+    import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
 
     /** @type {{ name: string, onClose: () => void }} */
@@ -24,13 +25,13 @@
     let copied = $state(null)
 
     $effect(() => {
-        void studio.published(name).then((p) => (prior = p))
+        void distribution.published(name).then((p) => (prior = p))
     })
 
     async function publish() {
         step = { stage: 'working' }
         try {
-            step = { stage: 'done', gist: await studio.publish(name, { shape, fresh }) }
+            step = { stage: 'done', gist: await distribution.publish(name, { shape, fresh }) }
         } catch (e) {
             step = { stage: 'failed', message: e instanceof Error ? e.message : String(e) }
         }

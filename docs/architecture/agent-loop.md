@@ -3,7 +3,7 @@
 A turn, from the composer to the stored run. The loop itself is
 agex-ts's (`Agent`, `Session`); this is what the studio gives it and
 how it shows what comes back. The code is `ChatSession` in
-`studio.svelte.js`, `model.js`, `primer.js` and `delegation.svelte.js`.
+`session.svelte.js`, `model.js`, `primer.js` and `delegation.svelte.js`.
 
 ## A turn
 
@@ -99,7 +99,7 @@ agex-ts drives directly:
   until reload (`sessionAffinityFetch`).
 - **A custom endpoint, OpenAI-compatible**: `createOpenAICompatible`.
 - **Scripted** (dev builds only): a `ScriptedProvider` reading
-  `script`, which the driver fills.
+  `script` (`scripted.js`), which the driver fills.
 
 Each is wrapped by `fittingImages` (`image-fit.js`): before a request
 goes out, every image in it (a screenshot, what `view_image` read, an

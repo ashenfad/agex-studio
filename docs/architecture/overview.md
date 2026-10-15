@@ -20,6 +20,7 @@ agex.studio (static SPA)                         apps.agex.studio
 │                                          │    └──────────────────┘
 │ studio.svelte.js                         │
 │  Studio: the sessions, the one shown     │
+│ session.svelte.js                        │
 │  ChatSession: one session's workspace,   │
 │   its turns, its delegates               │
 │        │ agex-ts: Agent, Session         │──► model provider
@@ -54,12 +55,12 @@ change there is a `pnpm -r build` away; releases replace the links.
 
 ## A session and a turn
 
-A session is one branch of the store (`openStore()` in
-`studio.svelte.js`: `Store.open` over `IndexedDB.open({dbName:
-"agex-studio"})`). `ChatSession` holds one open `Workspace` for it,
-opened with `PROFILE` (the kernel's worker, esm.sh for bare imports,
-`ui` artifacts, the host objects, the `esbuild` and `ws-git` commands,
-the skills).
+A session is one branch of the store (`openStore()` in `store.js`:
+`Store.open` over `IndexedDB.open({dbName: "agex-studio"})`).
+`ChatSession` (`session.svelte.js`) holds one open `Workspace` for it,
+opened with `PROFILE` (`profile.js`: the kernel's worker, esm.sh for
+bare imports, `ui` artifacts, the host objects, the `esbuild` and
+`ws-git` commands, the skills).
 
 Each turn builds a new agex-ts `Agent` from the settings (an `Agent`
 holds nothing, so the settings can change between turns) and runs an
