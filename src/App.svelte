@@ -12,7 +12,9 @@
     import SessionList from './lib/SessionList.svelte'
     import SettingsDialog from './lib/SettingsDialog.svelte'
     import { appAgent } from './lib/app-tasks.svelte.js'
+    import { setFaviconStatus } from './lib/favicon.js'
     import SplitPane from './lib/SplitPane.svelte'
+    import { overall } from './lib/status.js'
     import { studio } from './lib/studio.svelte.js'
     import { sync } from './lib/sync.svelte.js'
     import Workbench from './lib/Workbench.svelte'
@@ -76,6 +78,11 @@
         if (name !== undefined && appAgent.asking[name] !== undefined) mobileView = 'app'
     })
 
+    // the tab's icon carries the sessions' status, for a person in another tab
+    $effect(() => {
+        void setFaviconStatus(overall(studio.openSessions()))
+    })
+
     /** @param {KeyboardEvent} e */
     function onKey(e) {
         if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
@@ -130,6 +137,10 @@
         }
         window.addEventListener('focus', back)
         document.addEventListener('visibilitychange', back)
+        // what ended in the session shown while the page was away is seen now
+        const looking = () => studio.backOnScreen()
+        window.addEventListener('focus', looking)
+        document.addEventListener('visibilitychange', looking)
         // a turn or a delegate runs in this page: leaving stops it
         /** @param {BeforeUnloadEvent} e */
         const leaving = (e) => {
@@ -148,6 +159,8 @@
             narrowQuery.removeEventListener('change', resized)
             window.removeEventListener('focus', back)
             document.removeEventListener('visibilitychange', back)
+            window.removeEventListener('focus', looking)
+            document.removeEventListener('visibilitychange', looking)
             window.removeEventListener('beforeunload', leaving)
         }
     })

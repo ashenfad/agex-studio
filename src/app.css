@@ -37,6 +37,9 @@
     --agent-bubble: #1e2a45;
     --success: #4caf50;
     --warning: #ff9800;
+    /* softer than --warning: a meter filling up, a turn that went wrong
+       while the person was away */
+    --caution: #d9a441;
     --error: #e94560;
     --purple: #a371f7;
 

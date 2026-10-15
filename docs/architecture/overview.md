@@ -90,7 +90,14 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   one, and its hover tray forks it (⑂) or opens its **SessionDialog**
   (⋯: name, fork full / files only / as it is now, export, publish,
   delete); import a bundle; with sync on, each session's sync state, the
-  repo's other sessions, and its trash.
+  repo's other sessions, and its trash. A dot before a title is the
+  session's status (`status.js`): the accent, pulsing, while a turn or
+  a fold runs; amber when a turn ended failed or interrupted while the
+  person wasn't looking; green when one finished then. The tab's icon
+  carries the most pressing of them (working, then amber, then green)
+  as a dot of the same color (`favicon.js`: the shipped `/favicon.svg`
+  with a circle spliced in, its href put back when there's nothing to
+  say).
 - **Composer**: the message box: files attached as chips (+, a drop on
   the chat, a pasted image), and Send, which is Stop while a turn runs
   with nothing written.

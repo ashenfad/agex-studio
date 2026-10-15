@@ -28,8 +28,18 @@ how it shows what comes back. The code is `ChatSession` in
    session's title and times (`meta`), at once, so the turn's own
    commits carry them.
 6. When it ends: reads the record again (`reload`), drops the live
-   view, and tells the studio the session changed (`onMeta`, which
-   refreshes the list and schedules a sync).
+   view, notes whether the person saw it end (below), and tells the
+   studio the session changed (`onMeta`, which refreshes the list and
+   schedules a sync).
+
+A turn that ends while the person isn't looking at its session (it
+isn't the one shown, or the page's tab is hidden or its window
+unfocused: `looking` in `status.js`) leaves the session `unseen`, and
+`attention` too when the turn failed or was interrupted. Every turn
+counts: the person's, a woken one, a resumed one. Both clear when the
+person looks (`seen()`): on switching to the session with the page on
+screen, or on the page coming back (`focus`, `visibilitychange`) with
+it shown. They live in the page only, never stored.
 
 A new `Agent` each turn costs nothing (an agent holds no state), and
 means a change to the settings applies to the next turn.
