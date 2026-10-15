@@ -3,7 +3,7 @@
 An app is files under `/workspace/app`. The preview pane renders it in
 an iframe beside the chat, `test_app` builds the same page in hidden
 iframes for the agent to check, and play mode shows a published app
-alone. All three assemble the page with `buildAppHtml`
+alone. All three assemble the page with `buildAppPage`
 (`app-html.js`) and load it on a separate origin.
 
 ## A separate origin
@@ -14,8 +14,8 @@ production, `VITE_APPS_ORIGIN` to point at a local copy of the
 agex-studio-apps repo), at `{APPS_ORIGIN}/?t={timestamp}` so each load
 reloads it. The handshake is two messages: the bootloader posts
 `agex-host-ready` once it listens, and the studio answers with
-`agex-host-init` carrying the built HTML, which the bootloader writes
-in as its document.
+`agex-host-init` carrying the built page (`hostInit`), which the
+bootloader writes in as its document.
 
 So an app's code runs on another origin: it can't reach the studio's
 `localStorage`, IndexedDB, settings, keys or DOM, and the studio can't
@@ -41,14 +41,18 @@ lists in `AppPreview.svelte` and `app-control.js` in step.
 session's `appStamp` moves (a tool call that wrote, an undo, a
 reload), and only when the files' fingerprint changed (`appDigest`).
 
-`buildAppHtml(appFiles, { appBinaries, appStorage })`:
+`buildAppPage(appFiles, { appBinaries, appStorage })` returns the
+page's HTML and its assets:
 
 1. Takes `app/index.html`, or for an app with only a main script, a
    page that loads it.
-2. Encodes binary assets as data URLs (`app-assets.js`) and rewrites
-   the references the HTML and CSS make to them; `window.appAssets`
-   maps each path to its data URL, and `fetch('logo.png')` is patched
-   to resolve. A path a script sets at run time uses `appAssets`.
+2. Collects the assets (`app-assets.js`): binaries, and data files
+   (`.json`, `.csv`, …: text files other than the page, scripts and
+   styles), each once, as bytes with a type. The HTML names each by a
+   token (`agex-asset:<n>:`) in the references the HTML and CSS make
+   to it and in `window.appAssets`, which maps each path to its URL;
+   `fetch('logo.png')` is patched to resolve through it. A path a
+   script sets at run time uses `appAssets`.
 3. Inlines CSS files, and gives each JS file a data URL in an import
    map, rewriting the app's own imports to it (`__app/…`). Bare
    imports go to esm.sh, with pinned entries for preact (and `react`
@@ -59,6 +63,16 @@ reload), and only when the files' fingerprint changed (`appDigest`).
 5. Injects, ahead of the app's own code: the console interceptor,
    the storage shim, the assets script, the worker registry, the host
    bridge, the control bridge, and the import map.
+
+The assets go to the frame when the page does (`hostInit`). A
+bootloader that says it takes them (`agex-host-ready` with
+`assets: 1`) gets them as Blobs beside the HTML: it mints a `blob:`
+URL for each in its own window, which `document.open()` keeps, and
+puts it in place of the token, so each asset crosses once, as bytes,
+however often the page refers to it. (The studio's own blob URLs
+wouldn't serve: they belong to another origin.) An older bootloader
+gets the HTML with `data:` URLs written in (`inlineAssets`, as
+`buildAppHtml` builds a page that stands alone).
 
 ## What the app can ask of the studio
 

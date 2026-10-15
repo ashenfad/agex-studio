@@ -21,8 +21,7 @@ import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTas
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, thinkingOf } from "./model.js";
-import interactiveApp from "./skills/interactive-app.md?raw";
-import media from "./skills/media.md?raw";
+import { SKILLS } from "./skills/index.js";
 import { mediaHost } from "./media.js";
 import { pdfHost } from "./pdf.js";
 import { webHost } from "./web.js";
@@ -100,8 +99,8 @@ export function toolOptionsNow() {
  * puts in `ui` is written under /workspace/ui to show in the reply; the
  * studio's host objects (`web`, `media`, `pdf`, and `agex` for tasks the
  * agent's code defines); `esbuild` in the
- * terminal; and the studio's skills, mounted read-only under
- * /workspace/skills.
+ * terminal; and the studio's skills (`skills/`: a directory each),
+ * mounted read-only under /workspace/skills.
  */
 export const PROFILE = {
     code: {
@@ -114,7 +113,7 @@ export const PROFILE = {
     hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), agex },
     // ws-git: the agent's own git, which brings a delegate's work back
     commands: { esbuild, "ws-git": wsGit },
-    skills: [interactiveApp, media],
+    skills: SKILLS,
 };
 
 /** The IndexedDB database every session lives in. */

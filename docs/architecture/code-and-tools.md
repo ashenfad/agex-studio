@@ -71,8 +71,11 @@ schemas before the method runs) that code calls with `await`:
   path, … }`), writing the file into the workspace (in the code's own
   commit), and returning facts read from it (size, length, lyrics,
   cost). Images on OpenRouter's images endpoint (transparency, aspect,
-  quality, references), speech on Gemini TTS as WAV (a `style` for
-  delivery), music on Lyria as MP3.
+  quality, references), speech on Gemini TTS (a `style` for
+  delivery), which arrives as PCM and is written as Opus in Ogg
+  (`ogg-opus.js`: the browser's WebCodecs encoder and a small Ogg
+  muxer; WAV for a `*.wav` name, or where Opus can't be encoded),
+  music on Lyria as MP3.
 - **`pdf`** (`pdf.js`): `pdf.pages(path)`, `pdf.text(path, { pages
   })` (text with the spacing its layout implies), and
   `pdf.render(path, { pages, scale, dir })`, which writes pages as
@@ -97,7 +100,10 @@ them. Delegates inherit the profile, so they have them too.
 ## Skills
 
 `PROFILE.skills` mounts the studio's skills read-only under
-`/workspace/skills/<name>/SKILL.md`, in every session and its forks:
+`/workspace/skills/<name>/`, in every session and its forks. Each is a
+directory under `src/lib/skills/` (`skills/index.js` gathers them):
+its `SKILL.md`, and any files beside it (references, examples) the
+agent reads when the skill points to them.
 
 - **interactive-app**: building an app under `/workspace/app`, the
   JSX path with `esbuild`, data from the agent to the app, checking it
