@@ -56,6 +56,8 @@ describe('settings', () => {
         expect(migrate(saved({ accessMode: 'openrouter', model: 'anthropic/claude-sonnet-5' }))).toMatchObject({ routerModel: 'anthropic/claude-sonnet-5', endpointModel: '' })
         expect(migrate(saved({ accessMode: 'custom', model: 'claude-local' }))).toMatchObject({ routerModel: DEFAULTS.routerModel, endpointModel: 'claude-local' })
         expect(migrate(saved({ model: 'x' }))).not.toHaveProperty('model')
+        // cleared on purpose: still cleared, not the default, so nothing runs on a model never chosen
+        expect(migrate(saved({ accessMode: 'openrouter', model: '' })).routerModel).toBe('')
     })
 })
 
