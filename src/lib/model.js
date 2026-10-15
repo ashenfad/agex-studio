@@ -17,6 +17,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fittingImages } from "./image-fit.js";
+import { modelInfo } from "./openrouter-models.js";
 
 /** @typedef {import("./settings.js").Settings} Settings */
 
@@ -131,7 +132,7 @@ function baseModel(s, opts) {
             apiKey: s.routerKey,
             headers: { "X-Title": "agex studio" },
             ...(opts.fetch && { fetch: opts.fetch }),
-        })(s.model);
+        })(modelOf(s));
     }
     if (s.accessMode !== "custom") {
         throw new Error(`no model for access mode ${JSON.stringify(s.accessMode)}`);
@@ -144,14 +145,14 @@ function baseModel(s, opts) {
             fetch: usesSessionAffinity(s)
                 ? sessionAffinityFetch(opts.session, opts.fetch)
                 : opts.fetch,
-        })(s.model);
+        })(modelOf(s));
     }
     return createOpenAICompatible({
         name: "custom",
         baseURL: s.baseUrl.trim().replace(/\/+$/, ""),
         ...(s.endpointKey && { apiKey: s.endpointKey }),
         ...(opts.fetch && { fetch: opts.fetch }),
-    })(s.model);
+    })(modelOf(s));
 }
 
 /** The settings' thinking as agex-ts takes it.
@@ -159,3 +160,34 @@ function baseModel(s, opts) {
 export function thinkingOf(s) {
     return s.thinking === "off" ? false : s.thinking;
 }
+
+/** The model the settings' service is asked for.
+ *  @param {Settings} s */
+export function modelOf(s) {
+    return (s.accessMode === "custom" ? s.endpointModel : s.routerModel).trim();
+}
+
+/** Whether the model in use takes images: on OpenRouter as its catalog
+ *  says, else (a custom endpoint, a model it doesn't list) as the
+ *  settings say. @param {Settings} s */
+export function visionOf(s) {
+    if (s.accessMode === "openrouter") {
+        const info = modelInfo(s.routerModel);
+        if (info !== null) return info.images;
+    }
+    return s.vision;
+}
+
+/** How much of a model's context window a conversation may fill before
+ *  it's folded, past the setting: room for the reply and the next steps. */
+export const WINDOW_SHARE = 0.75;
+
+/** The size past which a conversation folds: the setting, kept within
+ *  the model's window when OpenRouter's catalog says how large that is;
+ *  0, folding off, stays 0. @param {Settings} s */
+export function foldBudgetOf(s) {
+    if (s.foldBudget <= 0) return 0;
+    const window = s.accessMode === "openrouter" ? (modelInfo(s.routerModel)?.context ?? null) : null;
+    return window === null ? s.foldBudget : Math.min(s.foldBudget, Math.floor(window * WINDOW_SHARE));
+}
+

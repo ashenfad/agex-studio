@@ -111,8 +111,9 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   back). Files: the session's files as a tree, each opening in a modal
   to read, download or delete; upload from the device or Google Drive
   into `uploads/`.
-- **SettingsDialog**: the model (OpenRouter or an endpoint of the
-  person's own), thinking, vision, the fold budget; sync (a repo and a
+- **SettingsDialog**: the model (OpenRouter, picked from its catalog
+  with `ModelPicker`, or an endpoint of the person's own, each keeping
+  its own), thinking, vision, the fold budget; sync (a repo and a
   token); a token for publishing. Settings live in `localStorage`
   (`settings.js`), never in a session.
 - **A delegate's view**: a delegate's session (a dotted name) opens

@@ -13,8 +13,8 @@ how it shows what comes back. The code is `ChatSession` in
    the session's wakes (see Delegation).
 2. Builds an `Agent` for this turn (`#agent`): the model from the
    settings, the primer, `settings: { thinking, maxTokens: 16000 }`,
-   and `compaction: new Policy(foldBudget)` when the fold budget isn't
-   0.
+   and `compaction: new Policy(foldBudgetOf(settings))` when the fold
+   budget isn't 0.
 3. Opens an agex-ts `Session` over the workspace (`#session`): the
    session's inbox, its delegation helper, and the studio's tools
    beside the world's (`test_app`, and the `sessions` tool wrapped
@@ -53,6 +53,19 @@ closes it as it stands ("set aside by the person"). See
 [errors-and-recovery.md](errors-and-recovery.md).
 
 ## Models
+
+Each service keeps its own model in the settings: `routerModel` on
+OpenRouter, `endpointModel` for a custom endpoint (`modelOf` reads the
+one in use; a `model` saved by an earlier studio moves to its
+service's on load). OpenRouter's catalog (`openrouter-models.js`:
+`GET /api/v1/models`, public, fetched at most daily and kept in
+`localStorage`) backs the settings' `ModelPicker` (searching ids and
+names, those that call tools unless asked for all) and what the studio
+reads off the model chosen there: whether it takes images
+(`visionOf`, else the `vision` setting, for a custom endpoint or an
+unlisted model), whether it reasons (thinking is greyed out if not),
+and its context window, which caps the fold budget at 75% of it
+(`foldBudgetOf`) and shows in the context meter.
 
 `buildModel(settings, { session })` returns an AI SDK model, which
 agex-ts drives directly:

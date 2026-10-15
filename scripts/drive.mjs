@@ -91,12 +91,12 @@ const settings =
                 endpointKey: env.DRIVE_API_KEY ?? "",
                 // web and media, beside the endpoint's model
                 routerKey: env.OPENROUTER_API_KEY ?? "",
-                model: env.DRIVE_MODEL ?? "",
+                endpointModel: env.DRIVE_MODEL ?? "",
             }
           : {
                 accessMode: "openrouter",
                 routerKey: env.OPENROUTER_API_KEY ?? "",
-                model: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
+                routerModel: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
             };
 if (env.DRIVE_PUBLISH_TOKEN) settings.publishToken = env.DRIVE_PUBLISH_TOKEN;
 if (env.DRIVE_SYNC_REPO && env.DRIVE_SYNC_TOKEN) {
@@ -213,7 +213,8 @@ let failed = false;
 try {
     await ready();
     const shown = await page.evaluate((s) => /** @type {any} */ (window).__studio.configure(s), settings);
-    console.log(`studio at ${url} — ${shown.accessMode}${shown.model ? ` ${shown.model}` : ""}`);
+    const model = shown.accessMode === "custom" ? shown.endpointModel : shown.routerModel;
+    console.log(`studio at ${url} — ${shown.accessMode}${model ? ` ${model}` : ""}`);
     if (opts.scripted) {
         const steps = JSON.parse(readFileSync(opts.scripted, "utf-8"));
         await page.evaluate((s) => /** @type {any} */ (window).__studio.script(s), steps);

@@ -17,16 +17,20 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     service: OpenRouter, an endpoint of the user's own (`baseUrl`, in
  *     the `wire` shape: a direct provider, a local Meridian, a
  *     self-hosted proxy), or, in dev builds only, a scripted model.
- * @property {string} model
+ * @property {string} routerModel — the model on OpenRouter
+ *     (`google/gemini-3.8-flash`), picked from its catalog or typed.
+ * @property {string} endpointModel — the model a custom endpoint is
+ *     asked for, by its own name.
  * @property {"anthropic" | "openai"} wire — a custom endpoint's shape.
  * @property {string} baseUrl — a custom endpoint's URL.
  * @property {"off" | "low" | "medium" | "high"} thinking — how hard the
  *     model thinks per turn, which each provider maps for its model.
  * @property {number} foldBudget — the request size, in tokens, past
  *     which earlier turns are folded into a summary; 0 never folds.
- * @property {boolean} vision — whether the model takes images: a
- *     screenshot `test_app` takes, or an image `view_image` reads, is
- *     sent to it only then.
+ * @property {boolean} vision — whether a custom endpoint's model takes
+ *     images: a screenshot `test_app` takes, or an image `view_image`
+ *     reads, is sent to it only then. On OpenRouter its catalog says,
+ *     and this stands only for a model it doesn't list.
  * @property {string} syncRepo — the GitHub repo sessions sync through
  *     (`owner/name`); empty when sync is off.
  * @property {string} syncToken — a token for that repo (fine-grained,
@@ -42,7 +46,8 @@ export const DEFAULTS = {
     routerKey: "",
     endpointKey: "",
     accessMode: "openrouter",
-    model: "google/gemini-3.8-flash",
+    routerModel: "google/gemini-3.8-flash",
+    endpointModel: "",
     wire: "anthropic",
     baseUrl: "",
     thinking: "medium",
@@ -72,21 +77,30 @@ function load() {
 }
 
 /**
- * Settings saved with one `apiKey` for every service, as two keys: an
- * OpenRouter key goes to `routerKey` (on OpenRouter, or one that looks
- * like OpenRouter's left behind on a custom endpoint, which is never
- * sent to that endpoint again); a custom endpoint's own, to
- * `endpointKey`.
+ * Settings saved with one key and one model for every service, as each
+ * service's own.
  *
- * @param {Settings & { apiKey?: unknown }} s
+ * - `apiKey`: an OpenRouter key goes to `routerKey` (on OpenRouter, or
+ *   one that looks like OpenRouter's left behind on a custom endpoint,
+ *   which is never sent to that endpoint again); a custom endpoint's
+ *   own, to `endpointKey`.
+ * - `model`: to the model of the service it was saved with.
+ *
+ * @param {Settings & { apiKey?: unknown, model?: unknown }} s
  * @returns {Settings}
  */
 export function migrate(s) {
-    const { apiKey, ...rest } = s;
-    if (typeof apiKey !== "string" || apiKey.trim() === "") return rest;
+    const { apiKey, model, ...rest } = s;
+    /** @type {Settings} */
+    let out = rest;
+    if (typeof model === "string" && model.trim() !== "") {
+        if (rest.accessMode === "custom") out = { ...out, endpointModel: rest.endpointModel || model };
+        else out = { ...out, routerModel: model };
+    }
+    if (typeof apiKey !== "string" || apiKey.trim() === "") return out;
     const forRouter = rest.accessMode === "openrouter" || apiKey.trim().startsWith("sk-or-");
-    if (forRouter) return { ...rest, routerKey: rest.routerKey || apiKey };
-    return { ...rest, endpointKey: rest.endpointKey || apiKey };
+    if (forRouter) return { ...out, routerKey: out.routerKey || apiKey };
+    return { ...out, endpointKey: out.endpointKey || apiKey };
 }
 
 /** Settings as a Svelte store. */
@@ -122,7 +136,6 @@ export function getSettings() {
  *  @param {Settings} s */
 export function isConfigured(s) {
     if (s.accessMode === "scripted") return true;
-    if (s.model.trim() === "") return false;
-    if (s.accessMode === "custom") return s.baseUrl.trim() !== "";
-    return s.routerKey.trim() !== "";
+    if (s.accessMode === "custom") return s.endpointModel.trim() !== "" && s.baseUrl.trim() !== "";
+    return s.routerModel.trim() !== "" && s.routerKey.trim() !== "";
 }

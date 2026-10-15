@@ -45,17 +45,26 @@ Click the **⚙** at the top right.
   agent's web search and its images, speech and music, which run on
   OpenRouter whatever the model. It goes only to OpenRouter, never to
   your endpoint.
-- **Model**: the model's name, e.g. `google/gemini-3.8-flash` (the
-  default) on OpenRouter.
+- **Model**: on OpenRouter, pick from its list as you type (each with
+  its context size, its price per million tokens and whether it takes
+  images; models that can't call tools are hidden, since the agent
+  needs them), or type any model's id; `google/gemini-3.8-flash` is
+  the default. With an endpoint of your own, the endpoint's name for
+  its model. Each service keeps its own, so switching back and forth
+  doesn't lose either.
 - **Thinking**: how hard the model thinks each turn: off, low,
-  medium or high.
-- **The model takes images**: tick it for a model that reads images,
-  so it can look at screenshots of the apps it builds and at images
-  you give it. Untick it for one that doesn't; the agent then checks
-  its work by text.
+  medium or high. Greyed out for an OpenRouter model that doesn't
+  reason.
+- **The model takes images**, with an endpoint of your own (or a
+  model OpenRouter doesn't list): tick it for a model that reads
+  images, so it can look at screenshots of the apps it builds and at
+  images you give it. Untick it for one that doesn't; the agent then
+  checks its work by text. On OpenRouter, its list says.
 - **Fold the conversation past**: once a conversation is longer than
   this many tokens, its earlier part is folded into a summary for the
-  model (the chat still shows all of it). 0 never folds.
+  model (the chat still shows all of it). 0 never folds. On
+  OpenRouter, it folds by three quarters of the model's context window
+  at the latest, whatever this says.
 - **Notify me when a turn ends while I'm away**: a desktop notification
   when the agent finishes (or fails) while you're in another session,
   tab or app. Turning it on asks your browser's permission. See
