@@ -92,6 +92,21 @@ describe('the model', () => {
         expect(JSON.stringify(sent.slice(0, 2))).not.toContain('sk-or-ROUTER')
     })
 
+    it("carries the model's provider routing to OpenRouter, and none when it's left to OpenRouter", async () => {
+        /** @type {any[]} */
+        const bodies = []
+        const fetch = vi.fn(async (_url, init) => {
+            bodies.push(JSON.parse(String(init?.body)))
+            return new Response('{}', { status: 500 })
+        })
+        const call = (model) => model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] }).catch(() => {})
+        const s = { ...DEFAULTS, routerKey: 'k', routerModel: 'x/y' }
+        await call(buildModel(s, { session: 's', fetch }))
+        await call(buildModel({ ...s, routerZdr: true, routerRouting: { 'x/y': { provider: 'p/fast', only: true, sort: null } } }, { session: 's', fetch }))
+        expect(bodies[0].provider).toBeUndefined()
+        expect(bodies[1].provider).toEqual({ order: ['p/fast'], allow_fallbacks: false, zdr: true })
+    })
+
     it('maps thinking off to false', () => {
         expect(thinkingOf({ ...DEFAULTS, thinking: 'off' })).toBe(false)
         expect(thinkingOf({ ...DEFAULTS, thinking: 'high' })).toBe('high')

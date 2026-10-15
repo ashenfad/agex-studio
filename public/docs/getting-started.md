@@ -52,6 +52,17 @@ Click the **⚙** at the top right.
   the default. With an endpoint of your own, the endpoint's name for
   its model. Each service keeps its own, so switching back and forth
   doesn't lose either.
+- **Provider for this model**, on OpenRouter: which of the providers
+  serving the model takes its requests, each with its price and recent
+  uptime. Auto lets OpenRouter pick, optionally preferring the lowest
+  price, highest throughput or lowest latency. A chosen provider is
+  tried first, falling back to others if it's down unless you tick
+  **Only this provider**. Each model keeps its own choice.
+- **Skip providers that may train on my prompts** and **Zero data
+  retention only**, on OpenRouter, for every model: keep to providers
+  whose stated policy is not to store or train on prompts, or to
+  endpoints that keep nothing of a request once it's answered. Fewer
+  providers qualify; when none does, requests fail.
 - **Thinking**: how hard the model thinks each turn: off, low,
   medium or high. Greyed out for an OpenRouter model that doesn't
   reason.

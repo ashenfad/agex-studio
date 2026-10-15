@@ -9,6 +9,7 @@
     import ModelPicker from './ModelPicker.svelte'
     import { WINDOW_SHARE, foldBudgetOf } from './model.js'
     import { catalogStore, contextLabel, modelInfo, priceLabel } from './openrouter-models.js'
+    import { endpointLabel, loadEndpoints, routeOf, withRoute } from './openrouter-routing.js'
     import { getSettings, updateSettings } from './settings.js'
     import { GIST_TOKEN_URL } from './gist.js'
     import { notificationPermission, requestNotificationPermission } from './notify.js'
@@ -41,8 +42,36 @@
                   .join(' · '),
     )
 
+    /** The providers serving the OpenRouter model, once loaded (`list`
+     *  null: OpenRouter doesn't list them); null while loading, or for a
+     *  model the catalog doesn't list.
+     *  @type {{ id: string, list: import('./openrouter-routing.js').RouterEndpoint[] | null } | null} */
+    let endpoints = $state(null)
+    let endpointsFailed = $state('')
+    const routedId = $derived(info?.id ?? null)
+    $effect(() => {
+        const id = routedId
+        endpoints = null
+        endpointsFailed = ''
+        if (id === null) return
+        let live = true
+        loadEndpoints(id).then(
+            (list) => live && (endpoints = { id, list }),
+            (e) => live && (endpointsFailed = e instanceof Error ? e.message : String(e)),
+        )
+        return () => {
+            live = false
+        }
+    })
+    /** The route set for the OpenRouter model, else Auto. */
+    const route = $derived(routeOf(s, s.routerModel))
+    /** @param {Partial<import('./settings.js').RouterRoute>} patch */
+    function setRoute(patch) {
+        s.routerRouting = withRoute(s.routerRouting, s.routerModel, { ...route, ...patch })
+    }
+
     function save() {
-        updateSettings({ ...s })
+        updateSettings($state.snapshot(s))
         onClose()
     }
 
@@ -159,6 +188,54 @@
                 {:else if s.routerModel.trim() !== ''}
                     <p class="hint">Not in OpenRouter's list as far as the studio knows: it's used as typed.</p>
                 {/if}
+                {#if info !== null && endpoints?.list !== null}
+                    {#if endpoints === null && endpointsFailed === ''}
+                        <label>
+                            Provider for this model
+                            <select disabled><option>Loading its providers…</option></select>
+                        </label>
+                    {:else if endpoints !== null && endpoints.list !== null}
+                        {@const list = endpoints.list}
+                        <label>
+                            Provider for this model
+                            <select value={route.provider ?? ''} onchange={(e) => setRoute({ provider: e.currentTarget.value || null })}>
+                                <option value="">Auto (OpenRouter picks)</option>
+                                {#each list as ep (ep.tag)}<option value={ep.tag}>{endpointLabel(ep, list)}</option>{/each}
+                                {#if route.provider !== null && !list.some((ep) => ep.tag === route.provider)}
+                                    <option value={route.provider}>{route.provider} (no longer listed)</option>
+                                {/if}
+                            </select>
+                        </label>
+                    {:else}
+                        <p class="hint warn">Couldn't load this model's providers ({endpointsFailed}).{route.provider !== null ? ` Its requests still go to ${route.provider} first.` : ''}</p>
+                    {/if}
+                    {#if route.provider !== null}
+                        <label class="check">
+                            <input type="checkbox" checked={route.only} onchange={(e) => setRoute({ only: e.currentTarget.checked })} />
+                            Only this provider (no fallback to others if it's down)
+                        </label>
+                    {:else}
+                        <label>
+                            Prefer
+                            <select value={route.sort ?? ''} onchange={(e) => setRoute({ sort: /** @type {'price' | 'throughput' | 'latency' | ''} */ (e.currentTarget.value) || null })}>
+                                <option value="">No preference</option>
+                                <option value="price">Lowest price</option>
+                                <option value="throughput">Highest throughput</option>
+                                <option value="latency">Lowest latency</option>
+                            </select>
+                        </label>
+                    {/if}
+                {/if}
+                <label class="check">
+                    <input type="checkbox" bind:checked={s.routerDenyTraining} />
+                    Skip providers that may train on my prompts
+                </label>
+                <p class="hint">Only providers whose stated policy is not to store prompts or train on them. For every model.</p>
+                <label class="check">
+                    <input type="checkbox" bind:checked={s.routerZdr} />
+                    Zero data retention only
+                </label>
+                <p class="hint">Only endpoints that keep nothing of a request once it's answered. Fewer qualify; when none does, requests fail.</p>
             {:else}
                 <label>
                     Model

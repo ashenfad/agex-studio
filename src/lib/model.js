@@ -2,7 +2,8 @@
  * The model a turn runs on, from the settings: an AI SDK model, which
  * agex-ts drives directly.
  *
- * - **OpenRouter:** the OpenRouter provider, with the key.
+ * - **OpenRouter:** the OpenRouter provider, with the key, and the
+ *   provider routing set for the model (`openrouter-routing.js`).
  * - **A custom endpoint:** Anthropic-shaped (a direct key, a local
  *   Meridian, a proxy) or OpenAI-compatible (vLLM, Ollama, LiteLLM).
  * - **A scripted model,** in dev builds only, for the driver's checks.
@@ -18,6 +19,7 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fittingImages } from "./image-fit.js";
 import { modelInfo } from "./openrouter-models.js";
+import { routingOf } from "./openrouter-routing.js";
 
 /** @typedef {import("./settings.js").Settings} Settings */
 
@@ -128,11 +130,12 @@ export function buildModel(s, opts) {
  *  @param {Settings} s @param {{ session: string, fetch?: typeof fetch }} opts */
 function baseModel(s, opts) {
     if (s.accessMode === "openrouter") {
+        const provider = routingOf(s);
         return createOpenRouter({
             apiKey: s.routerKey,
             headers: { "X-Title": "agex studio" },
             ...(opts.fetch && { fetch: opts.fetch }),
-        })(modelOf(s));
+        })(modelOf(s), provider && { provider });
     }
     if (s.accessMode !== "custom") {
         throw new Error(`no model for access mode ${JSON.stringify(s.accessMode)}`);

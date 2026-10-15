@@ -7,6 +7,20 @@
 export const STORAGE_KEY = "agex-studio-settings";
 
 /**
+ * How OpenRouter picks among the providers serving one model.
+ *
+ * @typedef {Object} RouterRoute
+ * @property {string | null} provider — the endpoint asked first, by its
+ *     routing tag (`google-vertex/global`, `deepinfra/turbo`); null
+ *     leaves the choice to OpenRouter.
+ * @property {boolean} only — with a provider: that one or none, the
+ *     request failing rather than falling back to another.
+ * @property {"price" | "throughput" | "latency" | null} sort — with no
+ *     provider: the endpoints tried cheapest, fastest or quickest to
+ *     answer first; null keeps OpenRouter's own balance.
+ */
+
+/**
  * @typedef {Object} Settings
  * @property {string} routerKey — an OpenRouter key: the model's, on
  *     OpenRouter; and `web` and `media`'s whatever the model, which run
@@ -21,6 +35,14 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     (`google/gemini-3.8-flash`), picked from its catalog or typed.
  * @property {string} endpointModel — the model a custom endpoint is
  *     asked for, by its own name.
+ * @property {Record<string, RouterRoute>} routerRouting — the route on
+ *     OpenRouter for each model it's set for, by model id (each model
+ *     has its own providers); a model without one is left to OpenRouter.
+ * @property {boolean} routerDenyTraining — on OpenRouter, only providers
+ *     that don't store prompts or train on them (`data_collection:
+ *     "deny"`), whatever the model.
+ * @property {boolean} routerZdr — on OpenRouter, only endpoints with a
+ *     zero data retention policy (`zdr`), whatever the model.
  * @property {"anthropic" | "openai"} wire — a custom endpoint's shape.
  * @property {string} baseUrl — a custom endpoint's URL.
  * @property {"off" | "low" | "medium" | "high"} thinking — how hard the
@@ -48,6 +70,9 @@ export const DEFAULTS = {
     accessMode: "openrouter",
     routerModel: "google/gemini-3.8-flash",
     endpointModel: "",
+    routerRouting: {},
+    routerDenyTraining: false,
+    routerZdr: false,
     wire: "anthropic",
     baseUrl: "",
     thinking: "medium",

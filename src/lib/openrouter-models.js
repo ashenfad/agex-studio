@@ -53,7 +53,7 @@ export const catalogStore = {
 
 /** Per token, as OpenRouter prices, to per million; null when unpriced.
  *  @param {unknown} price */
-function perMillion(price) {
+export function perMillion(price) {
     const n = typeof price === "string" || typeof price === "number" ? Number(price) : NaN;
     return Number.isFinite(n) && n >= 0 ? Math.round(n * 1e6 * 1e4) / 1e4 : null;
 }
