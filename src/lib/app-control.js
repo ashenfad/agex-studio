@@ -32,37 +32,55 @@ export function getLiveIframe() {
 }
 
 /**
- * The calls each app frame has made to the studio (`getCacheValue`,
- * `agex.task`) that haven't been answered yet, and the `waitForIdle`
- * watching it, if any.
+ * The calls each app frame's page has made to the studio
+ * (`getCacheValue`, `agex.task`) that haven't been answered yet, and the
+ * `waitForIdle`s watching it. `page` counts the frame's pages, so a call
+ * the page before a reload made can't be counted against the next one.
  *
- * @type {WeakMap<object, { pending: number, onChange: (() => void) | null }>}
+ * @type {WeakMap<object, { pending: number, page: number, watchers: Set<() => void> }>}
  */
 const _calls = new WeakMap();
 
 function _callsOf(iframe) {
     let c = _calls.get(iframe);
     if (c === undefined) {
-        c = { pending: 0, onChange: null };
+        c = { pending: 0, page: 0, watchers: new Set() };
         _calls.set(iframe, c);
     }
     return c;
 }
 
-/** The app in `iframe` made a call to the studio; it's in flight until
- *  `callDone`. Both the test iframe's bridge and the live preview
- *  report their calls, so `waitForIdle` waits for them. */
-export function callStarted(iframe) {
-    const c = _callsOf(iframe);
-    c.pending += 1;
-    c.onChange?.();
+/** @param {{ watchers: Set<() => void> }} c */
+function _changed(c) {
+    for (const fn of c.watchers) fn();
 }
 
-/** A call `callStarted` reported was answered (or failed). */
-export function callDone(iframe) {
+/** The app in `iframe` made a call to the studio; it's in flight until
+ *  the function returned is called, as it's answered (or fails). Both
+ *  the test iframe's bridge and the live preview report their calls, so
+ *  `waitForIdle` waits for them.
+ *  @returns {() => void} */
+export function callStarted(iframe) {
     const c = _callsOf(iframe);
-    c.pending = Math.max(0, c.pending - 1);
-    c.onChange?.();
+    const page = c.page;
+    c.pending += 1;
+    _changed(c);
+    let done = false;
+    return () => {
+        if (done || c.page !== page) return;
+        done = true;
+        c.pending = Math.max(0, c.pending - 1);
+        _changed(c);
+    };
+}
+
+/** The page in `iframe` was replaced (the app reloaded): the calls the
+ *  old one made are answered to no page, so no wait counts them. */
+export function callsLost(iframe) {
+    const c = _callsOf(iframe);
+    c.page += 1;
+    c.pending = 0;
+    _changed(c);
 }
 
 /** Settle once the app has no call to the studio in flight and none
@@ -95,7 +113,7 @@ export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
         function finish() {
             clearTimeout(idleTimer);
             clearTimeout(maxTimer);
-            if (calls.onChange === onChange) calls.onChange = null;
+            calls.watchers.delete(onChange);
             resolve();
         }
         const maxTimer = setTimeout(finish, maxMs);
@@ -103,7 +121,7 @@ export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
             clearTimeout(idleTimer);
             idleTimer = calls.pending === 0 ? setTimeout(finish, idleGap) : null;
         }
-        calls.onChange = onChange;
+        calls.watchers.add(onChange);
         onChange();
     });
 }
@@ -394,7 +412,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
 
         if (data.type === "agex-task") {
             const { id } = data;
-            callStarted(iframe);
+            const done = callStarted(iframe);
             const p = (async () => {
                 try {
                     if (!taskHandler) throw new Error("agex.task isn't available here");
@@ -403,7 +421,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
                 } catch (err) {
                     replyToApp(iframe, { type: "agex-task-result", id, value: null, error: err?.message || String(err) });
                 }
-                callDone(iframe);
+                done();
             })();
             pendingHandlers.push(p);
             return;
@@ -417,7 +435,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
 
         if (data.type === "agex-cache-get") {
             const { id, key } = data;
-            callStarted(iframe);
+            const done = callStarted(iframe);
             const p = (async () => {
                 try {
                     const out = cacheHandler ? await cacheHandler(key) : undefined;
@@ -445,7 +463,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
                         error: err.message || String(err),
                     });
                 }
-                callDone(iframe);
+                done();
             })();
             pendingHandlers.push(p);
             return;
