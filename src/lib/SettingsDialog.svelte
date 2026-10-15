@@ -7,6 +7,7 @@
      *  writes gists with. */
     import { untrack } from 'svelte'
     import ModelPicker from './ModelPicker.svelte'
+    import RouterKeyCheck from './RouterKeyCheck.svelte'
     import { WINDOW_SHARE, foldBudgetOf } from './model.js'
     import { catalogStore, contextLabel, modelInfo, priceLabel } from './openrouter-models.js'
     import { getSettings, updateSettings } from './settings.js'
@@ -142,6 +143,7 @@
                 {s.accessMode === 'custom' ? 'OpenRouter key (optional)' : 'Key'}
                 <input type="password" bind:value={s.routerKey} placeholder="sk-or-…" autocomplete="off" />
             </label>
+            <RouterKeyCheck key={s.routerKey} />
             {#if s.accessMode === 'openrouter'}
                 <p class="hint">Make one at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. It stays in this browser, and goes only to OpenRouter.</p>
             {:else}
