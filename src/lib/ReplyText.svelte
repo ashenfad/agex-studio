@@ -44,7 +44,7 @@
     {#each parts as part, i (i)}
         {#if 'md' in part}
             <!-- each its own, so the markdown rules don't reach an artifact's tables -->
-            <div class="markdown">{@html renderMarkdown(part.md)}</div>
+            <div class="markdown">{@html renderMarkdown(part.md, { linkBase: '/workspace' })}</div>
         {:else}
             <Artifact {session} {at} path={part.path} name={part.name} />
         {/if}

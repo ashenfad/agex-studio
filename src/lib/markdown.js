@@ -42,19 +42,24 @@ const WORKSPACE = "/workspace";
  * there (a `..` that climbs above /workspace, /workspace itself).
  *
  * A path is absolute under /workspace (`/workspace/notes/plan.md`) or
- * relative to it (`notes/plan.md`, `./notes/plan.md`). A query or
- * fragment on it is dropped, and %-escapes are decoded (`my%20plan.md`).
+ * relative to `base`, a folder in the workspace (`notes/plan.md`,
+ * `./plan.md`, `../data.csv`). A query or fragment on it is dropped, and
+ * %-escapes are decoded (`my%20plan.md`).
  *
  * @param {string} href
+ * @param {string} [base] the folder a relative path starts from
  * @returns {{ path: string | null } | null}
  */
-function resolveLink(href) {
+function resolveLink(href, base = WORKSPACE) {
     let path = String(href ?? "").trim();
     if (path === "" || path.startsWith("#") || path.startsWith("//")) return null;
     if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return null;
     if (path.startsWith("/")) {
         if (path !== WORKSPACE && !/^\/workspace[/?#]/.test(path)) return null;
         path = path.slice(WORKSPACE.length);
+    } else {
+        // from the base's folder, within the workspace
+        path = `${base.slice(WORKSPACE.length)}/${path}`;
     }
     path = path.replace(/[?#].*$/, "");
     try {
@@ -168,10 +173,18 @@ renderer.blockquote = function (token) {
     }
     return origBlockquote(token);
 };
+/**
+ * The folder workspace links resolve against in the markdown being
+ * rendered now (`renderMarkdown`'s `linkBase`); null renders every link
+ * as an ordinary one, for a place with no file viewer to open.
+ * @type {string | null}
+ */
+let linkBase = null;
+
 /** @param {import("marked").Tokens.Link} token */
 renderer.link = function (token) {
     const { href, title, tokens } = token;
-    const target = resolveLink(href);
+    const target = linkBase === null ? null : resolveLink(href, linkBase);
     if (target !== null) {
         const { path } = target;
         const inner = this.parser.parseInline(tokens);
@@ -223,16 +236,31 @@ function prepare(text) {
  * documentation contexts where the markdown source is hand-
  * wrapped for editor readability and shouldn't render those
  * wraps as visual breaks. Per-call options are merged onto the
- * module-level defaults set via `marked.setOptions`. */
-export function renderMarkdown(text, { breaks = true } = {}) {
-    return sanitize(marked.parse(prepare(text), { breaks }));
+ * module-level defaults set via `marked.setOptions`.
+ *
+ * `linkBase`, a folder in the workspace, makes links to workspace files
+ * (`/workspace/notes/plan.md`, or relative to that folder) render as
+ * file links (`data-ws-path`) for the caller to open: a reply's base is
+ * /workspace, a file's is its own folder. Without one, every link is an
+ * ordinary link.
+ *
+ * @param {string} text
+ * @param {{ breaks?: boolean, linkBase?: string | null }} [opts] */
+export function renderMarkdown(text, { breaks = true, linkBase: base = null } = {}) {
+    // parsing is synchronous: the base holds for this text alone
+    linkBase = base;
+    try {
+        return sanitize(marked.parse(prepare(text), { breaks }));
+    } finally {
+        linkBase = null;
+    }
 }
 
 /** Parse markdown to inline HTML — no block elements (paragraphs,
  *  lists, headings, fenced code). Suitable for places that must
  *  stay on a single line, like table cells. The shared custom
- *  renderer above still applies, so inline `code` and workspace links
- *  render the same as elsewhere.
+ *  renderer above still applies, so inline `code` renders the same as
+ *  elsewhere; links stay ordinary ones, as with no `linkBase`.
  *
  *  Newlines in the source are flattened to spaces before parsing
  *  because `breaks: true` (which we want in chat) would otherwise

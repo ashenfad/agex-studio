@@ -5,12 +5,31 @@
      * One that isn't there (moved, deleted, a folder) says so instead.
      */
     import { highlightCode } from './highlight.js'
-    import { renderMarkdown } from './markdown.js'
+    import { untrack } from 'svelte'
+    import { fileLinkTarget, renderMarkdown } from './markdown.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, onClose: () => void }} */
     let { session, path, onClose } = $props()
 
     const ROOT = '/workspace'
+    /** The file shown, relative to /workspace: `path`, until a link in a
+     *  Markdown file opens another. */
+    let shown = $state(untrack(() => path))
+    $effect.pre(() => {
+        shown = path
+    })
+    /** The folder the shown file's relative links start from. */
+    const folder = $derived(`${ROOT}/${shown}`.replace(/\/[^/]*$/, ''))
+
+    /** A link in a Markdown file to another workspace file opens it here.
+     *  @param {MouseEvent} e */
+    function follow(e) {
+        const a = e.target instanceof Element ? e.target.closest('a[data-ws-path]') : null
+        if (a === null) return
+        e.preventDefault()
+        const next = fileLinkTarget(a.getAttribute('data-ws-path'))
+        if (next !== null) shown = next
+    }
     const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/i
     const TYPES = /** @type {Record<string, string>} */ ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' })
 
@@ -25,9 +44,9 @@
         content = null
         void (async () => {
             try {
-                const bytes = await /** @type {NonNullable<typeof ws>} */ (ws).files.read(`${ROOT}/${path}`)
-                if (IMAGE.test(path)) {
-                    const ext = /** @type {string} */ (path.split('.').at(-1)).toLowerCase()
+                const bytes = await /** @type {NonNullable<typeof ws>} */ (ws).files.read(`${ROOT}/${shown}`)
+                if (IMAGE.test(shown)) {
+                    const ext = /** @type {string} */ (shown.split('.').at(-1)).toLowerCase()
                     url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: TYPES[ext] ?? 'application/octet-stream' }))
                     content = { url }
                 } else {
@@ -46,24 +65,24 @@
      *  @param {unknown} e */
     function unreadable(e) {
         const code = e instanceof Error && 'code' in e ? e.code : null
-        if (code === 'ENOENT' || code === 'ENOTDIR') return `There's no file at ${path} now: it may have been moved, renamed or deleted.`
-        if (code === 'EISDIR') return `${path} is a folder, not a file: the Files tab shows what's in it.`
+        if (code === 'ENOENT' || code === 'ENOTDIR') return `There's no file at ${shown} now: it may have been moved, renamed or deleted.`
+        if (code === 'EISDIR') return `${shown} is a folder, not a file: the Files tab shows what's in it.`
         return `This file can't be read: ${e instanceof Error ? e.message : String(e)}`
     }
 
     async function download() {
         if (session.ws === null) return
-        const bytes = await session.ws.files.read(`${ROOT}/${path}`)
+        const bytes = await session.ws.files.read(`${ROOT}/${shown}`)
         const a = document.createElement('a')
         a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)]))
-        a.download = path.split('/').at(-1) ?? 'file'
+        a.download = shown.split('/').at(-1) ?? 'file'
         a.click()
         URL.revokeObjectURL(a.href)
     }
 
     async function remove() {
         if (session.ws === null) return
-        await session.ws.files.remove(`${ROOT}/${path}`)
+        await session.ws.files.remove(`${ROOT}/${shown}`)
         await session.refreshFiles()
         onClose()
     }
@@ -74,9 +93,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="modal" role="dialog" aria-label={path} tabindex="-1" onclick={(e) => e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-label={shown} tabindex="-1" onclick={(e) => e.stopPropagation()}>
         <header>
-            <span class="path">{path}</span>
+            <span class="path">{shown}</span>
             {#if !content?.failed}
                 <button onclick={download}>Download</button>
                 {#if confirmingDelete}
@@ -94,11 +113,12 @@
             {:else if content.failed}
                 <p class="empty">{content.failed}</p>
             {:else if content.url}
-                <img src={content.url} alt={path} />
-            {:else if /\.md$/i.test(path)}
-                <div class="markdown">{@html renderMarkdown(content.text ?? '')}</div>
+                <img src={content.url} alt={shown} />
+            {:else if /\.md$/i.test(shown)}
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                <div class="markdown" onclick={follow}>{@html renderMarkdown(content.text ?? '', { linkBase: folder })}</div>
             {:else}
-                <pre><code>{@html highlightCode(content.text ?? '', path)}</code></pre>
+                <pre><code>{@html highlightCode(content.text ?? '', shown)}</code></pre>
             {/if}
         </div>
     </div>
