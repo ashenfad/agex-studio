@@ -1,6 +1,6 @@
 ---
 name: making-videos
-description: Make a video as an app — an HTML composition of timed scenes animated with CSS and Anime.js on the HyperFrames runtime, with narration and music from media, its own play/scrub controls; scenes as modules, long videos with delegates, and how to check frames with test_app.
+description: Make a video as an app — an HTML composition of timed scenes animated with CSS and Anime.js on the HyperFrames runtime, with narration and music from media, its own play/scrub controls and an Export button that saves it as an MP4; scenes as modules, long videos with delegates, and how to check frames with test_app.
 ---
 
 # Making videos
@@ -9,13 +9,12 @@ A video here is an app. `app/index.html` holds a **composition**: a
 1920×1080 stage, scenes that are shown for a stretch of time, and
 animations. The HyperFrames runtime runs it on a clock of its own, so it
 can be played, paused and scrubbed to any moment and always shows the
-same frame there. The page has its own play button and scrubber, and it
-previews and publishes like any other app.
+same frame there. The page has its own play button, scrubber and Export
+button (which saves the video as an MP4, in the viewer's browser), and
+it previews and publishes like any other app.
 
-Three things this is not:
+Two things this is not:
 
-- **Not an MP4.** Nothing here renders a video file. The published app
-  is the video; someone who wants a file can screen-record it.
 - **Not GSAP.** HyperFrames' own examples animate with GSAP; its license
   rules it out here. Animate with CSS keyframes or Anime.js, below.
 - **Not a `<hyperframes-player>`.** The player element frames a
@@ -27,13 +26,14 @@ Three things this is not:
 ## Do this first
 
 The reference is a working 10-second video: three scenes, crossfades,
-a bar chart Anime.js grows, and the controls. Read it, copy it into the
-app, then change the content:
+a bar chart Anime.js grows, and the controls, Export among them. Read
+it, copy it and its exporter into the app, then change the content:
 
 ```sh
 cat /workspace/skills/making-videos/references/index.html
 mkdir -p /workspace/app
 cp /workspace/skills/making-videos/references/index.html /workspace/app/index.html
+cp /workspace/skills/making-videos/references/export.js /workspace/app/export.js
 ```
 
 Keep its structure: it already does the things below that are easy to
@@ -330,6 +330,30 @@ work, and splitting it again only multiplies the cost.
    and set the root's `data-duration` to the end of the last. Then check
    the whole video as below.
 
+## Exporting a file
+
+The Export button runs `app/export.js` (copied from
+`references/export.js`; read its header): it steps `__player` through
+every frame, draws `#root` as a screenshot does, mixes the audio clips
+as the runtime plays them (start, duration, volume, fades), and
+encodes an MP4 (H.264 and AAC), or a WebM where the browser can't
+encode those. It runs in the viewer's browser, so a published video
+exports for whoever watches it. You don't need to change it: it reads
+the stage's size, the video's length and the clips from the page.
+
+- **It takes about 1.5 times the video's length** at 1920×1080 and
+  30fps, with the tab visible. The button shows the progress, and
+  pressing it again stops.
+- **What it draws is what a screenshot shows,** so a video whose
+  `test_app` grid looks right exports right. A `<video>` inside the
+  stage isn't drawn, nor an image from a site that doesn't allow it.
+- **Check it with a short part,** not the Export button: in `test_app`,
+  `{"eval": "window.exportVideo({ to: 2 }).then((f) => [f.name, f.type, f.size])"}`
+  makes the first 2 seconds and answers what it made
+  (`["quarterly-revenue.mp4", "video/mp4", 316501]`); `from` and `to`
+  pick any part, `format: "webm"` the other format. Don't click Export
+  in a test: it makes the whole video, for no one.
+
 ## Checking it
 
 `test_app` loads the page fresh each call, as a viewer's reload does.
@@ -411,3 +435,5 @@ A video is done when:
    the root's `data-duration` covers the last scene.
 3. If it is narrated, every clip loaded, and a played moment put the
    voice where the scene's timing says.
+4. `window.exportVideo({ to: 2 })` made a file, and the page's Export
+   button is there.
