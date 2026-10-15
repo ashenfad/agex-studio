@@ -8,6 +8,7 @@
  * code can read (a Doc as text, a Sheet as .xlsx, Slides as PDF).
  */
 
+import { errorText } from "./errors.js";
 import { isGoogleAvailable, requestAccessToken } from "./google-auth.js";
 import { isPickerAvailable, openPicker } from "./google-picker.js";
 
@@ -30,7 +31,7 @@ export function isDriveImportAvailable() {
 
 /** A picked file's name with `ext`, unless it has it already; no path
  *  separators. @param {string} name @param {string} ext */
-export function fileName(name, ext) {
+function fileName(name, ext) {
     const safe = name.replace(/[/\\]/g, "_");
     return ext && !safe.toLowerCase().endsWith(ext.toLowerCase()) ? `${safe}${ext}` : safe;
 }
@@ -68,7 +69,7 @@ export async function pickFromDrive() {
     const errors = [];
     for (const s of settled) {
         if (s.status === "fulfilled") files.push(s.value);
-        else errors.push(s.reason instanceof Error ? s.reason.message : String(s.reason));
+        else errors.push(errorText(s.reason));
     }
     return { files, errors };
 }

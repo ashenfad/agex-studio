@@ -8,6 +8,8 @@
  * about the model in use are at hand at once, before any fetch.
  */
 
+import { readLocalJson, writeLocalJson } from "./local.js";
+
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const STORAGE_KEY = "agex-openrouter-models";
 /** How long a fetched catalog is fresh. */
@@ -84,14 +86,8 @@ export function readModel(m) {
 
 /** The catalog kept from an earlier fetch, if there is one. */
 function stored() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return null;
-        const kept = JSON.parse(raw);
-        return Array.isArray(kept?.models) && typeof kept.at === "number" ? kept : null;
-    } catch {
-        return null;
-    }
+    const kept = readLocalJson(STORAGE_KEY);
+    return Array.isArray(kept?.models) && typeof kept.at === "number" ? kept : null;
 }
 
 /** The catalog at hand: this page's, else the one kept. */
@@ -119,11 +115,7 @@ export function loadModels({ fetchImpl = fetch, now = Date.now() } = {}) {
             catalog = { at: now, models };
             arrivals += 1;
             for (const fn of listeners) fn(arrivals);
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(catalog));
-            } catch {
-                // kept for this page's life only
-            }
+            writeLocalJson(STORAGE_KEY, catalog);
             return models;
         } catch (e) {
             if (have !== null) return have.models;

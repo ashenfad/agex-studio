@@ -8,10 +8,12 @@
  * session that already holds one too large works again.
  */
 
+import { base64ToBytes, bytesToBase64 } from "./bytes.js";
+
 /** The most base64 one image may be: Anthropic's 5 MB, with room. */
-export const IMAGE_LIMIT = 4_000_000;
+const IMAGE_LIMIT = 4_000_000;
 /** The longest side an image may have: Anthropic's 8000px, with room. */
-export const MAX_SIDE = 7680;
+const MAX_SIDE = 7680;
 /** Quality for the lossy re-encoding. */
 const QUALITY = 0.85;
 
@@ -47,7 +49,7 @@ export function sizeOf(data) {
     try {
         // whole base64 quanta only
         const head = data.slice(0, Math.min(data.length, HEAD) - (Math.min(data.length, HEAD) % 4));
-        b = Uint8Array.from(atob(head), (c) => c.charCodeAt(0));
+        b = base64ToBytes(head);
     } catch {
         return null;
     }
@@ -115,7 +117,7 @@ async function fits(image, limit) {
  * @param {{ limit?: number }} [opts]
  * @returns {Promise<Img>}
  */
-export async function fitImage(image, { limit = IMAGE_LIMIT } = {}) {
+async function fitImage(image, { limit = IMAGE_LIMIT } = {}) {
     if (await fits(image, limit)) return image;
     const key = await keyOf(image);
     const hit = cache.get(key);
@@ -156,10 +158,7 @@ async function encode(bitmap, scale) {
         g.fillRect(0, 0, width, height);
         blob = await canvas.convertToBlob({ type: "image/jpeg", quality: QUALITY });
     }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return { data: btoa(binary), mediaType: blob.type };
+    return { data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mediaType: blob.type };
 }
 
 /**

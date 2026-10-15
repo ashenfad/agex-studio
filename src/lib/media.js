@@ -21,8 +21,8 @@ import { inWorkspace, writeFile } from "./ws-paths.js";
  *  an OpenAI image-model feature on OpenRouter. A low-quality 1024x1024
  *  takes about 11s, for $0.006. */
 export const IMAGE_MODEL = "openai/gpt-image-2.5-sunburst";
-export const IMAGE_ASPECTS = /** @type {const} */ (["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"]);
-export const IMAGE_QUALITIES = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
+const IMAGE_ASPECTS = /** @type {const} */ (["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"]);
+const IMAGE_QUALITIES = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 const MAX_REFERENCES = 16;
 
 /** Gemini's speech model reads its input as a verbatim transcript: a
@@ -30,12 +30,12 @@ const MAX_REFERENCES = 16;
  *  spoken. Delivery goes in `style`, passed to Google AI Studio as a
  *  provider option; only momentary sounds in angle brackets (`<laugh>`,
  *  `<sigh>`, `<short pause>`) stay inline. */
-export const SPEECH_MODEL = "google/gemini-3.8-flash-tts";
+const SPEECH_MODEL = "google/gemini-3.8-flash-tts";
 const SPEECH_PROVIDER = "google-ai-studio";
 /** Gemini's prebuilt voices, with the tone each is described by. The
  *  provider answers an unknown name with a bare 400, so names are
  *  checked here, where the error can list them. */
-export const VOICES = /** @type {const} */ ({
+const VOICES = /** @type {const} */ ({
     Achernar: "soft",
     Achird: "friendly",
     Algenib: "gravelly",

@@ -5,6 +5,8 @@
  * frame.
  */
 
+import { bytesToBase64 } from "./bytes.js";
+
 /** The most frames one grid holds. */
 export const GRID_MAX = 12;
 /** The widest a grid image gets: past this, providers scale it down. */
@@ -70,10 +72,7 @@ export async function tileGrid(frames) {
         g.fillText(fit(g, label, cell.width - 8), cell.x + 4, cell.captionY + CAPTION / 2);
     });
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    return btoa(binary);
+    return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
 }
 
 /** `text` cut to fit `width` in the canvas's font, with an ellipsis.

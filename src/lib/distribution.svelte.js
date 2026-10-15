@@ -6,6 +6,7 @@
 
 import { applyBundle, bundleFileName, encodeBundle, readBundleHeader } from "./bundle.js";
 import { fetchGistBundle, latestRevision, parseGistParam, publishGist } from "./gist.js";
+import { readLocal, writeLocal } from "./local.js";
 import { getSettings } from "./settings.js";
 import { snapshotBranch } from "./snapshot.js";
 import { PLANE, metaOf, newName, openStore } from "./store.js";
@@ -13,26 +14,8 @@ import { studio } from "./studio.svelte.js";
 
 /** @typedef {import("./store.js").SessionSource} SessionSource */
 
-/** @param {string} key */
-function readLocal(key) {
-    try {
-        return localStorage.getItem(key);
-    } catch {
-        return null;
-    }
-}
-
-/** @param {string} key @param {string} value */
-function writeLocal(key, value) {
-    try {
-        localStorage.setItem(key, value);
-    } catch {
-        // kept for this page only
-    }
-}
-
 /** Bundles and gists, for the studio's sessions. */
-export class Distribution {
+class Distribution {
     /** @type {import("./studio.svelte.js").Studio} */
     studio;
 

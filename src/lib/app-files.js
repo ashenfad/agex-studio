@@ -7,7 +7,7 @@
 import { isBinaryAppFile } from "./app-assets.js";
 
 /** Where a session's app lives. */
-export const APP_DIR = "/workspace/app";
+const APP_DIR = "/workspace/app";
 
 /** @typedef {{ files: Record<string, string>, binaries: Record<string, Uint8Array> }} AppFiles */
 

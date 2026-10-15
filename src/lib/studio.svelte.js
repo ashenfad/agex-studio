@@ -6,6 +6,7 @@
 
 import { SvelteMap } from "svelte/reactivity";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
+import { readLocal, writeLocal } from "./local.js";
 import { PROFILE } from "./profile.js";
 import { ChatSession } from "./session.svelte.js";
 import { snapshotBranch } from "./snapshot.js";
@@ -36,12 +37,7 @@ export class Studio {
      *  about to open, and is the first). */
     async init({ empty = false } = {}) {
         await this.refresh();
-        let last = null;
-        try {
-            last = localStorage.getItem(CURRENT_KEY);
-        } catch {
-            // no storage: start from the newest
-        }
+        const last = readLocal(CURRENT_KEY);
         const target = this.sessions.find((s) => s.name === last) ?? this.sessions[0];
         if (target) await this.switchTo(target.name);
         else if (!empty) await this.create();
@@ -167,11 +163,7 @@ export class Studio {
         }
         this.current = session;
         if (onScreen()) session.seen();
-        try {
-            localStorage.setItem(CURRENT_KEY, name);
-        } catch {
-            // remembered for this page only
-        }
+        writeLocal(CURRENT_KEY, name);
     }
 
     /** A new, empty session, looked at. */

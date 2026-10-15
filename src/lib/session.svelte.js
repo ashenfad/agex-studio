@@ -23,6 +23,7 @@ import { Gate, SessionBusy } from "./gate.js";
 import { PLANE, metaOf, openStore } from "./store.js";
 import { testAppTool } from "./test-app.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
+import { errorText } from "./errors.js";
 import { writeFile } from "./ws-paths.js";
 
 /** @typedef {import("agex-ts").Run} Run */
@@ -426,7 +427,7 @@ export class ChatSession {
         try {
             await this.reload();
         } catch (e) {
-            this.error ??= `couldn't read the session back: ${e instanceof Error ? e.message : String(e)}`;
+            this.error ??= `couldn't read the session back: ${errorText(e)}`;
         }
     }
 
@@ -469,7 +470,7 @@ export class ChatSession {
             try {
                 await session.fold();
             } catch (e) {
-                if (!this.#foldStopped) this.error = `couldn't fold: ${e instanceof Error ? e.message : String(e)}`;
+                if (!this.#foldStopped) this.error = `couldn't fold: ${errorText(e)}`;
             } finally {
                 this.#turn = null;
                 await this.#reloadAfter();
@@ -628,7 +629,7 @@ export class ChatSession {
             try {
                 await body((event) => this.#apply(event));
             } catch (e) {
-                this.error = e instanceof Error ? e.message : String(e);
+                this.error = errorText(e);
                 // a turn that threw ended no better than one that failed
                 this.#lastStatus = "failed";
             } finally {
@@ -1036,7 +1037,7 @@ export class ChatSession {
 
 /** A title from a session's first prompt: its first line, cut short.
  *  @param {string} prompt */
-export function titleFrom(prompt) {
+function titleFrom(prompt) {
     const line = prompt.trim().split("\n")[0] ?? "";
     return line.length > 60 ? `${line.slice(0, 57)}…` : line || "Untitled";
 }

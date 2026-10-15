@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { highlightCode, highlightPython } from "./highlight.js";
+import { highlightCode } from "./highlight.js";
 
 describe("highlightCode", () => {
     it("highlights Python files", () => {
@@ -73,13 +73,5 @@ describe("highlightCode", () => {
     it("handles missing path", () => {
         const html = highlightCode("<tag>", undefined);
         expect(html).toContain("&lt;tag&gt;");
-    });
-});
-
-describe("highlightPython", () => {
-    it("highlights Python code", () => {
-        const html = highlightPython("import os\nos.getcwd()");
-        expect(html).toContain("class=");
-        expect(html).toContain("import");
     });
 });

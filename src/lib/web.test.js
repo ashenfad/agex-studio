@@ -39,6 +39,8 @@ describe("web.search", () => {
         expect(sent[0]?.url).toBe("https://openrouter.ai/api/v1/chat/completions");
         expect(sent[0]?.body.model).toBe(SEARCH_MODEL);
         expect(sent[0]?.headers.Authorization).toBe("Bearer sk-test");
+        expect(sent[0]?.headers["X-Title"]).toBe("agex studio");
+        expect(sent[0]?.headers["HTTP-Referer"]).toBe("https://agex.studio");
     });
 
     it("runs a deep search on the deeper model", async () => {

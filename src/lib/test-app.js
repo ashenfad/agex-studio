@@ -12,6 +12,7 @@ import { readApp, hasApp } from "./app-files.js";
 import { getLiveIframe, runLiveApp, runTestApp } from "./app-control.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
+import { errorText } from "./errors.js";
 import { GRID_MAX, tileGrid } from "./grid.js";
 
 /** What the model reads of a value: JSON, cut at `max` characters. */
@@ -20,7 +21,7 @@ const shown = (/** @type {unknown} */ value, max = 4000) => {
     return text === undefined ? String(value) : text.length > max ? `${text.slice(0, max)}… (${text.length} chars)` : text;
 };
 
-export const TEST_APP_DESCRIPTION = `Check the app under /workspace/app by acting on it in a browser.
+const TEST_APP_DESCRIPTION = `Check the app under /workspace/app by acting on it in a browser.
 
 By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded). With live: true it acts on the preview the person is looking at instead.
 
@@ -103,7 +104,7 @@ export function testAppTool(session) {
                 }
             } catch (e) {
                 // a failing assertion ends the call, with what came before it
-                const message = e instanceof Error ? e.message : String(e);
+                const message = errorText(e);
                 const before = /** @type {any} */ (e)?.results;
                 if (!Array.isArray(before)) return { text: message, images: [], isError: true };
                 const out = await formatResults(before);
@@ -167,7 +168,7 @@ export async function formatResults(results, { tile = tileGrid } = {}) {
         } catch (e) {
             // a grid that couldn't be drawn still shows its frames, one by one
             for (const f of frames) images.push({ data: f.data, format: "png" });
-            lines.push(`grid ${name}: couldn't be tiled (${e instanceof Error ? e.message : String(e)}): its ${frames.length} frames attached one by one`);
+            lines.push(`grid ${name}: couldn't be tiled (${errorText(e)}): its ${frames.length} frames attached one by one`);
         }
     }
     return {

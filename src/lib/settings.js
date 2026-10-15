@@ -4,6 +4,8 @@
  * service it is for).
  */
 
+import { readLocalJson, writeLocalJson } from "./local.js";
+
 export const STORAGE_KEY = "agex-studio-settings";
 
 /**
@@ -92,13 +94,9 @@ let settings = load();
 
 /** @returns {Settings} */
 function load() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return migrate({ ...DEFAULTS, ...JSON.parse(raw) });
-    } catch {
-        // unreadable or unavailable storage: start from the defaults
-    }
-    return { ...DEFAULTS };
+    // with nothing kept, or nothing readable, the defaults
+    const kept = readLocalJson(STORAGE_KEY);
+    return kept ? migrate({ ...DEFAULTS, ...kept }) : { ...DEFAULTS };
 }
 
 /**
@@ -144,11 +142,7 @@ export const settingsStore = {
 /** @param {Partial<Settings>} patch */
 export function updateSettings(patch) {
     settings = { ...settings, ...patch };
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch {
-        // kept for this page's life only
-    }
+    writeLocalJson(STORAGE_KEY, settings);
     for (const fn of subscribers) fn(settings);
 }
 

@@ -18,13 +18,15 @@
  *   agent's local files.
  * - Relative imports (`./Chart.jsx`) are resolved against the file
  *   dict and bundled inline.
- * - Stdin (CSS imports, etc.) NOT supported in this spike — agents
- *   include CSS via <link> tags in their app/index.html instead.
+ * - CSS imported from JS isn't supported: only the JS output is
+ *   returned, so agents include CSS via <link> tags in their
+ *   app/index.html.
  *
  * Returns a plain, JSON-shaped object: the bundle's text and its
  * diagnostics.
  */
 
+import { base64ToBytes } from "./bytes.js";
 import { ESBUILD_URL, ESBUILD_WASM_URL, loadModule } from "./cdn.js";
 
 /**
@@ -77,9 +79,9 @@ function getEsbuild() {
  * - A source-text string (UTF-8 contents — for `.jsx`, `.tsx`, `.ts`,
  *   `.js`, `.css`, `.json`, `.svg`)
  * - A tagged object `{_binary_b64: <base64 string>}` for images
- *   (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`).  The Python
- *   collector encodes binary VFS files this way; the plugin
- *   decodes to Uint8Array for esbuild's dataurl loader.
+ *   (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`), as the `esbuild`
+ *   command's `collectAppSources` encodes them; the plugin decodes
+ *   them to bytes for esbuild's dataurl loader.
  *
  * Relative imports (`./foo.jsx`) are resolved relative to the
  * importer's directory, looked up in `files`.  Bare imports
@@ -175,12 +177,7 @@ function virtualFsPlugin(files, bareImports = "external") {
                     typeof content === "object" &&
                     typeof content._binary_b64 === "string"
                 ) {
-                    const binary = atob(content._binary_b64);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) {
-                        bytes[i] = binary.charCodeAt(i);
-                    }
-                    return { contents: bytes, loader: "dataurl" };
+                    return { contents: base64ToBytes(content._binary_b64), loader: "dataurl" };
                 }
 
                 // SVG: text source, but inline as a data URL too so
@@ -321,9 +318,9 @@ function formatMessage(m) {
                   file: m.location.file,
                   line: m.location.line,
                   column: m.location.column,
-                  // lineText is the offending source line — used by
-                  // the Python-side renderer to show the line + a
-                  // caret marker pointing at the column.
+                  // lineText is the offending source line: the
+                  // `esbuild` command shows it with a caret under
+                  // the column.
                   lineText: m.location.lineText || "",
                   length: m.location.length || 0,
               }

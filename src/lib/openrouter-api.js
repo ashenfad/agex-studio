@@ -11,10 +11,15 @@
  * accepts it, and what it has spent.
  */
 
+import { errorText } from "./errors.js";
 import { privacyOf } from "./openrouter-routing.js";
 import { getSettings } from "./settings.js";
 
-export const OPENROUTER_API = "https://openrouter.ai/api/v1";
+const OPENROUTER_API = "https://openrouter.ai/api/v1";
+
+/** How the studio names itself to OpenRouter, on every request it
+ *  sends there: the turns' and the tools' alike. */
+export const ROUTER_HEADERS = { "HTTP-Referer": "https://agex.studio", "X-Title": "agex studio" };
 
 /** Whether the settings hold an OpenRouter key, so `web` and `media`
  *  work: whatever model runs the turns.
@@ -25,7 +30,7 @@ export function hasRouterKey(s = getSettings()) {
 
 /** The OpenRouter key, or a refusal naming what to change.
  *  @param {string} label the call, as code wrote it */
-export function routerKey(label) {
+function routerKey(label) {
     const s = getSettings();
     if (!hasRouterKey(s)) {
         throw new Error(
@@ -55,15 +60,14 @@ export async function routerPost({ label, path, body, timeout, fetchImpl = fetch
             headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${key}`,
-                "HTTP-Referer": "https://agex.studio",
-                "X-Title": "Agex Studio",
+                ...ROUTER_HEADERS,
             },
             body: JSON.stringify(sent),
             signal: AbortSignal.timeout(timeout * 1000),
         });
     } catch (e) {
         if (e instanceof Error && e.name === "TimeoutError") throw new Error(`${label}: no answer within ${timeout}s`);
-        throw new Error(`${label}: network error: ${e instanceof Error ? e.message : String(e)}`);
+        throw new Error(`${label}: network error: ${errorText(e)}`);
     }
     if (r.status !== 200) {
         const detail = (await r.text().catch(() => "")).slice(0, 300);
@@ -130,7 +134,7 @@ export async function checkRouterKey(key, { timeout = 10, fetchImpl = fetch } = 
         });
     } catch (e) {
         const timedOut = e instanceof Error && e.name === "TimeoutError";
-        return { ok: false, reason: "unreachable", detail: timedOut ? `no answer within ${timeout}s` : `network error: ${e instanceof Error ? e.message : String(e)}` };
+        return { ok: false, reason: "unreachable", detail: timedOut ? `no answer within ${timeout}s` : `network error: ${errorText(e)}` };
     }
     if (r.status === 401 || r.status === 403) return { ok: false, reason: "rejected" };
     if (r.status !== 200) return { ok: false, reason: "unreachable", detail: `HTTP ${r.status}` };
