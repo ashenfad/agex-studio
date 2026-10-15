@@ -103,6 +103,7 @@
                     <!-- svelte-ignore a11y_autofocus -->
                     <input
                         bind:value={draft}
+                        aria-label="Session name"
                         autofocus
                         onkeydown={(e) => {
                             if (e.key === 'Enter') finishRename()

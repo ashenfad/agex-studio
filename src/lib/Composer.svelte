@@ -139,7 +139,7 @@
             {#if attaching}<span class="chip pending">adding…</span>{/if}
         </div>
     {/if}
-    <textarea bind:this={textarea} bind:value={session.draft} onkeydown={onKey} onpaste={onPaste} rows="1" disabled={!configured} {placeholder}></textarea>
+    <textarea bind:this={textarea} bind:value={session.draft} onkeydown={onKey} onpaste={onPaste} rows="1" disabled={!configured} {placeholder} aria-label="Message"></textarea>
     <div class="row">
         <div class="attach">
             <button
