@@ -6,6 +6,7 @@
      * adding one is a file and an entry in SECTIONS.
      */
     import { onMount } from 'svelte'
+    import { errorText } from './errors.js'
     import { renderMarkdown } from './markdown.js'
     import { renderMermaidBlocks } from './mermaid.js'
 
@@ -63,7 +64,7 @@
             if (activeSlug === slug) content = text
         } catch (err) {
             if (activeSlug !== slug) return
-            loadError = err instanceof Error ? err.message : String(err)
+            loadError = errorText(err)
             content = ''
         }
     }

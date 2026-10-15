@@ -131,7 +131,7 @@ export class Studio {
         const child = await this.withWorkspace(name, (ws) => ws.fork(newName(), { inherit: "full" }));
         const now = Date.now();
         await settleFork(child, { title, createdAt: now, updatedAt: now }, undefined, "studio.fork");
-        copyAppStorage("ts", name, child.session);
+        copyAppStorage(name, child.session);
         await child.close();
         await this.refresh();
         return child.session;
@@ -200,7 +200,7 @@ export class Studio {
             });
             if (made === null) return;
             const name = await this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` });
-            copyAppStorage("ts", from.name, name);
+            copyAppStorage(from.name, name);
             await this.switchTo(name);
             return;
         }
@@ -211,7 +211,7 @@ export class Studio {
         // a fork of an imported session isn't that import, nor what it published
         await settleFork(child, { title: inherit === "full" ? `${base} (fork)` : `${base} (files)`, createdAt: now, updatedAt: now }, undefined, "studio.fork");
         // the app's saved data goes with its files, on either kind of fork
-        copyAppStorage("ts", from.name, child.session);
+        copyAppStorage(from.name, child.session);
         const session = this.#watch(new ChatSession(child.session, this));
         await session.open(child);
         await this.refresh();
@@ -254,7 +254,7 @@ export class Studio {
         this.#open.delete(name);
         const store = await openStore();
         await store.delete(name);
-        removeAppStorage("ts", name);
+        removeAppStorage(name);
         // its app data's branch (see app-data.js) goes with it
         const appData = `appdata/${name}`;
         if (await store.repo.branches.has(appData)) await store.repo.branches.delete(appData);

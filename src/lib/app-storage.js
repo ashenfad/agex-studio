@@ -2,9 +2,9 @@
  * App-storage — per-session key/value bag for iframe apps' localStorage shim.
  *
  * Backed by the studio's own `localStorage`. Each entry lives at
- * `agex-app:<kernel>:<branch>:<key>` so different sessions don't
- * collide. `<kernel>` is always `ts`: the segment stays so the bags
- * already kept are still found.
+ * `agex-app:ts:<branch>:<key>` so different sessions don't collide.
+ * The `ts` segment is fixed, and stays so the bags already kept are
+ * still found.
  *
  * Quota: the iframe shim holds a bag to `APP_STORAGE_QUOTA`, measured
  * as its JSON. The bag reaches the studio in a message the app's page
@@ -17,26 +17,22 @@
 /** The most a bag holds, as the length of its JSON. */
 export const APP_STORAGE_QUOTA = 5 * 1024 * 1024;
 
-const PREFIX = 'agex-app:';
-const SEP = ':';
+const PREFIX = 'agex-app:ts:';
 
-/** @typedef {'ts'} Kernel */
-
-function _branchPrefix(/** @type {Kernel} */ kernel, /** @type {string} */ branch) {
-    return PREFIX + kernel + SEP + branch + SEP;
+function _branchPrefix(/** @type {string} */ branch) {
+    return PREFIX + branch + ':';
 }
 
 /**
- * Read all entries for the (kernel, branch) bag as a flat dict.
+ * Read all entries for the branch's bag as a flat dict.
  * Empty dict if nothing's stored.
  *
- * @param {Kernel} kernel
  * @param {string} branch
  * @returns {Record<string, string>}
  */
-export function read(kernel, branch) {
+export function read(branch) {
     const out = /** @type {Record<string, string>} */ ({});
-    const prefix = _branchPrefix(kernel, branch);
+    const prefix = _branchPrefix(branch);
     for (let i = 0; i < localStorage.length; i++) {
         const fullKey = localStorage.key(i);
         if (!fullKey || !fullKey.startsWith(prefix)) continue;
@@ -48,26 +44,25 @@ export function read(kernel, branch) {
 }
 
 /**
- * Replace the (kernel, branch) bag entirely with the given dict. Wipes
+ * Replace the branch's bag entirely with the given dict. Wipes
  * any prior entries for the bag, then writes each key/value as a
  * separate localStorage entry. All or nothing: when a write fails (the
  * studio's storage is full), the bag is put back as it was and the
  * error thrown.
  *
- * @param {Kernel} kernel
  * @param {string} branch
  * @param {Record<string, string>} data
  */
-export function write(kernel, branch, data) {
-    const before = read(kernel, branch);
-    const prefix = _branchPrefix(kernel, branch);
-    remove(kernel, branch);
+export function write(branch, data) {
+    const before = read(branch);
+    const prefix = _branchPrefix(branch);
+    remove(branch);
     try {
         for (const [k, v] of Object.entries(data)) {
             localStorage.setItem(prefix + k, String(v));
         }
     } catch (e) {
-        remove(kernel, branch);
+        remove(branch);
         for (const [k, v] of Object.entries(before)) {
             localStorage.setItem(prefix + k, v);
         }
@@ -93,13 +88,12 @@ export function checkBag(data) {
 }
 
 /**
- * Remove every entry in the (kernel, branch) bag.
+ * Remove every entry in the branch's bag.
  *
- * @param {Kernel} kernel
  * @param {string} branch
  */
-export function remove(kernel, branch) {
-    const prefix = _branchPrefix(kernel, branch);
+export function remove(branch) {
+    const prefix = _branchPrefix(branch);
     // Two-pass: collect keys, then delete. localStorage indices shift
     // when we remove during iteration, so the single-pass form would
     // skip entries.
@@ -112,16 +106,15 @@ export function remove(kernel, branch) {
 }
 
 /**
- * Copy all entries from one (kernel, branch) bag to another, so a
+ * Copy all entries from one branch's bag to another, so a
  * fork's app starts with the same saved state as the session it came
  * from.
  *
- * @param {Kernel} kernel
  * @param {string} srcBranch
  * @param {string} dstBranch
  */
-export function copy(kernel, srcBranch, dstBranch) {
-    const data = read(kernel, srcBranch);
+export function copy(srcBranch, dstBranch) {
+    const data = read(srcBranch);
     if (Object.keys(data).length === 0) return;
-    write(kernel, dstBranch, data);
+    write(dstBranch, data);
 }

@@ -8,6 +8,7 @@
      *  the token publishing writes gists with. The header and the buttons
      *  stay put; the tab's content scrolls. */
     import { untrack } from 'svelte'
+    import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
     import ModelPicker from './ModelPicker.svelte'
     import RouterKeyCheck from './RouterKeyCheck.svelte'
@@ -61,7 +62,7 @@
         let live = true
         loadEndpoints(id).then(
             (list) => live && (endpoints = { id, list }),
-            (e) => live && (endpointsFailed = e instanceof Error ? e.message : String(e)),
+            (e) => live && (endpointsFailed = errorText(e)),
         )
         return () => {
             live = false

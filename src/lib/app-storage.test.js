@@ -45,17 +45,17 @@ describe("checkBag", () => {
 
 describe("write", () => {
     it("replaces the bag", () => {
-        write("ts", "s1", { a: "1", b: "2" });
-        write("ts", "s1", { b: "3", c: "$&" });
-        expect(read("ts", "s1")).toEqual({ b: "3", c: "$&" });
+        write("s1", { a: "1", b: "2" });
+        write("s1", { b: "3", c: "$&" });
+        expect(read("s1")).toEqual({ b: "3", c: "$&" });
     });
 
     it("leaves the bag as it was when the studio's storage runs out", () => {
-        write("ts", "s1", { a: "1", b: "2" });
-        write("ts", "other", { z: "9" });
+        write("s1", { a: "1", b: "2" });
+        write("other", { z: "9" });
         full = (key) => key.endsWith(":big");
-        expect(() => write("ts", "s1", { a: "new", big: "x", c: "3" })).toThrow(/full/);
-        expect(read("ts", "s1")).toEqual({ a: "1", b: "2" });
-        expect(read("ts", "other")).toEqual({ z: "9" });
+        expect(() => write("s1", { a: "new", big: "x", c: "3" })).toThrow(/full/);
+        expect(read("s1")).toEqual({ a: "1", b: "2" });
+        expect(read("other")).toEqual({ z: "9" });
     });
 });

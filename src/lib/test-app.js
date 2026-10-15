@@ -89,7 +89,7 @@ export function testAppTool(session) {
                         appFiles: app.files,
                         appBinaries: app.binaries,
                         actions,
-                        appStorageSeed: args.fresh === true ? {} : readAppStorage("ts", session.name),
+                        appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
                         buildAppPage,
                         cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
                         // the app's agent tasks run for real, counted in its session's budget

@@ -8,6 +8,7 @@
      * session opened by a visitor, say), the conversation reads and the
      * composer waits for one.
      */
+    import { errorText } from './errors.js'
     import Composer from './Composer.svelte'
     import DelegateStrip from './DelegateStrip.svelte'
     import EmptyState from './EmptyState.svelte'
@@ -67,7 +68,7 @@
         try {
             await fn()
         } catch (e) {
-            session.error = e instanceof Error ? e.message : String(e)
+            session.error = errorText(e)
         }
     }
 

@@ -4,6 +4,7 @@
      * or with its history), to the gist it went to before or a new one,
      * and, once published, the links that open it.
      */
+    import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
     import { runUrl } from './gist.js'
     import { distribution } from './distribution.svelte.js'
@@ -34,7 +35,7 @@
         try {
             step = { stage: 'done', gist: await distribution.publish(name, { shape, fresh }) }
         } catch (e) {
-            step = { stage: 'failed', message: e instanceof Error ? e.message : String(e) }
+            step = { stage: 'failed', message: errorText(e) }
         }
     }
 

@@ -11,6 +11,7 @@
      * image attaches it too. Sent while a turn runs, a message is queued:
      * it reaches the agent with its next tool result.
      */
+    import { errorText } from './errors.js'
     import ContextMeter from './ContextMeter.svelte'
     import { isDriveImportAvailable, pickFromDrive } from './drive-import.js'
     import { withAttachments } from './notes.js'
@@ -62,7 +63,7 @@
         try {
             await fn()
         } catch (e) {
-            problem = e instanceof Error ? e.message : String(e)
+            problem = errorText(e)
         } finally {
             pending -= 1
         }
