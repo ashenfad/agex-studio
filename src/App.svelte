@@ -6,6 +6,8 @@
      * screen; and the settings for the model.
      */
     import { onMount } from 'svelte'
+    import { loadModels } from './lib/openrouter-models.js'
+    import { getSettings } from './lib/settings.js'
     import AppPreview from './lib/AppPreview.svelte'
     import Chat from './lib/Chat.svelte'
     import { installDevHook } from './lib/dev-hook.js'
@@ -126,6 +128,10 @@
     let opening = $state(null)
 
     onMount(() => {
+        // what the studio reads off the OpenRouter model (whether it takes
+        // images, its window) is at hand before a turn needs it; on
+        // another service nothing is asked of OpenRouter
+        if (getSettings().accessMode === 'openrouter') loadModels().catch(() => {})
         void (async () => {
             try {
                 // with a published link, no blank session first: it is the first

@@ -55,6 +55,17 @@ describe("OpenRouter's catalog", () => {
         expect((await loadModels({ fetchImpl: failing, now: 1000 + 2 * 86400000 })).length).toBe(2);
     });
 
+    it("announces each catalog that arrives, so what read the old one reads again", async () => {
+        const { catalogStore, loadModels } = await import("./openrouter-models.js");
+        const seen = [];
+        const stop = catalogStore.subscribe((n) => seen.push(n));
+        await loadModels({ fetchImpl: answer([entry()]), now: 1000 });
+        // still fresh: no fetch, no new arrival
+        await loadModels({ fetchImpl: answer([entry()]), now: 2000 });
+        stop();
+        expect(seen).toEqual([0, 1]);
+    });
+
     it("finds models by every word, those that call tools unless asked, best first", async () => {
         const { readModel, searchModels } = await import("./openrouter-models.js");
         const models = [

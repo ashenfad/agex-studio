@@ -93,7 +93,8 @@ export function migrate(s) {
     const { apiKey, model, ...rest } = s;
     /** @type {Settings} */
     let out = rest;
-    if (typeof model === "string" && model.trim() !== "") {
+    // a saved model, even a blank one the person cleared, overrides the default
+    if (typeof model === "string") {
         if (rest.accessMode === "custom") out = { ...out, endpointModel: rest.endpointModel || model };
         else out = { ...out, routerModel: model };
     }

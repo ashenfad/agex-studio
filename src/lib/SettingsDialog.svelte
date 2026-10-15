@@ -8,7 +8,7 @@
     import { untrack } from 'svelte'
     import ModelPicker from './ModelPicker.svelte'
     import { WINDOW_SHARE, foldBudgetOf } from './model.js'
-    import { contextLabel, loadModels, modelInfo, priceLabel } from './openrouter-models.js'
+    import { catalogStore, contextLabel, modelInfo, priceLabel } from './openrouter-models.js'
     import { getSettings, updateSettings } from './settings.js'
     import { GIST_TOKEN_URL } from './gist.js'
     import { notificationPermission, requestNotificationPermission } from './notify.js'
@@ -23,13 +23,10 @@
     // notifications on only while the browser allows them (it may have stopped since)
     let s = $state({ ...getSettings(), ...(notificationPermission() !== 'granted' && { notifyOnFinish: false }) })
 
-    /** Bumped once OpenRouter's catalog is at hand, so what's read off it
-     *  is read again. */
-    let catalogAt = $state(0)
-    loadModels().then(() => (catalogAt += 1), () => {})
     /** What OpenRouter's catalog says of the model chosen there; null for
-     *  another service, or a model it doesn't list. */
-    const info = $derived((void catalogAt, s.accessMode === 'openrouter' ? modelInfo(s.routerModel) : null))
+     *  another service, or a model it doesn't list. Read again when a
+     *  catalog arrives (the picker loads it). */
+    const info = $derived((void $catalogStore, s.accessMode === 'openrouter' ? modelInfo(s.routerModel) : null))
     /** The chosen model's facts, in a line. */
     const facts = $derived(
         info === null

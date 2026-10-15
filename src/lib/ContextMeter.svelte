@@ -5,7 +5,7 @@
      * says what it means and offers to fold now.
      */
     import { foldBudgetOf } from './model.js'
-    import { modelInfo } from './openrouter-models.js'
+    import { catalogStore, modelInfo } from './openrouter-models.js'
     import { settingsStore } from './settings.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
@@ -13,9 +13,10 @@
 
     let open = $state(false)
 
-    const budget = $derived(foldBudgetOf($settingsStore))
+    // both read OpenRouter's catalog: again when one arrives
+    const budget = $derived((void $catalogStore, foldBudgetOf($settingsStore)))
     /** The model's context window, when OpenRouter's catalog says. */
-    const window = $derived($settingsStore.accessMode === 'openrouter' ? (modelInfo($settingsStore.routerModel)?.context ?? null) : null)
+    const window = $derived((void $catalogStore, $settingsStore.accessMode === 'openrouter' ? (modelInfo($settingsStore.routerModel)?.context ?? null) : null))
     const tokens = $derived(session.context)
     const share = $derived(budget > 0 && tokens !== null ? Math.min(1, tokens / budget) : 0)
     const level = $derived(share >= 0.9 ? 'high' : share >= 0.6 ? 'mid' : 'low')

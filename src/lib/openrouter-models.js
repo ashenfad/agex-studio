@@ -32,6 +32,25 @@ let catalog = null;
 /** @type {Promise<RouterModel[]> | null} */
 let loading = null;
 
+/** How many catalogs have arrived in this page. */
+let arrivals = 0;
+/** @type {((n: number) => void)[]} */
+let listeners = [];
+
+/** The catalog's arrivals, as a Svelte store: what reads facts off the
+ *  catalog (`modelInfo`) depends on it, so it reads them again once a
+ *  fetched catalog is in. */
+export const catalogStore = {
+    /** @param {(n: number) => void} fn */
+    subscribe(fn) {
+        listeners.push(fn);
+        fn(arrivals);
+        return () => {
+            listeners = listeners.filter((l) => l !== fn);
+        };
+    },
+};
+
 /** Per token, as OpenRouter prices, to per million; null when unpriced.
  *  @param {unknown} price */
 function perMillion(price) {
@@ -98,6 +117,8 @@ export function loadModels({ fetchImpl = fetch, now = Date.now() } = {}) {
             const body = await r.json();
             const models = (Array.isArray(body?.data) ? body.data : []).map(readModel).filter((m) => m !== null);
             catalog = { at: now, models };
+            arrivals += 1;
+            for (const fn of listeners) fn(arrivals);
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(catalog));
             } catch {
