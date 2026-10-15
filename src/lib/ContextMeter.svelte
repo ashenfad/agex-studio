@@ -104,11 +104,13 @@
     .meter.folding {
         cursor: default;
     }
+    /* the empty track shows against the composer's own blue (which
+       --border shares), so the bar reads as a meter when nearly empty */
     .bar {
-        width: 2.2rem;
-        height: 4px;
-        border-radius: 2px;
-        background: var(--border);
+        width: 2.6rem;
+        height: 5px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.16);
         overflow: hidden;
     }
     .fill {
