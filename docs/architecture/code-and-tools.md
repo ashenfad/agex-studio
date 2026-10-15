@@ -115,8 +115,12 @@ agent reads when the skill points to them.
   video's clock, what breaks scrubbing, narration and music from
   `media`, scenes as modules, long videos with delegates, and the
   `test_app` checks (`#root` frames in a grid, the backwards scrub,
-  the voice's sync). References: a working page, a narrated scene
-  module, and two HyperFrames guides (Apache-2.0, with their license).
+  the voice's sync), and exporting a file. References: a working page,
+  its exporter (`export.js`: frames drawn with html-to-image, the
+  clips mixed offline, encoded with WebCodecs and muxed with mp4-muxer,
+  or webm-muxer where H.264 or AAC can't be encoded, all in the
+  viewer's browser), a narrated scene module, and two HyperFrames
+  guides (Apache-2.0, with their license).
 - **media**: the `media` calls, their options, voices, costs, and
   how an app uses the files.
 

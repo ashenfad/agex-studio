@@ -117,6 +117,7 @@
     <button id="play">Play</button>
     <input id="scrub" type="range" min="0" max="10" step="0.01" value="0" />
     <span id="time">0.0s</span>
+    <button id="export">Export</button>
   </div>
 
   <script>
@@ -171,6 +172,34 @@
       requestAnimationFrame(tick);
     };
     tick();
+  </script>
+
+  <!-- Export: the video as a file (references/export.js, copied to
+       app/export.js), made in the viewer's browser. window.exportVideo
+       is there for test_app to check it. -->
+  <script type="module">
+    import { exportVideo, download } from './export.js';
+    window.exportVideo = exportVideo;
+    const button = document.getElementById('export');
+    let running = null;
+    button.onclick = async () => {
+      if (running) { running.abort(); return; }
+      running = new AbortController();
+      let label = 'Export';
+      try {
+        const file = await exportVideo({
+          signal: running.signal,
+          onProgress: (f) => { button.textContent = `Exporting ${Math.round(f * 100)}% (stop)`; },
+        });
+        download(file);
+      } catch (e) {
+        // say why on the button; Export again tries again
+        if (e.name !== 'AbortError') { console.error(e); label = 'Export failed: retry'; button.title = e.message; }
+      } finally {
+        running = null;
+        button.textContent = label;
+      }
+    };
   </script>
 
   <!-- Scenes in modules of their own (references/narrated-scene.js):
