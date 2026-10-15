@@ -67,6 +67,18 @@ unlisted model), whether it reasons (thinking is greyed out if not),
 and its context window, which caps the fold budget at 75% of it
 (`foldBudgetOf`) and shows in the context meter.
 
+On OpenRouter, the settings also say which provider serves a model
+(`openrouter-routing.js`). The settings list a model's providers from
+`GET /api/v1/models/{id}/endpoints` (public, fetched when shown, kept
+for the page's life), and `routerRouting` keeps a route per model id:
+a provider by its routing tag (`google-vertex/global`), whether it's
+that one only, or, with none chosen, a sort by price, throughput or
+latency. `routerDenyTraining` and `routerZdr` hold for every model.
+`routingOf` turns these into the request's `provider` object (`order`
+with `allow_fallbacks`, `sort`, `data_collection: "deny"`, `zdr`), or
+nothing when all is left to OpenRouter; `buildModel` passes it to the
+model, so turns, delegates, app tasks and titles all route the same.
+
 `buildModel(settings, { session })` returns an AI SDK model, which
 agex-ts drives directly:
 
