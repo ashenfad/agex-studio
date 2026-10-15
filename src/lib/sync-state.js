@@ -1,7 +1,7 @@
 /**
  * Sync's bookkeeping that needs no page: what a session's sync state
- * says of the repo, and the sync heads a change of repo would leave
- * wrong.
+ * says of the repo, and the sync heads kept with no repo named, which a
+ * change of repo would leave wrong.
  */
 
 import { clearSyncHead } from "@agex-ts/kvgit";
@@ -32,11 +32,15 @@ export function nextState(prev, state, detail = "", at = Date.now()) {
 }
 
 /**
- * Make the store's sync heads repo `name`'s. Each says what a branch
- * last shared with the repo it was recorded against, so read against
- * another repo, every branch would look like one that repo lost: when
- * the repo noted differs, they all go. With none noted (heads recorded
- * before the repo was), they're taken as `name`'s. Whether any went.
+ * Make repo `name` the one noted. A sync head says what a branch last
+ * shared with a repo, and each is kept under the repo it's with, so
+ * another repo never reads it, and a repo connected again picks up
+ * where it left off. Heads kept before that are under no repo, and are
+ * taken up by the first repo to sync the branch: they were the noted
+ * repo's, so when the repo noted differs, they go, and the new repo
+ * doesn't take each branch as one it lost. With none noted (heads
+ * recorded before the repo was), they're `name`'s. Whether the repo
+ * noted changed.
  *
  * @param {{ store: import("@agex-ts/kvgit").KVStore, branches: { list(): Promise<string[]> } }} repo
  * @param {string} name
@@ -46,7 +50,8 @@ export async function adoptRepo(repo, name, noted) {
     const was = noted.get();
     if (was === name) return false;
     if (was !== null) {
-        for (const branch of await repo.branches.list()) await clearSyncHead(repo.store, branch);
+        // a remote with no id names the heads kept under none
+        for (const branch of await repo.branches.list()) await clearSyncHead(repo.store, branch, {});
     }
     noted.set(name);
     return was !== null;

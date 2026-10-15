@@ -1,4 +1,4 @@
-import { MemoryRemote, getSyncHead, syncBranch } from "@agex-ts/kvgit";
+import { MemoryRemote, getSyncHead, setSyncHead, syncBranch } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { Store } from "@agex-ts/world";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +60,46 @@ describe("sync heads against a repo", () => {
         expect(noted.get()).toBe("me/second");
         expect(await getSyncHead(kv, "s-1")).toBeNull();
         expect((await syncBranch(kv, new MemoryRemote(new Memory()), "s-1")).status).toBe("created");
+    });
+
+    it("kept under each repo stay through a change of repo, so one connected again picks up", async () => {
+        const store = await Store.open(new Memory());
+        const ws = await store.open("s-1");
+        ws.plane("studio").set("meta", { title: "one" });
+        await ws.autoCommit({ tool: "test" });
+        await ws.close();
+        const kv = store.repo.store;
+        const first = new MemoryRemote(new Memory(), { id: "github:me/first" });
+        const second = new MemoryRemote(new Memory(), { id: "github:me/second" });
+        const noted = noting(null);
+
+        expect(await adoptRepo(store.repo, "me/first", noted)).toBe(false);
+        expect((await syncBranch(kv, first, "s-1")).status).toBe("created");
+        expect(await adoptRepo(store.repo, "me/second", noted)).toBe(true);
+        expect(await getSyncHead(kv, "s-1", first)).not.toBeNull();
+        expect(await getSyncHead(kv, "s-1", second)).toBeNull();
+        expect((await syncBranch(kv, second, "s-1")).status).toBe("created");
+
+        // back to the first: it's level, not pushed again or taken as lost
+        expect(await adoptRepo(store.repo, "me/first", noted)).toBe(true);
+        expect((await syncBranch(kv, first, "s-1")).status).toBe("up-to-date");
+    });
+
+    it("kept under no repo go when another is connected, before it can take them up", async () => {
+        const store = await Store.open(new Memory());
+        const ws = await store.open("s-1");
+        ws.plane("studio").set("meta", { title: "one" });
+        await ws.autoCommit({ tool: "test" });
+        await ws.close();
+        const kv = store.repo.store;
+        const noted = noting("me/first");
+        // as a studio kept it before heads were kept per repo
+        await setSyncHead(kv, "s-1", /** @type {string} */ (await store.repo.branches.get("s-1")));
+        const second = new MemoryRemote(new Memory(), { id: "github:me/second" });
+
+        expect(await adoptRepo(store.repo, "me/second", noted)).toBe(true);
+        expect(await getSyncHead(kv, "s-1", second)).toBeNull();
+        expect((await syncBranch(kv, second, "s-1")).status).toBe("created");
     });
 
     it("recorded before the repo was noted are taken as the repo's", async () => {
