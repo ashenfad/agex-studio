@@ -11,6 +11,7 @@
  * accepts it, and what it has spent.
  */
 
+import { privacyOf } from "./openrouter-routing.js";
 import { getSettings } from "./settings.js";
 
 export const OPENROUTER_API = "https://openrouter.ai/api/v1";
@@ -39,10 +40,14 @@ export function routerKey(label) {
  * the response, once it is a 200. A failure is an error naming `label`
  * and what went wrong, the start of an error page at most.
  *
- * @param {{ label: string, path: string, body: unknown, timeout: number, fetchImpl?: typeof fetch }} opts
+ * @param {{ label: string, path: string, body: Record<string, any>, timeout: number, fetchImpl?: typeof fetch }} opts
  */
 export async function routerPost({ label, path, body, timeout, fetchImpl = fetch }) {
     const key = routerKey(label);
+    // the privacy settings hold for this request too, beside any
+    // provider preferences the call sets itself
+    const privacy = privacyOf(getSettings());
+    const sent = Object.keys(privacy).length === 0 ? body : { ...body, provider: { ...body.provider, ...privacy } };
     let r;
     try {
         r = await fetchImpl(`${OPENROUTER_API}${path}`, {
@@ -53,7 +58,7 @@ export async function routerPost({ label, path, body, timeout, fetchImpl = fetch
                 "HTTP-Referer": "https://agex.studio",
                 "X-Title": "Agex Studio",
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify(sent),
             signal: AbortSignal.timeout(timeout * 1000),
         });
     } catch (e) {

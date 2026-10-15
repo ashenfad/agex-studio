@@ -63,7 +63,8 @@ Click the **⚙** at the top right.
   tried first, falling back to others if it's down unless you tick
   **Only this provider**. Each model keeps its own choice.
 - **Skip providers that may train on my prompts** and **Zero data
-  retention only**, on OpenRouter, for every model: keep to providers
+  retention only**, on OpenRouter, for every request there (the
+  model's, and the agent's web search and media): keep to providers
   whose stated policy is not to store or train on prompts, or to
   endpoints that keep nothing of a request once it's answered. Fewer
   providers qualify; when none does, requests fail.
