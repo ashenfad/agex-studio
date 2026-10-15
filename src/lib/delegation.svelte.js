@@ -142,8 +142,9 @@ class Ended extends Error {
     }
 }
 
-/** @param {Sessions} helper */
-function cancelRunning(helper) {
+/** Stop every running delegate of `helper`: one that fails to stop
+ *  doesn't keep the rest running. @param {Sessions} helper */
+export function cancelRunning(helper) {
     for (const job of helper.list()) {
         if (job.status !== "running") continue;
         try {

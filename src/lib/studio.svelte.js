@@ -20,7 +20,7 @@ import { Inbox, Policy, Sessions, Store, commandFactory, wsGit } from "@agex-ts/
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
-import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
+import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, foldBudgetOf, thinkingOf, visionOf } from "./model.js";
 import { SKILLS } from "./skills/index.js";
 import { mediaHost } from "./media.js";
@@ -495,10 +495,13 @@ export class ChatSession {
 
     /** A delegate's turn ended: its record is read again. */
     async observed() {
-        await this.ws?.refresh();
-        await this.reload();
-        this.live = [];
-        this.busy = false;
+        try {
+            await this.ws?.refresh();
+            await this.#reloadAfter();
+        } finally {
+            this.live = [];
+            this.busy = false;
+        }
         void this.#measure();
     }
 
@@ -533,6 +536,17 @@ export class ChatSession {
         this.appStamp += 1;
         this.filesStamp += 1;
         void this.#measure();
+    }
+
+    /** Read the record again once a turn or a fold has ended: a failure
+     *  is told in `error` (beside any the turn left), not thrown, so
+     *  what ends the turn still runs. */
+    async #reloadAfter() {
+        try {
+            await this.reload();
+        } catch (e) {
+            this.error ??= `couldn't read the session back: ${e instanceof Error ? e.message : String(e)}`;
+        }
     }
 
     /** The next request's size, read again between turns. */
@@ -578,7 +592,7 @@ export class ChatSession {
             } finally {
                 this.#turn = null;
                 this.folding = false;
-                await this.reload();
+                await this.#reloadAfter();
                 await this.#saving;
                 this.onMeta();
                 // answers that landed while it folded
@@ -647,14 +661,16 @@ export class ChatSession {
         this.#wakeOk = true;
         this.#wakeNoted = false;
         this.notice = null;
-        if (this.busy) {
-            const note = this.inbox.put(prompt);
-            this.queued = [...this.queued, { id: note.id, text: prompt }];
-            return;
-        }
-        // a fold being written goes first: the turn starts from it
-        await this.#folding;
-        await this.#held;
+        if (this.busy) return this.#queue(prompt);
+        // a fold being written, or a sync of this session, goes first: the
+        // turn starts from it; a turn another call started meanwhile (a
+        // message sent beside this one, answers waking the session) takes
+        // this one as a note
+        do {
+            await this.#folding;
+            await this.#held;
+        } while (this.folding || this.#held !== null);
+        if (this.busy) return this.#queue(prompt);
         const ws = this.ws;
         if (ws === null) throw new Error("the session isn't open");
         const session = this.#session(ws);
@@ -665,6 +681,13 @@ export class ChatSession {
                 apply(event);
             }
         }, prompt);
+    }
+
+    /** Queue `prompt` for the turn running, to ride its next tool result.
+     *  @param {string} prompt */
+    #queue(prompt) {
+        const note = this.inbox.put(prompt);
+        this.queued = [...this.queued, { id: note.id, text: prompt }];
     }
 
     /** Take back a message still waiting for the turn running; whether
@@ -725,7 +748,7 @@ export class ChatSession {
                 this.#turn = null;
                 // a woken turn that found nothing waiting opened on nothing
                 this.#awaitingOpening = false;
-                await this.reload();
+                await this.#reloadAfter();
                 this.live = [];
                 this.busy = false;
                 this.#ended();
@@ -1015,7 +1038,7 @@ export class ChatSession {
     async close() {
         // its delegates stop with it: closing waits for running ones
         if (this.helper !== null) {
-            for (const job of this.helper.list()) if (job.status === "running") this.helper.cancel(job.name);
+            cancelRunning(this.helper);
             await this.helper.close();
             this.helper = null;
         }
@@ -1383,8 +1406,8 @@ export class Studio {
 
     /**
      * Session `name` as a bundle: `everything` (its history) or `current`
-     * (as it is now; see `snapshot.js`). What a turn left pending here
-     * is committed first.
+     * (as it is now; see `snapshot.js`), with the title it carries. What
+     * a turn left pending here is committed first.
      *
      * @param {string} name @param {"everything" | "current"} shape
      */
@@ -1409,7 +1432,7 @@ export class Studio {
         } else {
             bytes = await encodeBundle(kv, head, { title, shape });
         }
-        return { bytes, fileName: bundleFileName(title) };
+        return { bytes, fileName: bundleFileName(title), title };
     }
 
     /**
@@ -1426,8 +1449,7 @@ export class Studio {
         const token = s.publishToken.trim() || s.syncToken.trim();
         if (token === "") throw new Error("publishing needs a GitHub token with gist access: add one in settings");
         const prior = fresh ? null : await this.published(name);
-        const { bytes } = await this.exportBundle(name, shape);
-        const title = this.sessions.find((x) => x.name === name)?.title || "Untitled";
+        const { bytes, title } = await this.exportBundle(name, shape);
         const gist = await publishGist({ token, title, bytes, existing: prior });
         const store = await openStore();
         const open = this.#open.get(name)?.ws ?? null;
@@ -1535,8 +1557,8 @@ export class Studio {
         const view = await store.resolve(name);
         const untouched = (await view.log({ limit: 1 }))[0]?.info?.tool === "studio.adopt";
         await view.close();
-        delete this.updates[name];
         await this.importBundle(bytes, { gist: { ...gist, revision: latest } });
+        delete this.updates[name];
         if (untouched && this.current?.name !== name) await this.remove(name);
     }
 
