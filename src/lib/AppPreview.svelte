@@ -14,7 +14,7 @@
      * an app, and rebuilds when asked.
      */
     import { onDestroy, untrack } from 'svelte'
-    import { callDone, callStarted, setLiveIframe } from './app-control.js'
+    import { callStarted, callsLost, setLiveIframe } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
@@ -154,21 +154,23 @@
             return
         }
         if (data.type === 'agex-bridge-ready') {
-            // the app's page is up, and test_app can act on it again
+            // the app's page is up, and test_app can act on it again; the
+            // calls a page before it made will reach no one
             pageLoaded(iframe)
+            callsLost(iframe)
             return
         }
         if (data.type === 'agex-cache-get') {
             const { id, key } = data
             const frame = iframe
-            callStarted(frame)
+            const done = callStarted(frame)
             try {
                 const value = await session.ws?.cache.get(String(key))
                 replyToApp(frame, { type: 'agex-cache-get-result', id, data: value ?? null, error: null })
             } catch (e) {
                 replyToApp(frame, { type: 'agex-cache-get-result', id, data: null, error: e instanceof Error ? e.message : String(e) })
             } finally {
-                callDone(frame)
+                done()
             }
             return
         }
@@ -184,7 +186,7 @@
         }
         if (data.type === 'agex-task') {
             const frame = iframe
-            callStarted(frame)
+            const done = callStarted(frame)
             // an app opened from elsewhere asks before spending the viewer's key
             const ask = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null
             try {
@@ -193,7 +195,7 @@
             } catch (e) {
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: e instanceof Error ? e.message : String(e) })
             } finally {
-                callDone(frame)
+                done()
             }
             return
         }

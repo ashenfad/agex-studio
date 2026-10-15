@@ -13,8 +13,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
     _enforceTotalCap,
-    callDone,
     callStarted,
+    callsLost,
     capResults,
     executeActions,
     resolveViewport,
@@ -285,10 +285,10 @@ describe("waitForIdle", () => {
             const p = waitForIdle(iframe, 15000, 400);
             // a click set off an agent task, which takes seconds
             await vi.advanceTimersByTimeAsync(100);
-            callStarted(iframe);
+            const done = callStarted(iframe);
             await vi.advanceTimersByTimeAsync(3000);
             expect(await settled(p)).toBe(false);
-            callDone(iframe);
+            done();
             await vi.advanceTimersByTimeAsync(399);
             expect(await settled(p)).toBe(false);
             await vi.advanceTimersByTimeAsync(1);
@@ -302,13 +302,54 @@ describe("waitForIdle", () => {
         vi.useFakeTimers();
         try {
             const iframe = {};
-            callStarted(iframe);
+            const done = callStarted(iframe);
             const p = waitForIdle(iframe, 15000, 400);
             await vi.advanceTimersByTimeAsync(1000);
             expect(await settled(p)).toBe(false);
-            callDone(iframe);
+            done();
             await vi.advanceTimersByTimeAsync(400);
             expect(await settled(p)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("settles every wait on the frame, not just the latest", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = {};
+            const done = callStarted(iframe);
+            const first = waitForIdle(iframe, 15000, 400);
+            const second = waitForIdle(iframe, 15000, 400);
+            await vi.advanceTimersByTimeAsync(1000);
+            done();
+            await vi.advanceTimersByTimeAsync(400);
+            expect(await settled(first)).toBe(true);
+            expect(await settled(second)).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("stops counting the calls a page made once it reloads", async () => {
+        vi.useFakeTimers();
+        try {
+            const iframe = {};
+            const old = callStarted(iframe);
+            callsLost(iframe);
+            const p = waitForIdle(iframe, 15000, 400);
+            await vi.advanceTimersByTimeAsync(400);
+            expect(await settled(p)).toBe(true);
+            // a call of the new page counts, and the old one's late
+            // answer doesn't take it off
+            const now = callStarted(iframe);
+            const q = waitForIdle(iframe, 15000, 400);
+            old();
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(await settled(q)).toBe(false);
+            now();
+            await vi.advanceTimersByTimeAsync(400);
+            expect(await settled(q)).toBe(true);
         } finally {
             vi.useRealTimers();
         }
