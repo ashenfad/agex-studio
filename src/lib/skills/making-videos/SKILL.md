@@ -198,6 +198,44 @@ that plays once and then scrubs wrong:
 - `<video>` and `<audio>` are timed by the runtime when they are clips
   with `data-start`; do not call `.play()` on them yourself.
 
+## What makes it flicker
+
+`#frame` scales the 1920×1080 stage to fit the window with a CSS
+`transform`, so everything on the stage is drawn at the window's size,
+every frame. Some effects are cheap to draw once and too slow to draw
+that large on every frame. When the browser falls behind, layers flash
+or vanish for a frame, worst while the window is enlarged or resized.
+
+- **No large `filter: blur()`** on anything big or on screen for long:
+  glows, backgrounds, whole scenes. For a soft glow, put a radial
+  gradient on a plain element. It looks the same and is cheap to draw:
+  ```css
+  /* Before: a blur redrawn at the window's size every frame */
+  .glow { width: 900px; height: 900px; border-radius: 50%;
+          background: #7c3aed; filter: blur(120px); }
+  /* After */
+  .glow { width: 1300px; height: 1300px;
+          background: radial-gradient(circle closest-side, #7c3aed, transparent); }
+  ```
+- **No `backdrop-filter`** on the stage.
+- **No blur in the scene wrappers.** `.scene-in` and `.scene-out` cover
+  the whole stage, so a filter on them is a filter over everything. Fade
+  with `opacity` and move with `transform`.
+- **Animate `transform` and `opacity`** for anything that runs for more
+  than a moment, not `background-position`, `width`, `filter` or
+  `box-shadow`, which redraw the element on every frame. To scroll a
+  pattern, move an inner layer with `translate`, not the background.
+- **A short blur on one small element as it enters** (a word sliding
+  in) is fine. The ones to avoid are large, long-running, or over the
+  whole stage.
+- **Heavy blurs slow the Export as well.** It draws every frame of
+  `#root` through html-to-image (see "Exporting a file"), and a large
+  blur makes each of those frames slower to draw.
+
+`test_app` screenshots won't show a flicker: each is one still frame,
+drawn with no time pressure. Keep to these rules from the start rather
+than counting on a check to catch it.
+
 ## Narration, music and generated images
 
 `media` (see `/workspace/skills/media/SKILL.md`) narrates, scores and
@@ -437,3 +475,6 @@ A video is done when:
    voice where the scene's timing says.
 4. `window.exportVideo({ to: 2 })` made a file, and the page's Export
    button is there.
+5. Nothing large on the stage is blurred, nothing uses
+   `backdrop-filter`, and whatever animates for long does it with
+   `transform` and `opacity`.
