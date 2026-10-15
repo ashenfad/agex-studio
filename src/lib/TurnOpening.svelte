@@ -11,7 +11,7 @@
     import { studio } from './studio.svelte.js'
     import UserBubble from './UserBubble.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, onUndo?: () => void, onEdit?: () => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, text: string, onUndo?: () => void, onEdit?: () => void }} */
     let { session, text, onUndo, onEdit } = $props()
 
     /** Delegates' answers the opening delivered: shown as cards. */

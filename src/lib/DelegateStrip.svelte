@@ -7,7 +7,7 @@
     import { doing } from './delegation.svelte.js'
     import { studio } from './studio.svelte.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession }} */
     let { session } = $props()
 
     const shown = $derived(session.jobs.filter((j) => j.status === 'running' || session.unread.includes(j.name)))

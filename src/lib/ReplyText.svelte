@@ -15,7 +15,7 @@
     import { fileLinkTarget, renderMarkdown } from './markdown.js'
     import { renderMermaidBlocks } from './mermaid.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
     let { session, text, at = null, live = false } = $props()
 
     const parts = $derived(splice(text))

@@ -3,8 +3,8 @@
 What the agent can do in a session: the tools a turn hands the model,
 the TypeScript kernel behind `run_ts`, the studio's host objects, the
 skills, and `ui` artifacts. The tools and the kernel are the world's
-(`@agex-ts/world`); `PROFILE` in `studio.svelte.js` is what the studio
-grants every session.
+(`@agex-ts/world`); `PROFILE` in `profile.js` is what the studio grants
+every session.
 
 ## The tools
 
@@ -85,7 +85,7 @@ schemas before the method runs) that code calls with `await`:
   (`agex.task({ name, instructions, params, returns })`, the types as
   JSON Schema) and calls like a function, or `.map`s over a list. Each
   call runs a helper agent on the person's model (`currentModel` in
-  `studio.svelte.js`, a provider built from the settings at each
+  `profile.js`, a provider built from the settings at each
   request, since one agent serves every session for the page's life),
   in a scratch world of its own in memory: not a delegate, so no
   branch, no strip and no waking. `run_ts`'s description carries

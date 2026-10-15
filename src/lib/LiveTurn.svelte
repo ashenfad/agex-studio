@@ -7,7 +7,7 @@
     import { notesIn } from './notes.js'
     import TurnOpening from './TurnOpening.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, prompt: string, parts: import('./studio.svelte.js').LivePart[] }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, prompt: string, parts: import('./session.svelte.js').LivePart[] }} */
     let { session, prompt, parts } = $props()
 
     const items = $derived(

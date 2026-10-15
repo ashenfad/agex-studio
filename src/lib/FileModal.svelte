@@ -9,7 +9,7 @@
     import { fileLinkTarget, renderMarkdown } from './markdown.js'
     import { renderMermaidBlocks } from './mermaid.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, onClose: () => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, path: string, onClose: () => void }} */
     let { session, path, onClose } = $props()
 
     const ROOT = '/workspace'

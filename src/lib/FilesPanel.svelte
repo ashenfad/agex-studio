@@ -8,7 +8,7 @@
     import { pickFromDrive } from './drive-import.js'
     import FileModal from './FileModal.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession }} */
     let { session } = $props()
 
     /** The folders closed, by path. */

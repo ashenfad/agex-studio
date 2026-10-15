@@ -8,7 +8,7 @@
     import { catalogStore, modelInfo } from './openrouter-models.js'
     import { settingsStore } from './settings.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession }} */
     let { session } = $props()
 
     let open = $state(false)

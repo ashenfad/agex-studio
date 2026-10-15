@@ -6,6 +6,7 @@
      * deleting it (with sync on, from this device or everywhere).
      */
     import { untrack } from 'svelte'
+    import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
     import { sync } from './sync.svelte.js'
 
@@ -59,7 +60,7 @@
     /** @param {'everything' | 'current'} shape */
     function exportAs(shape) {
         return act(async () => {
-            const { bytes, fileName } = await studio.exportBundle(name, shape)
+            const { bytes, fileName } = await distribution.exportBundle(name, shape)
             const a = document.createElement('a')
             a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }))
             a.download = fileName

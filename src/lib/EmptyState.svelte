@@ -6,7 +6,7 @@
      */
     import { isConfigured, settingsStore } from './settings.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, onSettings: () => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, onSettings: () => void }} */
     let { session, onSettings } = $props()
 
     const EXAMPLES = [

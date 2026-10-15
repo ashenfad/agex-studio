@@ -10,7 +10,7 @@
     import { isDriveImportAvailable } from './drive-import.js'
     import FilesPanel from './FilesPanel.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, fullscreen?: boolean, onFullscreen?: (on: boolean) => void }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, fullscreen?: boolean, onFullscreen?: (on: boolean) => void }} */
     let { session, fullscreen = false, onFullscreen } = $props()
 
     /** @type {'app' | 'files'} */

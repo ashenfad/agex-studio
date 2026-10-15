@@ -13,7 +13,7 @@
     import ToolGroup from './ToolGroup.svelte'
     import UserBubble from './UserBubble.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, items: import('./activity.js').Item[], streaming?: boolean, at?: string | null }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, items: import('./activity.js').Item[], streaming?: boolean, at?: string | null }} */
     let { session, items, streaming = false, at = null } = $props()
 
     const groups = $derived(groupWork(items, { streaming }))

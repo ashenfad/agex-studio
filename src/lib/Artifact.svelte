@@ -13,7 +13,7 @@
     import Deferred from './Deferred.svelte'
     import PlotlyChart from './PlotlyChart.svelte'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, name?: string, at?: string | null }} */
+    /** @type {{ session: import('./session.svelte.js').ChatSession, path: string, name?: string, at?: string | null }} */
     let { session, path, name = '', at = null } = $props()
 
     const IMAGE_TYPES = /** @type {Record<string, string>} */ ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' })

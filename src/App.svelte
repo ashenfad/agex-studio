@@ -18,6 +18,7 @@
     import { onNotificationClick } from './lib/notify.js'
     import SplitPane from './lib/SplitPane.svelte'
     import { overall } from './lib/status.js'
+    import { distribution } from './lib/distribution.svelte.js'
     import { studio } from './lib/studio.svelte.js'
     import { sync } from './lib/sync.svelte.js'
     import Workbench from './lib/Workbench.svelte'
@@ -142,7 +143,7 @@
             }
             if (gistParam !== null) {
                 try {
-                    await studio.openGist(gistParam)
+                    await distribution.openGist(gistParam)
                 } catch (e) {
                     opening = e instanceof Error ? e.message : String(e)
                     playing = false
@@ -154,7 +155,7 @@
             }
             // every session against the repo, on arrival and on coming back
             void sync.sweep({ force: true })
-            void studio.checkUpdates()
+            void distribution.checkUpdates()
         })()
         const back = () => {
             if (document.visibilityState === 'visible') void sync.sweep()
