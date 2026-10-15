@@ -10,22 +10,24 @@
 import { hostFactory, typedHost, withCall } from "@agex-ts/world";
 import { z } from "zod";
 import { inWorkspace, parentOf, writeFile } from "./ws-paths.js";
+import { loadModule, PDFJS_URL, PDFJS_WORKER_URL } from "./cdn.js";
 
-const PDFJS_CDN = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build";
 
 /** The pages rendered when none are named: bounds "render this PDF"
  *  against an 800-page document. */
 export const DEFAULT_PAGES = 20;
 
-/** @type {any} */
+/** A stand-in for pdf.js a test has set, or null. @type {any} */
 let pdfjs = null;
 
+/** pdf.js, pointed at its worker, loaded once; a failed load is tried
+ *  again on the next call. */
 async function loadPdfjs() {
     if (pdfjs !== null) return pdfjs;
-    const mod = await import(/* @vite-ignore */ `${PDFJS_CDN}/pdf.min.mjs`);
-    mod.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.mjs`;
-    pdfjs = mod;
-    return mod;
+    return loadModule(PDFJS_URL, (mod) => {
+        mod.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+        return mod;
+    });
 }
 
 /** Test seam: a stand-in for pdf.js, with its `getDocument({data})

@@ -1,52 +1,57 @@
 <script>
+    /**
+     * A Plotly figure (`{data, layout}`), drawn in the studio's dark
+     * look: its layout's own settings win over the transparent ground,
+     * muted text and faint grid given here. Plotly loads from the CDN
+     * once, on the first chart, for every chart that asks; a chart says
+     * so quietly when it can't load.
+     */
     import { tick } from 'svelte'
+    import { loadScript, PLOTLY_URL } from './cdn.js'
 
-    /** @type {{ figure: object }} */
+    /** @type {{ figure: any }} */
     let { figure } = $props()
 
     const GRID = 'rgba(255, 255, 255, 0.1)'
 
+    /** @type {HTMLDivElement | null} */
     let container = $state(null)
     let loaded = $state(false)
-
-    // Lazy-load Plotly.js
-    async function loadPlotly() {
-        if (window.Plotly) return window.Plotly
-        return new Promise((resolve, reject) => {
-            const script = document.createElement('script')
-            script.src = 'https://cdn.plot.ly/plotly-2.35.2.min.js'
-            script.onload = () => resolve(window.Plotly)
-            script.onerror = () => reject(new Error('Failed to load Plotly.js'))
-            document.head.appendChild(script)
-        })
-    }
+    /** Plotly didn't load, so there's no chart to draw. */
+    let failed = $state(false)
 
     $effect(() => {
         if (!container || !figure) return
+        const el = container
         let cancelled = false
+        failed = false
 
-        loadPlotly().then(async (Plotly) => {
-            if (cancelled) return
-            await tick()
-            const figLayout = figure.layout || {}
-            const layout = {
-                ...figLayout,
-                template: 'plotly_dark',
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                font: { color: '#b0b0b0', size: 12, ...figLayout.font },
-                // a template named by string isn't applied here: the dark
-                // look's grid is given directly
-                xaxis: { automargin: true, gridcolor: GRID, zerolinecolor: GRID, ...figLayout.xaxis },
-                yaxis: { automargin: true, gridcolor: GRID, zerolinecolor: GRID, ...figLayout.yaxis },
-                autosize: true,
-            }
-            Plotly.newPlot(container, figure.data || [], layout, {
-                responsive: true,
-                displayModeBar: false,
-            })
-            loaded = true
-        })
+        loadScript(PLOTLY_URL, 'Plotly').then(
+            async (Plotly) => {
+                if (cancelled) return
+                await tick()
+                const figLayout = figure.layout || {}
+                const layout = {
+                    ...figLayout,
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    font: { color: '#b0b0b0', size: 12, ...figLayout.font },
+                    xaxis: { automargin: true, gridcolor: GRID, zerolinecolor: GRID, ...figLayout.xaxis },
+                    yaxis: { automargin: true, gridcolor: GRID, zerolinecolor: GRID, ...figLayout.yaxis },
+                    autosize: true,
+                }
+                Plotly.newPlot(el, figure.data || [], layout, {
+                    responsive: true,
+                    displayModeBar: false,
+                })
+                loaded = true
+            },
+            (e) => {
+                if (cancelled) return
+                console.warn("Plotly didn't load:", e)
+                failed = true
+            },
+        )
 
         // `responsive` follows the window; the chart's own width changes
         // too (the split dragged, the chat unfolded, the workbench hidden)
@@ -55,23 +60,25 @@
             const now = Math.round(entry?.contentRect.width ?? 0)
             if (now === width) return
             width = now
-            if (now > 0 && loaded && window.Plotly) window.Plotly.Plots.resize(container)
+            const Plotly = /** @type {any} */ (window).Plotly
+            if (now > 0 && loaded && Plotly) Plotly.Plots.resize(el)
         })
-        observer.observe(container)
+        observer.observe(el)
 
         return () => {
             observer.disconnect()
             cancelled = true
-            if (container && window.Plotly) {
-                window.Plotly.purge(container)
-            }
+            const Plotly = /** @type {any} */ (window).Plotly
+            if (Plotly) Plotly.purge(el)
         }
     })
 </script>
 
 <div class="plotly-wrapper">
-    {#if !loaded}
-        <div class="loading">Loading chart...</div>
+    {#if failed}
+        <div class="loading">This chart couldn't be drawn: Plotly didn't load.</div>
+    {:else if !loaded}
+        <div class="loading">Loading chart…</div>
     {/if}
     <div bind:this={container} class="plotly-container"></div>
 </div>
