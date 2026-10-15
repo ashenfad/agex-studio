@@ -366,6 +366,13 @@ const CDN_IMPORTS = {
 };
 
 /**
+ * The query an auto-resolved esm.sh package is asked for with: its own
+ * imports of these left bare, for the import map to resolve to
+ * `CDN_IMPORTS`' pinned Preact (React aliased to it).
+ */
+const SHARED_RUNTIME = '?external=preact,react,react-dom';
+
+/**
  * Does the app use Plotly? It's a global the page loads from a script
  * (a few MB, render-blocking), so only a page whose own code names it
  * gets it: `Plotly.newPlot(...)`, `window.Plotly`, `typeof Plotly`, in
@@ -427,8 +434,8 @@ function _packageRoot(spec) {
 /**
  * Scan JS source for bare module specifiers. Catches static
  * `import ... from 'pkg'` / `import 'pkg'` / `export ... from 'pkg'`
- * and dynamic `import('pkg')`. Returns a Set of unique package roots
- * (sub-paths collapsed). Best-effort regex — false positives (e.g.
+ * and dynamic `import('pkg')`. Returns a Set of the unique specifiers,
+ * as written. Best-effort regex — false positives (e.g.
  * `from 'foo'` text inside a string literal or comment) just produce
  * unused import-map entries, which are harmless.
  *
@@ -446,7 +453,7 @@ function _extractBareImports(source) {
         let m;
         while ((m = re.exec(source)) !== null) {
             const spec = m[1];
-            if (_isBareSpecifier(spec)) out.add(_packageRoot(spec));
+            if (_isBareSpecifier(spec)) out.add(spec);
         }
     }
     return out;
@@ -638,8 +645,17 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     // plus every inline `<script type="module">` block for bare
     // imports (e.g. `import { Bar } from 'recharts'`,
     // `import * as Dialog from '@radix-ui/react-dialog'`). For each
-    // package root not already covered by CDN_IMPORTS, add both the
-    // bare and trailing-slash forms pointing at esm.sh.
+    // package not already covered by CDN_IMPORTS, map the specifier as
+    // written and its package's bare and trailing-slash forms to esm.sh.
+    //
+    // The specifiers seen are asked for with `SHARED_RUNTIME`: esm.sh
+    // leaves the package's own imports of Preact and React bare, so
+    // they come through this map to the one pinned Preact. Asked for
+    // plainly, esm.sh resolves them itself: a Preact library brings a
+    // second Preact (hooks and context don't reach across the two),
+    // and a React one brings React. The trailing-slash form can't
+    // carry the option; it's only reached by a subpath built at run
+    // time, which the scan doesn't see.
     //
     // Means agents can use any npm package transparently — no studio-
     // side import-map config per library, no direct-URL imports
@@ -654,9 +670,11 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
         moduleScripts.push(match[1]);
     }
     const bareSpecs = _extractBareImports(moduleScripts.join('\n'));
-    for (const pkg of bareSpecs) {
+    for (const spec of bareSpecs) {
+        const pkg = _packageRoot(spec);
         if (pkg in CDN_IMPORTS) continue;
-        appImports[pkg] = `https://esm.sh/${pkg}`;
+        appImports[spec] = `https://esm.sh/${spec}${SHARED_RUNTIME}`;
+        appImports[pkg] ??= `https://esm.sh/${pkg}${SHARED_RUNTIME}`;
         appImports[pkg + '/'] = `https://esm.sh/${pkg}/`;
     }
 

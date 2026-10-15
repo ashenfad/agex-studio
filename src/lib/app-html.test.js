@@ -117,6 +117,32 @@ describe('the import map', () => {
         // no esm.sh copy of its own: htm is pinned
         expect(Object.keys(imports).filter((k) => k.startsWith('htm'))).toEqual(['htm', 'htm/'])
     })
+
+    it('leaves a package’s Preact and React to the one pinned Preact', async () => {
+        const html = await buildAppHtml(
+            {
+                'app/main.js': [
+                    "import { signal } from '@preact/signals'",
+                    "import { useState } from 'preact/hooks'",
+                    "import { LineChart } from 'recharts'",
+                    "import { Cell } from 'recharts/lib/component/Cell'",
+                    'console.log(signal, useState, LineChart, Cell)',
+                ].join('\n'),
+            },
+            { workerSources: {} },
+        )
+        const imports = JSON.parse(html.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]).imports
+        const shared = '?external=preact,react,react-dom'
+        expect(imports['@preact/signals']).toBe(`https://esm.sh/@preact/signals${shared}`)
+        expect(imports.recharts).toBe(`https://esm.sh/recharts${shared}`)
+        expect(imports['recharts/lib/component/Cell']).toBe(`https://esm.sh/recharts/lib/component/Cell${shared}`)
+        // what they leave bare comes to the pinned copy
+        for (const spec of ['preact', 'react', 'react-dom', 'react/jsx-runtime']) {
+            expect(imports[spec]).toMatch(/^https:\/\/esm\.sh\/preact@10\.25\.4(\/|$)/)
+        }
+        expect(imports.preact).toBe('https://esm.sh/preact@10.25.4')
+        expect(imports['preact/hooks']).toBeUndefined()
+    })
 })
 
 describe('Plotly', () => {
