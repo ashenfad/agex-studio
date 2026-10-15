@@ -4,7 +4,7 @@
 // but mis-sanitizes (drops <strong>, passes <script> through), so the
 // sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
-import { renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
+import { fileLinkTarget, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
 
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
@@ -294,3 +294,21 @@ describe("renderTableCell", () => {
         expect(renderTableCell(null)).toBe("");
     });
 });
+
+describe("fileLinkTarget", () => {
+    it("opens what the renderer wrote, relative to /workspace", () => {
+        expect(fileLinkTarget("/workspace/notes/plan.md")).toBe("notes/plan.md");
+    });
+
+    it("opens nothing for a value raw HTML could set that the renderer wouldn't", () => {
+        for (const raw of ["/workspace/../../secret", "/workspace/a/../b.md", "notes/plan.md", "/etc/passwd", "/workspace", "", null]) {
+            expect(fileLinkTarget(raw)).toBeNull();
+        }
+    });
+
+    it("keeps a raw-HTML attribute through sanitizing, which is why it's checked on click", () => {
+        const html = renderMarkdown('<a data-ws-path="/workspace/../../secret" href="#">x</a>');
+        expect(html).toContain('data-ws-path="/workspace/../../secret"');
+    });
+});
+

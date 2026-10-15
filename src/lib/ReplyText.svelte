@@ -8,7 +8,7 @@
     import { splice } from './artifacts.js'
     import Artifact from './Artifact.svelte'
     import FileModal from './FileModal.svelte'
-    import { renderMarkdown } from './markdown.js'
+    import { fileLinkTarget, renderMarkdown } from './markdown.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null }} */
     let { session, text, at = null } = $props()
@@ -25,7 +25,8 @@
         const a = e.target instanceof Element ? e.target.closest('a[data-ws-path]') : null
         if (a === null) return
         e.preventDefault()
-        opened = (a.getAttribute('data-ws-path') ?? '').replace(/^\/workspace\//, '')
+        // a value the renderer didn't write (raw HTML can set it) opens nothing
+        opened = fileLinkTarget(a.getAttribute('data-ws-path'))
     }
 </script>
 
