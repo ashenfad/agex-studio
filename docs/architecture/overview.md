@@ -119,8 +119,9 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   its own model), its key and model (OpenRouter's picked from its
   catalog with `ModelPicker`), and thinking up front; under the
   OpenRouter key, whether OpenRouter accepts it and what it has spent
-  today and this month (a limit, the free tier and spending through
-  the person's own provider keys in its tooltip) (`RouterKeyCheck`, asking OpenRouter's `/key` as the dialog opens and
+  today and this month, with a "more" toggle for a limit, the free
+  tier and spending through the person's own provider keys
+  (`RouterKeyCheck`, asking OpenRouter's `/key` as the dialog opens and
   once typing pauses, a stale answer dropped; the link to make a key
   only while there's none or a rejected one). The rest is under
   **Advanced**, collapsed, its header summing up what's set: provider

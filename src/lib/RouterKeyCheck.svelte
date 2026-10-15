@@ -1,7 +1,7 @@
 <script>
     /** A line under the OpenRouter key field: whether OpenRouter accepts
      *  the key, and what it has spent today and this month (the rest, as
-     *  a limit, in its tooltip). A key already there is checked at
+     *  a limit, behind a "more" toggle). A key already there is checked at
      *  once; one being typed, once the typing pauses. Nothing shows for
      *  an empty field. */
     import { checkRouterKey, keyUsageLine, keyUsageMore } from './openrouter-api.js'
@@ -24,6 +24,10 @@
 
     /** @type {import('./openrouter-api.js').KeyCheck | 'checking' | null} */
     let check = $state(null)
+    /** The rest of an accepted key's figures (a limit, the free tier,
+     *  own provider keys) shown, from a toggle that a tap or the keyboard
+     *  reaches. */
+    let showMore = $state(false)
     /** The key the dialog opened with is checked without waiting. */
     let opening = true
 
@@ -56,7 +60,13 @@
     {#if check.ok === true}
         {@const usage = keyUsageLine(check)}
         {@const more = keyUsageMore(check)}
-        <p class="key-check" title={more}><span class="ok">✓ Key accepted</span>{usage ? ` · ${usage}` : ''}</p>
+        <p class="key-check">
+            <span class="ok">✓ Key accepted</span>{usage ? ` · ${usage}` : ''}
+            {#if more}
+                <button type="button" class="more" aria-expanded={showMore} onclick={() => (showMore = !showMore)}>{showMore ? 'less' : 'more'}</button>
+            {/if}
+        </p>
+        {#if more && showMore}<p class="key-check">{more}</p>{/if}
     {:else if check.reason === 'rejected'}
         <p class="key-check rejected">OpenRouter doesn't accept this key</p>
     {:else}
@@ -72,6 +82,16 @@
     }
     .ok {
         color: var(--success);
+    }
+    .more {
+        background: none;
+        border: none;
+        padding: 0 0.15rem;
+        font: inherit;
+        color: var(--accent);
+        cursor: pointer;
+        text-decoration: underline dotted;
+        text-underline-offset: 2px;
     }
     .rejected {
         color: var(--caution, #d9a441);
