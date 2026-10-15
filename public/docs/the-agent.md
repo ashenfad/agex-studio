@@ -39,6 +39,9 @@ chips on the message, which names them to the agent when you send it.
 The **Files** tab (beside **App**) adds files too, without naming them
 in a message.
 
+When the agent points you at a file in its reply, the file's name is a
+link: click it to read the file as it is now.
+
 ## While it works
 
 - **Stop** (the send button, while it works) ends the turn. Delegates

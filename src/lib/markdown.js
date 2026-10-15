@@ -22,19 +22,74 @@ marked.setOptions({ breaks: true });
  * bundle (gist links), so the markdown source is untrusted. marked
  * passes raw HTML through by default; DOMPurify strips script
  * vectors (event handlers, javascript: URLs, <script>) while
- * keeping the tags our renderers emit. `data-vfs-path` survives
+ * keeping the tags our renderers emit. `data-ws-path` survives
  * via DOMPurify's default data-* allowance; explicit ADD_ATTR
  * guards against that default ever being turned off.
  */
 function sanitize(html) {
-    return DOMPurify.sanitize(html, { ADD_ATTR: ["data-vfs-path"] });
+    return DOMPurify.sanitize(html, { ADD_ATTR: ["data-ws-path"] });
+}
+
+/** The workspace's root, which file links resolve against. */
+const WORKSPACE = "/workspace";
+
+/**
+ * What a link's href points at: null for a URL (a scheme like
+ * `https:` or `mailto:`, a protocol-relative `//host/…`, a fragment
+ * `#…`, a root path outside /workspace), which renders as an ordinary
+ * link; otherwise a path in the workspace, `{ path }` with the file's
+ * normalized absolute path, or `{ path: null }` when it names no file
+ * there (a `..` that climbs above /workspace, /workspace itself).
+ *
+ * A path is absolute under /workspace (`/workspace/notes/plan.md`) or
+ * relative to it (`notes/plan.md`, `./notes/plan.md`). A query or
+ * fragment on it is dropped, and %-escapes are decoded (`my%20plan.md`).
+ *
+ * @param {string} href
+ * @returns {{ path: string | null } | null}
+ */
+function resolveLink(href) {
+    let path = String(href ?? "").trim();
+    if (path === "" || path.startsWith("#") || path.startsWith("//")) return null;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+    if (path.startsWith("/")) {
+        if (path !== WORKSPACE && !/^\/workspace[/?#]/.test(path)) return null;
+        path = path.slice(WORKSPACE.length);
+    }
+    path = path.replace(/[?#].*$/, "");
+    try {
+        path = decodeURIComponent(path);
+    } catch {
+        return { path: null };
+    }
+    /** @type {string[]} */
+    const parts = [];
+    for (const part of path.split("/")) {
+        if (part === "" || part === ".") continue;
+        if (part === "..") {
+            if (parts.length === 0) return { path: null };
+            parts.pop();
+        } else parts.push(part);
+    }
+    return { path: parts.length === 0 ? null : `${WORKSPACE}/${parts.join("/")}` };
+}
+
+/**
+ * The workspace file a link's href names, as a normalized absolute
+ * path (`/workspace/notes/plan.md`), or null when it names none.
+ *
+ * @param {string} href
+ */
+export function workspacePath(href) {
+    return resolveLink(href)?.path ?? null;
 }
 
 // Custom renderer:
 // - mermaid code blocks → <pre class="mermaid"> for client-side rendering
-// - vfs: scheme links   → <a class="vfs-download"> for inline file
-//                         downloads from the agent's VFS.  See the click
-//                         handler in vfs-download.js.
+// - a link to a workspace file → <a class="ws-file" data-ws-path="…">,
+//   which a host with the session at hand (ReplyText) opens in the
+//   file viewer on click; an href that tries to leave /workspace
+//   renders as its text alone.
 const renderer = new marked.Renderer();
 const origCode = renderer.code.bind(renderer);
 const origLink = renderer.link.bind(renderer);
@@ -97,22 +152,24 @@ renderer.blockquote = function (token) {
     }
     return origBlockquote(token);
 };
+/** @param {import("marked").Tokens.Link} token */
 renderer.link = function (token) {
-    const { href, title, text } = token;
-    if (href && href.startsWith("vfs:")) {
-        const path = href.slice(4);
-        // Round-trip through encodeURIComponent so attribute escaping
-        // can't be broken by paths containing quotes or angle brackets.
-        // Slashes are preserved for human readability (paths look like
-        // paths in DOM inspectors).
-        const safePath = encodeURIComponent(path).replace(/%2F/g, "/");
-        const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
-        return `<a class="vfs-download" data-vfs-path="${safePath}" href="#"${titleAttr}>${text}</a>`;
+    const { href, title, tokens } = token;
+    const target = resolveLink(href);
+    if (target !== null) {
+        const { path } = target;
+        const inner = this.parser.parseInline(tokens);
+        if (path === null) return inner;
+        // Escaped as an attribute, so a path holding quotes or angle
+        // brackets can't break out; getAttribute hands back the path.
+        const titleAttr = ` title="${escapeAttr(title || path)}"`;
+        return `<a class="ws-file" data-ws-path="${escapeAttr(path)}" href="#"${titleAttr}>${inner}</a>`;
     }
     // Pass the full token through — marked's default renderer reads
     // ``tokens`` to re-parse inline content, not just ``text``.
     return origLink(token);
 };
+
 marked.setOptions({ renderer });
 
 /** Minimal HTML attribute escape. */
@@ -120,7 +177,8 @@ function escapeAttr(s) {
     return String(s)
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;");
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 }
 
 /** Full HTML text escape for element content. */
@@ -157,7 +215,7 @@ export function renderMarkdown(text, { breaks = true } = {}) {
 /** Parse markdown to inline HTML — no block elements (paragraphs,
  *  lists, headings, fenced code). Suitable for places that must
  *  stay on a single line, like table cells. The shared custom
- *  renderer above still applies, so inline `code` and `vfs:` links
+ *  renderer above still applies, so inline `code` and workspace links
  *  render the same as elsewhere.
  *
  *  Newlines in the source are flattened to spaces before parsing

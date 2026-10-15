@@ -483,6 +483,31 @@ code, kbd, samp, pre {
     text-decoration: underline;
 }
 
+/* A link to a workspace file (markdown.js marks it `ws-file`): it
+ * opens the file viewer, so it reads as a file, with a page glyph
+ * and a dotted underline, not as a web link. */
+.markdown a.ws-file {
+    text-decoration-style: dotted;
+    text-underline-offset: 0.15em;
+    cursor: pointer;
+}
+.markdown a.ws-file::before {
+    content: '';
+    display: inline-block;
+    width: 0.8em;
+    height: 0.95em;
+    margin-right: 0.2em;
+    vertical-align: -0.1em;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpolyline points='14 2 14 8 20 8'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.markdown a.ws-file:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
 .markdown table {
     border-collapse: collapse;
     margin: 0.5em 0;
