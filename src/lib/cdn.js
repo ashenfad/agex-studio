@@ -59,14 +59,14 @@ function once(url, start) {
 let importer = (url) => import(/* @vite-ignore */ url);
 
 /**
- * The ES module at `url`, imported once, passed through `setup` (which
- * runs once, on the first load that succeeds) to give what callers
- * get: a library's configured instance, say. A URL has one setup: the
- * first caller's.
+ * The ES module at `url`, imported once, passed through `setup` to give
+ * what callers get: a library's configured instance, say. Setup is part
+ * of the load, so it may be async, and one that throws fails the load
+ * like a failed import does. A URL has one setup: the first caller's.
  *
  * @template [T=any]
  * @param {string} url
- * @param {(mod: any) => T} [setup]
+ * @param {(mod: any) => T | Promise<T>} [setup]
  * @returns {Promise<T>}
  */
 export function loadModule(url, setup = (mod) => mod) {

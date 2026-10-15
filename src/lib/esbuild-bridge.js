@@ -3,24 +3,11 @@
  * filesystem (the agent's app/ files, passed in as a dict) and
  * returns transformed/bundled output.
  *
- * Shared between the TS and Py kernels:
- *   - **TS side** imports this module directly via vite
- *     (`await import('./esbuild-bridge.js')` from `ts-agent.js`).
- *     Vite emits it as a code-split chunk so cold boot pays nothing.
- *   - **Py side** receives the vite-emitted URL at worker init
- *     (`pyodide.js` does `import esbuildBridgeUrl from
- *     './esbuild-bridge.js?url'` and forwards it to the worker
- *     via the `init` message). `public/worker.js` then
- *     `import(url)`s the same chunk through the browser's dynamic-
- *     import path.
- *
- * The file used to live in `public/`, importable by both via the
- * static URL `/esbuild-bridge.js`. That broke for the TS side
- * because vite's dev-server import middleware refuses to resolve
- * `public/...` paths as JS modules (they're meant for HTML-tag
- * references). Moving the source into `src/lib/` makes vite the
- * single owner — one source of truth, vite handles bundling +
- * hashing for both consumers.
+ * Callers import this module dynamically
+ * (`await import('./esbuild-bridge.js')`): the studio's `esbuild`
+ * terminal command and the app preview's worker bundling. Vite emits
+ * it as a code-split chunk, so the studio's first load pays nothing
+ * for it.
  *
  * Architecture:
  * - Loaded lazily on first call (esbuild-wasm is ~10MB).
@@ -34,22 +21,18 @@
  * - Stdin (CSS imports, etc.) NOT supported in this spike — agents
  *   include CSS via <link> tags in their app/index.html instead.
  *
- * Returns a plain JS object suitable for handing back to Python via
- * the JS bridge.
+ * Returns a plain, JSON-shaped object: the bundle's text and its
+ * diagnostics.
  */
 
 import { ESBUILD_URL, ESBUILD_WASM_URL, loadModule } from "./cdn.js";
 
-let _esbuild = null;
-let _esbuildPromise = null;
-
-/** Lazily initialize esbuild-wasm.  Cached after first call. */
-async function getEsbuild() {
-    if (_esbuild) return _esbuild;
-    if (_esbuildPromise) return _esbuildPromise;
-
-    _esbuildPromise = (async () => {
-        const mod = await loadModule(ESBUILD_URL);
+/**
+ * esbuild-wasm, imported and initialized once; a failed import or
+ * initialization is forgotten, so the next build tries again.
+ */
+function getEsbuild() {
+    return loadModule(ESBUILD_URL, async (mod) => {
         // esm.sh wraps CommonJS modules; the methods sometimes land
         // on the namespace, sometimes on `default`.  Probe both
         // shapes.
@@ -73,11 +56,9 @@ async function getEsbuild() {
             );
         }
         // Run esbuild in a Web Worker when our caller is on the main
-        // thread (TS kernel: terminal handlers dispatch from `task.ts`
-        // on the main thread, so a build would otherwise stall the
-        // UI). Skip the nested-worker dance when our caller is already
-        // a Worker (Py kernel: pyodide IS the worker — nesting workers
-        // there is unnecessary and brittle in some browsers).
+        // thread, where a build would otherwise stall the UI. A caller
+        // that is itself a Worker runs it in place: nesting workers
+        // there is unnecessary and brittle in some browsers.
         const inWorker =
             typeof WorkerGlobalScope !== "undefined" &&
             typeof self !== "undefined" &&
@@ -86,10 +67,8 @@ async function getEsbuild() {
             wasmURL: ESBUILD_WASM_URL,
             worker: !inWorker,
         });
-        _esbuild = api;
         return api;
-    })();
-    return _esbuildPromise;
+    });
 }
 
 /** Plugin: resolve & load against a JS-side file dict.
