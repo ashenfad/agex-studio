@@ -12,7 +12,7 @@ facts read from the file written, so there is nothing to re-check:
 | call | writes | returns |
 |---|---|---|
 | `media.image({ prompt, path, transparent?, aspect?, quality?, references? })` | PNG | `{ path, width, height, alpha, cost }` |
-| `media.speech({ text, path, voice?, style? })` | WAV | `{ path, seconds }` |
+| `media.speech({ text, path, voice?, style? })` | Opus (`.ogg`) | `{ path, seconds }` |
 | `media.music({ prompt, path, length? })` | MP3 | `{ path, seconds, lyrics, cost }` |
 
 Paths are relative to /workspace (not your working directory), and the
@@ -75,15 +75,17 @@ pause>`. Write names, acronyms and symbols the way they should sound.
 ```ts
 await media.speech({
   text: "It's here. <laugh> It's really here!",
-  path: 'app/vo/arrival.wav',
+  path: 'app/vo/arrival.ogg',
   voice: 'Puck',
   style: 'breathless, delighted',
 })
 ```
 
-`seconds` is the clip's length: time scenes and captions to it. A WAV
-is about 48KB a second, so keep clips to what is used, and split long
-narration into lines.
+`seconds` is the clip's length: time scenes and captions to it. Name
+the file `*.ogg`: Opus, about 4KB a second, which every browser plays.
+(`*.wav` gives uncompressed WAV, twelve times the size, for audio you
+mean to process. A browser that can't encode Opus writes a WAV beside
+the name you gave, and the returned `path` says so: use it.)
 
 **Voices** (default Kore), one per character:
 

@@ -255,12 +255,14 @@ otherwise).
 - `app/index.html`, `app/index.js`, and modules beside them, imported as
   `./Chart.js`.
 - `app/style.css`, linked from the page.
-- Images, fonts, audio and other assets under `app/`, referenced by
-  relative path in HTML (`<img src="logo.png">`), CSS (`url('hero.jpg')`)
-  and `fetch('data.csv')`; they're inlined when the app is built.
-  `window.appAssets` maps each path to its data URL: use it for a path
-  your script sets at run time (`new Audio(appAssets['theme.mp3'])`, an
-  `innerHTML` string, `img.src = …`), which the build doesn't see.
+- Images, fonts, audio, and data files (`.json`, `.csv`, `.txt`, …)
+  under `app/`, referenced by relative path in HTML
+  (`<img src="logo.png">`), CSS (`url('hero.jpg')`) and
+  `fetch('data.csv')`; they're served to the page when the app is
+  built. `window.appAssets` maps each path to its URL: use it for a
+  path your script sets at run time
+  (`new Audio(appAssets['theme.mp3'])`, an `innerHTML` string,
+  `img.src = …`), which the build doesn't see.
 - `helpers/` for code your own `run_ts` calls reuse; it isn't part of the
   app (esbuild can bundle from it).
 
