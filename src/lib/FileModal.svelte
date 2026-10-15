@@ -4,6 +4,7 @@
      * Markdown rendered (its ```mermaid blocks drawn), an image shown; downloaded or deleted from here.
      * One that isn't there (moved, deleted, a folder) says so instead.
      */
+    import Dialog from './Dialog.svelte'
     import { highlightCode } from './highlight.js'
     import { untrack } from 'svelte'
     import { fileLinkTarget, renderMarkdown } from './markdown.js'
@@ -98,74 +99,35 @@
     }
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} />
-
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={onClose}>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="modal" role="dialog" aria-label={shown} tabindex="-1" onclick={(e) => e.stopPropagation()}>
-        <header>
-            <span class="path">{shown}</span>
-            {#if !content?.failed}
-                <button onclick={download}>Download</button>
-                {#if confirmingDelete}
-                    <button class="danger" onclick={remove}>Delete it</button>
-                    <button onclick={() => (confirmingDelete = false)}>Keep</button>
-                {:else}
-                    <button class="danger" onclick={() => (confirmingDelete = true)} disabled={session.busy} title={session.busy ? 'A turn is running' : 'Delete this file'}>Delete…</button>
-                {/if}
-            {/if}
-            <button class="close" onclick={onClose} aria-label="Close">✕</button>
-        </header>
-        <div class="content">
-            {#if content === null}
-                <p class="empty">Reading…</p>
-            {:else if content.failed}
-                <p class="empty">{content.failed}</p>
-            {:else if content.url}
-                <img src={content.url} alt={shown} />
-            {:else if /\.md$/i.test(shown)}
-                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                <div class="markdown" bind:this={rendered} onclick={follow}>{@html renderMarkdown(content.text ?? '', { linkBase: folder })}</div>
+<Dialog label={shown} {onClose} width="60rem" tall fill>
+    {#snippet heading()}
+        <span class="path">{shown}</span>
+        {#if !content?.failed}
+            <button class="act" onclick={download}>Download</button>
+            {#if confirmingDelete}
+                <button class="act danger" onclick={remove}>Delete it</button>
+                <button class="act" onclick={() => (confirmingDelete = false)}>Keep</button>
             {:else}
-                <pre><code>{@html highlightCode(content.text ?? '', shown)}</code></pre>
+                <button class="act danger" onclick={() => (confirmingDelete = true)} disabled={session.busy} title={session.busy ? 'A turn is running' : 'Delete this file'}>Delete…</button>
             {/if}
-        </div>
-    </div>
-</div>
+        {/if}
+    {/snippet}
+    {#if content === null}
+        <p class="empty">Reading…</p>
+    {:else if content.failed}
+        <p class="empty">{content.failed}</p>
+    {:else if content.url}
+        <img src={content.url} alt={shown} />
+    {:else if /\.md$/i.test(shown)}
+        <!-- a click on a link inside, which the keyboard reaches and opens as a link -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="markdown" bind:this={rendered} onclick={follow}>{@html renderMarkdown(content.text ?? '', { linkBase: folder })}</div>
+    {:else}
+        <pre><code>{@html highlightCode(content.text ?? '', shown)}</code></pre>
+    {/if}
+</Dialog>
 
 <style>
-    .backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgb(0 0 0 / 50%);
-        /* the modal layer: above the drawer, the switch button, the pill */
-        z-index: 50;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1.5rem;
-    }
-    .modal {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        width: min(60rem, 100%);
-        max-height: 100%;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        box-shadow: 0 10px 40px rgb(0 0 0 / 50%);
-    }
-    header {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        align-items: center;
-        padding: 0.6rem 0.8rem;
-        border-bottom: 1px solid var(--border);
-        font-size: 0.85rem;
-    }
     .path {
         flex: 1;
         min-width: 0;
@@ -173,33 +135,26 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         font-family: var(--font-mono);
+        font-size: 0.85rem;
         color: var(--text-muted);
     }
-    header button {
+    .act {
         background: var(--bg);
         border: 1px solid var(--border);
         color: var(--text);
         border-radius: 4px;
         padding: 0.2rem 0.6rem;
+        font: inherit;
+        font-size: 0.85rem;
         cursor: pointer;
     }
-    header button:disabled {
+    .act:disabled {
         opacity: 0.5;
         cursor: default;
     }
     .danger {
-        border-color: var(--error) !important;
-        color: var(--error) !important;
-    }
-    .close {
-        background: none !important;
-        border: none !important;
-    }
-    .content {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-        padding: 0.8rem 1rem;
+        border-color: var(--error);
+        color: var(--error);
     }
     pre {
         font-family: var(--font-mono);
@@ -213,14 +168,5 @@
     }
     .empty {
         color: var(--text-muted);
-    }
-    @media (max-width: 768px) {
-        .backdrop {
-            padding: 0;
-        }
-        .modal {
-            border-radius: 0;
-            height: 100%;
-        }
     }
 </style>

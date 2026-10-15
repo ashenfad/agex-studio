@@ -86,6 +86,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="picker" {onfocusout}>
     <input
+        class="input"
         bind:this={input}
         bind:value
         {oninput}
@@ -93,6 +94,7 @@
         onfocus={show}
         onclick={show}
         placeholder="google/gemini-3.8-flash"
+        aria-label="Model"
         role="combobox"
         aria-expanded={open}
         aria-controls="model-list"
@@ -143,17 +145,6 @@
 <style>
     .picker {
         position: relative;
-    }
-    /* as the settings dialog's own fields */
-    .picker > input {
-        width: 100%;
-        box-sizing: border-box;
-        background: var(--input-bg);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 0.4rem;
-        font: inherit;
     }
     .all input {
         accent-color: var(--accent);
