@@ -166,8 +166,8 @@
         {#if problem}<span class="problem">{problem}</span>{/if}
         <span class="gap"></span>
         <ContextMeter {session} />
-        {#if session.busy && !written}
-            <button class="send stop" onclick={() => session.cancel()} title="Stop this turn (the work so far is kept)" aria-label="Stop">
+        {#if (session.busy || session.folding) && !written}
+            <button class="send stop" onclick={() => session.cancel()} title={session.folding ? 'Stop folding (nothing is folded)' : 'Stop this turn (the work so far is kept)'} aria-label="Stop">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
             </button>
         {:else}
