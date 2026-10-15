@@ -1,8 +1,8 @@
 import { MemoryRemote, getSyncHead, syncBranch } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { Store } from "@agex-ts/world";
-import { describe, expect, it } from "vitest";
-import { adoptRepo, nextState } from "./sync-state.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { adoptRepo, localNote, nextState } from "./sync-state.js";
 
 describe("whether the repo holds a session", () => {
     it("is known once a sync ends, and carries over while one waits, runs or fails", () => {
@@ -75,5 +75,33 @@ describe("sync heads against a repo", () => {
         expect(await adoptRepo(store.repo, "me/first", noted)).toBe(false);
         expect(await getSyncHead(kv, "s-1")).not.toBeNull();
         expect((await syncBranch(kv, remote, "s-1")).status).toBe("up-to-date");
+    });
+});
+
+describe("the repo noted", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("holds for the page where localStorage is blocked", () => {
+        const blocked = () => {
+            throw new Error("blocked");
+        };
+        vi.stubGlobal("localStorage", { getItem: blocked, setItem: blocked });
+        const note = localNote("agex-sync-repo");
+        expect(note.get()).toBeNull();
+        note.set("me/first");
+        expect(note.get()).toBe("me/first");
+    });
+
+    it("is read back from localStorage", () => {
+        /** @type {Map<string, string>} */
+        const kept = new Map();
+        vi.stubGlobal("localStorage", {
+            getItem: (/** @type {string} */ k) => kept.get(k) ?? null,
+            setItem: (/** @type {string} */ k, /** @type {string} */ v) => void kept.set(k, v),
+        });
+        localNote("agex-sync-repo").set("me/first");
+        expect(localNote("agex-sync-repo").get()).toBe("me/first");
     });
 });

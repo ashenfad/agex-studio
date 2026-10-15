@@ -30,7 +30,7 @@ import { openStore, studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
-import { adoptRepo, nextState } from "./sync-state.js";
+import { adoptRepo, localNote, nextState } from "./sync-state.js";
 
 /** How long after a change a session is pushed. */
 export const PUSH_DELAY = 4000;
@@ -57,23 +57,7 @@ function setAppWrittenAt(name, at) {
 
 /** Where the repo this device's sync heads were recorded against is
  *  noted. */
-const notedRepo = {
-    get() {
-        try {
-            return localStorage.getItem("agex-sync-repo");
-        } catch {
-            return null;
-        }
-    },
-    /** @param {string} name */
-    set(name) {
-        try {
-            localStorage.setItem("agex-sync-repo", name);
-        } catch {
-            // noted for this page only
-        }
-    },
-};
+const notedRepo = localNote("agex-sync-repo");
 
 /** How often, at most, the page compares every session with the repo. */
 export const SWEEP_EVERY = 5 * 60 * 1000;
@@ -279,8 +263,8 @@ export class Sync {
         let moved = false;
         await exclusively(async () => {
             const session = this.studio.opened(name);
-            if (session?.busy) {
-                // its turn's end schedules it again
+            if (session?.busy || session?.folding) {
+                // its turn's (or fold's) end schedules it again
                 this.#mark(name, "pending", "after the turn");
                 return;
             }
@@ -296,6 +280,11 @@ export class Sync {
                     }
                     return out;
                 };
+                if (session?.busy || session?.folding) {
+                    // a turn started while the remote was reached
+                    this.#mark(name, "pending", "after the turn");
+                    return;
+                }
                 const out = session === undefined ? await run() : await session.hold(run);
                 // its app's data beside it (a failure there isn't the session's)
                 await this.#syncApp(name).catch(() => undefined);
@@ -403,16 +392,16 @@ export class Sync {
      * @param {string} name
      */
     async useSynced(name) {
-        // before the fork, so a refusal leaves no copy behind
+        const remoteHead = await this.#remoteHead(name);
+        // after every wait and before the fork, so a refusal leaves no
+        // copy behind; once held, no turn starts until it has moved
         const session = this.studio.opened(name);
         if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
-        const remoteHead = await this.#remoteHead(name);
         const title = this.studio.sessions.find((s) => s.name === name)?.title || "Untitled";
         const settle = async () => {
             await this.studio.forkAs(name, `${title} (this device)`);
             await this.studio.moveTo(name, remoteHead);
         };
-        // no turn starts in the session until it has moved
         await (session === undefined ? settle() : session.hold(settle));
         await this.syncNow(name);
     }

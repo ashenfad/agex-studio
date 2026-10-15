@@ -859,12 +859,15 @@ export class ChatSession {
 
     /**
      * Run `fn` (a sync of this session) with no turn starting until it
-     * ends: `say` waits for it. Called only while no turn runs.
+     * ends: `say` waits for it. Refused while a turn or fold runs, so a
+     * caller that awaited something since it last looked can't run `fn`
+     * beside one.
      *
      * @template T
      * @param {() => Promise<T>} fn
      */
     async hold(fn) {
+        if (this.busy || this.folding) throw new Error("a turn is running in that session; stop it first");
         const run = fn();
         this.#held = run.catch(() => undefined);
         try {
