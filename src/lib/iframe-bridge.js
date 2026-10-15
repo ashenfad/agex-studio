@@ -155,6 +155,10 @@ async function captureScreenshot(doc, selector) {
         // CORS fetch can't use. (Not `cacheBust`: it adds a query to
         // every URL, and a blob: URL with a query names nothing.)
         fetchRequestInit: { cache: "no-store" },
+        // the page's own pixels: at a screen's density (2 on a Retina
+        // display) a 1920x1080 stage is a 3840x2160 PNG, past what a
+        // model takes as one image
+        pixelRatio: 1,
         // The capture is an SVG (XML): a comment holding `--`, which HTML
         // allows (`<!-- set --out -->`), would make the whole image fail
         // to parse. Comments draw nothing, so leave them out.

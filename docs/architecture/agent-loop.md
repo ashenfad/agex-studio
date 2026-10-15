@@ -59,6 +59,16 @@ agex-ts drives directly:
 - **Scripted** (dev builds only): a `ScriptedProvider` reading
   `script`, which the driver fills.
 
+Each is wrapped by `fittingImages` (`image-fit.js`): before a request
+goes out, every image in it (a screenshot, what `view_image` read, an
+upload) past 4 MB of base64 is re-encoded, as WebP (JPEG on white
+where the browser can't write WebP), and scaled down until it fits,
+its longest side at most 7680px: Anthropic refuses an image past 5 MB
+of base64 or 8000px. The record keeps the image as it was; fitted
+ones are cached by their data, so the history's aren't re-encoded with
+each request. `test_app` screenshots are taken at 1× (`pixelRatio:
+1`), whatever the screen's density.
+
 `thinkingOf` passes the thinking setting (`off`, `low`, `medium`,
 `high`) to agex-ts, which maps it per provider.
 
