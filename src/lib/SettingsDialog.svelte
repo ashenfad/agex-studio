@@ -196,11 +196,12 @@
                     <div class="segments" role="radiogroup" aria-labelledby="service">
                         <button role="radio" aria-checked={s.accessMode === 'openrouter'} class:on={s.accessMode === 'openrouter'} onclick={() => (s.accessMode = 'openrouter')}>OpenRouter</button>
                         <button role="radio" aria-checked={s.accessMode === 'custom'} class:on={s.accessMode === 'custom'} onclick={() => (s.accessMode = 'custom')}>My own endpoint</button>
-                        {#if import.meta.env.DEV}
-                            <button role="radio" aria-checked={s.accessMode === 'scripted'} class:on={s.accessMode === 'scripted'} onclick={() => (s.accessMode = 'scripted')} title="A scripted model, for development">Scripted</button>
-                        {/if}
                     </div>
                 </div>
+                {#if s.accessMode === 'scripted'}
+                    <!-- the dev driver's: set by it, not here -->
+                    <p class="hint under">A scripted model, set by the dev driver. Pick a service to leave it.</p>
+                {/if}
 
                 {#if s.accessMode === 'openrouter'}
                     <label class="row">
@@ -409,12 +410,16 @@
 </div>
 
 <style>
+    /* anchored near the top, so the dialog grows and shrinks downward
+       (a tab, Advanced) rather than moving */
     .backdrop {
         position: fixed;
         inset: 0;
         background: rgb(0 0 0 / 50%);
         display: grid;
-        place-items: center;
+        justify-items: center;
+        align-items: start;
+        padding-top: min(10vh, 6rem);
         /* the modal layer: above the drawer, the switch button, the pill */
         z-index: 50;
     }
@@ -424,7 +429,7 @@
         border: 1px solid var(--border);
         border-radius: 10px;
         width: min(31rem, 94vw);
-        max-height: 90vh;
+        max-height: calc(100dvh - 2 * min(10vh, 6rem));
         display: flex;
         flex-direction: column;
         outline: none;

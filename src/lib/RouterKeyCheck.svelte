@@ -1,9 +1,10 @@
 <script>
     /** A line under the OpenRouter key field: whether OpenRouter accepts
-     *  the key, and what it has spent. A key already there is checked at
+     *  the key, and what it has spent today and this month (the rest, as
+     *  a limit, in its tooltip). A key already there is checked at
      *  once; one being typed, once the typing pauses. Nothing shows for
      *  an empty field. */
-    import { checkRouterKey, keyUsageLine } from './openrouter-api.js'
+    import { checkRouterKey, keyUsageLine, keyUsageMore } from './openrouter-api.js'
 
     /** How long typing pauses before the key is checked. */
     const PAUSE_MS = 600
@@ -54,7 +55,8 @@
 {:else if check !== null}
     {#if check.ok === true}
         {@const usage = keyUsageLine(check)}
-        <p class="key-check"><span class="ok">✓ Key accepted</span>{usage ? ` · ${usage}` : ''}</p>
+        {@const more = keyUsageMore(check)}
+        <p class="key-check" title={more}><span class="ok">✓ Key accepted</span>{usage ? ` · ${usage}` : ''}</p>
     {:else if check.reason === 'rejected'}
         <p class="key-check rejected">OpenRouter doesn't accept this key</p>
     {:else}

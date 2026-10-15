@@ -169,20 +169,27 @@ export function dollarLabel(n) {
     return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** What an accepted key has spent today and this month (and through the
- *  person's own provider keys, when anything was), what's left of any
- *  limit, and whether it's on the free tier, in a line.
+/** What an accepted key has spent today and this month, in a line.
  *  @param {Extract<KeyCheck, { ok: true }>} check */
 export function keyUsageLine(check) {
-    const { usage, byok, limit, remaining } = check;
-    const ownKeys = (byok.today ?? 0) > 0 || (byok.month ?? 0) > 0;
-    return [
-        usage.today !== null ? `${dollarLabel(usage.today)} today` : null,
-        usage.month !== null ? `${dollarLabel(usage.month)} this month` : null,
-        ownKeys ? `plus ${dollarLabel(byok.today ?? 0)} today, ${dollarLabel(byok.month ?? 0)} this month through your own provider keys` : null,
-        limit !== null ? (remaining !== null ? `${dollarLabel(remaining)} left of ${dollarLabel(limit)}` : `a ${dollarLabel(limit)} limit`) : null,
-        check.freeTier ? "free tier" : null,
-    ]
+    const { usage } = check;
+    return [usage.today !== null ? `${dollarLabel(usage.today)} today` : null, usage.month !== null ? `${dollarLabel(usage.month)} this month` : null]
         .filter((part) => part !== null)
         .join(" · ");
+}
+
+/** The rest of what's known of an accepted key, for a tooltip: what
+ *  went through the person's own provider keys (when anything did),
+ *  what's left of any limit, and whether it's on the free tier.
+ *  @param {Extract<KeyCheck, { ok: true }>} check */
+export function keyUsageMore(check) {
+    const { byok, limit, remaining } = check;
+    const ownKeys = (byok.today ?? 0) > 0 || (byok.month ?? 0) > 0;
+    return [
+        ownKeys ? `Plus ${dollarLabel(byok.today ?? 0)} today, ${dollarLabel(byok.month ?? 0)} this month through your own provider keys` : null,
+        limit !== null ? (remaining !== null ? `${dollarLabel(remaining)} left of a ${dollarLabel(limit)} limit` : `A ${dollarLabel(limit)} limit`) : null,
+        check.freeTier ? "Free tier" : null,
+    ]
+        .filter((part) => part !== null)
+        .join(". ");
 }
