@@ -12,6 +12,10 @@ describe("primer", () => {
         expect(text).not.toContain("takes no images");
     });
 
+    it("tells the agent to link a file by its workspace path", () => {
+        expect(primer(DEFAULTS)).toContain("[the plan](/workspace/notes/plan.md)");
+    });
+
     it("says web and media can't run without a key, and what to do without vision", () => {
         const text = primer({ ...DEFAULTS, accessMode: "custom", endpointKey: "k", vision: false });
         expect(text).not.toContain("await web.search");

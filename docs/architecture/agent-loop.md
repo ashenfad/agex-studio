@@ -93,7 +93,13 @@ turn's prompt (`begin`, `opened`), and keeps it (`openings`) for a view
 opened mid-turn.
 
 Replies render markdown with `ui` artifacts spliced in where the reply
-embeds them (see [code-and-tools.md](code-and-tools.md)). Only what the
+embeds them (see [code-and-tools.md](code-and-tools.md)). A link to a
+workspace file, by its path (`[plan](/workspace/notes/plan.md)`, or
+`notes/plan.md` relative to /workspace), renders as a file link
+(`markdown.js` marks it with `data-ws-path`, the normalized path, and
+renders one whose `..` climbs out of /workspace as its text alone);
+`ReplyText` opens it in `FileModal`, as the file is now. A URL with a
+scheme, `//host/…`, `#…` and other root paths stay ordinary links. Only what the
 person said offers undo (and, for an ordinary message, edit): not a
 delegate's task, not a turn the answers alone started (undoing the
 turn before it takes that one too), and nothing in a delegate's

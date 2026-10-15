@@ -2,6 +2,7 @@
     /**
      * A file of the session's, opened to read: text highlighted,
      * Markdown rendered, an image shown; downloaded or deleted from here.
+     * One that isn't there (moved, deleted, a folder) says so instead.
      */
     import { highlightCode } from './highlight.js'
     import { renderMarkdown } from './markdown.js'
@@ -33,13 +34,22 @@
                     content = { text: new TextDecoder().decode(bytes) }
                 }
             } catch (e) {
-                content = { failed: e instanceof Error ? e.message : String(e) }
+                content = { failed: unreadable(e) }
             }
         })()
         return () => {
             if (url !== null) URL.revokeObjectURL(url)
         }
     })
+
+    /** Why the file can't be shown, in the person's terms.
+     *  @param {unknown} e */
+    function unreadable(e) {
+        const code = e instanceof Error && 'code' in e ? e.code : null
+        if (code === 'ENOENT' || code === 'ENOTDIR') return `There's no file at ${path} now: it may have been moved, renamed or deleted.`
+        if (code === 'EISDIR') return `${path} is a folder, not a file: the Files tab shows what's in it.`
+        return `This file can't be read: ${e instanceof Error ? e.message : String(e)}`
+    }
 
     async function download() {
         if (session.ws === null) return
@@ -67,12 +77,14 @@
     <div class="modal" role="dialog" aria-label={path} tabindex="-1" onclick={(e) => e.stopPropagation()}>
         <header>
             <span class="path">{path}</span>
-            <button onclick={download}>Download</button>
-            {#if confirmingDelete}
-                <button class="danger" onclick={remove}>Delete it</button>
-                <button onclick={() => (confirmingDelete = false)}>Keep</button>
-            {:else}
-                <button class="danger" onclick={() => (confirmingDelete = true)} disabled={session.busy} title={session.busy ? 'A turn is running' : 'Delete this file'}>Delete…</button>
+            {#if !content?.failed}
+                <button onclick={download}>Download</button>
+                {#if confirmingDelete}
+                    <button class="danger" onclick={remove}>Delete it</button>
+                    <button onclick={() => (confirmingDelete = false)}>Keep</button>
+                {:else}
+                    <button class="danger" onclick={() => (confirmingDelete = true)} disabled={session.busy} title={session.busy ? 'A turn is running' : 'Delete this file'}>Delete…</button>
+                {/if}
             {/if}
             <button class="close" onclick={onClose} aria-label="Close">✕</button>
         </header>
