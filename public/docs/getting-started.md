@@ -46,7 +46,7 @@ at 150k").
   **Key**, if it needs one).
 - **Key**: your OpenRouter key. A line under it says whether
   OpenRouter accepts it and what it has spent today and this month
-  (hover it for what's left, for a key with a limit); it's checked when settings
+  (its "more" shows what's left, for a key with a limit); it's checked when settings
   open, and again once you stop typing.
 - **Model**: on OpenRouter, pick from its list as you type (each with
   its context size, its price per million tokens and whether it takes
