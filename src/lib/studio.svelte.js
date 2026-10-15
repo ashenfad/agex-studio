@@ -246,6 +246,8 @@ export class ChatSession {
     folding = $state(false);
     /** That fold, settling when it's done. @type {Promise<void>} */
     #folding = Promise.resolve();
+    /** The person stopped that fold: its ending isn't an error. */
+    #foldStopped = false;
     /** The prompt of the turn running now. */
     prompt = $state("");
     /** @type {string | null} */
@@ -555,6 +557,7 @@ export class ChatSession {
         if (ws === null || this.busy || this.folding || this.interrupted || !this.foldable) return;
         const session = this.#session(ws);
         this.folding = true;
+        this.#foldStopped = false;
         this.error = null;
         this.redoHead = null;
         this.#turn = session;
@@ -562,13 +565,15 @@ export class ChatSession {
             try {
                 await session.fold();
             } catch (e) {
-                this.error = `couldn't fold: ${e instanceof Error ? e.message : String(e)}`;
+                if (!this.#foldStopped) this.error = `couldn't fold: ${e instanceof Error ? e.message : String(e)}`;
             } finally {
                 this.#turn = null;
                 this.folding = false;
                 await this.reload();
                 await this.#saving;
                 this.onMeta();
+                // answers that landed while it folded
+                void this.#maybeWake();
             }
         })();
         this.#folding = run;
@@ -665,7 +670,7 @@ export class ChatSession {
     /** Continue the last turn, which an interruption cut short. */
     async resume() {
         await this.#held;
-        if (this.ws === null || this.busy || !this.interrupted) return;
+        if (this.ws === null || this.busy || this.folding || !this.interrupted) return;
         const session = this.#session(this.ws);
         await this.#runTurn(session, async () => {
             const out = await session.resume();
@@ -678,7 +683,7 @@ export class ChatSession {
     /** End the last turn, which an interruption cut short, as it stands. */
     async abandon() {
         await this.#held;
-        if (this.ws === null || this.busy || !this.interrupted) return;
+        if (this.ws === null || this.busy || this.folding || !this.interrupted) return;
         await this.#agent().session(this.ws).abandon("set aside by the person");
         await this.reload();
     }
@@ -835,7 +840,10 @@ export class ChatSession {
     cancel() {
         this.#turn?.cancel("stopped by the person");
         // a fold stopped stops alone: the delegates are the last turn's
-        if (this.folding) return;
+        if (this.folding) {
+            this.#foldStopped = true;
+            return;
+        }
         this.#cancelDelegates(this.#turnAt, { running: true });
     }
 
@@ -871,7 +879,8 @@ export class ChatSession {
         await this.#held;
         const helper = this.helper;
         const ws = this.ws;
-        if (helper === null || ws === null || this.busy || !this.#wakeOk) return;
+        // a fold being written wakes it once it lands (foldNow looks again)
+        if (helper === null || ws === null || this.busy || this.folding || !this.#wakeOk) return;
         const running = new Set(helper.list().filter((j) => j.status === "running").map((j) => j.name));
         if (!helper.outstanding().some((name) => !running.has(name))) return;
         if (!isConfigured(getSettings())) return;
