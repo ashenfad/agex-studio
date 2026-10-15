@@ -135,8 +135,9 @@ the call, `formatResults` tiles each grid's frames, in order, into one
 captioned PNG (`grid.js`: 1 to 4 columns by count, frames scaled to
 fit within 1,600px wide, at most 12 a grid), so several states cost
 the model one image. A failing assert carries the results before it
-(`e.results`), so its grids, and its other screenshots, still come
-back with the error.
+(`e.results`, with the console's output and under the same bounds as
+a passing call's), so its grids, and its other screenshots, still
+come back with the error.
 
 Before a screenshot, `waitForFrame` lets the app paint a fresh frame
 (a double `requestAnimationFrame`, with a timeout for a hidden tab,
