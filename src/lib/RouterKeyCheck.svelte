@@ -8,10 +8,18 @@
     /** How long typing pauses before the key is checked. */
     const PAUSE_MS = 600
 
-    /** @type {{ key: string }} */
-    let { key } = $props()
+    /** `status`, for the host: what's known of the key now.
+     *  @type {{ key: string, status?: 'empty' | 'checking' | 'accepted' | 'rejected' | 'unknown' }} */
+    let { key, status = $bindable('empty') } = $props()
 
     const trimmed = $derived(key.trim())
+
+    $effect(() => {
+        if (check === null) status = 'empty'
+        else if (check === 'checking') status = 'checking'
+        else if (check.ok === true) status = 'accepted'
+        else status = check.reason === 'rejected' ? 'rejected' : 'unknown'
+    })
 
     /** @type {import('./openrouter-api.js').KeyCheck | 'checking' | null} */
     let check = $state(null)

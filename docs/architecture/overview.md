@@ -111,14 +111,23 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   back). Files: the session's files as a tree, each opening in a modal
   to read, download or delete; upload from the device or Google Drive
   into `uploads/`.
-- **SettingsDialog**: the model (OpenRouter, picked from its catalog
-  with `ModelPicker`, or an endpoint of the person's own, each keeping
-  its own), thinking, vision, the fold budget; under the OpenRouter
-  key, whether OpenRouter accepts it and what it has spent
+- **SettingsDialog**: three tabs, its header and buttons fixed while
+  a tab's content scrolls; Escape closes it from anywhere (an open
+  list's Escape closes the list first). **Model**: the service (a
+  toggle: OpenRouter or an endpoint of the person's own, each keeping
+  its own model), its key and model (OpenRouter's picked from its
+  catalog with `ModelPicker`), and thinking up front; under the
+  OpenRouter key, whether OpenRouter accepts it and what it has spent
   (`RouterKeyCheck`, asking OpenRouter's `/key` as the dialog opens and
-  once typing pauses, a stale answer dropped); sync (a repo and a
-  token); a token for publishing. Settings live in `localStorage`
-  (`settings.js`), never in a session.
+  once typing pauses, a stale answer dropped; the link to make a key
+  only while there's none or a rejected one). The rest is under
+  **Advanced**, collapsed, its header summing up what's set: provider
+  routing and privacy (OpenRouter), whether the model takes images (an
+  endpoint's), the fold budget (presets), and an endpoint's optional
+  OpenRouter key for web search and media. **Notifications**: turn
+  notifications. **Sync & sharing**: a repo and a token (Connect acts
+  at once), and a token for publishing. Settings live in
+  `localStorage` (`settings.js`), never in a session.
 - **A delegate's view**: a delegate's session (a dotted name) opens
   read-only, live while it runs.
 - **Play mode**: `/run/?gist=…&play=1` shows a published app alone.
