@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { _setImporterForTesting } from "./cdn.js";
-import { mermaidErrorLine, mermaidFallback, renderMermaidBlocks } from "./mermaid.js";
+import { mermaidErrorLine, mermaidFallback, redrawKnown, renderMermaidBlocks } from "./mermaid.js";
 
 afterEach(() => _setImporterForTesting(null));
 
@@ -59,6 +59,32 @@ describe("renderMermaidBlocks", () => {
         expect(mermaid.initialize.mock.calls[0][0]).toMatchObject({ securityLevel: "strict" });
     });
 
+    it("draws a source once: a block of it shown again takes that drawing at once", async () => {
+        const mermaid = fakeMermaid();
+        _setImporterForTesting(async () => ({ default: mermaid }));
+        await renderMermaidBlocks(page("flowchart TD; P-->Q"));
+        expect(mermaid.render).toHaveBeenCalledTimes(1);
+        // the same diagram in a block new to the page: drawn before any await
+        const again = page("flowchart TD; P-->Q", "flowchart TD; R-->S");
+        redrawKnown(again);
+        const [known, other] = again.querySelectorAll("pre");
+        expect(known.querySelector("svg")?.getAttribute("data-src")).toBe("flowchart TD; P-->Q");
+        expect(known.hasAttribute("data-processed")).toBe(true);
+        expect(other.hasAttribute("data-processed")).toBe(false);
+        await renderMermaidBlocks(again);
+        expect(mermaid.render).toHaveBeenCalledTimes(2);
+        expect(mermaid.render.mock.calls[1][1]).toBe("flowchart TD; R-->S");
+    });
+
+    it("doesn't keep a diagram that failed", async () => {
+        const mermaid = fakeMermaid();
+        _setImporterForTesting(async () => ({ default: mermaid }));
+        await renderMermaidBlocks(page("bad again"));
+        const again = page("bad again");
+        redrawKnown(again);
+        expect(again.querySelector("pre")?.hasAttribute("data-processed")).toBe(false);
+    });
+
     it("keeps a block's source and says why when it doesn't parse", async () => {
         _setImporterForTesting(async () => ({ default: fakeMermaid() }));
         const div = page("bad graph");
@@ -72,10 +98,10 @@ describe("renderMermaidBlocks", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         const importer = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({ default: fakeMermaid() });
         _setImporterForTesting(importer);
-        const first = page("graph TD");
+        const first = page("graph RL");
         await renderMermaidBlocks(first);
         expect(first.querySelector(".mermaid-error")?.textContent).toBe("Diagram didn't render: Mermaid couldn't load.");
-        const second = page("graph TD");
+        const second = page("graph RL");
         await renderMermaidBlocks(second);
         expect(second.querySelector("svg")).not.toBeNull();
         expect(importer).toHaveBeenCalledTimes(2);

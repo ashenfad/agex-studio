@@ -13,7 +13,7 @@
     import FileModal from './FileModal.svelte'
     import { useNearby } from './lazy.js'
     import { fileLinkTarget, renderMarkdown } from './markdown.js'
-    import { renderMermaidBlocks } from './mermaid.js'
+    import { redrawKnown, renderMermaidBlocks } from './mermaid.js'
 
     /** @type {{ session: import('./session.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
     let { session, text, at = null, live = false } = $props()
@@ -27,6 +27,9 @@
     $effect(() => {
         void parts
         if (live || el == null) return
+        // a diagram already drawn (this reply was the live turn's) is in
+        // place before the page paints, and isn't drawn again
+        redrawKnown(el)
         if (nearby === null) {
             void renderMermaidBlocks(el)
             return
