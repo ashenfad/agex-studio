@@ -8,7 +8,7 @@
  * the session's cache.
  */
 
-import { sendControl } from "./send-control.js";
+import { pageGone, sendControl } from "./send-control.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 
@@ -393,7 +393,7 @@ export function _enforceTotalCap(entries, max) {
  *  with the page (`hostInit`) so the bootloader can document.write it. This
  *  keeps the cross-origin handshake colocated with the rest of
  *  the per-iframe message handling. */
-function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null) {
+export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null) {
     let initPosted = false;
     const handler = (event) => {
         // Only accept messages from the app iframe's window at the apps
@@ -403,8 +403,16 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
         if (!data) return;
 
         // Bootloader handshake — respond once per iframe with the
-        // app HTML so the bootloader can render it.
-        if (data.type === "agex-host-ready" && !initPosted && initPage) {
+        // app HTML so the bootloader can render it. The bootloader
+        // saying it again means the app navigated or reloaded itself
+        // away (perhaps between actions, where no action was waiting to
+        // see it): the test goes on without its page, so what's sent to
+        // it next fails at once rather than waiting out its timeout.
+        if (data.type === "agex-host-ready" && initPage) {
+            if (initPosted) {
+                pageGone(iframe);
+                return;
+            }
             initPosted = true;
             replyToApp(iframe, hostInit(initPage, data));
             return;
@@ -474,6 +482,34 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
 
 /** How long a drained queue waits for a call the last result set off. */
 const CHAIN_GRACE_MS = 300;
+
+/**
+ * Why a test's app didn't come up within `ms`. The apps host's page
+ * either never loaded (it's unreachable), or loaded and was sent the
+ * app, which then never got as far as its bridge: most likely an error
+ * as the app's script ran, or, running the studio locally, a studio
+ * origin the apps host doesn't take apps from (it ignores those
+ * without a word).
+ *
+ * @param {boolean} hostReady the apps host's page loaded and asked for the app
+ * @param {number} ms
+ */
+export function bootFailure(hostReady, ms) {
+    if (!hostReady) {
+        return `test_app: the app sandbox at ${APPS_ORIGIN} didn't load within ${ms}ms ` +
+            "(it may be unreachable), so the app never ran.";
+    }
+    let text = `test_app: iframe failed to come up within ${ms}ms — ` +
+        `the bootloader loaded but the app's bridge never posted ready. ` +
+        `Most likely: a module-eval error in your app's index.js / index.jsx ` +
+        `(syntax error, failed import). Check the browser console for the underlying error.`;
+    if (import.meta.env.DEV) {
+        text += " (Or, in development: the app sandbox takes apps only from the studio origins " +
+            "it knows, localhost ports 5173 and 4173 among them, and quietly ignores others; " +
+            `this studio is at ${location.origin}.)`;
+    }
+    return text;
+}
 
 /**
  * Run a headless app test in a hidden iframe.
@@ -583,18 +619,16 @@ export async function runTestApp(opts) {
         // with an opaque message) from "app crashed during render" —
         // the agent sees a focused error pointing at the right thing.
         const BRIDGE_READY_TIMEOUT_MS = 10000;
+        // whether the apps host's page loaded and asked for the app
+        let hostReady = false;
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 window.removeEventListener("message", readyListener);
-                reject(new Error(
-                    `test_app: iframe failed to come up within ${BRIDGE_READY_TIMEOUT_MS}ms — ` +
-                    `the bootloader loaded but the app's bridge never posted ready. ` +
-                    `Most likely: a module-eval error in your app's index.js / index.jsx ` +
-                    `(syntax error, failed import). Check the browser console for the underlying error.`,
-                ));
+                reject(new Error(bootFailure(hostReady, BRIDGE_READY_TIMEOUT_MS)));
             }, BRIDGE_READY_TIMEOUT_MS);
             const readyListener = (event) => {
                 if (!isFromAppFrame(event, iframe)) return;
+                if (event.data?.type === "agex-host-ready") hostReady = true;
                 if (event.data?.type !== "agex-bridge-ready") return;
                 clearTimeout(timeout);
                 window.removeEventListener("message", readyListener);

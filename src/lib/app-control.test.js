@@ -12,7 +12,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+    _attachBridges,
     _enforceTotalCap,
+    bootFailure,
     callStarted,
     callsLost,
     capResults,
@@ -21,9 +23,10 @@ import {
     runLiveApp,
     waitForIdle,
 } from "./app-control.js";
-import { sendControl } from "./send-control.js";
+import { APPS_ORIGIN } from "./apps-origin.js";
+import { pageGone, sendControl } from "./send-control.js";
 
-vi.mock("./send-control.js", () => ({ sendControl: vi.fn() }));
+vi.mock("./send-control.js", () => ({ sendControl: vi.fn(), pageGone: vi.fn() }));
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -382,5 +385,42 @@ describe("a page that stops answering", () => {
         const results = await executeActions(/** @type {any} */ ({}), [{ eval: "hang()" }, { read: "#a" }, { read: "#b" }]);
         expect(sent).toEqual([{ eval: "hang()" }]);
         expect(results).toEqual([{ type: "log", level: "error", message: "TimeoutError: the app didn't answer" }]);
+    });
+});
+
+describe("a test's app that reloads itself", () => {
+    it("is answered once, and the bootloader coming back marks its page gone", () => {
+        const posted = [];
+        const win = { postMessage: (/** @type {any} */ msg) => posted.push(msg) };
+        const iframe = /** @type {any} */ ({ contentWindow: win });
+        const page = { html: "<p>app</p>", assets: [] };
+        const handler = _attachBridges(iframe, null, [], page);
+        const hostReady = /** @type {any} */ ({ source: win, origin: APPS_ORIGIN, data: { type: "agex-host-ready", assets: 1 } });
+
+        handler(hostReady);
+        expect(posted.map((m) => m.type)).toEqual(["agex-host-init"]);
+        expect(pageGone).not.toHaveBeenCalled();
+
+        // the app reloaded between actions: no action saw it go
+        handler(hostReady);
+        expect(posted).toHaveLength(1);
+        expect(pageGone).toHaveBeenCalledWith(iframe);
+    });
+});
+
+describe("a test's app that never comes up", () => {
+    it("says the sandbox didn't load when it never asked for the app", () => {
+        expect(bootFailure(false, 10000)).toMatch(/didn't load within 10000ms/);
+    });
+
+    it("points at the app's script, and in development the studio's origin, when it did", () => {
+        vi.stubGlobal("location", { origin: "http://localhost:4176" });
+        try {
+            const text = bootFailure(true, 10000);
+            expect(text).toMatch(/module-eval error/);
+            expect(text).toContain("this studio is at http://localhost:4176");
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

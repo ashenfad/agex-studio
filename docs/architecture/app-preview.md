@@ -153,6 +153,16 @@ an error), `screenshot` (a PNG in the result, seen by a model that
 takes images), `viewport`. The result lists the app's console output,
 then each action's result.
 
+An app that navigates or reloads itself throws its page, and the
+control bridge, away. During an action, the iframe's `load` says so;
+between actions, the bootloader posting `agex-host-ready` again does
+(`pageGone`). Either way what's sent next fails at once with a
+`NavigationError` and the call ends there, rather than waiting out
+`sendControl`'s timeout on a page that will never answer. The live
+preview answers the bootloader again, so it takes actions once the
+app's bridge is back (`pageLoaded`); a test's iframe doesn't, and the
+next call builds a fresh one.
+
 A screenshot with a `grid` name (and a `label`) is held: at the end of
 the call, `formatResults` tiles each grid's frames, in order, into one
 captioned PNG (`grid.js`: 1 to 4 columns by count, frames scaled to

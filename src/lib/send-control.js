@@ -36,6 +36,18 @@ export function pageLoaded(iframe) {
 }
 
 /**
+ * The frame's page is gone: its app navigated or reloaded between
+ * actions, so the bootloader came back in its place (it said
+ * `agex-host-ready` again) and nothing answers actions until the frame
+ * takes a page again. Actions sent meanwhile fail at once.
+ *
+ * @param {object} iframe
+ */
+export function pageGone(iframe) {
+    navigated.add(iframe);
+}
+
+/**
  * The minimal frame contract `sendControl` needs. Real usage passes an
  * `HTMLIFrameElement`; tests pass a double, so the listener methods are
  * optional and guarded at each call site.
