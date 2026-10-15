@@ -9,6 +9,7 @@
 
 import { sendControl } from "./iframe-bridge.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
+import { hostInit } from "./app-assets.js";
 
 // ---------------------------------------------------------------------------
 // Live preview iframe — module-level ref shared by callers
@@ -328,13 +329,13 @@ export function _enforceTotalCap(entries, max) {
  *  handlers. Returns the listener function so `runTestApp` can
  *  remove it on teardown.
  *
- *  `initHtml`, when provided, makes the listener double as the
+ *  `initPage`, when provided, makes the listener double as the
  *  bootloader handshake responder: on receiving the bootloader's
  *  `agex-host-ready` signal, the listener posts `agex-host-init`
- *  with the HTML so the bootloader can document.write it. This
+ *  with the page (`hostInit`) so the bootloader can document.write it. This
  *  keeps the cross-origin handshake colocated with the rest of
  *  the per-iframe message handling. */
-function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null, taskHandler = null) {
+function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null) {
     let initPosted = false;
     const handler = (event) => {
         // Only accept messages from the app iframe's window at the apps
@@ -345,9 +346,9 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initHtml = null, 
 
         // Bootloader handshake — respond once per iframe with the
         // app HTML so the bootloader can render it.
-        if (data.type === "agex-host-ready" && !initPosted && initHtml) {
+        if (data.type === "agex-host-ready" && !initPosted && initPage) {
             initPosted = true;
-            replyToApp(iframe, { type: "agex-host-init", html: initHtml });
+            replyToApp(iframe, hostInit(initPage, data));
             return;
         }
 
@@ -411,7 +412,7 @@ const CHAIN_GRACE_MS = 300;
 /**
  * Run a headless app test in a hidden iframe.
  *
- * Builds the iframe via the caller-provided `buildAppHtml`, wires
+ * Builds the iframe's page via the caller-provided `buildAppPage`, wires
  * query/cache bridges, runs `actions`, collects console + action
  * results, returns the lot. Always tears the iframe down on resolve
  * or reject.
@@ -421,7 +422,7 @@ const CHAIN_GRACE_MS = 300;
  *   appBinaries?: Record<string, Uint8Array>,
  *   actions?: Array<object>,
  *   appStorageSeed?: Record<string, string>,
- *   buildAppHtml: (files: Record<string, string>, opts?: any) => Promise<string>,
+ *   buildAppPage: (files: Record<string, string>, opts?: any) => Promise<{ html: string, assets: import("./app-assets.js").AppAsset[] }>,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
  *   viewport?: string | { width?: number, height?: number },
@@ -434,7 +435,7 @@ export async function runTestApp(opts) {
         appBinaries = {},
         actions = [],
         appStorageSeed = {},
-        buildAppHtml,
+        buildAppPage,
         cacheHandler = null,
         taskHandler = null,
         viewport = null,
@@ -459,7 +460,7 @@ export async function runTestApp(opts) {
         // Read-only: test_app shouldn't write speculative state back
         // to the user's session — keeps tests isolated and
         // deterministic.
-        const html = await buildAppHtml(appFiles, {
+        const page = await buildAppPage(appFiles, {
             appBinaries,
             appStorage: { seed: appStorageSeed, writeable: false },
         });
@@ -497,7 +498,7 @@ export async function runTestApp(opts) {
             iframe,
             cacheHandler,
             pendingHandlers,
-            html,
+            page,
             taskHandler,
         );
         window.addEventListener("message", messageHandler);
@@ -507,7 +508,7 @@ export async function runTestApp(opts) {
         // document.write — `document.open()` from inside an iframe
         // replaces the document but doesn't fire a fresh `load` on
         // the iframe *element* (no navigation occurred). Instead the
-        // bridge script (injected by buildAppHtml at the end of the
+        // bridge script (injected by buildAppPage at the end of the
         // app HTML) posts `agex-bridge-ready` after `installControlBridge`
         // returns, which is the real post-parse / scripts-ran signal.
         //

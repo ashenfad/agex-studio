@@ -10,7 +10,8 @@
 import _iframeBridgeSource from './iframe-bridge.js?raw';
 import {
     buildAssetsScript,
-    buildAssetUrlMap,
+    collectAssets,
+    inlineAssets,
     rewriteCssAssetRefs,
     rewriteHtmlAssetRefs,
 } from './app-assets.js';
@@ -25,7 +26,7 @@ const CONSOLE_INTERCEPTOR = `
     // to an arbitrary embedder. Returns whether the message was sent
     // so reply-expecting callers can fail fast instead of hanging.
     // Defined here because the console interceptor is the first
-    // script in every buildAppHtml assembly; later inline scripts
+    // script in every buildAppPage assembly; later inline scripts
     // (host bridge, storage shim, control bridge) rely on it.
     window.__agexPost = function(msg) {
         var origin = window.__AGEX_PARENT_ORIGIN;
@@ -215,7 +216,7 @@ window.notify = function(title, body) {
  */
 // Exported so pyodide.test.js can verify the shim's seed encoding,
 // quota, and writeable=false read-only path. Otherwise internal —
-// callers should go through buildAppHtml.
+// callers should go through buildAppPage.
 export function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
@@ -790,9 +791,12 @@ function _workerRegistryScript(workerSources) {
 }
 
 /**
- * Build the full HTML string for an app preview or test iframe.
- * Injects console interceptor, host bridge, CDN scripts, and resolves
- * multi-file app projects (JS via import map with data URIs, CSS inlined).
+ * Build the page for an app preview or test iframe: its HTML, with the
+ * console interceptor, host bridge and CDN scripts injected, and
+ * multi-file app projects resolved (JS via import map with data URIs,
+ * CSS inlined); and its assets, each once, which the HTML refers to by
+ * token (see `app-assets.js`: `hostInit` sends the two to the
+ * bootloader, `inlineAssets` makes a page that stands alone).
  *
  * Async because any `*.worker.js` files are bundled (esbuild) into
  * self-contained module sources and exposed via `window.appWorker`.
@@ -805,17 +809,17 @@ function _workerRegistryScript(workerSources) {
  *   appStorage?: { seed?: Record<string,string>, writeable?: boolean },
  *   workerSources?: Record<string, string>,
  * }} [opts]
- * @returns {Promise<string>} complete HTML document
+ * @returns {Promise<{ html: string, assets: import('./app-assets.js').AppAsset[] }>}
  */
-export async function buildAppHtml(appFiles, opts = {}) {
+export async function buildAppPage(appFiles, opts = {}) {
     const storageShim = buildAppStorageShim(opts.appStorage || {});
     const workerSources = opts.workerSources ?? (await bundleAppWorkers(appFiles));
     const workerScript = _workerRegistryScript(workerSources);
-    // Build the binary-asset URL map up-front so it can flow into
-    // both the module resolver (which rewrites HTML / inlined CSS
-    // refs) and the injected script that exposes
-    // `window.appAssets` + the fetch monkey-patch.
-    const assetUrls = buildAssetUrlMap(opts.appBinaries || {});
+    // Collect the assets up-front so their tokens can flow into both
+    // the module resolver (which rewrites HTML / inlined CSS refs) and
+    // the injected script that exposes `window.appAssets` + the fetch
+    // monkey-patch.
+    const { urls: assetUrls, assets } = collectAssets(opts.appBinaries || {}, appFiles);
     const assetsScript = buildAssetsScript(assetUrls);
     // An app with a main script and no page gets a page that loads it,
     // built as any other: its imports resolve the same way.
@@ -836,5 +840,17 @@ export async function buildAppHtml(appFiles, opts = {}) {
     if (!html.includes('<head>')) {
         html = injected + html;
     }
-    return html;
+    return { html, assets };
+}
+
+/**
+ * The page as one HTML string that stands on its own, its assets
+ * written in as `data:` URLs.
+ *
+ * @param {Record<string, string>} appFiles
+ * @param {Parameters<typeof buildAppPage>[1]} [opts]
+ * @returns {Promise<string>}
+ */
+export async function buildAppHtml(appFiles, opts = {}) {
+    return inlineAssets(await buildAppPage(appFiles, opts));
 }

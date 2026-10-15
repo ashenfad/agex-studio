@@ -16,7 +16,8 @@
     import { onDestroy, untrack } from 'svelte'
     import { setLiveIframe } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
-    import { buildAppHtml } from './app-html.js'
+    import { buildAppPage } from './app-html.js'
+    import { hostInit } from './app-assets.js'
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
@@ -35,9 +36,9 @@
     let failed = $state(null)
     /** @type {string[]} */
     let resourceErrors = $state([])
-    /** The built HTML, posted once the bootloader says it's ready. */
-    /** @type {string | null} */
-    let pendingHtml = null
+    /** The built page, posted once the bootloader says it's ready. */
+    /** @type {{ html: string, assets: import('./app-assets.js').AppAsset[] } | null} */
+    let pendingPage = null
     /** The app's fingerprint when it was last built. */
     let builtDigest = ''
 
@@ -58,7 +59,7 @@
         empty = false
         loading = true
         try {
-            pendingHtml = await buildAppHtml(app.files, {
+            pendingPage = await buildAppPage(app.files, {
                 appBinaries: app.binaries,
                 appStorage: { seed: readAppStorage('ts', session.name), writeable: true },
             })
@@ -108,9 +109,9 @@
         if (iframe === null || !isFromAppFrame(event, iframe)) return
         const data = event.data
         if (!data) return
-        if (data.type === 'agex-host-ready' && pendingHtml !== null) {
-            replyToApp(iframe, { type: 'agex-host-init', html: pendingHtml })
-            pendingHtml = null
+        if (data.type === 'agex-host-ready' && pendingPage !== null) {
+            replyToApp(iframe, hostInit(pendingPage, data))
+            pendingPage = null
             loading = false
             return
         }

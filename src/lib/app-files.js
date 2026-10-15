@@ -1,6 +1,6 @@
 /**
  * A session's app: the files under `/workspace/app`, as the preview and
- * `test_app` build it (`buildAppHtml` takes text files by `app/<path>`,
+ * `test_app` build it (`buildAppPage` takes text files by `app/<path>`,
  * and binary assets beside them).
  */
 
