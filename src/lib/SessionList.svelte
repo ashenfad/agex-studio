@@ -218,8 +218,9 @@
         {name}
         onClose={() => (dialogFor = null)}
         onPublish={() => {
-            dialogFor = null
+            // `name` follows `dialogFor`, so it's read before that's cleared
             publishing = name
+            dialogFor = null
         }}
         {onPicked}
     />
