@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { checkRouterKey, dollarLabel, keyUsageLine } from "./openrouter-api.js";
+import { checkRouterKey, dollarLabel, keyUsageLine, keyUsageMore } from "./openrouter-api.js";
 
 const KEY = "sk-or-v1-test";
 const answer = (status, body) => vi.fn(async () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status }));
@@ -111,25 +111,20 @@ describe("the key's line", () => {
         ...over,
     });
 
-    it("adds what went through the person's own provider keys, when anything did", () => {
-        const byok = { today: 1.25, week: 4, month: 9.5, total: 20 };
-        expect(keyUsageLine(accepted({ byok }))).toBe(
-            "$0.42 today · $7.30 this month · plus $1.25 today, $9.50 this month through your own provider keys",
-        );
-        // all of it through their own keys: OpenRouter's own figures read 0
-        expect(keyUsageLine(accepted({ usage: { today: 0, week: 0, month: 0, total: 0 }, byok }))).toBe(
-            "$0.00 today · $0.00 this month · plus $1.25 today, $9.50 this month through your own provider keys",
-        );
-    });
-
     it("says what was spent today and this month", () => {
         expect(keyUsageLine(accepted())).toBe("$0.42 today · $7.30 this month");
+        // the rest is kept for the tooltip
+        expect(keyUsageLine(accepted({ limit: 20, remaining: 8, freeTier: true, byok: { today: 1, week: 1, month: 1, total: 1 } }))).toBe(
+            "$0.42 today · $7.30 this month",
+        );
     });
 
-    it("adds what's left of a limit, and the free tier", () => {
-        expect(keyUsageLine(accepted({ limit: 20, remaining: 8 }))).toBe("$0.42 today · $7.30 this month · $8.00 left of $20.00");
-        expect(keyUsageLine(accepted({ limit: 20, remaining: null }))).toBe("$0.42 today · $7.30 this month · a $20.00 limit");
-        expect(keyUsageLine(accepted({ freeTier: true, usage: { today: 0, week: 0, month: 0.001, total: 0.001 } }))).toBe("$0.00 today · <$0.01 this month · free tier");
+    it("tells the rest: own provider keys, a limit, the free tier", () => {
+        expect(keyUsageMore(accepted())).toBe("");
+        const byok = { today: 1.25, week: 4, month: 9.5, total: 20 };
+        expect(keyUsageMore(accepted({ byok }))).toBe("Plus $1.25 today, $9.50 this month through your own provider keys");
+        expect(keyUsageMore(accepted({ limit: 20, remaining: 8 }))).toBe("$8.00 left of a $20.00 limit");
+        expect(keyUsageMore(accepted({ limit: 20, remaining: null, freeTier: true }))).toBe("A $20.00 limit. Free tier");
     });
 
     it("leaves out what OpenRouter didn't say", () => {
