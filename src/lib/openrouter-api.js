@@ -6,6 +6,9 @@
  * behind them (Perplexity's search, the image, speech and music models)
  * are reached there. So they need the settings' OpenRouter key: with a
  * custom endpoint there is none, and a call says so.
+ *
+ * And, for the settings, what OpenRouter says of a key: whether it
+ * accepts it, and what it has spent.
  */
 
 import { getSettings } from "./settings.js";
@@ -82,4 +85,85 @@ export function costOf(usage) {
     const upstream = usage?.cost_details?.upstream_inference_cost;
     if (typeof upstream === "number" && upstream > 0) return upstream;
     return typeof usage?.cost === "number" ? usage.cost : null;
+}
+
+/**
+ * What OpenRouter says of a key: accepted, with what it has spent (in
+ * dollars) and any limit on it; rejected; or no telling, when OpenRouter
+ * couldn't be reached or answered otherwise.
+ *
+ * @typedef {{ ok: true, usage: { today: number | null, week: number | null, month: number | null, total: number | null }, limit: number | null, remaining: number | null, freeTier: boolean }
+ *     | { ok: false, reason: 'rejected' }
+ *     | { ok: false, reason: 'unreachable', detail: string }} KeyCheck
+ */
+
+/** A figure OpenRouter gave, or null for one it left out.
+ *  @param {unknown} v */
+function amount(v) {
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Ask OpenRouter about `key` (`GET /key`), within `timeout` seconds. The
+ * key goes only in the request's header: a detail never carries it.
+ *
+ * @param {string} key
+ * @param {{ timeout?: number, fetchImpl?: typeof fetch }} [opts]
+ * @returns {Promise<KeyCheck>}
+ */
+export async function checkRouterKey(key, { timeout = 10, fetchImpl = fetch } = {}) {
+    let r;
+    try {
+        r = await fetchImpl(`${OPENROUTER_API}/key`, {
+            headers: { Authorization: `Bearer ${key.trim()}` },
+            signal: AbortSignal.timeout(timeout * 1000),
+        });
+    } catch (e) {
+        const timedOut = e instanceof Error && e.name === "TimeoutError";
+        return { ok: false, reason: "unreachable", detail: timedOut ? `no answer within ${timeout}s` : `network error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (r.status === 401 || r.status === 403) return { ok: false, reason: "rejected" };
+    if (r.status !== 200) return { ok: false, reason: "unreachable", detail: `HTTP ${r.status}` };
+    let data;
+    try {
+        data = (await r.json())?.data;
+    } catch {
+        return { ok: false, reason: "unreachable", detail: "the response was not JSON" };
+    }
+    if (data === null || typeof data !== "object") return { ok: false, reason: "unreachable", detail: "the response held no key" };
+    return {
+        ok: true,
+        usage: {
+            today: amount(data.usage_daily),
+            week: amount(data.usage_weekly),
+            month: amount(data.usage_monthly),
+            total: amount(data.usage),
+        },
+        limit: amount(data.limit),
+        remaining: amount(data.limit_remaining),
+        freeTier: data.is_free_tier === true,
+    };
+}
+
+/** Dollars to the cent: `$7.30`, `$1,250.00`, and `<$0.01` for less
+ *  than a cent that isn't nothing.
+ *  @param {number} n */
+export function dollarLabel(n) {
+    if (n > 0 && n < 0.01) return "<$0.01";
+    return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** What an accepted key has spent today and this month, what's left of
+ *  any limit, and whether it's on the free tier, in a line.
+ *  @param {Extract<KeyCheck, { ok: true }>} check */
+export function keyUsageLine(check) {
+    const { usage, limit, remaining } = check;
+    return [
+        usage.today !== null ? `${dollarLabel(usage.today)} today` : null,
+        usage.month !== null ? `${dollarLabel(usage.month)} this month` : null,
+        limit !== null ? (remaining !== null ? `${dollarLabel(remaining)} left of ${dollarLabel(limit)}` : `a ${dollarLabel(limit)} limit`) : null,
+        check.freeTier ? "free tier" : null,
+    ]
+        .filter((part) => part !== null)
+        .join(" · ");
 }

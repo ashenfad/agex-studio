@@ -45,6 +45,10 @@ Click the **⚙** at the top right.
   agent's web search and its images, speech and music, which run on
   OpenRouter whatever the model. It goes only to OpenRouter, never to
   your endpoint.
+- Under an OpenRouter key, either one, a line says whether OpenRouter
+  accepts it and what it has spent today and this month (and what's
+  left, for a key with a limit). It's checked when settings open, and
+  again once you stop typing.
 - **Model**: on OpenRouter, pick from its list as you type (each with
   its context size, its price per million tokens and whether it takes
   images; models that can't call tools are hidden, since the agent
