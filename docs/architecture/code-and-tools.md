@@ -105,10 +105,17 @@ directory under `src/lib/skills/` (`skills/index.js` gathers them):
 its `SKILL.md`, and any files beside it (references, examples) the
 agent reads when the skill points to them.
 
+- **agex-ecosystem**: what the studio is built from (agex-ts, world,
+  termish, kvgit), how they fit, and each one's README with its
+  version as `references/<name>.md`. The READMEs aren't files of the
+  skill's directory: `packageReadmes` in `vite.config.js` reads them
+  from `node_modules` at build time (`virtual:package-readmes`), since
+  a package's `exports` don't offer its README to an import.
 - **interactive-app**: building an app under `/workspace/app`, the
   JSX path with `esbuild`, data from the agent to the app, checking it
-  with `test_app`, browser features, assets, workers, an agent in the
-  app (`agex.task`), and what doesn't work.
+  with `test_app` (and checks that mean something), browser features,
+  assets, workers, an agent in the app (`agex.task`, and designing
+  one), and what doesn't work.
 - **making-videos**: a video as an app on the HyperFrames runtime:
   the page (runtime first, a 1920×1080 stage, its own controls over
   `window.__player`), scenes and crossfades, CSS and Anime.js on the

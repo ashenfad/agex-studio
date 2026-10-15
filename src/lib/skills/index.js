@@ -4,7 +4,26 @@
  * at /workspace/skills/<name> in every session.
  */
 
+import readmes from "virtual:package-readmes";
+
 /** @typedef {{ name: string, files: Record<string, string> }} Skill */
+
+/**
+ * The agex-ecosystem skill's references: the studio's README and each
+ * package's, as `references/<name>.md` (a scoped name without its
+ * scope), each opening with the name and version it was taken from.
+ *
+ * @param {Record<string, { version: string, readme: string }>} packages
+ * @returns {Record<string, string>}
+ */
+export function readmeFiles(packages) {
+    /** @type {Record<string, string>} */
+    const out = {};
+    for (const [name, { version, readme }] of Object.entries(packages)) {
+        out[`./agex-ecosystem/references/${name.split("/").at(-1)}.md`] = `<!-- ${name} ${version} -->\n${readme}`;
+    }
+    return out;
+}
 
 /**
  * Skills from files by path (`./<name>/<rel>`), one per directory, in
@@ -26,6 +45,7 @@ export function skillsFrom(sources) {
     return [...byName].map(([name, files]) => ({ name, files }));
 }
 
-export const SKILLS = skillsFrom(
-    /** @type {Record<string, string>} */ (import.meta.glob("./*/**/*", { query: "?raw", import: "default", eager: true })),
-);
+export const SKILLS = skillsFrom({
+    .../** @type {Record<string, string>} */ (import.meta.glob("./*/**/*", { query: "?raw", import: "default", eager: true })),
+    ...readmeFiles(readmes),
+});

@@ -15,6 +15,13 @@ declare module '*?worker&url' {
   export default src
 }
 
+/** The studio's README and its packages', with their versions, read
+ *  at build time (`packageReadmes` in `vite.config.js`). */
+declare module 'virtual:package-readmes' {
+  const readmes: Record<string, { version: string, readme: string }>
+  export default readmes
+}
+
 /** Build-time constant injected by `define` in `vite.config.js`. */
 declare const __APP_VERSION__: string
 

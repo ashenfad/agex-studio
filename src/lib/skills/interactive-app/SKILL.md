@@ -151,9 +151,31 @@ button.onclick = async () => {
   app working.
 - **Ask for structure** when the app reads the value: `returns: {type:
   'object', properties: {…}, required: […]}`, and the value comes back
-  checked against it.
+  checked against it. **A field with fixed choices gets an `enum`**
+  (`{type: 'string', enum: ['bug', 'feature', 'question']}`), not a
+  string and a comment: the answer is checked against it, so the app
+  never sees a value outside the choices.
 - `test_app` runs tasks for real, on the same budget: wait for the
   value (`{wait: 15000}`, then `{read: …}`) rather than assuming it.
+
+Designing one:
+
+- **Use it for judgment, not logic.** Classifying, extracting fields
+  from free text, summarizing, rewriting, scoring: work whose answer is
+  language. Anything code can compute, compute.
+- **The helper knows only what the call gives it:** its instructions
+  and its inputs. It sees none of the app, the session or this
+  conversation, so instructions that say "as discussed" leave it
+  guessing; put everything it needs in them.
+- **Call it from a person's action** (a button, a form), never on load
+  or from code that re-runs (a render, an effect): the page would wait
+  on it, and every reload would spend the budget again.
+- **Keep what you got.** Store answers in `localStorage` keyed by the
+  input, and answer a repeat from there before calling. Several inputs
+  at once: `Promise.all` runs the calls together (each counts).
+- **Show the answer as text** (`textContent`, or a template's
+  `${value}`), never through `innerHTML`: a model's text can hold
+  markup, and the input it read may have been written to put it there.
 
 ## Checking your app: `test_app`
 
@@ -199,6 +221,29 @@ Options beside `actions`:
 Use `assert` for a known condition, `eval` when you need the value to
 decide what to do, and a screenshot for layout and look; text checks are
 cheaper and their failures more precise.
+
+**Checks that mean something:**
+
+- **Assert on what carries data:** a count that isn't `0`, a chart
+  container with children, a table with rows. Static text renders even
+  when every fetch failed, so a check of a heading proves nothing.
+- **Exercise the flow:** click the filter, wait, and assert that the
+  result changed, not only that the page loaded.
+- **Fill inputs with `type` and `select`,** not by setting `.value`
+  from `eval`: Preact and React don't see that change, and the app
+  acts on what it had before.
+- **Give every control a stable `id`** (or `data-key`), so a check can
+  find it, and keeps finding it after a restyle.
+- **An empty result is a state to show,** not an error: a filter that
+  matches nothing renders "nothing matches", with the controls still
+  there. Check it.
+- **If an assert fails, fix the app, not the assert.** A weakened
+  check (`x !== '0' || x === '0'`) verifies nothing.
+- **Grow in verified steps:** one control and one number working, then
+  the rest. Keep each file small enough to rewrite when an edit gets
+  hairy.
+
+Your report says what you checked, quoting the asserts, not "it works".
 
 **Several states at once:** put their screenshots in a grid, and they
 come back as one image (one image to look at, and to pay for, rather

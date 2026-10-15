@@ -20,8 +20,33 @@ function entryPoints() {
   }
 }
 
+/** The packages the studio is built from, whose READMEs the
+ *  agex-ecosystem skill carries. */
+const ECOSYSTEM = ['agex-ts', '@agex-ts/world', '@agex-ts/kvgit', '@agex-ts/termish']
+
+/** `virtual:package-readmes`: the studio's README and each ecosystem
+ *  package's, with its version, read from disk when the studio is
+ *  built (a package's `exports` don't offer its README to an import). */
+function packageReadmes() {
+  const id = 'virtual:package-readmes'
+  return {
+    name: 'package-readmes',
+    resolveId: (source) => (source === id ? `\0${id}` : null),
+    load(loaded) {
+      if (loaded !== `\0${id}`) return null
+      const read = (dir) => ({
+        version: JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf-8')).version,
+        readme: readFileSync(resolve(dir, 'README.md'), 'utf-8'),
+      })
+      const out = { 'agex-studio': read('.') }
+      for (const name of ECOSYSTEM) out[name] = read(resolve('node_modules', name))
+      return `export default ${JSON.stringify(out)}`
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [svelte(), entryPoints()],
+  plugins: [svelte(), entryPoints(), packageReadmes()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
