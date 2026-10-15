@@ -119,7 +119,7 @@ background).
 
 ## Cost
 
-Every call is a billed request on the person's OpenRouter key, and the
-result says what it cost where the provider reports it. Make what was
+Every call is billed to the person, and the result says what it cost
+where the provider reports it. Make what was
 asked for; draft at `low` and in clips, and make the expensive version
 once the cheap one is right.
