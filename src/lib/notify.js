@@ -32,11 +32,16 @@ export async function requestNotificationPermission() {
     }
 }
 
-/** What clicking a notification does with its session's name, after
- *  the window comes forward. @type {(session: string) => void} */
+/** What a notification is about: a turn that ended, or what an app
+ *  asked to show. @typedef {"turn" | "app"} NoticeKind */
+
+/** What clicking a notification does with its session's name and its
+ *  kind, after the window comes forward.
+ *  @type {(session: string, kind: NoticeKind) => void} */
 let activate = () => {};
 
-/** Set what clicking a notification does. @param {(session: string) => void} fn */
+/** Set what clicking a notification does.
+ *  @param {(session: string, kind: NoticeKind) => void} fn */
 export function onNotificationClick(fn) {
     activate = fn;
 }
@@ -52,14 +57,15 @@ function cap(text, max) {
  * tagged one that replaces another rather than showing it.
  *
  * @param {string} session @param {string} title @param {string} body
+ * @param {NoticeKind} kind
  */
-function show(session, title, body) {
+function show(session, title, body, kind) {
     if (notificationPermission() !== "granted") return false;
     try {
         const n = new Notification(cap(title, 100), { body: cap(body, 250) });
         n.onclick = () => {
             window.focus();
-            activate(session);
+            activate(session, kind);
             n.close();
         };
         return true;
@@ -104,7 +110,7 @@ export function turnNotice({ title, status, reply, error }) {
 export function notifyTurnEnded(turn) {
     if (!getSettings().notifyOnFinish) return false;
     const { title, body } = turnNotice(turn);
-    return show(turn.session, title, body);
+    return show(turn.session, title, body, "turn");
 }
 
 /** When each session's app last showed notifications, for the cap.
@@ -132,7 +138,7 @@ export function appNotify({ session, title, body }, now = Date.now()) {
         appShown.set(session, recent);
         return { shown: false, reason: `at most ${APP_NOTIFY_MAX} notifications a minute: try again shortly` };
     }
-    if (!show(session, title || "agex studio", body)) return { shown: false, reason: "the browser didn't show it" };
+    if (!show(session, title || "agex studio", body, "app")) return { shown: false, reason: "the browser didn't show it" };
     appShown.set(session, [...recent, now]);
     return { shown: true, reason: null };
 }

@@ -106,12 +106,13 @@ describe("notifyTurnEnded", () => {
         stubNotification("granted");
         const { notifyTurnEnded, onNotificationClick } = await load();
         const opened = /** @type {string[]} */ ([]);
-        onNotificationClick((name) => opened.push(name));
+        onNotificationClick((name, kind) => opened.push(`${name}:${kind}`));
         expect(notifyTurnEnded(turn)).toBe(true);
         expect(shown).toMatchObject([{ title: "Plot the tides", body: "Here's the chart." }]);
         shown[0]?.onclick?.();
         expect(/** @type {any} */ (window).focus).toHaveBeenCalled();
-        expect(opened).toEqual(["s-1"]);
+        // a turn's notice opens the chat; the handler tells it from an app's
+        expect(opened).toEqual(["s-1:turn"]);
         expect(shown[0]?.closed).toBe(true);
     });
 
@@ -171,4 +172,15 @@ describe("appNotify", () => {
         expect(appNotify(ask, t0 + 60_500).shown).toBe(false);
         expect(shown).toHaveLength(APP_NOTIFY_MAX + 2);
     });
+
+    it("tells an app's notice from a turn's, on a click", async () => {
+        stubNotification("granted");
+        const { appNotify, onNotificationClick } = await load();
+        const opened = /** @type {string[]} */ ([]);
+        onNotificationClick((name, kind) => opened.push(`${name}:${kind}`));
+        expect(appNotify({ session: "s-2", title: "Timer", body: "Done" }).shown).toBe(true);
+        shown.at(-1)?.onclick?.();
+        expect(opened).toEqual(["s-2:app"]);
+    });
 });
+

@@ -84,13 +84,20 @@
         void setFaviconStatus(overall(studio.openSessions()))
     })
 
-    // a notification clicked opens the session it came from, in the chat
-    onNotificationClick((name) => {
-        if (studio.current?.name === name) return
-        playing = false
-        fullscreen = false
+    // a notification clicked opens the session it came from: a turn's in
+    // the chat, whatever the view; an app's at its app, left as it is
+    // when that's the session shown (the person may be watching the app)
+    onNotificationClick((name, kind) => {
+        const shown = studio.current?.name === name
         drawerOpen = false
-        mobileView = 'chat'
+        if (kind === 'turn') {
+            playing = false
+            fullscreen = false
+            mobileView = 'chat'
+        } else if (!shown) {
+            mobileView = 'app'
+        }
+        if (shown) return
         void studio.switchTo(name).catch((e) => console.error("couldn't open the notification's session:", e))
     })
 
