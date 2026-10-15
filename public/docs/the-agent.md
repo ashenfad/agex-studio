@@ -15,7 +15,7 @@ Everything it changes is versioned, so you can undo any turn (see
 | --- | --- | --- |
 | Code | Writes and runs TypeScript. A package import loads from esm.sh, so most npm packages work. | *"How many steps does the Collatz sequence from 27 take to reach 1?"* |
 | Files and the shell | Reads, writes and edits files, and uses a shell (`ls`, `cat`, `grep` and the like). | *"Tidy up the notes in notes/ into one file."* |
-| Charts, tables, cards | Shows data in its reply: an interactive chart, a sortable table, a row of cards, an image. | *"Chart weekly signups from this CSV."* |
+| Charts, tables, cards | Shows data in its reply: an interactive chart, a sortable table, a row of cards, an image, or a diagram (a flowchart, a sequence). | *"Chart weekly signups from this CSV."* |
 | Apps | Builds an interactive app under `app/`, which the preview beside the chat shows as it changes, and checks it by clicking through it. | *"Build a flashcard game for multiplication."* |
 | Web search and pages | Searches the web, and reads a page to answer a question about it. *Needs an OpenRouter key.* | *"What changed in the latest Svelte release?"* |
 | Images, speech, music | Makes pictures, spoken audio and music clips, for a reply or an app. *Needs an OpenRouter key.* | *"Make a pixel-art knight sprite for my game."* |

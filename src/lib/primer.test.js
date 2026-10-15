@@ -16,6 +16,10 @@ describe("primer", () => {
         expect(primer(DEFAULTS)).toContain("[the plan](/workspace/notes/plan.md)");
     });
 
+    it("tells the agent it can draw a diagram in a mermaid block", () => {
+        expect(primer(DEFAULTS)).toContain("```mermaid block in your reply");
+    });
+
     it("says web and media can't run without a key, and what to do without vision", () => {
         const text = primer({ ...DEFAULTS, accessMode: "custom", endpointKey: "k", vision: false });
         expect(text).not.toContain("await web.search");

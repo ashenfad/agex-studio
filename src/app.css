@@ -609,6 +609,26 @@ code, kbd, samp, pre {
     text-align: center;
 }
 .markdown pre.mermaid svg { max-width: 100%; }
+/* A diagram that didn't render: its source as code, left-aligned,
+ * and a muted line saying why. */
+.markdown pre.mermaid.mermaid-failed { text-align: left; }
+.markdown pre.mermaid .mermaid-source {
+    display: block;
+    font-family: var(--font-mono);
+    background: none;
+    padding: 0;
+    white-space: pre-wrap;
+}
+.markdown pre.mermaid .mermaid-error {
+    display: block;
+    margin-top: 0.6em;
+    padding-top: 0.5em;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 0.8em;
+    white-space: pre-wrap;
+}
 
 /* Shared keyframe animations */
 @keyframes pulse {
