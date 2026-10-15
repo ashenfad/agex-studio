@@ -4,6 +4,7 @@
      * or with its history), to the gist it went to before or a new one,
      * and, once published, the links that open it.
      */
+    import Dialog from './Dialog.svelte'
     import { runUrl } from './gist.js'
     import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
@@ -47,73 +48,50 @@
     const size = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
 </script>
 
-<div class="backdrop" role="presentation" onclick={onClose}>
-    <div class="dialog" role="dialog" aria-label="Publish" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.key === 'Escape' && onClose()}>
-        <h2>Publish “{title}”</h2>
-        {#if step.stage === 'done'}
-            {@const gist = step.gist}
-            <p class="hint">Published{gist.replaced ? ' to a new gist: the earlier one was gone' : ''} ({size(gist.size)}). Anyone with a link can open it; publishing again updates it, and the links stay.</p>
-            {#each [{ label: 'The app alone', url: runUrl(location.origin, gist, { play: true }) }, { label: 'The app and how it was made', url: runUrl(location.origin, gist) }] as link (link.url)}
-                <div class="link">
-                    <span>{link.label}</span>
-                    <code>{link.url}</code>
-                    <button class="secondary" onclick={() => copy(link.url)}>{copied === link.url ? 'Copied' : 'Copy'}</button>
-                </div>
-            {/each}
-            <p class="hint"><a href={gist.url} target="_blank" rel="noreferrer">The gist on GitHub</a></p>
-            <div class="actions"><button onclick={onClose}>Done</button></div>
-        {:else}
-            <label class="check">
-                <input type="radio" bind:group={shape} value="current" />
-                As it is now: the files and the conversation, without the history (smaller)
-            </label>
-            <label class="check">
-                <input type="radio" bind:group={shape} value="everything" />
-                With its history, so each turn can be undone
-            </label>
-            {#if prior}
-                <label class="check">
-                    <input type="checkbox" bind:checked={fresh} />
-                    As a new gist, rather than updating the one it was published to
-                </label>
-            {/if}
-            <label class="check">
-                <input type="checkbox" bind:checked={understood} />
-                Anyone with the link can see all of it: the files, the conversation, and the app.
-            </label>
-            {#if step.stage === 'failed'}<p class="hint warn">{step.message}</p>{/if}
-            <div class="actions">
-                <button class="secondary" onclick={onClose}>Cancel</button>
-                <button onclick={publish} disabled={!understood || step.stage === 'working'}>{step.stage === 'working' ? 'Publishing…' : prior && !fresh ? 'Update' : 'Publish'}</button>
+<Dialog label="Publish" title="Publish “{title}”" {onClose} width="32rem">
+    {#if step.stage === 'done'}
+        {@const gist = step.gist}
+        <p class="hint">Published{gist.replaced ? ' to a new gist: the earlier one was gone' : ''} ({size(gist.size)}). Anyone with a link can open it; publishing again updates it, and the links stay.</p>
+        {#each [{ label: 'The app alone', url: runUrl(location.origin, gist, { play: true }) }, { label: 'The app and how it was made', url: runUrl(location.origin, gist) }] as link (link.url)}
+            <div class="link">
+                <span>{link.label}</span>
+                <code>{link.url}</code>
+                <button class="btn secondary" onclick={() => copy(link.url)}>{copied === link.url ? 'Copied' : 'Copy'}</button>
             </div>
+        {/each}
+        <p class="hint"><a href={gist.url} target="_blank" rel="noreferrer">The gist on GitHub</a></p>
+    {:else}
+        <label class="check">
+            <input type="radio" bind:group={shape} value="current" />
+            As it is now: the files and the conversation, without the history (smaller)
+        </label>
+        <label class="check">
+            <input type="radio" bind:group={shape} value="everything" />
+            With its history, so each turn can be undone
+        </label>
+        {#if prior}
+            <label class="check">
+                <input type="checkbox" bind:checked={fresh} />
+                As a new gist, rather than updating the one it was published to
+            </label>
         {/if}
-    </div>
-</div>
+        <label class="check">
+            <input type="checkbox" bind:checked={understood} />
+            Anyone with the link can see all of it: the files, the conversation, and the app.
+        </label>
+        {#if step.stage === 'failed'}<p class="hint warn">{step.message}</p>{/if}
+    {/if}
+    {#snippet actions()}
+        {#if step.stage === 'done'}
+            <button class="btn" onclick={onClose}>Done</button>
+        {:else}
+            <button class="btn secondary" onclick={onClose}>Cancel</button>
+            <button class="btn" onclick={publish} disabled={!understood || step.stage === 'working'}>{step.stage === 'working' ? 'Publishing…' : prior && !fresh ? 'Update' : 'Publish'}</button>
+        {/if}
+    {/snippet}
+</Dialog>
 
 <style>
-    .backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgb(0 0 0 / 50%);
-        display: grid;
-        place-items: center;
-        /* the modal layer: above the drawer, the switch button, the pill */
-        z-index: 50;
-    }
-    .dialog {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1.2rem;
-        width: min(32rem, 92vw);
-        display: flex;
-        flex-direction: column;
-        gap: 0.7rem;
-    }
-    h2 {
-        font-family: var(--font-display);
-        font-size: 1.2rem;
-    }
     .check {
         display: flex;
         gap: 0.5rem;
@@ -150,27 +128,5 @@
         background: var(--input-bg);
         padding: 0.3rem 0.4rem;
         border-radius: 4px;
-    }
-    .actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 0.5rem;
-    }
-    button {
-        background: var(--accent);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        padding: 0.4rem 1rem;
-        cursor: pointer;
-    }
-    button:disabled {
-        opacity: 0.5;
-        cursor: default;
-    }
-    .secondary {
-        background: transparent;
-        border: 1px solid var(--border);
-        color: var(--text);
     }
 </style>
