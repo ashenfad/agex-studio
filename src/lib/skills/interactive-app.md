@@ -177,6 +177,7 @@ action's result.
 - `{eval: "expr"}`: a JS expression in the app's page; a Promise is awaited, so async work fits in one action
 - `{assert: "expr", message: "..."}`: silent when it holds; a failing one ends the call with an error naming it
 - `{screenshot: true}` or `{screenshot: "#sel"}`: a PNG of the page (or an element), **attached to this result**: you see it on your next step, in the same turn
+- `{screenshot: true | "#sel", grid: "name", label: "after save"}`: held, and at the end of the call every frame of that grid comes back tiled into **one** image, each frame numbered and captioned with its label (up to 12 a grid; it comes back when an assert fails too)
 - `{viewport: "mobile" | "tablet" | "desktop" | {width, height}}`: resize between actions
 
 Actions are plain JSON objects, not a Playwright API: there's no `page`,
@@ -199,11 +200,17 @@ Use `assert` for a known condition, `eval` when you need the value to
 decide what to do, and a screenshot for layout and look; text checks are
 cheaper and their failures more precise.
 
-**Responsive layouts:** one call can shoot every shape:
+**Several states at once:** put their screenshots in a grid, and they
+come back as one image (one image to look at, and to pay for, rather
+than one per state). Responsive layouts, in one call:
 
 ```json
-{"actions": [{"viewport": "desktop"}, {"screenshot": true}, {"viewport": "mobile"}, {"screenshot": true}]}
+{"actions": [{"viewport": "desktop"}, {"screenshot": true, "grid": "shapes", "label": "desktop"}, {"viewport": "mobile"}, {"screenshot": true, "grid": "shapes", "label": "mobile"}]}
 ```
+
+Steps of a flow, or the scenes of an animation, the same way: act,
+screenshot into the grid, act again. A grid's frames are scaled down to
+fit together; for a detail, take a plain screenshot of that element.
 
 Each resize fires a real `resize`; an app that reads `innerWidth` only at
 startup won't relayout, so for those pass `viewport` to start at a size.

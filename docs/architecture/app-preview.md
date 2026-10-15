@@ -130,6 +130,14 @@ an error), `screenshot` (a PNG in the result, seen by a model that
 takes images), `viewport`. The result lists the app's console output,
 then each action's result.
 
+A screenshot with a `grid` name (and a `label`) is held: at the end of
+the call, `formatResults` tiles each grid's frames, in order, into one
+captioned PNG (`grid.js`: 1 to 4 columns by count, frames scaled to
+fit within 1,600px wide, at most 12 a grid), so several states cost
+the model one image. A failing assert carries the results before it
+(`e.results`), so its grids, and its other screenshots, still come
+back with the error.
+
 Before a screenshot, `waitForFrame` lets the app paint a fresh frame
 (a double `requestAnimationFrame`, with a timeout for a hidden tab,
 where the browser pauses frames).

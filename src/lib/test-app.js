@@ -12,6 +12,7 @@ import { readApp, hasApp } from "./app-files.js";
 import { getLiveIframe, runLiveApp, runTestApp } from "./app-control.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
+import { GRID_MAX, tileGrid } from "./grid.js";
 
 /** What the model reads of a value: JSON, cut at `max` characters. */
 const shown = (/** @type {unknown} */ value, max = 4000) => {
@@ -29,6 +30,7 @@ actions: a list of plain objects, run in order:
 - {eval: "expr"}: a JS expression in the app's page; a Promise is awaited
 - {assert: "expr", message: "..."}: a failing assertion ends the call with an error
 - {screenshot: true} or {screenshot: "#sel"}: a PNG, attached to this result
+- {screenshot: true | "#sel", grid: "name", label: "1.5s title"}: held, and every frame of a grid comes back tiled into ONE captioned image at the end (also when an assert fails); up to ${GRID_MAX} frames a grid. Use it to check several states (scenes, steps) for the cost of one image
 - {viewport: "mobile" | "tablet" | "desktop" | {width, height}}: resize (not live)
 
 viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage.
@@ -100,8 +102,12 @@ export function testAppTool(session) {
                     });
                 }
             } catch (e) {
-                // a failing assertion ends the call
-                return { text: e instanceof Error ? e.message : String(e), images: [], isError: true };
+                // a failing assertion ends the call, with what came before it
+                const message = e instanceof Error ? e.message : String(e);
+                const before = /** @type {any} */ (e)?.results;
+                if (!Array.isArray(before)) return { text: message, images: [], isError: true };
+                const out = await formatResults(before);
+                return { text: `${out.text}\n${message}`, images: out.images, isError: true };
             }
             return formatResults(results);
         },
@@ -109,16 +115,22 @@ export function testAppTool(session) {
 }
 
 /**
- * The results as the model reads them, screenshots attached as images.
+ * The results as the model reads them, screenshots attached as images:
+ * each on its own, or a grid's frames tiled into one image at the end
+ * (by `tile`; frames past `GRID_MAX` are left out, and said so).
  *
  * @param {any[]} results
- * @returns {import("@agex-ts/world").ToolOutput}
+ * @param {{ tile?: (frames: { data: string, label: string }[]) => Promise<string> }} [opts]
+ * @returns {Promise<import("@agex-ts/world").ToolOutput>}
  */
-export function formatResults(results) {
+export async function formatResults(results, { tile = tileGrid } = {}) {
     /** @type {string[]} */
     const lines = [];
     /** @type {{ data: string, format: "png" }[]} */
     const images = [];
+    /** The grids' frames, by name, in the order each grid began. */
+    /** @type {Map<string, { data: string, label: string }[]>} */
+    const grids = new Map();
     for (const r of results) {
         if (r?.type === "log") {
             lines.push(`[${r.level}] ${shown(r.message)}`);
@@ -128,15 +140,34 @@ export function formatResults(results) {
             lines.push(`eval ${shown(r.expr, 200)} → ${shown(r.value)}`);
         } else if (r?.type === "read") {
             lines.push(`read ${r.selector} → ${shown(r.value)}`);
-        } else if (r?.type === "screenshot") {
-            if (typeof r.data === "string" && r.data !== "") {
-                images.push({ data: r.data, format: "png" });
-                lines.push(`screenshot ${images.length}: attached`);
+        } else if (r?.type === "screenshot" && !(typeof r.data === "string" && r.data !== "")) {
+            lines.push(`screenshot failed: ${shown(r.error ?? "no image")}`);
+        } else if (r?.type === "screenshot" && typeof r.grid === "string") {
+            const frames = grids.get(r.grid) ?? [];
+            grids.set(r.grid, frames);
+            const label = typeof r.label === "string" ? r.label : "";
+            if (frames.length < GRID_MAX) {
+                frames.push({ data: r.data, label });
+                lines.push(`screenshot: grid ${r.grid}, frame ${frames.length}${label ? ` (${label})` : ""}`);
             } else {
-                lines.push(`screenshot failed: ${shown(r.error ?? "no image")}`);
+                lines.push(`screenshot: grid ${r.grid} is full (${GRID_MAX} frames): this one${label ? ` (${label})` : ""} is left out`);
             }
+        } else if (r?.type === "screenshot") {
+            images.push({ data: r.data, format: "png" });
+            lines.push(`screenshot ${images.length}: attached`);
         } else {
             lines.push(shown(r));
+        }
+    }
+    for (const [name, frames] of grids) {
+        const labels = frames.map((f, i) => `${i + 1} ${f.label}`.trim()).join(" · ");
+        try {
+            images.push({ data: await tile(frames), format: "png" });
+            lines.push(`grid ${name}: ${frames.length} frame${frames.length === 1 ? "" : "s"} (${labels}), attached as image ${images.length}`);
+        } catch (e) {
+            // a grid that couldn't be drawn still shows its frames, one by one
+            for (const f of frames) images.push({ data: f.data, format: "png" });
+            lines.push(`grid ${name}: couldn't be tiled (${e instanceof Error ? e.message : String(e)}): its ${frames.length} frames attached one by one`);
         }
     }
     return {

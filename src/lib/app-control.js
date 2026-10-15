@@ -181,9 +181,12 @@ function _isNavigationError(e) {
  *  Error handling: most action-dispatch failures are caught and
  *  surfaced as `error`-level log entries so a single bad selector
  *  doesn't terminate the test. Assertion failures are the
- *  exception — they propagate so the agent's emission errors out
- *  and the recoverable-error path lets the agent see the failure
- *  and self-correct on the next turn.
+ *  exception — they propagate (carrying the results so far as
+ *  `e.results`), so the agent's call ends in an error and it sees the
+ *  failure, and what came before it, to self-correct.
+ *
+ *  A screenshot action with a `grid` name (and a `label`) comes back
+ *  with them on its result, for the frames to be tiled together.
  *
  *  @param {HTMLIFrameElement} iframe
  *  @param {Array<object>} actions
@@ -223,9 +226,18 @@ export async function executeActions(iframe, actions, opts = {}) {
         }
         try {
             const data = await sendControl(iframe, action);
+            // a screenshot for a grid keeps its grid and label, to be tiled with the rest
+            if (data?.type === "screenshot" && typeof action.grid === "string" && action.grid !== "") {
+                data.grid = action.grid;
+                if (typeof action.label === "string") data.label = action.label;
+            }
             if (data != null) results.push(data);
         } catch (e) {
-            if (_isAssertionError(e)) throw e;
+            if (_isAssertionError(e)) {
+                // what came before the failure still comes back (a grid's frames among it)
+                e.results = results;
+                throw e;
+            }
             if (_isNavigationError(e)) {
                 // The app tore itself down — every remaining action would
                 // hang the same way. Record the cause and stop here.
