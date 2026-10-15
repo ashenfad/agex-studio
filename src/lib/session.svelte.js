@@ -328,12 +328,17 @@ export class ChatSession {
      *  session to be free. */
     #recordsDirty = false;
 
-    /** Commit the delegate records written, if nothing holds the session
-     *  (a turn's own commits carry them). */
+    /** Commit the delegate records written, as an edit of its own, if
+     *  nothing holds the session (a turn's own commits carry them, and
+     *  what else holds it commits them as it lets go): what waits for the
+     *  session starts once they're committed. */
     #saveRecords() {
-        if (!this.#recordsDirty || this.ws === null || this.#gate.holder !== null || this.busy) return;
+        const ws = this.ws;
+        if (!this.#recordsDirty || ws === null || this.busy) return;
+        const release = this.#gate.tryTake("edit");
+        if (release === null) return;
         this.#recordsDirty = false;
-        this.#saving = this.ws.commit({ tool: "studio.delegates" }).catch(() => undefined);
+        this.#saving = ws.commit({ tool: "studio.delegates" }).catch(() => undefined).finally(release);
     }
 
     /** Notes reached the model: a woken turn's first are its opening.
@@ -470,6 +475,8 @@ export class ChatSession {
                 await this.#reloadAfter();
                 this.folding = false;
                 release();
+                // the next request's size, now it starts from the fold
+                void this.#measure();
                 await this.#saving;
                 this.onMeta();
                 // answers that landed while it folded

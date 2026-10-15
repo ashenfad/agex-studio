@@ -106,6 +106,25 @@ describe("a session's gate", () => {
         expect(clear).toBe(true);
     });
 
+    it("lets what it says it's free to take it before any waiter", async () => {
+        const gate = new Gate();
+        const fold = gate.tryTake("fold");
+        /** @type {(() => void) | null} */
+        let commit = null;
+        gate.onFree = () => {
+            gate.onFree = () => {};
+            commit = gate.tryTake("edit");
+        };
+        const turn = gate.take("turn", ["turn"]);
+        fold?.();
+        expect(gate.holder).toBe("edit");
+        await Promise.resolve();
+        expect(gate.holder).toBe("edit");
+        commit?.();
+        expect(await turn).not.toBeNull();
+        expect(gate.holder).toBe("turn");
+    });
+
     it("says when it's let go", () => {
         const gate = new Gate();
         const onFree = vi.fn();
