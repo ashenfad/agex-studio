@@ -87,6 +87,26 @@ describe("prepare (via renderMarkdown)", () => {
         expect(codeOf(`step one\n   \`\`\`\`sh\n${body}\n   \`\`\`\``)).toEqual([`${body}\n`]);
     });
 
+    it("keeps a fence nested in a list item, indented 4 spaces, as written", () => {
+        const body = "# comment\n- item\n1. x";
+        const indented = body.replace(/^/gm, "    ");
+        const md = `Steps:\n- first\n    \`\`\`python\n${indented}\n    \`\`\`\n- second\n- third`;
+        expect(codeOf(md)).toEqual([`${body}\n`]);
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        expect([...doc.querySelectorAll("ul > li")].map((li) => li.firstChild?.textContent?.trim())).toEqual(["first", "second", "third"]);
+        expect(doc.querySelector("ul > li pre > code")).not.toBeNull();
+    });
+
+    it("keeps a fence nested 8 spaces deep, in a second-level list, as written", () => {
+        const body = "# comment\n- item\n1. x";
+        const indented = body.replace(/^/gm, "        ");
+        const md = `1. outer\n    - inner\n        \`\`\`\n${indented}\n        \`\`\`\n2. next`;
+        expect(codeOf(md)).toEqual([`${body}\n`]);
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        expect(doc.querySelectorAll("ol > li")).toHaveLength(2);
+        expect(doc.querySelector("ol > li ul > li pre > code")).not.toBeNull();
+    });
+
     it("keeps an unclosed fence's lines as written, to the end", () => {
         const body = "x\n# y\n- z";
         expect(codeOf(`text\n\`\`\`\n${body}`)).toEqual([`${body}\n`]);

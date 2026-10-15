@@ -230,10 +230,13 @@ function spaceBlocks(text) {
         .replace(/([^\n])\n(```)/g, "$1\n\n$2"); // fenced code blocks
 }
 
-/** A fenced code block's opening line: up to three spaces, then three
- *  or more backticks (with no backtick in the info string after them)
- *  or three or more tildes. */
-const FENCE_OPEN = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/;
+/** A fenced code block's opening line: three or more backticks (with
+ *  no backtick in the info string after them) or three or more tildes,
+ *  indented any amount, since a model nests a fence in a list item at
+ *  whatever depth the item sits. The cost is an indented code block
+ *  holding a line of bare backticks, read here as a fence, so the
+ *  prose after it until the next such line gets no blank lines added. */
+const FENCE_OPEN = /^[ \t]*(?:(`{3,})[^`]*|(~{3,}).*)$/;
 
 /**
  * `text` with blank lines before its block elements (`spaceBlocks`),
@@ -262,7 +265,7 @@ function prepare(text) {
         out.push(spaceBlocks(prose.join("\n")));
         prose = [];
         const fence = open[1] ?? open[2];
-        const close = new RegExp(`^ {0,3}${fence[0]}{${fence.length},}[ \\t\\r]*$`);
+        const close = new RegExp(`^[ \\t]*${fence[0]}{${fence.length},}[ \\t\\r]*$`);
         while (i < lines.length && !close.test(lines[i])) out.push(lines[i++]);
         // the closing fence, which opens nothing
         if (i < lines.length) prose.push(lines[i++]);
