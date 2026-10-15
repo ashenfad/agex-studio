@@ -35,20 +35,19 @@ it.
 
 ## Settings
 
-Click the **⚙** at the top right.
+Click the **⚙** at the top right. Settings has three tabs.
+
+**Model** holds what you need to start, with the rest under
+**Advanced**, whose header sums up what's set ("Auto provider · folds
+at 150k").
 
 - **Service**: OpenRouter, or an endpoint of your own (then its
-  **Shape**, Anthropic or OpenAI-compatible, and its **URL**).
-- **Key**: your OpenRouter key; with an endpoint of your own, the
-  endpoint's key, if it needs one.
-- **OpenRouter key (optional)**, with an endpoint of your own: for the
-  agent's web search and its images, speech and music, which run on
-  OpenRouter whatever the model. It goes only to OpenRouter, never to
-  your endpoint.
-- Under an OpenRouter key, either one, a line says whether OpenRouter
-  accepts it and what it has spent today and this month (and what's
-  left, for a key with a limit). It's checked when settings open, and
-  again once you stop typing.
+  **URL**, its **Shape**, Anthropic or OpenAI-compatible, and its
+  **Key**, if it needs one).
+- **Key**: your OpenRouter key. A line under it says whether
+  OpenRouter accepts it and what it has spent today and this month
+  (and what's left, for a key with a limit); it's checked when settings
+  open, and again once you stop typing.
 - **Model**: on OpenRouter, pick from its list as you type (each with
   its context size, its price per million tokens and whether it takes
   images; models that can't call tools are hidden, since the agent
@@ -56,40 +55,46 @@ Click the **⚙** at the top right.
   the default. With an endpoint of your own, the endpoint's name for
   its model. Each service keeps its own, so switching back and forth
   doesn't lose either.
-- **Provider for this model**, on OpenRouter: which of the providers
-  serving the model takes its requests, each with its price and recent
-  uptime. Auto lets OpenRouter pick, optionally preferring the lowest
-  price, highest throughput or lowest latency. A chosen provider is
-  tried first, falling back to others if it's down unless you tick
-  **Only this provider**. Each model keeps its own choice.
+- **Thinking**: how hard the model thinks each turn: off, low,
+  medium or high. It doesn't apply to an OpenRouter model that doesn't
+  reason.
+
+Under **Advanced**:
+
+- **Provider**, on OpenRouter: which of the providers serving the
+  model takes its requests, each with its price and recent uptime.
+  Auto lets OpenRouter pick, optionally preferring the lowest price,
+  highest throughput or lowest latency. A chosen provider is tried
+  first, falling back to others if it's down unless you tick **Only
+  this provider**. Each model keeps its own choice.
 - **Skip providers that may train on my prompts** and **Zero data
   retention only**, on OpenRouter, for every request there (the
   model's, and the agent's web search and media): keep to providers
   whose stated policy is not to store or train on prompts, or to
   endpoints that keep nothing of a request once it's answered. Fewer
   providers qualify; when none does, requests fail.
-- **Thinking**: how hard the model thinks each turn: off, low,
-  medium or high. Greyed out for an OpenRouter model that doesn't
-  reason.
 - **The model takes images**, with an endpoint of your own (or a
   model OpenRouter doesn't list): tick it for a model that reads
   images, so it can look at screenshots of the apps it builds and at
   images you give it. Untick it for one that doesn't; the agent then
   checks its work by text. On OpenRouter, its list says.
-- **Fold the conversation past**: once a conversation is longer than
-  this many tokens, its earlier part is folded into a summary for the
-  model (the chat still shows all of it). 0 never folds. On
-  OpenRouter, it folds by three quarters of the model's context window
-  at the latest, whatever this says.
-- **Notify me when a turn ends while I'm away**: a desktop notification
-  when the agent finishes (or fails) while you're in another session,
-  tab or app. Turning it on asks your browser's permission. See
-  [Sessions](#sessions).
+- **Fold**: once a conversation is longer than this, its earlier part
+  is folded into a summary for the model (the chat still shows all of
+  it), or Never. On OpenRouter, it folds by three quarters of the
+  model's context window at the latest.
+- **Web search and media**, with an endpoint of your own: an
+  OpenRouter key for the agent's web search and its images, speech and
+  music, which run on OpenRouter whatever the model. It goes only to
+  OpenRouter, never to your endpoint.
 
-The same dialog holds **Sync** (keep your sessions in a GitHub repo of
-your own, to use them on another device; see [Sessions](#sessions))
-and **Publishing** (share a session as a link; see
-[Sharing](#sharing)).
+**Notifications**: **Notify me when a turn ends while I'm away**, a
+desktop notification when the agent finishes (or fails) while you're
+in another session, tab or app. Turning it on asks your browser's
+permission. See [Sessions](#sessions).
+
+**Sync & sharing**: **Sync** keeps your sessions in a GitHub repo of
+your own, to use them on another device (see [Sessions](#sessions));
+**Publishing** shares a session as a link (see [Sharing](#sharing)).
 
 Your keys are kept in your browser's storage on this device, each
 sent only to the service it's for.
