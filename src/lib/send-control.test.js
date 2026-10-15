@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPS_ORIGIN } from "./apps-origin.js";
 import { installControlBridge } from "./iframe-bridge.js";
-import { CONTROL_TIMEOUT_MS, pageLoaded, sendControl } from "./send-control.js";
+import { CONTROL_TIMEOUT_MS, pageGone, pageLoaded, sendControl } from "./send-control.js";
 
 afterEach(() => {
     vi.useRealTimers();
@@ -134,6 +134,15 @@ describe("sendControl — navigation", () => {
         iframe.load();
         await expect(p).rejects.toThrow(/^NavigationError:/);
         await expect(sendControl(iframe, { "get-logs": true })).rejects.toThrow(/^NavigationError: the app already navigated/);
+    });
+
+    it("rejects at once when the page went between actions", async () => {
+        const iframe = frame();
+        let sent = 0;
+        iframe.contentWindow.postMessage = () => void sent++;
+        pageGone(iframe);
+        await expect(sendControl(iframe, { eval: "1 + 1" })).rejects.toThrow(/^NavigationError: the app already navigated/);
+        expect(sent).toBe(0);
     });
 
     it("takes actions again once the frame has a page again", async () => {

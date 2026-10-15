@@ -20,7 +20,7 @@
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
     import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
-    import { pageLoaded } from './send-control.js'
+    import { pageGone, pageLoaded } from './send-control.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
@@ -144,6 +144,11 @@
         if (iframe === null || !isFromAppFrame(event, iframe)) return
         const data = event.data
         if (!data) return
+        if (data.type === 'agex-host-ready') {
+            // the bootloader is back in the app's place (a rebuild, or the
+            // app reloaded itself): actions wait for the page's bridge
+            pageGone(iframe)
+        }
         if (data.type === 'agex-host-ready' && current !== null) {
             // seeded with what the app saved so far: on its first load
             // that's what it was built with, after a reload of its own
