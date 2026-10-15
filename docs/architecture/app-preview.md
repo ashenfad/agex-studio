@@ -155,7 +155,12 @@ come back with the error.
 
 Before a screenshot, `waitForFrame` lets the app paint a fresh frame
 (a double `requestAnimationFrame`, with a timeout for a hidden tab,
-where the browser pauses frames).
+where the browser pauses frames). The capture is html-to-image's (an
+SVG `foreignObject`, drawn to a PNG), loaded from the apps origin's
+`vendor/`. It leaves comment nodes out (a `--` in one, which HTML
+allows, is invalid XML and fails the whole image), and fetches images
+to embed with `cache: "no-store"` rather than html-to-image's
+`cacheBust`, whose added query breaks a `blob:` asset URL.
 
 ### Size caps
 
