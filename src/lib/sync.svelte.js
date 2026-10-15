@@ -29,6 +29,7 @@ import { getSettings, settingsStore } from "./settings.js";
 import { openStore } from "./store.js";
 import { studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
+import { SessionBusy } from "./gate.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
 import { adoptRepo, localNote, nextState } from "./sync-state.js";
@@ -281,12 +282,15 @@ export class Sync {
                     }
                     return out;
                 };
-                if (session?.busy || session?.folding) {
+                let out;
+                try {
+                    out = session === undefined ? await run() : await session.hold(run);
+                } catch (e) {
+                    if (!(e instanceof SessionBusy)) throw e;
                     // a turn started while the remote was reached
                     this.#mark(name, "pending", "after the turn");
                     return;
                 }
-                const out = session === undefined ? await run() : await session.hold(run);
                 // its app's data beside it (a failure there isn't the session's)
                 await this.#syncApp(name).catch(() => undefined);
                 if (out.status === "diverged") this.#mark(name, "diverged", "It changed on another device too.");
@@ -394,15 +398,15 @@ export class Sync {
      */
     async useSynced(name) {
         const remoteHead = await this.#remoteHead(name);
-        // after every wait and before the fork, so a refusal leaves no
-        // copy behind; once held, no turn starts until it has moved
         const session = this.studio.opened(name);
-        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
-        const title = this.studio.sessions.find((s) => s.name === name)?.title || "Untitled";
         const settle = async () => {
+            const title = this.studio.sessions.find((s) => s.name === name)?.title || "Untitled";
             await this.studio.forkAs(name, `${title} (this device)`);
             await this.studio.moveTo(name, remoteHead);
         };
+        // held, it's refused (SessionBusy) before the fork while a turn
+        // runs, so a refusal leaves no copy behind, and no turn starts
+        // until it has moved
         await (session === undefined ? settle() : session.hold(settle));
         await this.syncNow(name);
     }
@@ -420,24 +424,28 @@ export class Sync {
         const remoteHead = await this.#remoteHead(name);
         const store = await openStore();
         const session = this.studio.opened(name);
-        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
-        const mine = await store.repo.branches.get(name);
-        const ws = session?.ws ?? (await store.open(name));
-        try {
-            await ws.exclusive(async () => {
-                const wt = await store.repo.worktree(name);
-                await wt.merge({ commit: remoteHead }, {
-                    defaultMerge: MergeChoice.OURS,
-                    fastForward: false,
-                    info: { tool: "studio.sync", kept: "this device" },
+        const settle = async () => {
+            // read once held: a turn's commits since are this device's too
+            const mine = await store.repo.branches.get(name);
+            const ws = session?.ws ?? (await store.open(name));
+            try {
+                await ws.exclusive(async () => {
+                    const wt = await store.repo.worktree(name);
+                    await wt.merge({ commit: remoteHead }, {
+                        defaultMerge: MergeChoice.OURS,
+                        fastForward: false,
+                        info: { tool: "studio.sync", kept: "this device" },
+                    });
                 });
-            });
-            await ws.refresh();
-            await ws.checkout(mine);
-        } finally {
-            if (session === undefined) await ws.close();
-        }
-        await session?.reload();
+                await ws.refresh();
+                await ws.checkout(mine);
+            } finally {
+                if (session === undefined) await ws.close();
+            }
+            await session?.reload();
+        };
+        // held, so no turn runs beside the merge and the checkout
+        await (session === undefined ? settle() : session.hold(settle));
         await this.syncNow(name);
     }
 
