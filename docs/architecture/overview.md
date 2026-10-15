@@ -98,6 +98,18 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   as a dot of the same color (`favicon.js`: the shipped `/favicon.svg`
   with a circle spliced in, its href put back when there's nothing to
   say).
+- **The transcript's embeds**: charts, tables, images, HTML and
+  Mermaid diagrams are read and drawn only once they come within
+  1500px of the chat's view (`lazy.js`: one `Nearby` per chat, an
+  `IntersectionObserver` and a `ResizeObserver`), a box of about their
+  size holding their place until then (`Deferred.svelte`; a height once
+  drawn is remembered). The chat keeps its own place as they grow: at
+  the end it follows them, and one above what's being read scrolls the
+  list by as much, so the reader's view stays still. A new kind of
+  embed gets the same by being wrapped in `Deferred` with its
+  placeholder's height. At a turn's end only the runs that changed are
+  new objects (`runs.js`), so the rest aren't drawn again, and an
+  earlier reply's embeds, fixed at its commit, aren't read again.
 - **Composer**: the message box: files attached as chips (+, a drop on
   the chat, a pasted image), and Send, which is Stop while a turn runs
   with nothing written.
