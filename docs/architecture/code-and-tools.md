@@ -109,6 +109,14 @@ agent reads when the skill points to them.
   JSX path with `esbuild`, data from the agent to the app, checking it
   with `test_app`, browser features, assets, workers, an agent in the
   app (`agex.task`), and what doesn't work.
+- **making-videos**: a video as an app on the HyperFrames runtime:
+  the page (runtime first, a 1920×1080 stage, its own controls over
+  `window.__player`), scenes and crossfades, CSS and Anime.js on the
+  video's clock, what breaks scrubbing, narration and music from
+  `media`, scenes as modules, long videos with delegates, and the
+  `test_app` checks (`#root` frames in a grid, the backwards scrub,
+  the voice's sync). References: a working page, a narrated scene
+  module, and two HyperFrames guides (Apache-2.0, with their license).
 - **media**: the `media` calls, their options, voices, costs, and
   how an app uses the files.
 

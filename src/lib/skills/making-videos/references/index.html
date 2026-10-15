@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quarterly revenue</title>
+  <!-- The runtime FIRST, as a plain classic script, its version pinned:
+       it owns the clock and seeks everything below, and it creates
+       window.__player, which the controls drive. Never async, defer or
+       a module, and never a <hyperframes-player>: this page is the
+       video. -->
+  <script src="https://cdn.jsdelivr.net/npm/@hyperframes/core@0.8.92/dist/hyperframe.runtime.iife.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/animejs@4.5.0/dist/bundles/anime.umd.min.js"></script>
+  <!-- Fonts from a CDN, pinned, so the video looks the same on every
+       machine. crossorigin lets test_app's screenshots draw them. -->
+  <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.3.0/index.css" />
+  <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5.3.0/index.css" />
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+
+    /* The stage is 1920x1080, always: #frame scales it to fit the window
+       (the script below), so size everything inside in px. */
+    #frame { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+    #root {
+      position: relative; width: 1920px; height: 1080px; overflow: hidden;
+      background: #0f172a; color: #f8fafc; font-family: "Inter Variable", sans-serif;
+    }
+
+    /* A scene fills the stage. The padding is the safe margin: nothing
+       sits within 80px of an edge. */
+    .scene, .scene-in, .scene-out { position: absolute; inset: 0; }
+    .scene-out { padding: 80px; box-sizing: border-box; display: flex;
+                 flex-direction: column; align-items: center; justify-content: center; gap: 32px; }
+
+    /* Crossfades. Consecutive scenes overlap by 0.5s: the outgoing one's
+       .scene-out fades out while the incoming one's .scene-in fades in.
+       Two wrappers, so each element has ONE opacity animation (two on the
+       same property fight). Both are timed from their own clip's start:
+       --out is the clip's duration minus 0.5s. */
+    .scene-in  { animation: fade-in 0.5s ease-out both; }
+    .scene-out { animation: fade-out 0.5s ease-in var(--out) both; }
+    @keyframes fade-in  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+    /* Scene 1: CSS entrances, timed from the scene's start. */
+    .title { font-family: "Space Grotesk Variable", sans-serif; font-size: 128px; font-weight: 700;
+             letter-spacing: -3px; animation: rise 1.2s cubic-bezier(.2,.8,.2,1) both; }
+    .subtitle { font-size: 48px; color: #94a3b8;
+                animation: rise 1.2s cubic-bezier(.2,.8,.2,1) 0.4s both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(40px); }
+                      to   { opacity: 1; transform: none; } }
+
+    /* Scene 2: bars that Anime.js grows. Each starts in CSS where its
+       step starts: heights at 0, figures at opacity 0. */
+    .chart { display: flex; align-items: flex-end; gap: 64px; height: 600px; }
+    .bar { width: 180px; height: 0; border-radius: 12px 12px 0 0; background: #38bdf8;
+           display: flex; align-items: flex-start; justify-content: center; }
+    .bar span { margin-top: -64px; font-size: 44px; font-weight: 600; opacity: 0; }
+    .labels { display: flex; gap: 64px; font-size: 36px; color: #94a3b8; }
+    .labels div { width: 180px; text-align: center; }
+
+    .closing { font-family: "Space Grotesk Variable", sans-serif; font-size: 96px; font-weight: 700;
+               animation: rise 1s cubic-bezier(.2,.8,.2,1) 0.3s both; }
+
+    /* The controls sit outside the stage: not part of the video. */
+    #controls { position: fixed; left: 0; right: 0; bottom: 0; height: 48px; display: flex; gap: 12px;
+                align-items: center; padding: 0 12px; background: rgba(0,0,0,.7); color: #fff;
+                font: 14px system-ui, sans-serif; }
+    #controls button { min-width: 64px; min-height: 32px; }
+    #controls input { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="frame">
+    <!-- The root: its data-duration is the video's length in seconds,
+         read once before any script runs, so it is written here. -->
+    <div id="root" data-composition-id="main" data-start="0" data-duration="10"
+         data-width="1920" data-height="1080">
+
+      <!-- Each scene is a clip: shown from data-start for data-duration
+           seconds, hidden otherwise. The runtime owns a clip's
+           visibility, so animate what is inside it, never the clip
+           itself. Each scene starts 0.5s before the last one ends: that
+           overlap is the crossfade. -->
+      <div class="scene clip" id="scene-title" data-start="0" data-duration="3.5">
+        <div class="scene-in"><div class="scene-out" style="--out: 3s">
+          <div class="title">Quarterly revenue</div>
+          <div class="subtitle">Four quarters, one direction</div>
+        </div></div>
+      </div>
+
+      <div class="scene clip" id="scene-chart" data-start="3" data-duration="5">
+        <div class="scene-in"><div class="scene-out" style="--out: 4.5s">
+          <div class="chart">
+            <div class="bar" id="q1"><span>$1.2M</span></div>
+            <div class="bar" id="q2"><span>$1.9M</span></div>
+            <div class="bar" id="q3"><span>$2.4M</span></div>
+            <div class="bar" id="q4"><span>$3.1M</span></div>
+          </div>
+          <div class="labels"><div>Q1</div><div>Q2</div><div>Q3</div><div>Q4</div></div>
+        </div></div>
+      </div>
+
+      <!-- The last scene holds to the end: it fades out only as the video ends. -->
+      <div class="scene clip" id="scene-close" data-start="7.5" data-duration="2.5">
+        <div class="scene-in"><div class="scene-out" style="--out: 2.5s">
+          <div class="closing">Up 158% on the year</div>
+        </div></div>
+      </div>
+
+      <!-- Narration and music are clips too, timed on the video's clock:
+           <audio class="clip" src="audio/title.ogg" data-start="0.4" data-duration="2.6"></audio> -->
+    </div>
+  </div>
+
+  <div id="controls">
+    <button id="play">Play</button>
+    <input id="scrub" type="range" min="0" max="10" step="0.01" value="0" />
+    <span id="time">0.0s</span>
+  </div>
+
+  <script>
+    // Anime.js runs on the VIDEO's clock, so positions are absolute
+    // times in milliseconds: the chart scene starts at 3s, so its first
+    // bar starts at 3300. autoplay: false, and push the timeline onto
+    // window.__hfAnime (created here if the runtime hasn't yet): the
+    // runtime seeks only what is registered. One step per property per
+    // element: each bar's height is animated once and each figure's
+    // opacity once; the scene's fade-out is the wrapper's, above.
+    const heights = { q1: 230, q2: 365, q3: 460, q4: 595 };
+    const tl = anime.createTimeline({ autoplay: false });
+    Object.entries(heights).forEach(([id, h], i) => {
+      const at = 3300 + i * 250;
+      tl.add('#' + id, { height: [0, h], duration: 1200, ease: 'outCubic' }, at)
+        .add('#' + id + ' span', { opacity: [0, 1], duration: 400, ease: 'linear' }, at + 900);
+    });
+    window.__hfAnime = window.__hfAnime || [];
+    window.__hfAnime.push(tl);
+  </script>
+
+  <script>
+    // The controls: fit the stage to the window, and drive the runtime's
+    // window.__player. Nothing here moves anything on the stage.
+    const frame = document.getElementById('frame');
+    const fit = () => {
+      const w = innerWidth, h = innerHeight - 48;
+      const s = Math.min(w / 1920, h / 1080);
+      frame.style.transform = `translate(${(w - 1920 * s) / 2}px, ${(h - 1080 * s) / 2}px) scale(${s})`;
+    };
+    addEventListener('resize', fit);
+    fit();
+    const play = document.getElementById('play'), scrub = document.getElementById('scrub'), time = document.getElementById('time');
+    play.onclick = () => {
+      const p = window.__player;
+      if (!p) return;
+      if (p.isPlaying()) p.pause();
+      else {
+        if (p.getTime() >= p.getDuration() - 0.05) p.seek(0);
+        p.play();
+      }
+    };
+    scrub.oninput = () => window.__player?.seek(Number(scrub.value));
+    const tick = () => {
+      const p = window.__player;
+      if (p) {
+        scrub.max = String(p.getDuration());
+        if (document.activeElement !== scrub) scrub.value = String(p.getTime());
+        time.textContent = p.getTime().toFixed(1) + 's';
+        play.textContent = p.isPlaying() ? 'Pause' : 'Play';
+      }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  </script>
+
+  <!-- Scenes in modules of their own (references/narrated-scene.js):
+  <script type="module">
+    import intro from './scenes/intro.js';
+    intro({ start: 10 });
+  </script>
+  -->
+</body>
+</html>
