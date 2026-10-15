@@ -159,6 +159,17 @@ export function installDevHook(studio, sync) {
         async folds() {
             return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
         },
+        /** The context the meter shows, in tokens (null: not known yet). */
+        get context() {
+            return session().context;
+        },
+        /** Fold the conversation so far now, as the meter's Fold now does;
+         *  the context after, and the folds. */
+        async foldNow() {
+            const s = session();
+            await s.foldNow();
+            return { context: s.context, folds: s.folds.length, error: s.error };
+        },
         /** The current session as a bundle: its file name, size, and
          *  bytes (base64). @param {"everything" | "current"} shape */
         async exportBundle(shape) {

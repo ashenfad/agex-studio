@@ -117,6 +117,22 @@ band after the last message a fold covers ("The conversation up to
 here is folded into a summary for the model"), from `ws.compaction
 .folds()`, and a `Compacted` event in the live view.
 
+The composer's context meter (`ContextMeter.svelte`) shows
+`session.context`: the next request's size in tokens against the
+budget, muted, then amber past 60% and red past 90%. Between turns it
+comes from agex-ts's `Session.context()`, measured as the policy
+measures it (so the meter and the fold agree), read again after every
+reload and once a turn ends; during a turn, from each `Usage` event
+(the request just sent), and a `Compacted` event's after-size.
+
+Its popover offers **Fold now** (`ChatSession.foldNow`, agex-ts's
+`Session.fold()`): the fold the budget would make, made between turns
+whatever the budget, and committed on its own. It's disabled while a
+turn runs, after an interrupted turn, and with nothing new since the
+last fold (`foldable`). Stop stops it (without the delegates a turn's
+stop takes down); a message sent meanwhile waits for it; undo, redo
+and deleting the session wait too.
+
 ## The primer
 
 `primer(settings)` builds the system prompt per turn:

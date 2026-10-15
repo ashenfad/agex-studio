@@ -238,6 +238,14 @@ export class ChatSession {
      *  tool result. @type {{ id: string, text: string }[]} */
     queued = $state([]);
     busy = $state(false);
+    /** The context the next request carries, in tokens, as the fold
+     *  policy measures it; during a turn, the latest request's, as the
+     *  provider reported it. Null until it's known. @type {number | null} */
+    context = $state(null);
+    /** A fold the person asked for is being written. */
+    folding = $state(false);
+    /** That fold, settling when it's done. @type {Promise<void>} */
+    #folding = Promise.resolve();
     /** The prompt of the turn running now. */
     prompt = $state("");
     /** @type {string | null} */
@@ -480,6 +488,7 @@ export class ChatSession {
         await this.reload();
         this.live = [];
         this.busy = false;
+        void this.#measure();
     }
 
     /** Whether the last turn was cut short by a provider error, so it
@@ -512,6 +521,58 @@ export class ChatSession {
         await this.refreshFiles();
         this.appStamp += 1;
         this.filesStamp += 1;
+        void this.#measure();
+    }
+
+    /** The next request's size, read again between turns. */
+    async #measure() {
+        const ws = this.ws;
+        if (ws === null || this.busy || this.folding) return;
+        try {
+            const { tokens } = await this.#session(ws).context();
+            if (!this.busy) this.context = this.runs.length > 0 ? tokens : null;
+        } catch {
+            // no model chosen, say: the meter waits for one
+            this.context = null;
+        }
+    }
+
+    /** Whether there's a turn since the last fold: something to fold. */
+    get foldable() {
+        const last = this.runs.at(-1)?.messages.at(-1)?.id;
+        return last !== undefined && this.folds.at(-1)?.through !== last;
+    }
+
+    /**
+     * Fold the conversation so far into a summary now, between turns, so
+     * the next request starts small: the fold a budget would make, written
+     * by the agent's model and committed on its own. Stop stops it; a
+     * message sent meanwhile waits for it.
+     */
+    async foldNow() {
+        await this.#held;
+        const ws = this.ws;
+        if (ws === null || this.busy || this.folding || this.interrupted || !this.foldable) return;
+        const session = this.#session(ws);
+        this.folding = true;
+        this.error = null;
+        this.redoHead = null;
+        this.#turn = session;
+        const run = (async () => {
+            try {
+                await session.fold();
+            } catch (e) {
+                this.error = `couldn't fold: ${e instanceof Error ? e.message : String(e)}`;
+            } finally {
+                this.#turn = null;
+                this.folding = false;
+                await this.reload();
+                await this.#saving;
+                this.onMeta();
+            }
+        })();
+        this.#folding = run;
+        await run;
     }
 
     async refreshFiles() {
@@ -577,6 +638,8 @@ export class ChatSession {
             this.queued = [...this.queued, { id: note.id, text: prompt }];
             return;
         }
+        // a fold being written goes first: the turn starts from it
+        await this.#folding;
         await this.#held;
         const ws = this.ws;
         if (ws === null) throw new Error("the session isn't open");
@@ -651,6 +714,8 @@ export class ChatSession {
                 await this.reload();
                 this.live = [];
                 this.busy = false;
+                // the next request's size, now the turn's reply is in it
+                void this.#measure();
                 // a turn stopped or failed: no waking until the person writes
                 if (this.#lastStatus !== "completed") this.#wakeOk = false;
                 this.syncJobs();
@@ -769,6 +834,8 @@ export class ChatSession {
      *  still running (those of earlier turns go on). */
     cancel() {
         this.#turn?.cancel("stopped by the person");
+        // a fold stopped stops alone: the delegates are the last turn's
+        if (this.folding) return;
         this.#cancelDelegates(this.#turnAt, { running: true });
     }
 
@@ -841,7 +908,7 @@ export class ChatSession {
      */
     async undo(runId) {
         await this.#held;
-        if (this.ws === null || this.busy) return;
+        if (this.ws === null || this.busy || this.folding) return;
         const turn = /** @type {{ before?: string, at?: number } | null} */ (await this.ws.plane(PLANE).get(`turns/${runId}`));
         if (!turn?.before) throw new Error("this turn's starting point isn't recorded, so it can't be undone");
         // the delegates asked since are unsaid: stopped, their answers dropped
@@ -856,7 +923,7 @@ export class ChatSession {
     /** Bring back what the last undo took away. */
     async redo() {
         await this.#held;
-        if (this.ws === null || this.busy || this.redoHead === null) return;
+        if (this.ws === null || this.busy || this.folding || this.redoHead === null) return;
         await this.ws.checkout(this.redoHead);
         this.redoHead = null;
         await this.reload();
@@ -955,8 +1022,12 @@ export class ChatSession {
                 this.queued = this.queued.filter((q) => !gone.has(q.id));
                 break;
             }
+            case "Usage":
+                this.context = event.inputTokens;
+                break;
             case "Compacted":
                 this.live.push({ kind: "folded", summary: event.summary ?? "" });
+                if (typeof event.tokensAfter === "number") this.context = event.tokensAfter;
                 break;
             case "RunEnded":
                 this.#lastStatus = event.status;
@@ -1060,7 +1131,7 @@ export class Studio {
      *  or a delegate (both run in the page). */
     working() {
         for (const s of this.#open.values()) {
-            if (s.busy || s.jobs.some((j) => j.status === "running")) return true;
+            if (s.busy || s.folding || s.jobs.some((j) => j.status === "running")) return true;
         }
         return false;
     }
@@ -1079,7 +1150,7 @@ export class Studio {
      */
     async moveTo(name, commit) {
         const session = this.#open.get(name);
-        if (session?.busy) throw new Error("a turn is running in that session; stop it first");
+        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
         await session?.close();
         const repo = (await openStore()).repo;
         await repo.branches.delete(name);
@@ -1431,7 +1502,7 @@ export class Studio {
     /** Delete session `name` for good. @param {string} name */
     async remove(name) {
         const session = this.#open.get(name);
-        if (session?.busy) throw new Error("a turn is running in that session; stop it first");
+        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
         await session?.close();
         this.#open.delete(name);
         const store = await openStore();
