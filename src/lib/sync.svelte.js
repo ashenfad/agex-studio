@@ -30,6 +30,7 @@ import { openStore, studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
+import { adoptRepo, nextState } from "./sync-state.js";
 
 /** How long after a change a session is pushed. */
 export const PUSH_DELAY = 4000;
@@ -53,13 +54,32 @@ function setAppWrittenAt(name, at) {
         // for this page only
     }
 }
+
+/** Where the repo this device's sync heads were recorded against is
+ *  noted. */
+const notedRepo = {
+    get() {
+        try {
+            return localStorage.getItem("agex-sync-repo");
+        } catch {
+            return null;
+        }
+    },
+    /** @param {string} name */
+    set(name) {
+        try {
+            localStorage.setItem("agex-sync-repo", name);
+        } catch {
+            // noted for this page only
+        }
+    },
+};
+
 /** How often, at most, the page compares every session with the repo. */
 export const SWEEP_EVERY = 5 * 60 * 1000;
 
 /**
- * A session's sync, as its row shows it.
- *
- * @typedef {{ state: "pending" | "syncing" | "synced" | "diverged" | "remote-gone" | "error", detail: string, at: number }} SyncState
+ * @typedef {import("./sync-state.js").SyncState} SyncState
  * @typedef {{ name: string, title: string, updatedAt: number }} RemoteSession
  */
 
@@ -91,7 +111,7 @@ export class Sync {
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     #timers = new Map();
     #lastSweep = 0;
-    /** @type {PackRemote | null} */
+    /** @type {Promise<PackRemote> | null} */
     #remote = null;
     #remoteKey = "";
 
@@ -110,17 +130,29 @@ export class Sync {
         });
     }
 
-    /** The remote for the settings now. */
-    async #remoteNow() {
+    /** The remote for the settings now, made once for them. */
+    #remoteNow() {
         const s = getSettings();
         const key = `${s.syncRepo}|${s.syncToken}`;
         if (this.#remote === null || key !== this.#remoteKey) {
-            const client = new GithubClient({ token: s.syncToken.trim(), repo: s.syncRepo.trim(), writeIntervalMs: 0 });
-            const store = await openStore();
-            this.#remote = new PackRemote(client, store.repo.store, { meta: (branch) => this.#meta(branch) });
+            const remote = this.#connect(s.syncRepo.trim(), s.syncToken.trim());
+            // one that failed to open is tried afresh next time
+            remote.catch(() => {
+                if (this.#remote === remote) this.#remote = null;
+            });
+            this.#remote = remote;
             this.#remoteKey = key;
         }
         return this.#remote;
+    }
+
+    /** A remote on `repo`: the sync heads recorded against another repo
+     *  go first. @param {string} repo @param {string} token */
+    async #connect(repo, token) {
+        const store = await openStore();
+        await adoptRepo(store.repo, repo, notedRepo);
+        const client = new GithubClient({ token, repo, writeIntervalMs: 0 });
+        return new PackRemote(client, store.repo.store, { meta: (branch) => this.#meta(branch) });
     }
 
     /** What the repo's roster shows of a session. @param {string} name */
@@ -131,7 +163,7 @@ export class Sync {
 
     /** @param {string} name @param {SyncState["state"]} state @param {string} [detail] */
     #mark(name, state, detail = "") {
-        this.status[name] = { state, detail, at: Date.now() };
+        this.status[name] = nextState(this.status[name], state, detail);
     }
 
     /** Whether session `name` syncs: it has been used (it has a title),
@@ -371,10 +403,17 @@ export class Sync {
      * @param {string} name
      */
     async useSynced(name) {
+        // before the fork, so a refusal leaves no copy behind
+        const session = this.studio.opened(name);
+        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
         const remoteHead = await this.#remoteHead(name);
         const title = this.studio.sessions.find((s) => s.name === name)?.title || "Untitled";
-        await this.studio.forkAs(name, `${title} (this device)`);
-        await this.studio.moveTo(name, remoteHead);
+        const settle = async () => {
+            await this.studio.forkAs(name, `${title} (this device)`);
+            await this.studio.moveTo(name, remoteHead);
+        };
+        // no turn starts in the session until it has moved
+        await (session === undefined ? settle() : session.hold(settle));
         await this.syncNow(name);
     }
 
@@ -391,7 +430,7 @@ export class Sync {
         const remoteHead = await this.#remoteHead(name);
         const store = await openStore();
         const session = this.studio.opened(name);
-        if (session?.busy) throw new Error("a turn is running in that session; stop it first");
+        if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
         const mine = await store.repo.branches.get(name);
         const ws = session?.ws ?? (await store.open(name));
         try {
@@ -426,14 +465,21 @@ export class Sync {
      *  @param {string} name */
     async deleteEverywhere(name) {
         const remote = await this.#remoteNow();
-        // its app data first, so a failure changes nothing; then the session,
-        // whose failure puts the app data back
+        const roster = await remote.roster();
         const app = appBranch(name);
-        const hasApp = (await remote.listRefs()).some((r) => r.branch === app);
+        const has = roster.some((r) => r.branch === name && !r.archived);
+        const hasApp = roster.some((r) => r.branch === app && !r.archived);
+        // the trash holds one of each name: an earlier copy there blocks this one
+        if ((has && roster.some((r) => r.branch === name && r.archived)) || (hasApp && roster.some((r) => r.branch === app && r.archived))) {
+            throw new Error("an earlier copy of this session is in the sync repo's trash: empty the trash, then delete again");
+        }
+        // its app data first, so a failure changes nothing; then the session,
+        // whose failure puts the app data back. A session the repo no longer
+        // holds (gone elsewhere since) is only removed here.
         if (hasApp && !(await remote.archiveBranch(app))) {
             throw new Error("the session's app data changed in the sync repo meanwhile; sync, then delete again");
         }
-        if (!(await remote.archiveBranch(name))) {
+        if (has && !(await remote.archiveBranch(name))) {
             if (hasApp) await remote.restoreBranch(app).catch(() => false);
             throw new Error("the session changed in the sync repo meanwhile; sync, then delete again");
         }
@@ -464,9 +510,10 @@ export class Sync {
         this.trash = [];
     }
 
-    /** Whether the repo holds session `name` (what "delete" asks about). @param {string} name */
+    /** Whether the repo holds session `name`, as last seen (what
+     *  "delete" asks about). @param {string} name */
     synced(name) {
-        return this.connected && this.status[name] !== undefined;
+        return this.connected && this.status[name]?.held === true;
     }
 
     /** @param {string} name */
@@ -481,6 +528,8 @@ export class Sync {
     disconnect() {
         for (const t of this.#timers.values()) clearTimeout(t);
         this.#timers.clear();
+        for (const t of this.#appTimers.values()) clearTimeout(t);
+        this.#appTimers.clear();
         this.status = {};
         this.cloud = [];
         this.trash = [];
