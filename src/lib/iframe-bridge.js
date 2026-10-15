@@ -149,7 +149,17 @@ async function captureScreenshot(doc, selector) {
     // tab is backgrounded (rAF paused) — see waitForFrame.
     await waitForFrame(doc.defaultView || globalThis);
 
-    const dataUrl = await toPng(target, { cacheBust: true });
+    const dataUrl = await toPng(target, {
+        // Images are fetched again to be embedded; skip the HTTP cache,
+        // where an <img> without crossorigin may have left a response a
+        // CORS fetch can't use. (Not `cacheBust`: it adds a query to
+        // every URL, and a blob: URL with a query names nothing.)
+        fetchRequestInit: { cache: "no-store" },
+        // The capture is an SVG (XML): a comment holding `--`, which HTML
+        // allows (`<!-- set --out -->`), would make the whole image fail
+        // to parse. Comments draw nothing, so leave them out.
+        filter: (node) => node.nodeType !== Node.COMMENT_NODE,
+    });
     // Strict prefix match: accept any `data:image/<type>[;params];base64,`
     // shape (some encoders emit charset / vendor params before `base64`).
     // The previous regex only matched `data:image/png;base64,` exactly,
