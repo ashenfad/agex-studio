@@ -1,13 +1,14 @@
 /**
  * Iframe control for `test_app`: a hidden test iframe built from the
  * app's files, or the live preview the person is looking at, driven by
- * the control bridge (`iframe-bridge.js`).
+ * the control bridge (`iframe-bridge.js` in the page, `send-control.js`
+ * here).
  *
  * `cacheHandler(key)` answers the app's `getCacheValue()` calls from
  * the session's cache.
  */
 
-import { sendControl } from "./iframe-bridge.js";
+import { sendControl } from "./send-control.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 
@@ -30,47 +31,80 @@ export function getLiveIframe() {
     return _liveIframe;
 }
 
-/** Settle once the iframe stops triggering query/effects, or
- *  `maxMs` elapses. The control bridge calls `iframe.__onQueryDone`
- *  whenever a query handler resolves; we watch for an idle gap (no
- *  resets) to consider the app idle.
+/**
+ * The calls each app frame has made to the studio (`getCacheValue`,
+ * `agex.task`) that haven't been answered yet, and the `waitForIdle`
+ * watching it, if any.
  *
- *  Default `idleGap` is 400ms. Sized for the typical chat-app
- *  pattern: a click fires a query (postMessage round-trip ~50ms),
- *  the response handler may fire another query immediately. Tight
- *  chains keep the timer extending via `__onQueryDone`; the gap
- *  only fires when the chain genuinely ends. 400ms is also enough
- *  margin for ~300ms debounced patterns (typical debounce sizes)
- *  to fire their first query before we settle.
+ * @type {WeakMap<object, { pending: number, onChange: (() => void) | null }>}
+ */
+const _calls = new WeakMap();
+
+function _callsOf(iframe) {
+    let c = _calls.get(iframe);
+    if (c === undefined) {
+        c = { pending: 0, onChange: null };
+        _calls.set(iframe, c);
+    }
+    return c;
+}
+
+/** The app in `iframe` made a call to the studio; it's in flight until
+ *  `callDone`. Both the test iframe's bridge and the live preview
+ *  report their calls, so `waitForIdle` waits for them. */
+export function callStarted(iframe) {
+    const c = _callsOf(iframe);
+    c.pending += 1;
+    c.onChange?.();
+}
+
+/** A call `callStarted` reported was answered (or failed). */
+export function callDone(iframe) {
+    const c = _callsOf(iframe);
+    c.pending = Math.max(0, c.pending - 1);
+    c.onChange?.();
+}
+
+/** Settle once the app has no call to the studio in flight and none
+ *  has started or finished for `idleGap` ms, or once `maxMs` elapses.
+ *  A call counts from when it starts (`callStarted`), so a click that
+ *  sets off an agent task taking seconds keeps the wait going until
+ *  the task answers and the app has had its quiet gap to show the
+ *  result.
+ *
+ *  Default `idleGap` is 400ms. Sized for the typical pattern: a click
+ *  fires a call (postMessage round-trip ~50ms), and its answer may fire
+ *  another at once. Tight chains keep the timer extending; the gap only
+ *  fires when the chain genuinely ends. 400ms is also enough margin for
+ *  ~300ms debounced patterns (typical debounce sizes) to fire their
+ *  first call before we settle.
  *
  *  Caps:
  *    - Per-action waits use the default 400ms gap. With many
  *      click-driven actions in a single `testApp` call (5+ clicks),
  *      a 2000ms-per-click cushion would blow past the worker's
  *      emission timeout for what's usually trivial work.
- *    - Apps that need more time per action: agent inserts an
- *      explicit `{ wait: N }` action. Apps with slow backends
- *      (>400ms first-query latency): same.
+ *    - Work the app does without calling the studio (a timer, a
+ *      `fetch`): the agent inserts an explicit `{ wait: N }` action.
  *
  *  Override per-call when a known-slow path needs more headroom. */
 export function waitForIdle(iframe, maxMs = 15000, idleGap = 400) {
     return new Promise((resolve) => {
+        const calls = _callsOf(iframe);
         let idleTimer = null;
-        const maxTimer = setTimeout(() => {
+        function finish() {
             clearTimeout(idleTimer);
+            clearTimeout(maxTimer);
+            if (calls.onChange === onChange) calls.onChange = null;
             resolve();
-        }, maxMs);
-
-        function resetIdle() {
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => {
-                clearTimeout(maxTimer);
-                resolve();
-            }, idleGap);
         }
-
-        iframe.__onQueryDone = () => resetIdle();
-        resetIdle();
+        const maxTimer = setTimeout(finish, maxMs);
+        function onChange() {
+            clearTimeout(idleTimer);
+            idleTimer = calls.pending === 0 ? setTimeout(finish, idleGap) : null;
+        }
+        calls.onChange = onChange;
+        onChange();
     });
 }
 
@@ -150,13 +184,14 @@ function _isAssertionError(e) {
         e.message.startsWith("AssertionError:");
 }
 
-/** Marker prefix `sendControl` stamps when the iframe navigated /
- *  reloaded mid-action (e.g. `location.reload()`). Once that happens the
- *  control bridge is gone, so the remaining actions can't run — we
- *  surface this one and stop the sequence rather than hang on each. */
-function _isNavigationError(e) {
+/** Marker prefixes `sendControl` stamps when the iframe navigated /
+ *  reloaded mid-action (e.g. `location.reload()`), or didn't answer in
+ *  time. Either way the remaining actions would fail the same way (the
+ *  control bridge is gone, or the page is stuck), so we surface this
+ *  one and stop the sequence rather than wait on each. */
+function _endsTheRun(e) {
     return typeof e?.message === "string" &&
-        e.message.startsWith("NavigationError:");
+        (e.message.startsWith("NavigationError:") || e.message.startsWith("TimeoutError:"));
 }
 
 /** Execute `actions` sequentially against `iframe`'s control bridge.
@@ -165,8 +200,8 @@ function _isNavigationError(e) {
  *
  *  Per-action settling: only async-triggering actions (click, type,
  *  select) get an automatic `waitForIdle` after dispatch, since
- *  those run app-side handlers that may fire `query()` /
- *  `getCacheValue()` / `fetch()`. Sync actions (eval, read,
+ *  those run app-side handlers that may call `getCacheValue()` /
+ *  `agex.task(...)` / `fetch()`. Sync actions (eval, read,
  *  screenshot, get-logs) return their full result via the bridge
  *  and need no further wait. The agent can always insert an
  *  explicit `{ wait: N }` action if a sync action's expression
@@ -220,7 +255,7 @@ export async function executeActions(iframe, actions, opts = {}) {
             const { width, height } = resolveViewport(action.viewport);
             iframe.style.width = `${width}px`;
             iframe.style.height = `${height}px`;
-            // Let layout reflow + any resize-driven re-render / query
+            // Let layout reflow + any resize-driven re-render / call
             // settle before the next action (e.g. a screenshot) runs.
             await waitForIdle(iframe, 10000);
             continue;
@@ -239,9 +274,10 @@ export async function executeActions(iframe, actions, opts = {}) {
                 e.results = results;
                 throw e;
             }
-            if (_isNavigationError(e)) {
-                // The app tore itself down — every remaining action would
-                // hang the same way. Record the cause and stop here.
+            if (_endsTheRun(e)) {
+                // The app tore itself down or stopped answering: every
+                // remaining action would fail the same way. Record the
+                // cause and stop here.
                 results.push({ type: "log", level: "error", message: e.message });
                 break;
             }
@@ -258,13 +294,17 @@ export async function executeActions(iframe, actions, opts = {}) {
     return results;
 }
 
+/** How long `collectResults` waits for the app's logs: reading them is
+ *  instant for a page that answers at all. */
+const LOGS_TIMEOUT_MS = 5000;
+
 /** Pull the iframe's collected console logs and append the action
  *  results. Capped at 200 entries to keep test_app turn output
  *  bounded — long-tail logs would crowd the agent's context. */
 export async function collectResults(iframe, actionResults) {
     let logs = [];
     try {
-        const data = await sendControl(iframe, { "get-logs": true });
+        const data = await sendControl(iframe, { "get-logs": true }, { timeoutMs: LOGS_TIMEOUT_MS });
         logs = (data?.logs || []).map((e) => ({
             type: "log",
             level: e.level,
@@ -354,6 +394,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
 
         if (data.type === "agex-task") {
             const { id } = data;
+            callStarted(iframe);
             const p = (async () => {
                 try {
                     if (!taskHandler) throw new Error("agex.task isn't available here");
@@ -362,7 +403,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
                 } catch (err) {
                     replyToApp(iframe, { type: "agex-task-result", id, value: null, error: err?.message || String(err) });
                 }
-                iframe.__onQueryDone?.();
+                callDone(iframe);
             })();
             pendingHandlers.push(p);
             return;
@@ -376,6 +417,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
 
         if (data.type === "agex-cache-get") {
             const { id, key } = data;
+            callStarted(iframe);
             const p = (async () => {
                 try {
                     const out = cacheHandler ? await cacheHandler(key) : undefined;
@@ -403,7 +445,7 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
                         error: err.message || String(err),
                     });
                 }
-                iframe.__onQueryDone?.();
+                callDone(iframe);
             })();
             pendingHandlers.push(p);
             return;
@@ -419,7 +461,7 @@ const CHAIN_GRACE_MS = 300;
  * Run a headless app test in a hidden iframe.
  *
  * Builds the iframe's page via the caller-provided `buildAppPage`, wires
- * query/cache bridges, runs `actions`, collects console + action
+ * the cache/task bridges, runs `actions`, collects console + action
  * results, returns the lot. Always tears the iframe down on resolve
  * or reject.
  *

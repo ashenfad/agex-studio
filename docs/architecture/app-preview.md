@@ -56,12 +56,14 @@ page's HTML and its assets:
 3. Inlines CSS files, and gives each JS file a data URL in an import
    map, rewriting the app's own imports to it (`__app/…`). Bare
    imports go to esm.sh, with pinned entries for preact (and `react`
-   as `preact/compat`), htm, marked, dayjs and dompurify; Plotly loads
-   as a script, preloaded once per page.
+   as `preact/compat`), htm (its subpaths' own imports resolved
+   through the map), marked, dayjs and dompurify. Plotly loads as a
+   script, only for an app whose page or scripts name `Plotly`.
 4. Bundles `*.worker.js` files with esbuild into module sources,
    started with `appWorker(name)`.
-5. Injects, ahead of the app's own code: the console interceptor,
-   the storage shim, the assets script, the worker registry, the host
+5. Injects, at the start of the page's head (after the doctype and
+   `<html>` tag when it has no `<head>`): the console interceptor, the
+   storage shim, the assets script, the worker registry, the host
    bridge, the control bridge, and the import map.
 
 The assets go to the frame when the page does (`hostInit`). A
@@ -81,8 +83,10 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
 - **Storage**: `localStorage` is a shim seeded with the session's
   app data (`app-storage.js`: the studio's `localStorage` under
   `agex-app:ts:<session>:`), capped at 5 MB. Each change posts the
-  whole bag (`agex-app-storage`); the preview writes it a moment later
-  and tells sync (`sync.appChanged`). `sessionStorage` is in memory;
+  whole bag (`agex-app-storage`); the preview checks it (strings,
+  within the quota: `checkBag`), writes it a moment later, all or
+  nothing, and tells sync (`sync.appChanged`). An app that reloads
+  itself gets its page again, seeded with what it saved. `sessionStorage` is in memory;
   `indexedDB` throws, saying to use `localStorage`. A test iframe's
   shim is read-only.
 - **The cache**: `getCacheValue(key)` reads a value the agent's code

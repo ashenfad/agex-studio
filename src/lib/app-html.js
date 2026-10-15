@@ -2,12 +2,13 @@
  * The app preview's HTML builder.
  *
  * Builds the self-contained HTML document (with console interceptor,
- * asset/import rewriting, storage shim, and plotly preloading) that is
- * posted to the app-preview iframe's bootloader, from the files under
- * the session's `app/`.
+ * asset/import rewriting, storage shim, and Plotly for an app that uses
+ * it) that is posted to the app-preview iframe's bootloader, from the
+ * files under the session's `app/`.
  */
 
 import _iframeBridgeSource from './iframe-bridge.js?raw';
+import { APP_STORAGE_QUOTA } from './app-storage.js';
 import {
     buildAssetsScript,
     collectAssets,
@@ -216,21 +217,19 @@ window.notify = function(title, body) {
  * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
  * @returns {string}
  */
-// Exported so pyodide.test.js can verify the shim's seed encoding,
-// quota, and writeable=false read-only path. Otherwise internal —
-// callers should go through buildAppPage.
 export function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
-    // JSON.stringify is safe inside a script tag as long as we escape
-    // the "</" sequence that would otherwise close the element.
-    const seedJson = JSON.stringify(seed).replace(/<\/script/gi, '<\\/script');
+    // Every `<` escaped (a JS string escape, so the values read back
+    // the same): a stored `</script>` or `<!--` can't end or upset the
+    // script element the seed sits in.
+    const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
     return `
 <script>
 (function() {
     var __seed = ${seedJson};
     var __writeable = ${writeable};
-    var QUOTA = 5 * 1024 * 1024;
+    var QUOTA = ${APP_STORAGE_QUOTA};
 
     function buildStore(persist, seed) {
         var data = Object.assign({}, seed || {});
@@ -315,11 +314,11 @@ export function buildAppStorageShim(opts = {}) {
 
 // Agent control bridge — receives postMessage action commands from the
 // parent (click/type/read/eval/screenshot/get-logs) and dispatches them
-// against the iframe's own DOM. Required so executeActions/collectResults
-// work when the iframe has an opaque origin (sandbox without
-// allow-same-origin). The dispatch logic lives in ./iframe-bridge.js;
-// this is just the inline-module shim that imports it by text and wires
-// to the iframe's window.
+// against the iframe's own DOM. The app runs at the apps origin, a
+// different origin from the studio's, so the studio can't reach into
+// its document and drives it through this bridge instead. The dispatch
+// logic lives in ./iframe-bridge.js; this is just the inline-module
+// shim that carries it as text and wires it to the iframe's window.
 const AGENT_CONTROL_BRIDGE_SCRIPT = `
 <script type="module">
 ${_iframeBridgeSource}
@@ -339,9 +338,13 @@ const CDN_IMPORTS = {
     "preact/": "https://esm.sh/preact@10.25.4/",
     // htm: JSX-like template literals without a build step. Tiny
     // (~3KB) and the standard "JSX without esbuild" companion to
-    // preact. Used by the TS-side interactive-app skill since esbuild
-    // isn't yet wired on that kernel.
+    // preact. Its subpaths (`htm/preact`) come with their own
+    // dependencies left as bare imports (esm.sh's `*` prefix), so
+    // `preact` and `htm` resolve through this map to the pinned
+    // copies: one Preact on the page, whose hooks work with
+    // `htm/preact`'s `render`.
     "htm": "https://esm.sh/htm@3.1.1",
+    "htm/": "https://esm.sh/*htm@3.1.1/",
     // Alias 'react' → preact/compat so agent code that writes
     // idiomatic React (`import { useState } from 'react'`) runs on
     // the lighter Preact runtime.  Most React component libraries
@@ -362,62 +365,23 @@ const CDN_IMPORTS = {
 };
 
 const PLOTLY_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js";
-const PLOTLY_SCRIPT_FALLBACK = `<script src="${PLOTLY_URL}"><\/script>`;
-
-// Sandboxed iframes have an opaque origin — Chrome's HTTP cache
-// partitions by origin, so every session switch re-downloads Plotly.js
-// from the CDN (3–4s on a slow connection). Fetch it once on the
-// parent origin (which caches normally) and hand each iframe a `data:`
-// URL pointing at the bytes. blob URLs won't work here — opaque-origin
-// iframes can't access parent-origin blobs. data URLs are embedded,
-// so they sidestep both the HTTP cache partitioning *and* the
-// cross-origin blob restriction, and there's no `</script>` escaping
-// hazard (the content is base64-encoded).
-let _plotlyDataUrl = null;
-let _plotlyPreloadPromise = null;
 
 /**
- * Kick off a background fetch of Plotly.js. Safe to call multiple times
- * (second call reuses the in-flight promise). Called early from the
- * app shell so the script is ready by the time the first iframe builds.
+ * Does the app use Plotly? It's a global the page loads from a script
+ * (a few MB, render-blocking), so only a page whose own code names it
+ * gets it: `Plotly.newPlot(...)`, `window.Plotly`, `typeof Plotly`, in
+ * the page or any of the app's scripts.
+ *
+ * @param {Record<string, string>} appFiles
+ * @param {string} html - the page the app is built from
+ * @returns {boolean}
  */
-export function preloadPlotly() {
-    if (_plotlyDataUrl) return Promise.resolve();
-    if (_plotlyPreloadPromise) return _plotlyPreloadPromise;
-    _plotlyPreloadPromise = fetch(PLOTLY_URL)
-        .then((r) => {
-            if (!r.ok) throw new Error(`Plotly fetch ${r.status}`);
-            return r.blob();
-        })
-        .then((blob) => new Promise((resolve, reject) => {
-            // FileReader.readAsDataURL is the fast path — native
-            // base64 encode, no stack overflow on 3MB like
-            // String.fromCharCode(...bytes) would have.
-            const fr = new FileReader();
-            fr.onload = () => {
-                _plotlyDataUrl = /** @type {string} */ (fr.result);
-                resolve();
-            };
-            fr.onerror = () => reject(fr.error);
-            fr.readAsDataURL(blob);
-        }))
-        .catch((e) => {
-            console.warn("[plotly] preload failed; falling back to <script src>", e);
-            _plotlyDataUrl = null;
-            // Drop the cached (failed) promise so a later call retries the
-            // preload instead of re-returning the failed attempt.
-            _plotlyPreloadPromise = null;
-        });
-    return _plotlyPreloadPromise;
-}
-
-/** Serve plotly via a data URL if preload succeeded; otherwise fall
- *  back to the CDN URL directly. */
-function _plotlyScriptTag() {
-    if (_plotlyDataUrl) {
-        return `<script src="${_plotlyDataUrl}"><\/script>`;
-    }
-    return PLOTLY_SCRIPT_FALLBACK;
+function _usesPlotly(appFiles, html) {
+    const re = /\bPlotly\b/;
+    if (re.test(html)) return true;
+    return Object.entries(appFiles).some(
+        ([path, content]) => path.endsWith('.js') && !WORKER_FILE_RE.test(path) && re.test(content),
+    );
 }
 
 /** Prefix used for bare specifiers in the import map for local app files. */
@@ -626,7 +590,7 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
             `<link[^>]*href=["'](?:\\./)?${_escapeRegex(name)}["'][^>]*/?>`,
             'g',
         );
-        html = html.replace(pattern, `<style>${rewritten}</style>`);
+        html = html.replace(pattern, () => `<style>${rewritten}</style>`);
     }
 
     // Build import map entries for JS files
@@ -811,7 +775,7 @@ function _workerRegistryScript(workerSources) {
  *   appStorage?: { seed?: Record<string,string>, writeable?: boolean },
  *   workerSources?: Record<string, string>,
  * }} [opts]
- * @returns {Promise<{ html: string, assets: import('./app-assets.js').AppAsset[] }>}
+ * @returns {Promise<AppPage>}
  */
 export async function buildAppPage(appFiles, opts = {}) {
     const storageShim = buildAppStorageShim(opts.appStorage || {});
@@ -831,18 +795,57 @@ export async function buildAppPage(appFiles, opts = {}) {
     const resolved = _resolveAppModules(appFiles, html, assetUrls);
     html = resolved.html;
     const importMapTag = _buildImportMapTag(resolved.importMap);
-    const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
+    const plotlyTag = _usesPlotly(appFiles, html) ? `\n<script src="${PLOTLY_URL}"><\/script>` : '';
+    const cdnScripts = importMapTag + plotlyTag;
 
     // The storage shim runs before app code (and before the CDN
     // scripts below: a library might poke localStorage on import),
     // and the assets script early, so its fetch patch is in place
     // before any app JS runs.
     const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
-    html = html.replace('<head>', '<head>' + injected);
-    if (!html.includes('<head>')) {
-        html = injected + html;
-    }
-    return { html, assets };
+    return { html: _injectHead(html, injected), assets, storageShim };
+}
+
+/**
+ * A built page: its HTML, its assets (which the HTML names by token),
+ * and the storage shim as it appears in the HTML, for `reseedAppPage`.
+ *
+ * @typedef {{ html: string, assets: import('./app-assets.js').AppAsset[], storageShim: string }} AppPage
+ */
+
+/**
+ * `page` with its storage shim seeded from `storage` instead: for a
+ * page sent again after the app reloaded itself, which should start
+ * from what the app saved since the page was built.
+ *
+ * @param {AppPage} page
+ * @param {{ seed?: Record<string,string>, writeable?: boolean }} storage
+ * @returns {AppPage}
+ */
+export function reseedAppPage(page, storage) {
+    const storageShim = buildAppStorageShim(storage);
+    return { ...page, html: page.html.replace(page.storageShim, () => storageShim), storageShim };
+}
+
+/**
+ * `html` with `injected` at the start of its head: just inside its
+ * `<head>` tag (any case, any attributes), or with no head tag, where
+ * the parser starts one: after the `<html>` tag, else after the
+ * doctype. Never ahead of the doctype, which would put the page in
+ * quirks mode.
+ *
+ * @param {string} html
+ * @param {string} injected
+ * @returns {string}
+ */
+function _injectHead(html, injected) {
+    const at =
+        /<head(?=[\s/>])[^>]*>/i.exec(html) ??
+        /<html(?=[\s/>])[^>]*>/i.exec(html) ??
+        /^(?:\s|<!--[\s\S]*?-->)*<!doctype\b[^>]*>/i.exec(html);
+    if (at === null) return injected + html;
+    const end = at.index + at[0].length;
+    return html.slice(0, end) + injected + html.slice(end);
 }
 
 /**

@@ -5,7 +5,6 @@ import {
     dispatchAction,
     handleControlMessage,
     installControlBridge,
-    sendControl,
     waitForFrame,
 } from "./iframe-bridge.js";
 
@@ -422,45 +421,6 @@ describe("dispatchAction — get-logs", () => {
     });
 });
 
-describe("sendControl — navigation handling", () => {
-    it("rejects with NavigationError when the iframe (re)loads mid-action", async () => {
-        let loadHandler = null;
-        const removed = [];
-        const iframe = {
-            contentWindow: { postMessage: () => {} },
-            addEventListener: (type, fn) => {
-                if (type === "load") loadHandler = fn;
-            },
-            removeEventListener: (type) => removed.push(type),
-        };
-        const p = sendControl(iframe, { eval: "location.reload()" });
-        // The bridge attached a load listener; simulate the app
-        // navigating (what location.reload() triggers).
-        expect(typeof loadHandler).toBe("function");
-        loadHandler();
-        await expect(p).rejects.toThrow(/^NavigationError:/);
-        // Both listeners are torn down (the load one via the iframe).
-        expect(removed).toContain("load");
-        // The iframe is marked dead so later calls bail fast.
-        expect(iframe.__navigated).toBe(true);
-    });
-
-    it("rejects immediately (no hang) on an already-navigated iframe", async () => {
-        // Mirrors collectResults' get-logs call after a mid-action
-        // navigation: the bridge is gone and no load event will fire, so
-        // without the guard this would wait forever.
-        const iframe = {
-            __navigated: true,
-            contentWindow: { postMessage: () => {} },
-            addEventListener: () => {},
-            removeEventListener: () => {},
-        };
-        await expect(
-            sendControl(iframe, { "get-logs": true }),
-        ).rejects.toThrow(/^NavigationError:/);
-    });
-});
-
 describe("dispatchAction — unknown action", () => {
     it("throws for unrecognized action shape", async () => {
         await expect(
@@ -545,6 +505,7 @@ describe("installControlBridge", () => {
         let handler = null;
         const win = {
             document,
+            __AGEX_PARENT_ORIGIN: "https://agex.studio",
             addEventListener: (_type, fn) => { handler = fn; },
         };
         installControlBridge(win);
@@ -553,6 +514,7 @@ describe("installControlBridge", () => {
         await handler({
             data: { type: "agex-control", id: "r1", action: { read: "#s" } },
             source,
+            origin: "https://agex.studio",
         });
 
         expect(source.postMessage).toHaveBeenCalledWith(
@@ -562,8 +524,28 @@ describe("installControlBridge", () => {
                 data: { type: "read", selector: "#s", value: "answer" },
                 error: null,
             }),
-            "*",
+            "https://agex.studio",
         );
+    });
+
+    it("obeys nothing while the parent's origin is unknown", async () => {
+        document.body.innerHTML = '<span id="s">answer</span>';
+        let handler = null;
+        const win = {
+            document,
+            eval: vi.fn(),
+            addEventListener: (_type, fn) => { handler = fn; },
+        };
+        installControlBridge(win);
+
+        const source = { postMessage: vi.fn() };
+        await handler({
+            data: { type: "agex-control", id: "r1", action: { eval: "1 + 1" } },
+            source,
+            origin: "https://evil.example",
+        });
+        expect(win.eval).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
     });
 
     it("does not respond to non-control messages", async () => {
@@ -617,250 +599,5 @@ describe("installControlBridge", () => {
             expect.objectContaining({ type: "agex-control-result", id: "r1" }),
             "https://agex.studio",
         );
-    });
-});
-
-// -----------------------------------------------------------------------
-// Parent side: sendControl
-// -----------------------------------------------------------------------
-
-/**
- * Build a mock iframe whose postMessage drives a responseFn that decides
- * what response event to dispatch back on `window`. Used by the sendControl
- * tests to stub the iframe's side without installing a real bridge.
- */
-function makeMockIframe(responseFn) {
-    const iframe = {
-        contentWindow: {
-            postMessage: null,
-        },
-    };
-    iframe.contentWindow.postMessage = (msg, _origin) => {
-        queueMicrotask(() => {
-            const responses = responseFn(msg);
-            const list = Array.isArray(responses) ? responses : [responses];
-            for (const { data, source } of list) {
-                if (data === undefined) continue;
-                window.dispatchEvent(new MessageEvent("message", {
-                    data,
-                    source: source || iframe.contentWindow,
-                }));
-            }
-        });
-    };
-    return iframe;
-}
-
-describe("sendControl", () => {
-    it("posts an agex-control message and resolves with response data", async () => {
-        const posted = [];
-        const iframe = makeMockIframe((msg) => {
-            posted.push(msg);
-            return {
-                data: {
-                    type: "agex-control-result",
-                    id: msg.id,
-                    data: { ok: true, echo: msg.action },
-                    error: null,
-                },
-            };
-        });
-
-        const result = await sendControl(iframe, { click: "#x" });
-        expect(posted).toHaveLength(1);
-        expect(posted[0]).toMatchObject({
-            type: "agex-control",
-            action: { click: "#x" },
-        });
-        expect(posted[0].id).toMatch(/^ctrl-/);
-        expect(result).toEqual({ ok: true, echo: { click: "#x" } });
-    });
-
-    it("rejects when response has an error field", async () => {
-        const iframe = makeMockIframe((msg) => ({
-            data: {
-                type: "agex-control-result",
-                id: msg.id,
-                data: null,
-                error: "boom",
-            },
-        }));
-
-        await expect(sendControl(iframe, { click: "#x" }))
-            .rejects.toThrow("boom");
-    });
-
-    it("ignores responses with a mismatched id", async () => {
-        const iframe = makeMockIframe((msg) => [
-            // Stale response from an earlier call
-            {
-                data: {
-                    type: "agex-control-result",
-                    id: "stale-id",
-                    data: "stale",
-                    error: null,
-                },
-            },
-            // The real response
-            {
-                data: {
-                    type: "agex-control-result",
-                    id: msg.id,
-                    data: "real",
-                    error: null,
-                },
-            },
-        ]);
-
-        const result = await sendControl(iframe, { click: "#x" });
-        expect(result).toBe("real");
-    });
-
-    it("ignores messages from other sources", async () => {
-        const iframe = makeMockIframe((msg) => [
-            // Response from a different source (different contentWindow)
-            {
-                data: {
-                    type: "agex-control-result",
-                    id: msg.id,
-                    data: "wrong-source",
-                    error: null,
-                },
-                source: { iAmNot: "the iframe" },
-            },
-            // Real response from the iframe
-            {
-                data: {
-                    type: "agex-control-result",
-                    id: msg.id,
-                    data: "correct",
-                    error: null,
-                },
-            },
-        ]);
-
-        const result = await sendControl(iframe, { click: "#x" });
-        expect(result).toBe("correct");
-    });
-
-    it("ignores non-result messages during the wait", async () => {
-        const iframe = makeMockIframe((msg) => [
-            // Some other message type that shouldn't trip the handler
-            {
-                data: { type: "agex-query", id: "irrelevant" },
-            },
-            // The expected result
-            {
-                data: {
-                    type: "agex-control-result",
-                    id: msg.id,
-                    data: "done",
-                    error: null,
-                },
-            },
-        ]);
-
-        const result = await sendControl(iframe, { click: "#x" });
-        expect(result).toBe("done");
-    });
-
-    it("allows concurrent calls with independent id tracking", async () => {
-        // Each posted id gets its own response
-        const iframe = makeMockIframe((msg) => ({
-            data: {
-                type: "agex-control-result",
-                id: msg.id,
-                data: `result-for-${msg.action.tag}`,
-                error: null,
-            },
-        }));
-
-        const [a, b] = await Promise.all([
-            sendControl(iframe, { tag: "A" }),
-            sendControl(iframe, { tag: "B" }),
-        ]);
-        expect(a).toBe("result-for-A");
-        expect(b).toBe("result-for-B");
-    });
-});
-
-// -----------------------------------------------------------------------
-// End-to-end: sendControl → installControlBridge → response
-// -----------------------------------------------------------------------
-
-describe("sendControl + installControlBridge round-trip", () => {
-    it("completes a read action end-to-end", async () => {
-        document.body.innerHTML = '<span id="s">answer</span>';
-
-        // Build an "iframe window" that installs the real bridge
-        let bridgeHandler = null;
-        const iframeWin = {
-            document,
-            addEventListener: (type, fn) => {
-                if (type === "message") bridgeHandler = fn;
-            },
-        };
-        installControlBridge(iframeWin);
-
-        // When bridge calls event.source.postMessage, route it back to
-        // the real window so sendControl's listener picks it up.
-        const parentSourceProxy = {
-            postMessage: (response, _origin) => {
-                window.dispatchEvent(new MessageEvent("message", {
-                    data: response,
-                    source: iframe.contentWindow,
-                }));
-            },
-        };
-
-        // When parent posts to iframe, invoke the bridge directly
-        const iframe = {
-            contentWindow: {
-                postMessage: (msg, _origin) => {
-                    bridgeHandler({ data: msg, source: parentSourceProxy });
-                },
-            },
-        };
-
-        const result = await sendControl(iframe, { read: "#s" });
-        expect(result).toEqual({
-            type: "read",
-            selector: "#s",
-            value: "answer",
-        });
-    });
-
-    it("completes a click action end-to-end (null result payload)", async () => {
-        document.body.innerHTML = '<button id="b">b</button>';
-        const clickSpy = vi.spyOn(document.getElementById("b"), "click");
-
-        let bridgeHandler = null;
-        const iframeWin = {
-            document,
-            addEventListener: (type, fn) => {
-                if (type === "message") bridgeHandler = fn;
-            },
-        };
-        installControlBridge(iframeWin);
-
-        const parentSourceProxy = {
-            postMessage: (response, _origin) => {
-                window.dispatchEvent(new MessageEvent("message", {
-                    data: response,
-                    source: iframe.contentWindow,
-                }));
-            },
-        };
-        const iframe = {
-            contentWindow: {
-                postMessage: (msg, _origin) => {
-                    bridgeHandler({ data: msg, source: parentSourceProxy });
-                },
-            },
-        };
-
-        const result = await sendControl(iframe, { click: "#b" });
-        expect(clickSpy).toHaveBeenCalledOnce();
-        expect(result).toBeNull();
     });
 });

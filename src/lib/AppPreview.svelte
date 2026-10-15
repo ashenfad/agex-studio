@@ -14,11 +14,12 @@
      * an app, and rebuilds when asked.
      */
     import { onDestroy, untrack } from 'svelte'
-    import { setLiveIframe } from './app-control.js'
+    import { callDone, callStarted, setLiveIframe } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
-    import { buildAppPage } from './app-html.js'
+    import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
-    import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
+    import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
+    import { pageLoaded } from './send-control.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
@@ -37,18 +38,29 @@
     let failed = $state(null)
     /** @type {string[]} */
     let resourceErrors = $state([])
-    /** The built page, posted once the bootloader says it's ready. */
-    /** @type {{ html: string, assets: import('./app-assets.js').AppAsset[] } | null} */
-    let pendingPage = null
+    /** The built page, and the session whose app it is: posted each time
+     *  the bootloader says it's ready, which is again whenever the app
+     *  reloads itself. */
+    /** @type {{ page: import('./app-html.js').AppPage, name: string } | null} */
+    let current = null
     /** The app's fingerprint when it was last built. */
     let builtDigest = ''
+    /** Each load's number, in the order they started. */
+    let loads = 0
+    /** The load whose build is the one to show: an earlier one that
+     *  finishes after it is dropped. */
+    let latest = 0
 
     async function load(force = false) {
         const ws = session.ws
         if (ws === null) return
+        const ticket = ++loads
         const app = await readApp(ws)
+        // a later load already read the files and went on with them
+        if (ticket < latest) return
         const digest = appDigest(app)
         if (!force && digest === builtDigest && appsUrl !== null) return
+        latest = ticket
         builtDigest = digest
         resourceErrors = []
         failed = null
@@ -59,13 +71,17 @@
         }
         empty = false
         loading = true
+        const name = session.name
         try {
-            pendingPage = await buildAppPage(app.files, {
+            const page = await buildAppPage(app.files, {
                 appBinaries: app.binaries,
-                appStorage: { seed: readAppStorage('ts', session.name), writeable: true },
+                appStorage: { seed: readAppStorage('ts', name), writeable: true },
             })
+            if (ticket !== latest) return
+            current = { page, name }
             appsUrl = `${APPS_ORIGIN}/?t=${Date.now()}`
         } catch (e) {
+            if (ticket !== latest) return
             failed = e instanceof Error ? e.message : String(e)
             loading = false
         }
@@ -100,50 +116,75 @@
         void load(true)
     }
 
-    /** @type {Record<string, string> | null} */
+    /** The app's storage, the last bag it posted, and its session's name. */
+    /** @type {{ name: string, bag: Record<string, string> } | null} */
     let storageToWrite = null
     /** @type {ReturnType<typeof setTimeout> | null} */
     let storageTimer = null
+
+    /** Write the app's storage now, if it posted any since the last write. */
+    function flushStorage() {
+        if (storageTimer !== null) clearTimeout(storageTimer)
+        storageTimer = null
+        if (storageToWrite === null) return
+        const { name, bag } = storageToWrite
+        storageToWrite = null
+        try {
+            writeAppStorage('ts', name, bag)
+            sync.appChanged(name)
+        } catch (e) {
+            // the studio's storage is full: the app's saved data stays as it was
+            console.warn('[app] storage not saved:', e)
+        }
+    }
 
     /** @param {MessageEvent} event */
     async function onMessage(event) {
         if (iframe === null || !isFromAppFrame(event, iframe)) return
         const data = event.data
         if (!data) return
-        if (data.type === 'agex-host-ready' && pendingPage !== null) {
-            replyToApp(iframe, hostInit(pendingPage, data))
-            pendingPage = null
+        if (data.type === 'agex-host-ready' && current !== null) {
+            // seeded with what the app saved so far: on its first load
+            // that's what it was built with, after a reload of its own
+            // it's what it saved before reloading
+            flushStorage()
+            const page = reseedAppPage(current.page, { seed: readAppStorage('ts', current.name), writeable: true })
+            replyToApp(iframe, hostInit(page, data))
             loading = false
+            return
+        }
+        if (data.type === 'agex-bridge-ready') {
+            // the app's page is up, and test_app can act on it again
+            pageLoaded(iframe)
             return
         }
         if (data.type === 'agex-cache-get') {
             const { id, key } = data
+            const frame = iframe
+            callStarted(frame)
             try {
                 const value = await session.ws?.cache.get(String(key))
-                replyToApp(iframe, { type: 'agex-cache-get-result', id, data: value ?? null, error: null })
+                replyToApp(frame, { type: 'agex-cache-get-result', id, data: value ?? null, error: null })
             } catch (e) {
-                replyToApp(iframe, { type: 'agex-cache-get-result', id, data: null, error: e instanceof Error ? e.message : String(e) })
+                replyToApp(frame, { type: 'agex-cache-get-result', id, data: null, error: e instanceof Error ? e.message : String(e) })
+            } finally {
+                callDone(frame)
             }
             return
         }
         if (data.type === 'agex-app-storage') {
-            // the app's storage, written a moment after it settles
-            storageToWrite = data.data || {}
-            const name = session.name
-            if (storageTimer === null) {
-                storageTimer = setTimeout(() => {
-                    storageTimer = null
-                    if (storageToWrite !== null) {
-                        writeAppStorage('ts', name, storageToWrite)
-                        sync.appChanged(name)
-                    }
-                    storageToWrite = null
-                }, 300)
-            }
+            // the app's storage, written a moment after it settles; a
+            // bag the shim wouldn't have kept (not all strings, or past
+            // its quota) isn't written at all
+            const bag = checkBag(data.data)
+            if (bag === null) return
+            storageToWrite = { name: session.name, bag }
+            if (storageTimer === null) storageTimer = setTimeout(flushStorage, 300)
             return
         }
         if (data.type === 'agex-task') {
             const frame = iframe
+            callStarted(frame)
             // an app opened from elsewhere asks before spending the viewer's key
             const ask = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null
             try {
@@ -151,6 +192,8 @@
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: value === undefined ? null : value, error: null })
             } catch (e) {
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: e instanceof Error ? e.message : String(e) })
+            } finally {
+                callDone(frame)
             }
             return
         }
@@ -166,6 +209,7 @@
 
     onDestroy(() => {
         if (timer !== null) clearTimeout(timer)
+        flushStorage()
     })
 </script>
 
