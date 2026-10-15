@@ -92,10 +92,10 @@
             parts.push(route.provider !== null ? `${name} ${route.only ? 'only' : 'first'}` : route.sort !== null ? sorts[route.sort] : 'Auto provider')
             if (s.routerDenyTraining) parts.push('no training')
             if (s.routerZdr) parts.push('zero retention')
-        } else if (s.accessMode === 'custom') {
-            parts.push(s.vision ? 'takes images' : 'text only')
-            parts.push(s.routerKey.trim() !== '' ? 'web & media on' : 'web & media off')
         }
+        // where the catalog doesn't say, the setting does
+        if (s.accessMode !== 'scripted' && info === null) parts.push(s.vision ? 'takes images' : 'text only')
+        if (s.accessMode === 'custom') parts.push(s.routerKey.trim() !== '' ? 'web & media on' : 'web & media off')
         const fold = foldBudgetOf(s)
         parts.push(fold === 0 ? 'never folds' : `folds at ${contextLabel(fold)}`)
         return parts.join(' · ')
@@ -311,13 +311,13 @@
                                     </label>
                                     <p class="hint">For every request to OpenRouter: the model, web search and media.</p>
                                 </div>
-                            {:else}
-                                {#if info === null}
-                                    <label class="check">
-                                        <input type="checkbox" bind:checked={s.vision} />
-                                        The model takes images (screenshots of its apps)
-                                    </label>
-                                {/if}
+                            {/if}
+                            {#if info === null}
+                                <!-- an endpoint's model, or one OpenRouter doesn't list: only the person can say -->
+                                <label class="check">
+                                    <input type="checkbox" bind:checked={s.vision} />
+                                    The model takes images (screenshots of its apps)
+                                </label>
                             {/if}
                             <label class="row">
                                 <span class="name">Fold</span>
