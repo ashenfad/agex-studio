@@ -1,12 +1,13 @@
 <script>
     /**
      * A file of the session's, opened to read: text highlighted,
-     * Markdown rendered, an image shown; downloaded or deleted from here.
+     * Markdown rendered (its ```mermaid blocks drawn), an image shown; downloaded or deleted from here.
      * One that isn't there (moved, deleted, a folder) says so instead.
      */
     import { highlightCode } from './highlight.js'
     import { untrack } from 'svelte'
     import { fileLinkTarget, renderMarkdown } from './markdown.js'
+    import { renderMermaidBlocks } from './mermaid.js'
 
     /** @type {{ session: import('./studio.svelte.js').ChatSession, path: string, onClose: () => void }} */
     let { session, path, onClose } = $props()
@@ -35,6 +36,15 @@
 
     /** @type {{ text?: string, url?: string, failed?: string } | null} */
     let content = $state(null)
+    /** The rendered Markdown, when the file shown is Markdown.
+     *  @type {HTMLElement | undefined} */
+    let rendered = $state()
+
+    // the diagrams in each Markdown file shown, once it's on the page
+    $effect(() => {
+        void content
+        if (rendered != null) void renderMermaidBlocks(rendered)
+    })
     let confirmingDelete = $state(false)
 
     $effect(() => {
@@ -116,7 +126,7 @@
                 <img src={content.url} alt={shown} />
             {:else if /\.md$/i.test(shown)}
                 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-                <div class="markdown" onclick={follow}>{@html renderMarkdown(content.text ?? '', { linkBase: folder })}</div>
+                <div class="markdown" bind:this={rendered} onclick={follow}>{@html renderMarkdown(content.text ?? '', { linkBase: folder })}</div>
             {:else}
                 <pre><code>{@html highlightCode(content.text ?? '', shown)}</code></pre>
             {/if}

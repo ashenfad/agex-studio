@@ -7,6 +7,7 @@
      */
     import { onMount } from 'svelte'
     import { renderMarkdown } from './markdown.js'
+    import { renderMermaidBlocks } from './mermaid.js'
 
     /** The sections, in the sidebar's order (the first is the default):
      *  `slug` names the `.md` file and the hash, `title` the sidebar's
@@ -26,6 +27,14 @@
     /** @type {string | null} */
     let content = $state(null)
     let loadError = $state('')
+    /** The rendered section, once there is one. @type {HTMLElement | undefined} */
+    let article = $state()
+
+    // a section's ```mermaid blocks drawn once it's on the page
+    $effect(() => {
+        void content
+        if (article != null) void renderMermaidBlocks(article)
+    })
     /** Mobile sidebar visibility. Sidebar is always-shown on
      *  wide viewports; on narrow viewports it toggles via a
      *  button so the docs body gets the full width. */
@@ -135,7 +144,7 @@
                     <p>Couldn't load section: {loadError}</p>
                 </div>
             {:else}
-                <article class="markdown markdown-body">
+                <article class="markdown markdown-body" bind:this={article}>
                     {@html renderMarkdown(content, { breaks: false })}
                 </article>
             {/if}
