@@ -125,8 +125,9 @@ export class Sync {
         return this.#remote;
     }
 
-    /** A remote on `repo`: the sync heads recorded against another repo
-     *  go first. @param {string} repo @param {string} token */
+    /** A remote on `repo`, noted as the one connected (the sync heads
+     *  kept under no repo go if another was). @param {string} repo
+     *  @param {string} token */
     async #connect(repo, token) {
         const store = await openStore();
         await adoptRepo(store.repo, repo, notedRepo);
@@ -205,12 +206,13 @@ export class Sync {
     }
 
     /**
-     * Whether session `name`'s app data here holds what the repo doesn't:
-     * a write not committed yet, or a commit not pushed.
+     * Whether session `name`'s app data here holds what `remote`'s repo
+     * doesn't: a write not committed yet, or a commit not pushed.
      *
      * @param {string} name
+     * @param {import("@agex-ts/kvgit").Remote} remote
      */
-    async #appDataUnpushed(name) {
+    async #appDataUnpushed(name, remote) {
         const store = await openStore();
         const branch = appBranch(name);
         const held = await readAppData(store, { branch });
@@ -218,7 +220,7 @@ export class Sync {
         const written = held === null ? Object.keys(bag).length > 0 : JSON.stringify(held.bag) !== JSON.stringify(bag);
         if (written) return true;
         if (held === null) return false;
-        return (await getSyncHead(store.repo.store, branch)) !== (await store.repo.branches.get(branch));
+        return (await getSyncHead(store.repo.store, branch, remote)) !== (await store.repo.branches.get(branch));
     }
 
     /** Put the app data `ref` holds into the app's storage here, and tell
@@ -354,12 +356,12 @@ export class Sync {
                     continue;
                 }
                 if (r === undefined && archived.has(name)) {
-                    const synced = await getSyncHead(kv, name);
+                    const synced = await getSyncHead(kv, name, remote);
                     if (synced !== null) {
                         // archived elsewhere: unchanged here since, it goes
                         // (it's in the trash); changed here, the person decides
                         // ...and its app data unchanged too: a write not yet pushed keeps it here
-                        if (synced === head && this.studio.current?.name !== name && !(await this.#appDataUnpushed(name))) await this.studio.remove(name);
+                        if (synced === head && this.studio.current?.name !== name && !(await this.#appDataUnpushed(name, remote))) await this.studio.remove(name);
                         else this.#mark(name, "remote-gone", "It was moved to the trash on another device.");
                         continue;
                     }
@@ -445,10 +447,11 @@ export class Sync {
     /** Push a session the repo lost (archived or deleted elsewhere) as a
      *  new one. @param {string} name */
     async syncAgain(name) {
+        const remote = await this.#remoteNow();
         const kv = (await openStore()).repo.store;
-        await clearSyncHead(kv, name);
+        await clearSyncHead(kv, name, remote);
         // its app data is pushed again with it
-        await clearSyncHead(kv, appBranch(name));
+        await clearSyncHead(kv, appBranch(name), remote);
         await this.syncNow(name);
     }
 
@@ -484,8 +487,9 @@ export class Sync {
         const remote = await this.#remoteNow();
         if (!(await remote.restoreBranch(name))) throw new Error("it couldn't be restored: is a session of that name back already?");
         await remote.restoreBranch(appBranch(name)).catch(() => false);
-        await clearSyncHead((await openStore()).repo.store, name);
-        await clearSyncHead((await openStore()).repo.store, appBranch(name));
+        const kv = (await openStore()).repo.store;
+        await clearSyncHead(kv, name, remote);
+        await clearSyncHead(kv, appBranch(name), remote);
         // out of the trash now, whatever the download does: a failed one
         // leaves it among the cloud sessions, to retry
         const shown = this.trash.find((t) => t.name === name) ?? { name, title: "", updatedAt: Date.now() };

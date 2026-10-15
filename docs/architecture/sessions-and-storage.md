@@ -113,6 +113,13 @@ and a turn asked for during a sync waits for it (the session's gate,
 A new session that has never been used stays local; dotted branches
 don't sync.
 
+**Which repo.** What a session last shared with a repo (its sync
+head) is kept per repo, so changing the sync repo in the settings
+neither takes a session as lost there nor pushes it twice on coming
+back to the first. Heads a studio kept before that, under no repo,
+were the repo connected then's: they go when another is connected
+(`adoptRepo`), and the first sync with the same repo takes them up.
+
 **Two devices.** When both moved, the session is `diverged` and the
 person picks:
 
