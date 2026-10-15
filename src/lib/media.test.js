@@ -151,6 +151,34 @@ describe("media", () => {
         expect(sent[0]?.body.provider.options["google-ai-studio"].speech_metadata.style).toBe("warm");
     });
 
+    it("speaks into Opus for an .ogg, and into a WAV where Opus can't be made", async () => {
+        const pcm = () => new Response(new Uint8Array(48000), { headers: { "content-type": "audio/pcm;rate=24000;channels=1" } });
+        /** @type {any[]} */
+        const encoded = [];
+        const opus = {
+            can: async () => true,
+            encode: async (/** @type {Uint8Array} */ bytes, /** @type {number} */ rate, /** @type {number} */ channels) => {
+                encoded.push({ length: bytes.length, rate, channels });
+                return new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
+            },
+        };
+        const { ws, files } = fakeWs();
+        const out = await new Media(ws, { fetchImpl: stub(pcm).fetchImpl, opus }).speech({ text: "Hi", path: "vo/a.ogg" });
+        expect(out).toEqual({ path: "/workspace/vo/a.ogg", seconds: 1 });
+        expect(encoded).toEqual([{ length: 48000, rate: 24000, channels: 1 }]);
+        expect(files.get("/workspace/vo/a.ogg")).toEqual(new Uint8Array([0x4f, 0x67, 0x67, 0x53]));
+
+        const without = { ...opus, can: async () => false };
+        const fallback = await new Media(ws, { fetchImpl: stub(pcm).fetchImpl, opus: without }).speech({ text: "Hi", path: "vo/b.ogg" });
+        expect(fallback).toEqual({ path: "/workspace/vo/b.wav", seconds: 1 });
+        expect(files.get("/workspace/vo/b.wav")?.length).toBe(48044);
+        expect(files.has("/workspace/vo/b.ogg")).toBe(false);
+
+        await expect(new Media(ws, { fetchImpl: stub(pcm).fetchImpl, opus }).speech({ text: "Hi", path: "vo/c.mp3" })).rejects.toThrow(
+            "media.speech: the file is OGG, so name it *.ogg (or *.wav)",
+        );
+    });
+
     it("composes music from a stream, with its length and lyrics", async () => {
         const { ws, files } = fakeWs();
         const body = [
