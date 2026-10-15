@@ -18,6 +18,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fittingImages } from "./image-fit.js";
+import { ROUTER_HEADERS } from "./openrouter-api.js";
 import { modelInfo } from "./openrouter-models.js";
 import { routingOf } from "./openrouter-routing.js";
 
@@ -133,7 +134,7 @@ function baseModel(s, opts) {
         const provider = routingOf(s);
         return createOpenRouter({
             apiKey: s.routerKey,
-            headers: { "X-Title": "agex studio" },
+            headers: ROUTER_HEADERS,
             ...(opts.fetch && { fetch: opts.fetch }),
         })(modelOf(s), provider && { provider });
     }

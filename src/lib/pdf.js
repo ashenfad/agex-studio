@@ -10,12 +10,13 @@
 import { hostFactory, typedHost, withCall } from "@agex-ts/world";
 import { z } from "zod";
 import { inWorkspace, parentOf, writeFile } from "./ws-paths.js";
+import { errorText } from "./errors.js";
 import { loadModule, PDFJS_URL, PDFJS_WORKER_URL } from "./cdn.js";
 
 
 /** The pages rendered when none are named: bounds "render this PDF"
  *  against an 800-page document. */
-export const DEFAULT_PAGES = 20;
+const DEFAULT_PAGES = 20;
 
 /** A stand-in for pdf.js a test has set, or null. @type {any} */
 let pdfjs = null;
@@ -167,7 +168,7 @@ export class Pdf {
             // pdf.js takes over the buffer it is given: hand it a copy
             doc = await lib.getDocument({ data: bytes.slice() }).promise;
         } catch (e) {
-            throw new Error(`${label}: ${src} could not be read as a PDF: ${e instanceof Error ? e.message : String(e)}`);
+            throw new Error(`${label}: ${src} could not be read as a PDF: ${errorText(e)}`);
         }
         return { doc, src, fs };
     }

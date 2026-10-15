@@ -66,17 +66,3 @@ export function highlightCode(code, path) {
     }
     return code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
-
-/**
- * Highlight Python code specifically (for agent code blocks).
- */
-export function highlightPython(code) {
-    return hljs.highlight(code, { language: 'python' }).value
-}
-
-/**
- * Highlight TypeScript code specifically (for agex-ts agent code blocks).
- */
-export function highlightTypeScript(code) {
-    return hljs.highlight(code, { language: 'typescript' }).value
-}

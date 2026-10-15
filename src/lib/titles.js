@@ -1,6 +1,6 @@
 /**
- * A session's name, written by the model from the conversation (after
- * nontainer-studio): once the first exchange is in, and again every
+ * A session's name, written by the model from the conversation: once
+ * the first exchange is in, and again every
  * `TITLE_TURNS` of the person's turns, so the name follows the work as
  * it moves. A name the person gave stays: renaming stops the model's.
  *
@@ -14,16 +14,16 @@ import { deliveredAnswers } from "./delegation.svelte.js";
 import { attachmentsOf, notesIn } from "./notes.js";
 
 /** The person's turns between one name and the next. */
-export const TITLE_TURNS = 5;
+const TITLE_TURNS = 5;
 /** The longest name, as the session list shows it. */
-export const TITLE_MAX = 60;
+const TITLE_MAX = 60;
 /** How much of the conversation's tail the model reads, in characters:
  *  the recent work names the session, not where it started. */
-export const TRANSCRIPT_LIMIT = 6000;
+const TRANSCRIPT_LIMIT = 6000;
 /** How much of a tool call's arguments a line shows. */
 const ARG_PREVIEW = 80;
 
-export const TITLE_PROMPT =
+const TITLE_PROMPT =
     "You name a work session for the human's session list. Read the transcript and answer with 3 to 6 words naming the work — " +
     '"Revenue dashboard", "Debugging the CSV import". No quotes, no trailing period, no preamble: the answer is the title and nothing else.';
 

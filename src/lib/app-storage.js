@@ -3,7 +3,8 @@
  *
  * Backed by the studio's own `localStorage`. Each entry lives at
  * `agex-app:<kernel>:<branch>:<key>` so different sessions don't
- * collide; every bag today is the `ts` kernel's.
+ * collide. `<kernel>` is always `ts`: the segment stays so the bags
+ * already kept are still found.
  *
  * Quota: the iframe shim holds a bag to `APP_STORAGE_QUOTA`, measured
  * as its JSON. The bag reaches the studio in a message the app's page
@@ -19,7 +20,7 @@ export const APP_STORAGE_QUOTA = 5 * 1024 * 1024;
 const PREFIX = 'agex-app:';
 const SEP = ':';
 
-/** @typedef {'py' | 'ts'} Kernel */
+/** @typedef {'ts'} Kernel */
 
 function _branchPrefix(/** @type {Kernel} */ kernel, /** @type {string} */ branch) {
     return PREFIX + kernel + SEP + branch + SEP;
@@ -111,36 +112,9 @@ export function remove(kernel, branch) {
 }
 
 /**
- * Total bytes consumed by the (kernel, branch) bag — sum of app-key
- * lengths and value lengths (excludes the prefix, since that's
- * implementation detail, not user-meaningful storage).
- *
- * Used by the session drawer to render the "· app" badge and by the
- * session-settings modal to render the reset confirmation copy.
- *
- * @param {Kernel} kernel
- * @param {string} branch
- * @returns {number}
- */
-export function size(kernel, branch) {
-    let total = 0;
-    const prefix = _branchPrefix(kernel, branch);
-    for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || !k.startsWith(prefix)) continue;
-        const v = localStorage.getItem(k);
-        total += (k.length - prefix.length) + (v ? v.length : 0);
-    }
-    return total;
-}
-
-/**
- * Copy all entries from one (kernel, branch) bag to another. Used by
- * `forkSession` so the fork's app starts with the same saved state as
- * the source.
- *
- * Both branches are assumed to live under the same kernel — forks
- * don't migrate kernels.
+ * Copy all entries from one (kernel, branch) bag to another, so a
+ * fork's app starts with the same saved state as the session it came
+ * from.
  *
  * @param {Kernel} kernel
  * @param {string} srcBranch
@@ -150,18 +124,4 @@ export function copy(kernel, srcBranch, dstBranch) {
     const data = read(kernel, srcBranch);
     if (Object.keys(data).length === 0) return;
     write(kernel, dstBranch, data);
-}
-
-/**
- * Wipe every app-storage entry across all sessions. Used by the
- * "Purge all data" flow alongside IDB / cache deletion. Preserves
- * unrelated localStorage entries (settings, API keys, UI prefs).
- */
-export function clearAll() {
-    const toDelete = [];
-    for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(PREFIX)) toDelete.push(k);
-    }
-    for (const k of toDelete) localStorage.removeItem(k);
 }

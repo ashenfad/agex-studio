@@ -16,7 +16,7 @@
 import { getContext, setContext } from "svelte";
 
 /** How far outside the view, in pixels, an embed starts drawing. */
-export const MARGIN = 1500;
+const MARGIN = 1500;
 
 const KEY = Symbol("nearby");
 

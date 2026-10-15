@@ -181,10 +181,8 @@ describe("dispatchAction — eval", () => {
             scope,
         );
         expect(result.type).toBe("eval");
-        // Bridge JSON-stringifies values for the py side (the studio's
-        // TS-side post-processor parses them back to native — see
-        // `normalizeEvalValues`). At the bridge layer the value is
-        // the JSON-encoded form.
+        // The bridge sends an eval's value JSON-encoded: the text the
+        // agent reads.
         expect(result.value).toBe("42");
         expect(result.error).toBeUndefined();
     });

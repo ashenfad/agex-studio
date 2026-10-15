@@ -4,7 +4,7 @@
  * page, and their answers come back to it (agex-ts and the world do the
  * mechanics: the `sessions` tool, the forks, the answers).
  *
- * What the studio adds, after nontainer-studio:
+ * What the studio adds:
  *
  * - **Its own runner**, so a delegate's turns stream to the page (the
  *   strip's "doing" line, and its transcript live when opened), and a
@@ -24,12 +24,12 @@ import { Inbox, Sessions, sessionsTool, untilSettled } from "@agex-ts/world";
 import { RunStream } from "agex-ts";
 
 /** How deep delegation nests: a delegate's delegate, and no further. */
-export const DEPTH_CAP = 2;
+const DEPTH_CAP = 2;
 /** The most tool calls a delegate makes in one turn. */
 export const DELEGATE_TOOL_CALLS = 60;
 /** The woken turns a delegate gets to settle its own delegates' answers,
  *  when its ask sets no budget. */
-export const DELEGATE_WAKES = 3;
+const DELEGATE_WAKES = 3;
 /** The turns an idle session is woken for by answers, before the
  *  person writes again. */
 export const WAKES = 10;

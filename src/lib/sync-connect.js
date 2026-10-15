@@ -8,6 +8,7 @@
  */
 
 import { GithubClient, GithubError } from "@agex-ts/kvgit/github";
+import { errorText } from "./errors.js";
 
 /** Where the person makes the repo and the token. */
 export const NEW_REPO_URL = "https://github.com/new?name=agex-sync&visibility=private&description=agex-studio+session+sync";
@@ -84,5 +85,5 @@ export function describe(e) {
         if (e.kind === "rate-limit") return "GitHub is rate-limiting requests: sync will try again later.";
         if (e.kind === "network") return "GitHub couldn't be reached.";
     }
-    return e instanceof Error ? e.message : String(e);
+    return errorText(e);
 }

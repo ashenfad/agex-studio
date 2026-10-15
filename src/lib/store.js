@@ -18,7 +18,7 @@ import { Store } from "@agex-ts/world";
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 
 /** The IndexedDB database every session lives in. */
-export const DB_NAME = "agex-studio";
+const DB_NAME = "agex-studio";
 
 /** The plane the studio keeps its own records on. */
 export const PLANE = "studio";

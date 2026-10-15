@@ -104,8 +104,9 @@ model, so turns, delegates, app tasks and titles all route the same.
 `buildModel(settings, { session })` returns an AI SDK model, which
 agex-ts drives directly:
 
-- **OpenRouter**: `createOpenRouter` with the key, `X-Title: agex
-  studio`.
+- **OpenRouter**: `createOpenRouter` with the key and the studio's
+  attribution headers (`ROUTER_HEADERS`: `X-Title: agex studio` and
+  `HTTP-Referer`), the same ones the `web` and `media` tools send.
 - **A custom endpoint, Anthropic-shaped** (a direct key, a local
   Meridian, a proxy): `createAnthropic` with the base URL (normalized
   to end in `/v1`) and `anthropic-dangerous-direct-browser-access`.

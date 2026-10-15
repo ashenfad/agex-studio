@@ -89,6 +89,9 @@ describe('the model', () => {
         expect(sent[0]?.['x-api-key']).toBe('ENDPOINT')
         expect(sent[1]?.authorization).toBe('Bearer ENDPOINT')
         expect(sent[2]?.authorization).toBe('Bearer sk-or-ROUTER')
+        // the turns name the studio to OpenRouter as its tools do
+        expect(sent[2]?.['x-title']).toBe('agex studio')
+        expect(sent[2]?.['http-referer']).toBe('https://agex.studio')
         expect(JSON.stringify(sent.slice(0, 2))).not.toContain('sk-or-ROUTER')
     })
 

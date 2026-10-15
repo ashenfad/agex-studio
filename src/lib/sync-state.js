@@ -5,6 +5,7 @@
  */
 
 import { clearSyncHead } from "@agex-ts/kvgit";
+import { readLocal, writeLocal } from "./local.js";
 
 /**
  * A session's sync, as its row shows it. `held`: whether the repo held
@@ -63,19 +64,11 @@ export function localNote(key) {
     let page = null;
     return {
         get() {
-            try {
-                return localStorage.getItem(key) ?? page;
-            } catch {
-                return page;
-            }
+            return readLocal(key) ?? page;
         },
         set(value) {
             page = value;
-            try {
-                localStorage.setItem(key, value);
-            } catch {
-                // noted for this page only
-            }
+            writeLocal(key, value);
         },
     };
 }

@@ -27,7 +27,7 @@ import { webHost } from "./web.js";
 /** Calls an app gets per page, and each time more are allowed. */
 export const APP_CALLS = 20;
 /** The most model calls one task call makes. */
-export const TASK_STEPS = 30;
+const TASK_STEPS = 30;
 
 /** What a task's world is given. */
 const TASK_PROFILE = {

@@ -25,6 +25,7 @@
 
 import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, PackRemote } from "@agex-ts/kvgit/github";
+import { readLocal, writeLocal } from "./local.js";
 import { getSettings, settingsStore } from "./settings.js";
 import { openStore } from "./store.js";
 import { studio } from "./studio.svelte.js";
@@ -35,26 +36,18 @@ import { read as readAppStorage, write as writeAppStorage } from "./app-storage.
 import { adoptRepo, localNote, nextState } from "./sync-state.js";
 
 /** How long after a change a session is pushed. */
-export const PUSH_DELAY = 4000;
+const PUSH_DELAY = 4000;
 /** How long after an app writes its data it is pushed. */
-export const APP_DATA_DELAY = 10_000;
+const APP_DATA_DELAY = 10_000;
 
 /** When session `name`'s app last wrote its data here. @param {string} name */
 function appWrittenAt(name) {
-    try {
-        return Number(localStorage.getItem(`agex-app-at:${name}`) ?? 0);
-    } catch {
-        return 0;
-    }
+    return Number(readLocal(`agex-app-at:${name}`) ?? 0);
 }
 
 /** @param {string} name @param {number} at */
 function setAppWrittenAt(name, at) {
-    try {
-        localStorage.setItem(`agex-app-at:${name}`, String(at));
-    } catch {
-        // for this page only
-    }
+    writeLocal(`agex-app-at:${name}`, String(at));
 }
 
 /** Where the repo this device's sync heads were recorded against is
@@ -62,7 +55,7 @@ function setAppWrittenAt(name, at) {
 const notedRepo = localNote("agex-sync-repo");
 
 /** How often, at most, the page compares every session with the repo. */
-export const SWEEP_EVERY = 5 * 60 * 1000;
+const SWEEP_EVERY = 5 * 60 * 1000;
 
 /**
  * @typedef {import("./sync-state.js").SyncState} SyncState
@@ -70,7 +63,7 @@ export const SWEEP_EVERY = 5 * 60 * 1000;
  */
 
 /** Whether the settings connect sync. */
-export function syncConnected(s = getSettings()) {
+function syncConnected(s = getSettings()) {
     return s.syncRepo.trim() !== "" && s.syncToken.trim() !== "";
 }
 

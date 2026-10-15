@@ -9,6 +9,7 @@
 
 import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { APP_STORAGE_QUOTA } from './app-storage.js';
+import { PLOTLY_URL } from './cdn.js';
 import {
     buildAssetsScript,
     collectAssets,
@@ -217,7 +218,7 @@ window.notify = function(title, body) {
  * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
  * @returns {string}
  */
-export function buildAppStorageShim(opts = {}) {
+function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
     // Every `<` escaped (a JS string escape, so the values read back
@@ -364,8 +365,6 @@ const CDN_IMPORTS = {
     "dompurify": "https://esm.sh/dompurify@3.3.3",
 };
 
-const PLOTLY_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js";
-
 /**
  * Does the app use Plotly? It's a global the page loads from a script
  * (a few MB, render-blocking), so only a page whose own code names it
@@ -497,7 +496,7 @@ function _resolveRelative(specifier, baseDir) {
  * @param {string} [baseDir=''] - directory of the importing file
  * @returns {string} rewritten code
  */
-export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
+function _rewriteLocalImports(code, knownFiles, baseDir = '') {
     // Helper: try to resolve a specifier and return the knownFiles key, or null
     function resolve(specifier) {
         // Relative paths (./foo.js, ../foo.js, ../../foo.js) — resolved
