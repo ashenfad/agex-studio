@@ -92,20 +92,23 @@
         align-items: center;
         gap: 0.4rem;
     }
-    /* a message's tools, beside it on hover or focus; always where
-       there's no hovering (a touch screen) */
+    /* a message's tools, beside it on hover or when the keyboard is on
+       one; always where there's no hovering (a touch screen). Faded
+       out, not hidden, so Tab still reaches them. Not on :focus-within,
+       which would keep them after a click. */
     .tools {
         display: flex;
         gap: 0.1rem;
-        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.15s;
     }
     .user-row:hover .tools,
-    .tools:focus-within {
-        visibility: visible;
+    .tools:has(:focus-visible) {
+        opacity: 1;
     }
     @media (hover: none) {
         .tools {
-            visibility: visible;
+            opacity: 1;
         }
     }
     .tool {
