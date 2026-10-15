@@ -27,8 +27,25 @@ describe('settings', () => {
     it('say when a model can be reached', async () => {
         const { DEFAULTS, isConfigured } = await import('./settings.js')
         expect(isConfigured(DEFAULTS)).toBe(false)
-        expect(isConfigured({ ...DEFAULTS, apiKey: 'k' })).toBe(true)
+        expect(isConfigured({ ...DEFAULTS, routerKey: 'k' })).toBe(true)
         expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456' })).toBe(true)
         expect(isConfigured({ ...DEFAULTS, accessMode: 'scripted' })).toBe(true)
+    })
+
+    it('move a saved apiKey to the key for its service, an OpenRouter one never to an endpoint', async () => {
+        const { DEFAULTS, migrate } = await import('./settings.js')
+        const saved = (over) => ({ ...DEFAULTS, ...over })
+        expect(migrate(saved({ accessMode: 'openrouter', apiKey: 'sk-or-v1-abc' }))).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
+        // left behind when the service changed: an OpenRouter key stays OpenRouter's
+        expect(migrate(saved({ accessMode: 'custom', apiKey: 'sk-or-v1-abc' }))).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
+        expect(migrate(saved({ accessMode: 'custom', apiKey: 'local-secret' }))).toMatchObject({ routerKey: '', endpointKey: 'local-secret' })
+        expect(migrate(saved({ accessMode: 'openrouter', apiKey: 'old', routerKey: 'new' })).routerKey).toBe('new')
+        expect(migrate(saved({ apiKey: 'x' }))).not.toHaveProperty('apiKey')
+    })
+
+    it('read saved settings with one apiKey as two keys', async () => {
+        localStorage.setItem('agex-studio-settings', JSON.stringify({ accessMode: 'custom', baseUrl: 'http://localhost:3456', apiKey: 'sk-or-v1-abc', model: 'm' }))
+        const { getSettings } = await import('./settings.js')
+        expect(getSettings()).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
     })
 })

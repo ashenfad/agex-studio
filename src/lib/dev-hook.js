@@ -3,7 +3,7 @@
  * a person at the console) drives the studio through, so a driver
  * doesn't break when the markup moves.
  *
- *     await __studio.configure({ accessMode: 'openrouter', apiKey, model })
+ *     await __studio.configure({ accessMode: 'openrouter', routerKey, model })
  *     await __studio.say('write a haiku to /workspace/haiku.txt')
  *     await __studio.transcript()   // the stored runs, flattened
  *     await __studio.files('/workspace')
@@ -63,9 +63,15 @@ export function installDevHook(studio, sync) {
         /** @param {Partial<import("./settings.js").Settings>} patch */
         configure(patch) {
             updateSettings(patch);
-            const { apiKey, syncToken, publishToken, ...rest } = getSettings();
+            const { routerKey, endpointKey, syncToken, publishToken, ...rest } = getSettings();
             const masked = (/** @type {string} */ key) => (key === "" ? "" : "(set)");
-            return { ...rest, apiKey: masked(apiKey), syncToken: masked(syncToken), publishToken: masked(publishToken) };
+            return {
+                ...rest,
+                routerKey: masked(routerKey),
+                endpointKey: masked(endpointKey),
+                syncToken: masked(syncToken),
+                publishToken: masked(publishToken),
+            };
         },
         /** The scripted model's next steps (accessMode 'scripted').
          *  @param {import("@agex-ts/world/conformance").ModelStep[]} steps */

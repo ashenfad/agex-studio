@@ -25,8 +25,9 @@ Everything it changes is versioned, so you can undo any turn (see
 
 > [!NOTE]
 > Web search, page reading and media run on your OpenRouter key and
-> cost like any other model call. With an endpoint of your own, the
-> agent says so instead of using them.
+> cost like any other model call, whichever model runs the agent. With
+> an endpoint of your own and no OpenRouter key, the agent says so
+> instead of using them.
 
 ## Giving it files
 

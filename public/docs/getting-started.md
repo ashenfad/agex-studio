@@ -22,8 +22,8 @@ Access to a model, one of two ways:
 - **An endpoint of your own**: any service that speaks Anthropic's
   Messages API (a local proxy such as Meridian, say) or the
   OpenAI-compatible API (a local model server, a self-hosted router).
-  Useful for local models and private setups. Web search and media
-  aren't available this way.
+  Useful for local models and private setups. Add an OpenRouter key
+  beside it and the agent keeps its web search and media.
 
 ### OpenRouter setup
 
@@ -39,7 +39,12 @@ Click the **⚙** at the top right.
 
 - **Service**: OpenRouter, or an endpoint of your own (then its
   **Shape**, Anthropic or OpenAI-compatible, and its **URL**).
-- **Key**: your OpenRouter key, or the endpoint's if it needs one.
+- **Key**: your OpenRouter key; with an endpoint of your own, the
+  endpoint's key, if it needs one.
+- **OpenRouter key (optional)**, with an endpoint of your own: for the
+  agent's web search and its images, speech and music, which run on
+  OpenRouter whatever the model. It goes only to OpenRouter, never to
+  your endpoint.
 - **Model**: the model's name, e.g. `google/gemini-3.8-flash` (the
   default) on OpenRouter.
 - **Thinking**: how hard the model thinks each turn: off, low,
@@ -57,8 +62,8 @@ your own, to use them on another device; see [Sessions](#sessions))
 and **Publishing** (share a session as a link; see
 [Sharing](#sharing)).
 
-Your key is kept in your browser's storage on this device and sent
-only to the service it's for.
+Your keys are kept in your browser's storage on this device, each
+sent only to the service it's for.
 
 > [!NOTE]
 > Another browser or device means entering your key again: there's no

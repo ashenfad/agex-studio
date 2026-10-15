@@ -67,11 +67,29 @@ describe('the model', () => {
     })
 
     it('is built for each service', () => {
-        const or = buildModel({ ...DEFAULTS, apiKey: 'k', model: 'meta/muse-spark-1.3-contributor' }, { session: 's' })
+        const or = buildModel({ ...DEFAULTS, routerKey: 'k', model: 'meta/muse-spark-1.3-contributor' }, { session: 's' })
         expect(or.modelId).toBe('meta/muse-spark-1.3-contributor')
         expect(buildModel(custom(), { session: 's' }).provider).toMatch(/anthropic/)
         expect(buildModel(custom({ wire: 'openai', model: 'llama' }), { session: 's' }).modelId).toBe('llama')
         expect(() => buildModel({ ...DEFAULTS, accessMode: 'scripted' }, { session: 's' })).toThrow(/no model/)
+    })
+
+    it("sends each service its own key: the endpoint's to the endpoint, never the OpenRouter key", async () => {
+        /** @type {Record<string, string>[]} */
+        const sent = []
+        const fetch = vi.fn(async (_url, init) => {
+            sent.push(Object.fromEntries(Object.entries(init?.headers ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)])))
+            return new Response('{}', { status: 500 })
+        })
+        const call = (model) => model.doGenerate({ prompt: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] }).catch(() => {})
+        const both = { routerKey: 'sk-or-ROUTER', endpointKey: 'ENDPOINT' }
+        await call(buildModel(custom({ ...both, baseUrl: 'https://api.anthropic.com' }), { session: 's', fetch }))
+        await call(buildModel(custom({ ...both, wire: 'openai', baseUrl: 'http://localhost:8080/v1' }), { session: 's', fetch }))
+        await call(buildModel({ ...DEFAULTS, ...both, model: 'x/y' }, { session: 's', fetch }))
+        expect(sent[0]?.['x-api-key']).toBe('ENDPOINT')
+        expect(sent[1]?.authorization).toBe('Bearer ENDPOINT')
+        expect(sent[2]?.authorization).toBe('Bearer sk-or-ROUTER')
+        expect(JSON.stringify(sent.slice(0, 2))).not.toContain('sk-or-ROUTER')
     })
 
     it('maps thinking off to false', () => {

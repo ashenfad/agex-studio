@@ -1,14 +1,18 @@
 /**
  * Settings: the model the studio talks to, and how, persisted to
- * localStorage on this device (the key never leaves it except to the
- * endpoint it is for).
+ * localStorage on this device (each key never leaves it except to the
+ * service it is for).
  */
 
 export const STORAGE_KEY = "agex-studio-settings";
 
 /**
  * @typedef {Object} Settings
- * @property {string} apiKey
+ * @property {string} routerKey — an OpenRouter key: the model's, on
+ *     OpenRouter; and `web` and `media`'s whatever the model, which run
+ *     on OpenRouter.
+ * @property {string} endpointKey — a custom endpoint's own key, if it
+ *     needs one; it goes only to that endpoint.
  * @property {"openrouter" | "custom" | "scripted"} accessMode — which
  *     service: OpenRouter, an endpoint of the user's own (`baseUrl`, in
  *     the `wire` shape: a direct provider, a local Meridian, a
@@ -33,7 +37,8 @@ export const STORAGE_KEY = "agex-studio-settings";
 
 /** @type {Settings} */
 export const DEFAULTS = {
-    apiKey: "",
+    routerKey: "",
+    endpointKey: "",
     accessMode: "openrouter",
     model: "google/gemini-3.8-flash",
     wire: "anthropic",
@@ -56,11 +61,29 @@ let settings = load();
 function load() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+        if (raw) return migrate({ ...DEFAULTS, ...JSON.parse(raw) });
     } catch {
         // unreadable or unavailable storage: start from the defaults
     }
     return { ...DEFAULTS };
+}
+
+/**
+ * Settings saved with one `apiKey` for every service, as two keys: an
+ * OpenRouter key goes to `routerKey` (on OpenRouter, or one that looks
+ * like OpenRouter's left behind on a custom endpoint, which is never
+ * sent to that endpoint again); a custom endpoint's own, to
+ * `endpointKey`.
+ *
+ * @param {Settings & { apiKey?: unknown }} s
+ * @returns {Settings}
+ */
+export function migrate(s) {
+    const { apiKey, ...rest } = s;
+    if (typeof apiKey !== "string" || apiKey.trim() === "") return rest;
+    const forRouter = rest.accessMode === "openrouter" || apiKey.trim().startsWith("sk-or-");
+    if (forRouter) return { ...rest, routerKey: rest.routerKey || apiKey };
+    return { ...rest, endpointKey: rest.endpointKey || apiKey };
 }
 
 /** Settings as a Svelte store. */
@@ -98,5 +121,5 @@ export function isConfigured(s) {
     if (s.accessMode === "scripted") return true;
     if (s.model.trim() === "") return false;
     if (s.accessMode === "custom") return s.baseUrl.trim() !== "";
-    return s.apiKey.trim() !== "";
+    return s.routerKey.trim() !== "";
 }

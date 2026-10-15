@@ -60,7 +60,7 @@ function stub(make) {
     return { fetchImpl, sent };
 }
 
-beforeEach(() => updateSettings({ accessMode: "openrouter", apiKey: "sk-test" }));
+beforeEach(() => updateSettings({ accessMode: "openrouter", routerKey: "sk-test" }));
 
 describe("the file facts", () => {
     it("reads a PNG's size and alpha", () => {
