@@ -19,7 +19,8 @@
  * printed:
  *   DRIVE_MODE      openrouter (default) | custom | scripted
  *   DRIVE_MODEL     default meta/muse-spark-1.3-contributor
- *   OPENROUTER_API_KEY (openrouter), DRIVE_API_KEY (custom, if needed)
+ *   OPENROUTER_API_KEY (the model's in openrouter mode; web and media's
+ *                   in any mode), DRIVE_API_KEY (custom, if the endpoint needs one)
  *   DRIVE_BASE_URL, DRIVE_WIRE (custom: anthropic | openai)
  *   CHROME          a Chromium executable, if Playwright's isn't installed
  *   DRIVE_SYNC_REPO, DRIVE_SYNC_TOKEN   connect sync to this repo (owner/name)
@@ -87,19 +88,21 @@ const settings =
                 accessMode: "custom",
                 baseUrl: env.DRIVE_BASE_URL ?? "",
                 wire: env.DRIVE_WIRE ?? "anthropic",
-                apiKey: env.DRIVE_API_KEY ?? "",
+                endpointKey: env.DRIVE_API_KEY ?? "",
+                // web and media, beside the endpoint's model
+                routerKey: env.OPENROUTER_API_KEY ?? "",
                 model: env.DRIVE_MODEL ?? "",
             }
           : {
                 accessMode: "openrouter",
-                apiKey: env.OPENROUTER_API_KEY ?? "",
+                routerKey: env.OPENROUTER_API_KEY ?? "",
                 model: env.DRIVE_MODEL ?? "meta/muse-spark-1.3-contributor",
             };
 if (env.DRIVE_PUBLISH_TOKEN) settings.publishToken = env.DRIVE_PUBLISH_TOKEN;
 if (env.DRIVE_SYNC_REPO && env.DRIVE_SYNC_TOKEN) {
     Object.assign(settings, { syncRepo: env.DRIVE_SYNC_REPO, syncToken: env.DRIVE_SYNC_TOKEN });
 }
-if (mode === "openrouter" && settings.apiKey === "") {
+if (mode === "openrouter" && settings.routerKey === "") {
     console.error("OPENROUTER_API_KEY isn't set (or use --scripted, or DRIVE_MODE=custom)");
     process.exit(2);
 }

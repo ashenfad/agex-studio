@@ -13,9 +13,10 @@ import { getSettings } from "./settings.js";
 export const OPENROUTER_API = "https://openrouter.ai/api/v1";
 
 /** Whether the settings hold an OpenRouter key, so `web` and `media`
- *  work. @param {import("./settings.js").Settings} [s] */
+ *  work: whatever model runs the turns.
+ *  @param {import("./settings.js").Settings} [s] */
 export function hasRouterKey(s = getSettings()) {
-    return s.accessMode === "openrouter" && s.apiKey.trim() !== "";
+    return s.routerKey.trim() !== "";
 }
 
 /** The OpenRouter key, or a refusal naming what to change.
@@ -24,10 +25,10 @@ export function routerKey(label) {
     const s = getSettings();
     if (!hasRouterKey(s)) {
         throw new Error(
-            `${label}: this runs on OpenRouter, and the settings hold no OpenRouter key; the person can set the provider to OpenRouter in settings`,
+            `${label}: this runs on OpenRouter, and the settings hold no OpenRouter key; the person can add one in settings (beside any model)`,
         );
     }
-    return s.apiKey.trim();
+    return s.routerKey.trim();
 }
 
 /**

@@ -92,13 +92,21 @@
                 <input bind:value={s.baseUrl} placeholder="http://localhost:3456" />
             </label>
         {/if}
-        {#if s.accessMode !== 'scripted'}
+        {#if s.accessMode === 'custom'}
             <label>
                 Key
-                <input type="password" bind:value={s.apiKey} placeholder={s.accessMode === 'custom' ? 'if the endpoint needs one' : 'sk-or-…'} autocomplete="off" />
+                <input type="password" bind:value={s.endpointKey} placeholder="if the endpoint needs one" autocomplete="off" />
+            </label>
+        {/if}
+        {#if s.accessMode !== 'scripted'}
+            <label>
+                {s.accessMode === 'custom' ? 'OpenRouter key (optional)' : 'Key'}
+                <input type="password" bind:value={s.routerKey} placeholder="sk-or-…" autocomplete="off" />
             </label>
             {#if s.accessMode === 'openrouter'}
                 <p class="hint">Make one at <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>. It stays in this browser, and goes only to OpenRouter.</p>
+            {:else}
+                <p class="hint">For the agent's web search and its images, speech and music, which run on OpenRouter whatever the model. It goes only to OpenRouter, never to the endpoint above.</p>
             {/if}
             <label>
                 Model

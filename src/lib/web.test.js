@@ -22,7 +22,7 @@ function stub(/** @type {(body: any) => { status?: number, json?: unknown, text?
 
 const answer = (/** @type {string} */ content, extra = {}) => ({ choices: [{ message: { content, ...extra } }] });
 
-beforeEach(() => updateSettings({ accessMode: "openrouter", apiKey: "sk-test" }));
+beforeEach(() => updateSettings({ accessMode: "openrouter", routerKey: "sk-test" }));
 
 describe("web.search", () => {
     it("answers with its numbered sources, on the key in the settings", async () => {
@@ -48,7 +48,7 @@ describe("web.search", () => {
     });
 
     it("refuses without an OpenRouter key, saying what to change", async () => {
-        updateSettings({ accessMode: "custom", apiKey: "" });
+        updateSettings({ accessMode: "custom", routerKey: "" });
         const { fetchImpl, sent } = stub(() => ({ json: answer("ok") }));
         await expect(new Web({ fetchImpl }).search("q")).rejects.toThrow(/web\.search: .*no OpenRouter key/);
         expect(sent).toEqual([]);

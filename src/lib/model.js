@@ -128,7 +128,7 @@ export function buildModel(s, opts) {
 function baseModel(s, opts) {
     if (s.accessMode === "openrouter") {
         return createOpenRouter({
-            apiKey: s.apiKey,
+            apiKey: s.routerKey,
             headers: { "X-Title": "agex studio" },
             ...(opts.fetch && { fetch: opts.fetch }),
         })(s.model);
@@ -138,7 +138,7 @@ function baseModel(s, opts) {
     }
     if (s.wire === "anthropic") {
         return createAnthropic({
-            apiKey: s.apiKey || "none",
+            apiKey: s.endpointKey || "none",
             baseURL: anthropicBaseUrl(s.baseUrl),
             headers: { "anthropic-dangerous-direct-browser-access": "true" },
             fetch: usesSessionAffinity(s)
@@ -149,7 +149,7 @@ function baseModel(s, opts) {
     return createOpenAICompatible({
         name: "custom",
         baseURL: s.baseUrl.trim().replace(/\/+$/, ""),
-        ...(s.apiKey && { apiKey: s.apiKey }),
+        ...(s.endpointKey && { apiKey: s.endpointKey }),
         ...(opts.fetch && { fetch: opts.fetch }),
     })(s.model);
 }

@@ -91,9 +91,15 @@ schemas before the method runs) that code calls with `await`:
   branch, no strip and no waking. `run_ts`'s description carries
   agex-ts's `AGEX_GUIDE` (`toolOptionsNow`).
 
-`web` and `media` run on the settings' OpenRouter key
-(`openrouter-api.js`): with another provider, a call says it needs one,
-and the primer tells the agent so. A host object belongs to the
+`web` and `media` run on the settings' OpenRouter key, `routerKey`
+(`openrouter-api.js`), whatever model runs the turns: it's the model's
+key on OpenRouter, and an optional one beside a custom endpoint, whose
+own key (`endpointKey`) goes only to that endpoint. Without one, a call
+says it needs one, and the primer tells the agent so. Settings saved
+with the single `apiKey` of before are read as the two (`migrate`): an
+OpenRouter key, the service's or one that looks like it (`sk-or-`) left
+behind on a custom endpoint, goes to `routerKey`, and is never sent to
+the endpoint again. A host object belongs to the
 agent's code: an app's code runs in the preview, which has none of
 them. Delegates inherit the profile, so they have them too.
 
