@@ -16,6 +16,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { fittingImages } from "./image-fit.js";
 
 /** @typedef {import("./settings.js").Settings} Settings */
 
@@ -111,13 +112,20 @@ export function sessionAffinityFetch(session, baseFetch = (url, init) => fetch(u
 }
 
 /**
- * The AI SDK model for `session`'s turns. `scripted` (dev only) is
- * built by the caller, which holds the script.
+ * The AI SDK model for `session`'s turns, the images in its requests
+ * fitted to what a model takes (`image-fit.js`). `scripted` (dev only)
+ * is built by the caller, which holds the script.
  *
  * @param {Settings} s
  * @param {{ session: string, fetch?: typeof fetch }} opts
  */
 export function buildModel(s, opts) {
+    return fittingImages(baseModel(s, opts));
+}
+
+/** The provider's model, as `buildModel` gives it before fitting.
+ *  @param {Settings} s @param {{ session: string, fetch?: typeof fetch }} opts */
+function baseModel(s, opts) {
     if (s.accessMode === "openrouter") {
         return createOpenRouter({
             apiKey: s.apiKey,
