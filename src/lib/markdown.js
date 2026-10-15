@@ -84,6 +84,22 @@ export function workspacePath(href) {
     return resolveLink(href)?.path ?? null;
 }
 
+/**
+ * The file a rendered link's `data-ws-path` opens, relative to
+ * /workspace as the file viewer takes it; null for a value the renderer
+ * wouldn't have written. Raw HTML in a reply can carry the attribute
+ * too (`<a data-ws-path="/workspace/../../x">`), so only a value that is
+ * already a normalized workspace path is trusted.
+ *
+ * @param {string | null} attribute
+ * @returns {string | null}
+ */
+export function fileLinkTarget(attribute) {
+    const path = workspacePath(attribute ?? "");
+    if (path === null || path !== attribute) return null;
+    return path.slice(WORKSPACE.length + 1);
+}
+
 // Custom renderer:
 // - mermaid code blocks → <pre class="mermaid"> for client-side rendering
 // - a link to a workspace file → <a class="ws-file" data-ws-path="…">,
