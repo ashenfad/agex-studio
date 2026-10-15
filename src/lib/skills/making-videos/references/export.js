@@ -43,7 +43,8 @@ async function pick(width, height, fps, wanted) {
   const audio = async (codec) =>
     (await AudioEncoder.isConfigSupported({ codec, sampleRate: RATE, numberOfChannels: CHANNELS, bitrate: 128000 }).catch(() => ({}))).supported === true;
   const formats = [
-    { format: 'mp4', videos: [['avc1.640028', 'avc'], ['avc1.640033', 'avc']], audios: [['mp4a.40.2', 'aac'], ['opus', 'opus']] },
+    // MP4 only with AAC: an MP4 with Opus sound is one many players and editors refuse
+    { format: 'mp4', videos: [['avc1.640028', 'avc'], ['avc1.640033', 'avc']], audios: [['mp4a.40.2', 'aac']] },
     { format: 'webm', videos: [['vp09.00.40.08', 'V_VP9'], ['vp8', 'V_VP8']], audios: [['opus', 'A_OPUS']] },
   ].filter((f) => !wanted || f.format === wanted);
   for (const f of formats) {
@@ -59,26 +60,37 @@ async function pick(width, height, fps, wanted) {
 async function mixSound(root, from, to) {
   const ctx = new OfflineAudioContext(CHANNELS, Math.max(1, Math.ceil((to - from) * RATE)), RATE);
   for (const clip of root.querySelectorAll('audio[data-start]')) {
-    const buffer = await ctx.decodeAudioData(await (await fetch(clip.currentSrc || clip.src)).arrayBuffer());
     const start = Number(clip.dataset.start) || 0;
-    const length = Math.min(Number(clip.dataset.duration) || buffer.duration, buffer.duration);
+    const stated = Number(clip.dataset.duration) || Infinity;
+    // a clip outside the part exported isn't fetched at all
+    if (start >= to || start + stated <= from) continue;
+    const buffer = await ctx.decodeAudioData(await (await fetch(clip.currentSrc || clip.src)).arrayBuffer());
+    const length = Math.min(stated, buffer.duration);
+    if (start + length <= from) continue;
     const volume = clip.dataset.volume === undefined ? 1 : Number(clip.dataset.volume);
-    const fadeIn = Number(clip.dataset.fadeIn) || 0;
-    const fadeOut = Number(clip.dataset.fadeOut) || 0;
-    if (start + length <= from || start >= to) continue;
-    // the clip's timeline, moved so the export starts at 0
-    const at = (t) => Math.max(0, start + t - from);
+    const fadeIn = Math.min(Number(clip.dataset.fadeIn) || 0, length);
+    const fadeOut = Math.min(Number(clip.dataset.fadeOut) || 0, length - fadeIn);
+    // the clip's gain over its own time, as [seconds, gain] corners
+    const corners = [[0, fadeIn ? 0 : volume]];
+    if (fadeIn) corners.push([fadeIn, volume]);
+    if (fadeOut) corners.push([length - fadeOut, volume], [length, 0]);
+    const gainAt = (t) => {
+      for (let i = 1; i < corners.length; i++) {
+        const [t1, g1] = corners[i], [t0, g0] = corners[i - 1];
+        if (t <= t1) return t1 === t0 ? g1 : g0 + ((g1 - g0) * (t - t0)) / (t1 - t0);
+      }
+      return corners[corners.length - 1][1];
+    };
+    // the clip's time moved so the export starts at 0; a part that
+    // begins mid-clip begins mid-fade, at the gain the runtime has there
+    const skip = Math.max(0, from - start);
+    const at = (t) => start + t - from;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(fadeIn ? 0 : volume, at(0));
-    if (fadeIn) gain.gain.linearRampToValueAtTime(volume, at(fadeIn));
-    if (fadeOut) {
-      gain.gain.setValueAtTime(volume, at(length - fadeOut));
-      gain.gain.linearRampToValueAtTime(0, at(length));
-    }
+    gain.gain.setValueAtTime(gainAt(skip), at(skip));
+    for (const [t, g] of corners) if (t > skip) gain.gain.linearRampToValueAtTime(g, at(t));
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(gain).connect(ctx.destination);
-    const skip = Math.max(0, from - start);
     source.start(at(skip), skip, length - skip);
   }
   return ctx.startRendering();
