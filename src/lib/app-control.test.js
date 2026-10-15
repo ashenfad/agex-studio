@@ -13,9 +13,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
     _enforceTotalCap,
+    capResults,
     executeActions,
     resolveViewport,
+    runLiveApp,
 } from "./app-control.js";
+import { sendControl } from "./iframe-bridge.js";
+
+vi.mock("./iframe-bridge.js", () => ({ sendControl: vi.fn() }));
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -216,5 +221,33 @@ describe("executeActions — viewport action", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe("capResults", () => {
+    it("keeps the first 200 entries, then bounds the total size", () => {
+        expect(capResults(makeLogs(250, 10))).toHaveLength(200);
+        const big = capResults(makeLogs(10, 50_000));
+        expect(big[0].message).toMatch(/^\[truncated: dropped/);
+        expect(big.length).toBeLessThan(10);
+    });
+});
+
+describe("an assertion failure", () => {
+    it("carries what came before it, with the console, under the same bounds", async () => {
+        const big = "x".repeat(50_000);
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+            if (action["get-logs"]) return { logs: [{ level: "log", message: "booted" }] };
+            if (action.read) return { type: "read", selector: action.read, value: big };
+            throw new Error("AssertionError: count is 3");
+        });
+        const iframe = /** @type {any} */ ({ contentWindow: {}, style: {} });
+        const actions = [...Array.from({ length: 6 }, () => ({ read: "#out" })), { assert: "false" }];
+        const failure = await runLiveApp({ iframe, actions }).catch((e) => e);
+        expect(failure.message).toBe("AssertionError: count is 3");
+        // six 50 KB reads plus the log would pass 256 KB: the earliest go
+        expect(failure.results[0].message).toMatch(/^\[truncated: dropped 2 /);
+        expect(failure.results.slice(1).every((r) => r.type === "read")).toBe(true);
+        expect(failure.results).toHaveLength(6);
     });
 });

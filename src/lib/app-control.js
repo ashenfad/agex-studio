@@ -272,7 +272,13 @@ export async function collectResults(iframe, actionResults) {
     } catch {
         /* ignore — collecting logs is best-effort */
     }
-    const capped = [...logs, ...actionResults].slice(0, 200);
+    return capResults([...logs, ...actionResults]);
+}
+
+/** The bounds on what one testApp / liveApp call returns: 200 entries,
+ *  then the overall size. */
+export function capResults(entries) {
+    const capped = entries.slice(0, 200);
     // Final overall-size backstop. Per-entry caps in iframe-bridge
     // (eval/read) and the console interceptor (logs) already keep
     // individual items at <=50 KB, but a session that emits 100
@@ -575,7 +581,11 @@ export async function runTestApp(opts) {
         // actions, iframe load failures) get wrapped as a result
         // entry so the agent sees the failure but the chat loop
         // continues normally.
-        if (_isAssertionError(e)) throw e;
+        if (_isAssertionError(e)) {
+            // with the console's output, under the same bounds as a passing call's
+            e.results = await collectResults(iframe, e.results ?? []);
+            throw e;
+        }
         return [
             {
                 type: "log",
@@ -616,7 +626,10 @@ export async function runLiveApp(opts) {
         return await collectResults(iframe, actionResults);
     } catch (e) {
         // Same assertion-escape rule as `runTestApp`.
-        if (_isAssertionError(e)) throw e;
+        if (_isAssertionError(e)) {
+            e.results = await collectResults(iframe, e.results ?? []);
+            throw e;
+        }
         return [
             {
                 type: "log",
