@@ -368,6 +368,12 @@ function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, 
             return;
         }
 
+        // a test shows the person nothing: notify() answers false, at once
+        if (data.type === "agex-notify") {
+            replyToApp(iframe, { type: "agex-notify-result", id: data.id, shown: false, error: "notifications aren't shown in a test" });
+            return;
+        }
+
         if (data.type === "agex-cache-get") {
             const { id, key } = data;
             const p = (async () => {

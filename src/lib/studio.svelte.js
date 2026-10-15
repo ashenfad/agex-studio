@@ -35,6 +35,7 @@ import { attachmentsOf } from "./notes.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
 import { looking, onScreen } from "./status.js";
+import { lastReply, notifyTurnEnded } from "./notify.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
 
@@ -753,11 +754,13 @@ export class ChatSession {
     }
 
     /** A turn ended (the person's, a woken one, a resumed one): one the
-     *  person wasn't looking at waits for them. */
+     *  person wasn't looking at waits for them, and tells them if they
+     *  asked to be told. */
     #ended() {
         if (looking(studio.current?.name === this.name)) return;
         this.unseen = true;
         if (this.#lastStatus === "failed" || this.#lastStatus === "interrupted") this.attention = true;
+        notifyTurnEnded({ session: this.name, title: this.title, status: this.#lastStatus, reply: lastReply(this.runs.at(-1)), error: this.error });
     }
 
     /** The person is looking at the session: what ended while they

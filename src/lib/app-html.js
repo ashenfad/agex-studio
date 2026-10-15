@@ -167,14 +167,14 @@ window.agex = {
 };
 
 // notify(title, body?) — show a desktop notification via the host.
-// The sandbox can't construct Notifications (or prompt for permission)
-// itself, so the studio does it on your behalf, behind a permission
-// prompt (first use) and a per-session rate cap. Resolves to true when
-// a notification was shown, false otherwise (permission not granted,
-// rate-limited, unsupported) — it NEVER rejects, so a denied permission
-// won't throw; check the boolean and fall back to in-page UI. Accepts
-// either notify('Title', 'Body') or notify({ title, body }). Clicking
-// the notification focuses the studio tab and switches to this session.
+// The sandbox can't construct Notifications (or ask for permission)
+// itself, so the studio shows it: only once the person has allowed
+// notifications in the studio's settings, and at most 5 a minute per
+// session. Resolves to true when a notification was shown, false
+// otherwise (not allowed, over the cap, unsupported); it never rejects,
+// so check the boolean and fall back to in-page UI. Accepts either
+// notify('Title', 'Body') or notify({ title, body }). Clicking the
+// notification focuses the studio's tab and switches to this session.
 // NOTE: this whole block is inside a template literal — no backticks.
 window.notify = function(title, body) {
     var opts = (title && typeof title === 'object') ? title : { title: title, body: body };
@@ -183,6 +183,8 @@ window.notify = function(title, body) {
         function handler(event) {
             if (!event.data || event.data.type !== 'agex-notify-result' || event.data.id !== id) return;
             window.removeEventListener('message', handler);
+            // why not, for whoever reads the console
+            if (!event.data.shown && event.data.error) console.info('notify: not shown: ' + event.data.error);
             resolve(!!event.data.shown);
         }
         window.addEventListener('message', handler);

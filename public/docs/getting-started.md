@@ -56,6 +56,10 @@ Click the **⚙** at the top right.
 - **Fold the conversation past**: once a conversation is longer than
   this many tokens, its earlier part is folded into a summary for the
   model (the chat still shows all of it). 0 never folds.
+- **Notify me when a turn ends while I'm away**: a desktop notification
+  when the agent finishes (or fails) while you're in another session,
+  tab or app. Turning it on asks your browser's permission. See
+  [Sessions](#sessions).
 
 The same dialog holds **Sync** (keep your sessions in a GitHub repo of
 your own, to use them on another device; see [Sessions](#sessions))

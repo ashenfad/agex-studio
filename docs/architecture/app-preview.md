@@ -87,8 +87,13 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   shim is read-only.
 - **The cache**: `getCacheValue(key)` reads a value the agent's code
   put in its cache (`cache.set`).
-- **`notify(title, body)`**: resolves false for now; notifications
-  aren't wired.
+- **`notify(title, body)`**: the preview shows it (`appNotify` in
+  `notify.js`) only when the browser already allows the studio's
+  notifications, which the person grants from the settings (an app's
+  request isn't a click on the studio's page, so it can't ask), and at
+  most 5 a minute per session; it answers `shown`, and why not, which
+  the bridge logs. Clicking one switches to the session. A test
+  iframe answers false at once.
 - **`agex.task(spec)`**: an agent task the app calls (below).
 
 ### App data across devices
