@@ -366,11 +366,34 @@ const CDN_IMPORTS = {
 };
 
 /**
- * The query an auto-resolved esm.sh package is asked for with: its own
+ * The option an auto-resolved esm.sh package is asked for with: its own
  * imports of these left bare, for the import map to resolve to
  * `CDN_IMPORTS`' pinned Preact (React aliased to it).
  */
-const SHARED_RUNTIME = '?external=preact,react,react-dom';
+const SHARED_RUNTIME = 'external=preact,react,react-dom';
+
+/**
+ * The esm.sh URL for a bare specifier, with `SHARED_RUNTIME` added to
+ * any options it already carries (`monaco-editor?worker`).
+ *
+ * @param {string} spec
+ */
+function _sharedUrl(spec) {
+    return `https://esm.sh/${spec}${spec.includes('?') ? '&' : '?'}${SHARED_RUNTIME}`;
+}
+
+/**
+ * The esm.sh prefix for a package's subpaths, with `SHARED_RUNTIME`.
+ * A prefix can't end in a query, so the option goes in the path, which
+ * esm.sh reads only after a version: the package's own, or the latest.
+ *
+ * @param {string} pkg a package root, as `_packageRoot` gives it
+ */
+function _sharedPrefix(pkg) {
+    const name = pkg.startsWith('@') ? pkg.slice(pkg.indexOf('/') + 1) : pkg;
+    const versioned = name.includes('@') ? pkg : `${pkg}@latest`;
+    return `https://esm.sh/${versioned}&${SHARED_RUNTIME}/`;
+}
 
 /**
  * Does the app use Plotly? It's a global the page loads from a script
@@ -418,11 +441,13 @@ function _isBareSpecifier(spec) {
  *   '@radix-ui/react-dialog'        → '@radix-ui/react-dialog'
  *   '@radix-ui/react-dialog/dist/x' → '@radix-ui/react-dialog'
  *   'recharts@2.10.0'               → 'recharts@2.10.0' (esm.sh accepts versioned URL fragments)
+ *   'monaco-editor?worker'          → 'monaco-editor'
  *
  * @param {string} spec
  * @returns {string}
  */
 function _packageRoot(spec) {
+    spec = spec.split('?')[0];
     if (spec.startsWith('@')) {
         const parts = spec.split('/');
         return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : spec;
@@ -648,14 +673,13 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     // package not already covered by CDN_IMPORTS, map the specifier as
     // written and its package's bare and trailing-slash forms to esm.sh.
     //
-    // The specifiers seen are asked for with `SHARED_RUNTIME`: esm.sh
-    // leaves the package's own imports of Preact and React bare, so
-    // they come through this map to the one pinned Preact. Asked for
-    // plainly, esm.sh resolves them itself: a Preact library brings a
-    // second Preact (hooks and context don't reach across the two),
-    // and a React one brings React. The trailing-slash form can't
-    // carry the option; it's only reached by a subpath built at run
-    // time, which the scan doesn't see.
+    // Every form is asked for with `SHARED_RUNTIME`: esm.sh leaves the
+    // package's own imports of Preact and React bare, so they come
+    // through this map to the one pinned Preact. Asked for plainly,
+    // esm.sh resolves them itself: a Preact library brings a second
+    // Preact (hooks and context don't reach across the two), and a
+    // React one brings React. The trailing-slash form is reached by a
+    // subpath built at run time, which the scan doesn't see.
     //
     // Means agents can use any npm package transparently — no studio-
     // side import-map config per library, no direct-URL imports
@@ -673,9 +697,9 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     for (const spec of bareSpecs) {
         const pkg = _packageRoot(spec);
         if (pkg in CDN_IMPORTS) continue;
-        appImports[spec] = `https://esm.sh/${spec}${SHARED_RUNTIME}`;
-        appImports[pkg] ??= `https://esm.sh/${pkg}${SHARED_RUNTIME}`;
-        appImports[pkg + '/'] = `https://esm.sh/${pkg}/`;
+        appImports[spec] = _sharedUrl(spec);
+        appImports[pkg] ??= _sharedUrl(pkg);
+        appImports[pkg + '/'] = _sharedPrefix(pkg);
     }
 
     // Binary-asset rewrites — applied last so they see the final

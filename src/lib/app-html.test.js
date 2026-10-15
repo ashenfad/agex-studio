@@ -136,12 +136,35 @@ describe('the import map', () => {
         expect(imports['@preact/signals']).toBe(`https://esm.sh/@preact/signals${shared}`)
         expect(imports.recharts).toBe(`https://esm.sh/recharts${shared}`)
         expect(imports['recharts/lib/component/Cell']).toBe(`https://esm.sh/recharts/lib/component/Cell${shared}`)
+        // a subpath built at run time comes through the prefix, which
+        // carries the option in its path
+        expect(imports['recharts/']).toBe('https://esm.sh/recharts@latest&external=preact,react,react-dom/')
+        expect(imports['@preact/signals/']).toBe('https://esm.sh/@preact/signals@latest&external=preact,react,react-dom/')
         // what they leave bare comes to the pinned copy
         for (const spec of ['preact', 'react', 'react-dom', 'react/jsx-runtime']) {
             expect(imports[spec]).toMatch(/^https:\/\/esm\.sh\/preact@10\.25\.4(\/|$)/)
         }
         expect(imports.preact).toBe('https://esm.sh/preact@10.25.4')
         expect(imports['preact/hooks']).toBeUndefined()
+    })
+
+    it('adds the option to the ones a specifier already asks for', async () => {
+        const html = await buildAppHtml(
+            {
+                'app/main.js': [
+                    "import worker from 'monaco-editor?worker'",
+                    "import { BarChart } from 'recharts@2.10.0/lib'",
+                    'console.log(worker, BarChart)',
+                ].join('\n'),
+            },
+            { workerSources: {} },
+        )
+        const imports = JSON.parse(html.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]).imports
+        expect(imports['monaco-editor?worker']).toBe('https://esm.sh/monaco-editor?worker&external=preact,react,react-dom')
+        expect(imports['monaco-editor']).toBe('https://esm.sh/monaco-editor?external=preact,react,react-dom')
+        expect(imports['monaco-editor/']).toBe('https://esm.sh/monaco-editor@latest&external=preact,react,react-dom/')
+        // a version written in the specifier is kept in the prefix
+        expect(imports['recharts@2.10.0/']).toBe('https://esm.sh/recharts@2.10.0&external=preact,react,react-dom/')
     })
 })
 
