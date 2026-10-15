@@ -15,6 +15,7 @@
  */
 
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
+import { SvelteMap } from "svelte/reactivity";
 import { Inbox, Policy, Sessions, Store, commandFactory, wsGit } from "@agex-ts/world";
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { AGEX_GUIDE, Agent, AiSdkProvider, RunStream, ScriptedProvider, agentTasks } from "agex-ts";
@@ -33,6 +34,7 @@ import { fetchGistBundle, latestRevision, parseGistParam, publishGist, slugOf } 
 import { attachmentsOf } from "./notes.js";
 import { primer } from "./primer.js";
 import { snapshotBranch } from "./snapshot.js";
+import { looking, onScreen } from "./status.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
 
@@ -244,6 +246,11 @@ export class ChatSession {
     context = $state(null);
     /** A fold the person asked for is being written. */
     folding = $state(false);
+    /** A turn ended while the person wasn't looking at the session (see
+     *  `status.js`), and they haven't since. This page's only. */
+    unseen = $state(false);
+    /** One of those turns ended failed or interrupted. */
+    attention = $state(false);
     /** That fold, settling when it's done. @type {Promise<void>} */
     #folding = Promise.resolve();
     /** The person stopped that fold: its ending isn't an error. */
@@ -719,6 +726,7 @@ export class ChatSession {
                 await this.reload();
                 this.live = [];
                 this.busy = false;
+                this.#ended();
                 // the next request's size, now the turn's reply is in it
                 void this.#measure();
                 // a turn stopped or failed: no waking until the person writes
@@ -742,6 +750,21 @@ export class ChatSession {
         })();
         this.#running = run;
         await run;
+    }
+
+    /** A turn ended (the person's, a woken one, a resumed one): one the
+     *  person wasn't looking at waits for them. */
+    #ended() {
+        if (looking(studio.current?.name === this.name)) return;
+        this.unseen = true;
+        if (this.#lastStatus === "failed" || this.#lastStatus === "interrupted") this.attention = true;
+    }
+
+    /** The person is looking at the session: what ended while they
+     *  weren't is seen. */
+    seen() {
+        this.unseen = false;
+        this.attention = false;
     }
 
     /** The person's messages still waiting, taken back, as one. */
@@ -1083,9 +1106,10 @@ export class Studio {
     /** @type {ChatSession | null} */
     current = $state(null);
     /** Sessions opened in this page, each kept open once opened, so a
-     *  turn goes on while another session is looked at. */
-    /** @type {Map<string, ChatSession>} */
-    #open = new Map();
+     *  turn goes on while another session is looked at. Reactive, so
+     *  what reads every open session's status follows new ones. */
+    /** @type {SvelteMap<string, ChatSession>} */
+    #open = new SvelteMap();
 
     /** Open the store, list the sessions, and open the one last looked
      *  at; with none, a new one, unless `empty` (a published session is
@@ -1150,6 +1174,16 @@ export class Studio {
         return this.#open.get(name);
     }
 
+    /** The person's sessions open in this page (not delegates'). */
+    openSessions() {
+        return [...this.#open.values()].filter((s) => !s.readonly);
+    }
+
+    /** The page came back on screen: the session shown is seen. */
+    backOnScreen() {
+        if (onScreen()) this.current?.seen();
+    }
+
     /**
      * Point session `name` at `commit`, which needn't descend from where
      * it is (a sync's resolution): its workspace, if open, is closed and
@@ -1204,6 +1238,7 @@ export class Studio {
             await session.open();
         }
         this.current = session;
+        if (onScreen()) session.seen();
         try {
             localStorage.setItem(CURRENT_KEY, name);
         } catch {

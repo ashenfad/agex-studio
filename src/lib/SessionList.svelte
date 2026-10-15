@@ -1,6 +1,8 @@
 <script>
     /**
-     * The sessions: newest first, the one looked at marked. A name is
+     * The sessions: newest first, the one looked at marked, each with a
+     * dot for its status (working; ended while the person was away,
+     * gone wrong or not: see status.js). A name is
      * renamed by a double-click; a row's tray, on hover, forks it (⑂,
      * with its conversation) or opens its dialog (⋯: its name, the
      * other forks, export, publish, delete). A bundle (.agex) opens as a
@@ -9,6 +11,7 @@
      * sessions to download and its trash.
      */
     import { formatDate } from './format-time.js'
+    import { STATUS_TITLES, statusOf } from './status.js'
     import PublishDialog from './PublishDialog.svelte'
     import SessionDialog from './SessionDialog.svelte'
     import { studio } from './studio.svelte.js'
@@ -107,9 +110,13 @@
                         onblur={finishRename}
                     />
                 {:else}
+                    {@const shown = studio.opened(s.name)}
+                    {@const status = shown ? statusOf(shown) : null}
                     <div class="line">
                         <button class="row" onclick={() => pick(s.name)} ondblclick={() => startRename(s.name, s.title)} title="Open it; double-click to rename">
-                            <span class="title">{s.title || 'New session'}</span>
+                            <span class="title">
+                                {#if status}<span class="dot {status}" role="img" aria-label={STATUS_TITLES[status]} title={STATUS_TITLES[status]}></span>{/if}{s.title || 'New session'}
+                            </span>
                             <span class="when">{formatDate(new Date(s.updatedAt).toISOString())}</span>
                         </button>
                         {#if studio.opened(s.name)?.jobs.length}
@@ -303,6 +310,32 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+    /* a session's status, before its title: the accent pulsing while it
+       works, amber when a turn went wrong while the person was away,
+       green when one finished then */
+    .dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 0.4rem;
+        vertical-align: 0.1em;
+    }
+    .dot.working {
+        background: var(--accent);
+        animation: pulse 1.2s ease-in-out infinite;
+    }
+    .dot.attention {
+        background: var(--caution);
+    }
+    .dot.unseen {
+        background: var(--success);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .dot.working {
+            animation: none;
+        }
     }
     .when {
         font-size: 0.75rem;

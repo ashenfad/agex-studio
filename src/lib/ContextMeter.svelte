@@ -119,7 +119,7 @@
         background: var(--text-muted);
     }
     .mid .fill {
-        background: #d9a441;
+        background: var(--caution);
     }
     .high .fill {
         background: var(--error);

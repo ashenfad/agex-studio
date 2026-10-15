@@ -25,6 +25,20 @@ Hover a session in the list for its tools: **⑂** forks it (with its
 conversation), and **⋯** opens its dialog: its name, the other forks,
 export, publish and delete.
 
+## Working in several at once
+
+A session's turn keeps running when you switch to another one. A dot
+before a session's name says how it's doing:
+
+- **Pulsing**: the agent is working.
+- **Green**: a turn finished while you were looking elsewhere (another
+  session, another tab, another app).
+- **Amber**: a turn ended with an error while you were away.
+
+The dot goes once you look at that session. The studio's tab icon shows
+a dot too, of the most pressing color, so you can see from another tab
+when something is running, done, or needs you.
+
 ## Undo and redo
 
 Hover one of your messages for its tools (the turns your delegates'
