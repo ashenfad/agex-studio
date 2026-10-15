@@ -103,14 +103,20 @@
 
     // The list keeps its own place (the browser's anchoring is off, see
     // below): an embed drawn late grows, so while the reader follows the
-    // end it's followed, and when it's above what they're reading what
-    // they're reading is kept still.
+    // end it's followed, and when it was wholly above what they're
+    // reading what they're reading is kept still. One they're partway
+    // into keeps its top, as the browser's anchoring would.
     $effect(() => {
         const el = list
         if (el == null) return
         const n = new Nearby(el, (node, delta) => {
-            if (following && !revealing) el.scrollTop = el.scrollHeight
-            else if (node.getBoundingClientRect().top < el.getBoundingClientRect().top) el.scrollTop += delta
+            if (following && !revealing) {
+                el.scrollTop = el.scrollHeight
+                return
+            }
+            const box = node.getBoundingClientRect()
+            // its bottom before it changed
+            if (box.top + box.height - delta <= el.getBoundingClientRect().top) el.scrollTop += delta
         })
         nearby = n
         return () => {
