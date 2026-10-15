@@ -32,7 +32,7 @@
             <ThinkingBlock text={g.text} live={streaming && i === groups.length - 1} />
         {/if}
     {:else if g.kind === 'text'}
-        <ReplyText {session} {at} text={g.text} />
+        <ReplyText {session} {at} text={g.text} live={streaming && i === groups.length - 1} />
     {:else if g.kind === 'note' && g.from === 'principal'}
         <div class="mine"><UserBubble {session} text={g.text} label="Sent mid-turn" /></div>
     {:else if g.kind === 'note'}

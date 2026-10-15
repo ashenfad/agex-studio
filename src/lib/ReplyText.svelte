@@ -3,17 +3,26 @@
      * A reply's text: Markdown, with each embed of a workspace file
      * (`![name](/workspace/ui/x.plotly.json)`) rendered in its place,
      * and each link to one (`[plan](/workspace/notes/plan.md)`)
-     * opening that file, as it is now, in the file viewer.
+     * opening that file, as it is now, in the file viewer. Its
+     * ```mermaid blocks draw as diagrams once it's no longer streaming
+     * in, so a half-written diagram never shows as a parse error.
      */
     import { splice } from './artifacts.js'
     import Artifact from './Artifact.svelte'
     import FileModal from './FileModal.svelte'
-    import { fileLinkTarget, renderMarkdown } from './markdown.js'
+    import { fileLinkTarget, renderMarkdown, renderMermaidBlocks } from './markdown.js'
 
-    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null }} */
-    let { session, text, at = null } = $props()
+    /** @type {{ session: import('./studio.svelte.js').ChatSession, text: string, at?: string | null, live?: boolean }} */
+    let { session, text, at = null, live = false } = $props()
 
     const parts = $derived(splice(text))
+    /** @type {HTMLElement | undefined} */
+    let el = $state()
+
+    $effect(() => {
+        void parts
+        if (!live && el) void renderMermaidBlocks(el)
+    })
     /** The opened file, relative to /workspace as the viewer takes it. */
     /** @type {string | null} */
     let opened = $state(null)
@@ -31,7 +40,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="text" {onclick}>
+<div class="text" bind:this={el} {onclick}>
     {#each parts as part, i (i)}
         {#if 'md' in part}
             <!-- each its own, so the markdown rules don't reach an artifact's tables -->

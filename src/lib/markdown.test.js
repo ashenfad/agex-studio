@@ -4,7 +4,7 @@
 // but mis-sanitizes (drops <strong>, passes <script> through), so the
 // sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
-import { fileLinkTarget, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
+import { fileLinkTarget, mermaidErrorLine, mermaidFallback, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
 
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
@@ -312,3 +312,20 @@ describe("fileLinkTarget", () => {
     });
 });
 
+
+describe("mermaid fallback", () => {
+    it("shows the source and a short error line, both escaped", () => {
+        const html = mermaidFallback("graph TD\n  A --> <img src=x onerror=alert(1)>", new Error("Parse error on line 2:\nA --> <b\n---^\nExpecting 'NODE', got 'TAGSTART'"));
+        expect(html).not.toContain("<img");
+        expect(html).not.toContain("<b");
+        expect(html).toContain('<code class="mermaid-source">graph TD\n  A --&gt; &lt;img src=x onerror=alert(1)&gt;</code>');
+        expect(html).toContain("<span class=\"mermaid-error\">Diagram didn't render: Parse error on line 2: unexpected 'TAGSTART'</span>");
+    });
+
+    it("cuts a long error to one readable line", () => {
+        expect(mermaidErrorLine(new Error("x".repeat(500)))).toHaveLength(200);
+        expect(mermaidErrorLine(new Error("one line"))).toBe("one line");
+        expect(mermaidErrorLine("a\n\nb\nc")).toBe("a c");
+        expect(mermaidErrorLine(new Error(""))).toBe("unknown error");
+    });
+});

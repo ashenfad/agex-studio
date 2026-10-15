@@ -109,11 +109,18 @@ workspace file, by its path (`[plan](/workspace/notes/plan.md)`, or
 (`markdown.js` marks it with `data-ws-path`, the normalized path, and
 renders one whose `..` climbs out of /workspace as its text alone);
 `ReplyText` opens it in `FileModal`, as the file is now. A URL with a
-scheme, `//host/…`, `#…` and other root paths stay ordinary links. Only what the
-person said offers undo (and, for an ordinary message, edit): not a
-delegate's task, not a turn the answers alone started (undoing the
-turn before it takes that one too), and nothing in a delegate's
-read-only view.
+scheme, `//host/…`, `#…` and other root paths stay ordinary links.
+A ```` ```mermaid ```` block renders as `<pre class="mermaid">` holding
+its source; `ReplyText` draws it (`renderMermaidBlocks`, Mermaid loaded
+once from a pinned jsDelivr URL, `securityLevel: 'strict'`) when the
+reply isn't the live turn's streaming tail, so a half-written diagram
+never shows as a parse error. One that doesn't parse shows its source
+and a line saying why.
+
+Only what the person said offers undo (and, for an ordinary message,
+edit): not a delegate's task, not a turn the answers alone started
+(undoing the turn before it takes that one too), and nothing in a
+delegate's read-only view.
 
 ## Notes mid-turn
 
