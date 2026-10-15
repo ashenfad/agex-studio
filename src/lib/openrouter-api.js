@@ -92,7 +92,12 @@ export function costOf(usage) {
  * dollars) and any limit on it; rejected; or no telling, when OpenRouter
  * couldn't be reached or answered otherwise.
  *
- * @typedef {{ ok: true, usage: { today: number | null, week: number | null, month: number | null, total: number | null }, limit: number | null, remaining: number | null, freeTier: boolean }
+ * `byok` is what was spent through the person's own provider keys
+ * (bring your own key), which those providers bill and OpenRouter counts
+ * apart from its own.
+ *
+ * @typedef {{ today: number | null, week: number | null, month: number | null, total: number | null }} Spend
+ * @typedef {{ ok: true, usage: Spend, byok: Spend, limit: number | null, remaining: number | null, freeTier: boolean }
  *     | { ok: false, reason: 'rejected' }
  *     | { ok: false, reason: 'unreachable', detail: string }} KeyCheck
  */
@@ -139,6 +144,12 @@ export async function checkRouterKey(key, { timeout = 10, fetchImpl = fetch } = 
             month: amount(data.usage_monthly),
             total: amount(data.usage),
         },
+        byok: {
+            today: amount(data.byok_usage_daily),
+            week: amount(data.byok_usage_weekly),
+            month: amount(data.byok_usage_monthly),
+            total: amount(data.byok_usage),
+        },
         limit: amount(data.limit),
         remaining: amount(data.limit_remaining),
         freeTier: data.is_free_tier === true,
@@ -153,14 +164,17 @@ export function dollarLabel(n) {
     return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** What an accepted key has spent today and this month, what's left of
- *  any limit, and whether it's on the free tier, in a line.
+/** What an accepted key has spent today and this month (and through the
+ *  person's own provider keys, when anything was), what's left of any
+ *  limit, and whether it's on the free tier, in a line.
  *  @param {Extract<KeyCheck, { ok: true }>} check */
 export function keyUsageLine(check) {
-    const { usage, limit, remaining } = check;
+    const { usage, byok, limit, remaining } = check;
+    const ownKeys = (byok.today ?? 0) > 0 || (byok.month ?? 0) > 0;
     return [
         usage.today !== null ? `${dollarLabel(usage.today)} today` : null,
         usage.month !== null ? `${dollarLabel(usage.month)} this month` : null,
+        ownKeys ? `plus ${dollarLabel(byok.today ?? 0)} today, ${dollarLabel(byok.month ?? 0)} this month through your own provider keys` : null,
         limit !== null ? (remaining !== null ? `${dollarLabel(remaining)} left of ${dollarLabel(limit)}` : `a ${dollarLabel(limit)} limit`) : null,
         check.freeTier ? "free tier" : null,
     ]
