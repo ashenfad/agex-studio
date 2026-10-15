@@ -38,9 +38,7 @@
  * the JS bridge.
  */
 
-const ESBUILD_VERSION = "0.24.2";
-const ESBUILD_URL = `https://esm.sh/esbuild-wasm@${ESBUILD_VERSION}`;
-const ESBUILD_WASM_URL = `https://esm.sh/esbuild-wasm@${ESBUILD_VERSION}/esbuild.wasm`;
+import { ESBUILD_URL, ESBUILD_WASM_URL, loadModule } from "./cdn.js";
 
 let _esbuild = null;
 let _esbuildPromise = null;
@@ -51,7 +49,7 @@ async function getEsbuild() {
     if (_esbuildPromise) return _esbuildPromise;
 
     _esbuildPromise = (async () => {
-        const mod = await import(/* @vite-ignore */ ESBUILD_URL);
+        const mod = await loadModule(ESBUILD_URL);
         // esm.sh wraps CommonJS modules; the methods sometimes land
         // on the namespace, sometimes on `default`.  Probe both
         // shapes.
