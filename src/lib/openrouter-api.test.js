@@ -10,6 +10,10 @@ const keyData = (over = {}) => ({
         usage_daily: 0.42,
         usage_weekly: 3.2,
         usage_monthly: 7.3,
+        byok_usage: 6,
+        byok_usage_daily: 0,
+        byok_usage_weekly: 1.5,
+        byok_usage_monthly: 2.25,
         limit: null,
         limit_remaining: null,
         limit_reset: null,
@@ -31,6 +35,7 @@ describe("checking an OpenRouter key", () => {
         expect(await checkRouterKey(KEY, { fetchImpl: answer(200, keyData()) })).toEqual({
             ok: true,
             usage: { today: 0.42, week: 3.2, month: 7.3, total: 41.5 },
+            byok: { today: 0, week: 1.5, month: 2.25, total: 6 },
             limit: null,
             remaining: null,
             freeTier: false,
@@ -47,6 +52,7 @@ describe("checking an OpenRouter key", () => {
         expect(await checkRouterKey(KEY, { fetchImpl })).toEqual({
             ok: true,
             usage: { today: null, week: null, month: null, total: 2 },
+            byok: { today: null, week: null, month: null, total: null },
             limit: null,
             remaining: null,
             freeTier: false,
@@ -98,10 +104,22 @@ describe("the key's line", () => {
     const accepted = (over = {}) => ({
         ok: /** @type {const} */ (true),
         usage: { today: 0.42, week: 3.2, month: 7.3, total: 41.5 },
+        byok: { today: 0, week: 0, month: 0, total: 0 },
         limit: null,
         remaining: null,
         freeTier: false,
         ...over,
+    });
+
+    it("adds what went through the person's own provider keys, when anything did", () => {
+        const byok = { today: 1.25, week: 4, month: 9.5, total: 20 };
+        expect(keyUsageLine(accepted({ byok }))).toBe(
+            "$0.42 today · $7.30 this month · plus $1.25 today, $9.50 this month through your own provider keys",
+        );
+        // all of it through their own keys: OpenRouter's own figures read 0
+        expect(keyUsageLine(accepted({ usage: { today: 0, week: 0, month: 0, total: 0 }, byok }))).toBe(
+            "$0.00 today · $0.00 this month · plus $1.25 today, $9.50 this month through your own provider keys",
+        );
     });
 
     it("says what was spent today and this month", () => {
