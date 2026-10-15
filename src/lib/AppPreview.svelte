@@ -21,6 +21,7 @@
     import { read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
+    import { appNotify } from './notify.js'
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
 
@@ -154,8 +155,8 @@
             return
         }
         if (data.type === 'agex-notify') {
-            // notifications come with the studio's own (a later step)
-            replyToApp(iframe, { type: 'agex-notify-result', id: data.id, shown: false })
+            const { shown, reason } = appNotify({ session: session.name, title: String(data.title ?? ''), body: String(data.body ?? '') })
+            replyToApp(iframe, { type: 'agex-notify-result', id: data.id, shown, error: reason })
             return
         }
         if (data.type === 'agex-iframe-resource-error') {

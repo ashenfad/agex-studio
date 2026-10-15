@@ -68,6 +68,10 @@ Apps keep their own saved data (what they store in `localStorage`),
 per session. It stays with the session's app, and syncs with it if you
 sync (see [Sessions](#sessions)).
 
+An app can show a desktop notification (a timer that's done, say) once
+you've allowed notifications in Settings, at most five a minute. Click
+one to go to the app's session.
+
 ### Apps that call an agent
 
 An app can ask an agent to do something for it: summarize, rewrite,

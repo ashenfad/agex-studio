@@ -39,7 +39,11 @@ unfocused: `looking` in `status.js`) leaves the session `unseen`, and
 counts: the person's, a woken one, a resumed one. Both clear when the
 person looks (`seen()`): on switching to the session with the page on
 screen, or on the page coming back (`focus`, `visibilitychange`) with
-it shown. They live in the page only, never stored.
+it shown. They live in the page only, never stored. Such a turn also
+shows a desktop notification (`notify.js`) when the person turned
+`notifyOnFinish` on and the browser allows it: the session's title, and
+the first line of the agent's last reply or how the turn went wrong;
+clicking it switches to the session.
 
 A new `Agent` each turn costs nothing (an agent holds no state), and
 means a change to the settings applies to the next turn.

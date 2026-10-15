@@ -13,6 +13,7 @@
     import SettingsDialog from './lib/SettingsDialog.svelte'
     import { appAgent } from './lib/app-tasks.svelte.js'
     import { setFaviconStatus } from './lib/favicon.js'
+    import { onNotificationClick } from './lib/notify.js'
     import SplitPane from './lib/SplitPane.svelte'
     import { overall } from './lib/status.js'
     import { studio } from './lib/studio.svelte.js'
@@ -81,6 +82,16 @@
     // the tab's icon carries the sessions' status, for a person in another tab
     $effect(() => {
         void setFaviconStatus(overall(studio.openSessions()))
+    })
+
+    // a notification clicked opens the session it came from, in the chat
+    onNotificationClick((name) => {
+        if (studio.current?.name === name) return
+        playing = false
+        fullscreen = false
+        drawerOpen = false
+        mobileView = 'chat'
+        void studio.switchTo(name).catch((e) => console.error("couldn't open the notification's session:", e))
     })
 
     /** @param {KeyboardEvent} e */

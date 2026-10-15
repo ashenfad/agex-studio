@@ -33,6 +33,8 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     Contents read and write).
  * @property {string} publishToken — a token that can write gists, to
  *     publish sessions; the sync token is tried when empty.
+ * @property {boolean} notifyOnFinish — a desktop notification when a
+ *     turn ends while the person isn't looking (see `notify.js`).
  */
 
 /** @type {Settings} */
@@ -49,6 +51,7 @@ export const DEFAULTS = {
     syncRepo: "",
     syncToken: "",
     publishToken: "",
+    notifyOnFinish: false,
 };
 
 /** @type {((s: Settings) => void)[]} */

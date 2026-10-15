@@ -39,6 +39,13 @@ The dot goes once you look at that session. The studio's tab icon shows
 a dot too, of the most pressing color, so you can see from another tab
 when something is running, done, or needs you.
 
+To hear about it without looking, turn on **Notify me when a turn ends
+while I'm away** in Settings (your browser asks for permission). A turn
+that ends while you're elsewhere then shows a desktop notification: the
+session's name and the first line of the agent's reply, or what went
+wrong. Click it to go to that session. Notifications come only while
+the studio's tab is open; once it's closed, nothing runs to send them.
+
 ## Undo and redo
 
 Hover one of your messages for its tools (the turns your delegates'

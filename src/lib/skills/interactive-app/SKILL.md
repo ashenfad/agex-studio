@@ -35,6 +35,11 @@ Globals, no import needed:
 - `getCacheValue(key)`: read a value your code stashed with
   `await cache.set(key, value)` in `run_ts` (see "Data from you to the
   app").
+- `notify(title, body)`: a desktop notification (a timer done, a long
+  job finished), shown by the studio only if the person has allowed
+  notifications in its settings, at most 5 a minute. Resolves `true`
+  if shown, `false` if not; it never throws, so show the news in the
+  page too.
 
 Pin a version when it matters (`'recharts@2.10.0'`). Only *static*
 `import ... from '...'` statements are resolved, so `import(variable)`

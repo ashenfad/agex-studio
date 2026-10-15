@@ -1,12 +1,14 @@
 <script>
     /** The settings, in two tabs. Model: the model the studio talks to,
      *  OpenRouter or an endpoint of the person's own (a direct provider,
-     *  a local Meridian, a proxy). Sync & sharing: syncing sessions
+     *  a local Meridian, a proxy), and whether a turn that ends while
+     *  they're away notifies them. Sync & sharing: syncing sessions
      *  through a GitHub repo of their own, and the token publishing
      *  writes gists with. */
     import { untrack } from 'svelte'
     import { getSettings, updateSettings } from './settings.js'
     import { GIST_TOKEN_URL } from './gist.js'
+    import { notificationPermission, requestNotificationPermission } from './notify.js'
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
 
     /** @type {{ onClose: () => void, tab?: 'model' | 'sync' }} */
@@ -14,11 +16,27 @@
 
     let tab = $state(untrack(() => firstTab))
 
-    let s = $state({ ...getSettings() })
+    let permission = $state(notificationPermission())
+    // notifications on only while the browser allows them (it may have stopped since)
+    let s = $state({ ...getSettings(), ...(notificationPermission() !== 'granted' && { notifyOnFinish: false }) })
 
     function save() {
         updateSettings({ ...s })
         onClose()
+    }
+
+    /** The browser was asked, from this dialog. */
+    let asked = $state(false)
+
+    /** Notifications turned on ask the browser first, from this click:
+     *  refused, they stay off. */
+    async function notifyChanged() {
+        if (!s.notifyOnFinish) return
+        if (permission !== 'granted') {
+            permission = await requestNotificationPermission()
+            asked = true
+        }
+        s.notifyOnFinish = permission === 'granted'
     }
 
     let token = $state('')
@@ -130,6 +148,19 @@
                 <input type="number" min="0" step="1000" bind:value={s.foldBudget} />
             </label>
         {/if}
+        <h3>Notifications</h3>
+        <label class="check">
+            <input type="checkbox" bind:checked={s.notifyOnFinish} onchange={notifyChanged} disabled={permission === 'unsupported' || permission === 'denied'} />
+            Notify me when a turn ends while I'm away
+        </label>
+        {#if permission === 'denied'}
+            <p class="hint warn">This browser blocks notifications from the studio. Allow them in its settings for this site, then reopen this dialog.</p>
+        {:else if permission === 'unsupported'}
+            <p class="hint warn">This browser doesn't show notifications.</p>
+        {:else if asked && permission !== 'granted'}
+            <p class="hint warn">The browser didn't allow them, so they stay off.</p>
+        {/if}
+        <p class="hint">Away: in another session, another tab or another app. They come only while the studio's tab is open. Apps can show notifications too, once you've allowed them here.</p>
         {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
