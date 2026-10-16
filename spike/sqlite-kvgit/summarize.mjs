@@ -54,8 +54,8 @@ if (r.openChunked) {
   ))
 }
 
-for (const [key, size] of [['commits', 10], ['commits50', 50]]) if (r[key]) {
-  out(`Commit cost on a ${size} MB database`, table(
+for (const [key, size] of [['commits', 'a 10 MB'], ['commits50', 'a 50 MB'], ['commitsAt', 'each']]) if (r[key]) {
+  out(`Commit cost on ${size} database`, table(
     ['db', 'one-row tx to durable: median / p95 ms', 'of which SQLite', 'of which kvgit commit', 'pages per tx', '1000 one-row tx (s)', 'tx/s', '1000 rows in one tx (ms)'],
     Object.values(r[key]).map((c) => [
       c.tag,
@@ -135,11 +135,11 @@ if (r.syncBurst) {
   ))
 }
 
-if (r.sizeProbe) {
-  out('Stored bytes: logical vs what IndexedDB holds', table(
+for (const [key, when] of [['sizeProbeBuilt', 'just built'], ['sizeProbe', 'after the other steps']]) if (r[key]) {
+  out(`Stored bytes, ${when}: logical vs what IndexedDB holds`, table(
     ['db', 'commits', 'logical MB', 'physical MB', 'ratio'],
-    Object.entries(r.sizeProbe).map(([tag, s]) => [tag, s.commits, mb(s.logical), mb(s.physical), s.ratio.toFixed(2)]),
+    Object.entries(r[key]).map(([tag, s]) => [tag, s.commits, mb(s.logical), mb(s.physical), s.ratio.toFixed(2)]),
   ))
 }
 
-for (const k of ['spill', 'twoWriters']) if (r[k]) out(k, '```\n' + JSON.stringify(r[k], null, 1) + '\n```')
+for (const k of ['spill', 'twoWriters', 'twoTabs']) if (r[k]) out(k, '```\n' + JSON.stringify(r[k], null, 1) + '\n```')

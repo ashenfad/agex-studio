@@ -1,6 +1,7 @@
 // The spike's measurements, run in the browser against real IndexedDB.
 // run.mjs drives them one step at a time through window.spike.
 
+import * as kvgit from '@agex-ts/kvgit';
 import { MemoryRemote, pushBranch, Repo, walkDelta } from '@agex-ts/kvgit';
 import { Memory } from '@agex-ts/kvgit/backends/memory';
 import { IndexedDB } from '@agex-ts/kvgit/backends/idb';
@@ -25,7 +26,8 @@ const dbName = (tag) => `spike-${tag}`;
 // stores a view's whole buffer, so every stored value carries that
 // slack. This wrapper gives each written value its own exact buffer,
 // as a fix in kvgit's IndexedDB backend (or its codec) would; the
-// spike runs with it unless `window.SPIKE_UNFIXED` is set.
+// spike runs with it unless `window.SPIKE_NO_WRAP` is set (kvgit
+// stores exact buffers itself from @agex-ts/kvgit #115 on).
 const exact = (v) => (v.byteOffset === 0 && v.byteLength === v.buffer.byteLength ? v : v.slice());
 function exactValues(kv) {
   return new Proxy(kv, {
@@ -45,7 +47,7 @@ function exactValues(kv) {
 async function openRepo(tag, { fresh = false, wrap } = {}) {
   if (fresh) await IndexedDB.deleteDatabase(dbName(tag));
   let kv = await IndexedDB.open({ dbName: dbName(tag) });
-  if (!window.SPIKE_UNFIXED) kv = exactValues(kv);
+  if (!window.SPIKE_NO_WRAP) kv = exactValues(kv);
   if (wrap) kv = wrap(kv);
   const repo = await Repo.open(kv, { codec: 'cbor' });
   return { kv, repo };
@@ -186,7 +188,16 @@ spike.info = async () => {
   const opts = (await db.query('PRAGMA compile_options')).map((r) => r.compile_options);
   const exportsSession = typeof module._sqlite3session_create === 'function';
   await db.close();
-  return { version: sqlite3.libversion(), compileOptions: opts, exportsSession };
+  // Which kvgit is running: the onMoved commit option and exact value
+  // buffers are both new in it.
+  const enc = kvgit.cborCodec.encode(new Uint8Array(4096));
+  const marker = {
+    branchMovedError: typeof kvgit.BranchMovedError === 'function',
+    branchMovedIsConcurrency: kvgit.BranchMovedError?.prototype instanceof kvgit.ConcurrencyError,
+    cborEncode4k: { byteLength: enc.byteLength, bufferByteLength: enc.buffer.byteLength },
+    wrapped: !window.SPIKE_NO_WRAP,
+  };
+  return { version: sqlite3.libversion(), compileOptions: opts, exportsSession, kvgit: marker };
 };
 
 /** Build a calendar database of about `mb` megabytes on its own IDB. */
@@ -845,5 +856,162 @@ spike.twoWriters = async ({ tag }) => {
   out.integrity = (await c.query('PRAGMA integrity_check'))[0].integrity_check;
   out.disjoint.titles = (await c.query('SELECT id, title FROM events WHERE id IN (?, ?)', [lo, hi])).map((r) => r.title);
   await c.close();
+  return out;
+};
+
+/** Count a store's keys, and its commits' in-flight markers. */
+async function storeKeys(kv) {
+  let keys = 0;
+  let inflight = 0;
+  for await (const k of kv.keys()) {
+    keys++;
+    if (k.startsWith('__inflight__')) inflight++;
+  }
+  return { keys, inflight };
+}
+
+const errorName = (e) => (e ? `${e.name ?? e.constructor?.name}: ${String(e.message ?? e).slice(0, 200)}` : null);
+
+/**
+ * Two writers on one branch as two tabs would have them: each its own
+ * IndexedDB connection, Repo and in-memory pages, loaded at the same
+ * head. With onMoved 'raise' the second commit must fail and the
+ * second writer recovers by reloading and redoing; with kvgit's default
+ * the two merge page by page.
+ */
+spike.twoTabs = async ({ tag }) => {
+  const tab = async (onMoved) => {
+    const { kv, repo } = await openRepo(tag);
+    const db = await KvSqlite.open(repo, 'db');
+    db.onMoved = onMoved;
+    return { kv, repo, db };
+  };
+  const title = async (db, id) => (await db.query('SELECT title FROM events WHERE id = ?', [id]))[0].title;
+  const freshView = async (ids) => {
+    const { repo } = await openRepo(tag);
+    const c = await KvSqlite.open(repo, 'db');
+    const tip = await repo.getCommit(c.head);
+    const out = {
+      head: c.head,
+      tipParents: tip.parents.length,
+      titles: Object.fromEntries(await Promise.all(ids.map(async (id) => [id, await title(c, id)]))),
+      rows: await rowCount(c),
+      integrity: (await c.query('PRAGMA integrity_check'))[0].integrity_check,
+    };
+    await c.close();
+    return out;
+  };
+  const out = {};
+
+  // --- Disjoint pages, onMoved 'raise' ---
+  {
+    const a = await tab('raise');
+    const b = await tab('raise');
+    const [lo, hi] = [(await a.db.query('SELECT min(id) AS v FROM events'))[0].v, (await a.db.query('SELECT max(id) AS v FROM events'))[0].v];
+    const base = a.db.head;
+    const sameBase = base === b.db.head;
+    const titles0 = { lo: await title(a.db, lo), hi: await title(a.db, hi) };
+    const stamp = Date.now();
+    await a.db.query('UPDATE events SET title = ? WHERE id = ?', [`A ${stamp}`, lo]);
+    const headA = a.db.head;
+    const keysBefore = await storeKeys(a.kv);
+    let err = null;
+    try {
+      await b.db.query('UPDATE events SET title = ? WHERE id = ?', [`B ${stamp}`, hi]);
+    } catch (e) {
+      err = e;
+    }
+    const keysAfter = await storeKeys(a.kv);
+    const failure = b.db.lastFailure;
+    const afterRefusal = await freshView([lo, hi]);
+    // Recovery: the failed flush already reloaded B at the branch tip.
+    const bReloadedAt = b.db.head;
+    const bSeesA = (await title(b.db, lo)) === `A ${stamp}`;
+    await b.db.query('UPDATE events SET title = ? WHERE id = ?', [`B ${stamp}`, hi]);
+    const headB = b.db.head;
+    const bCommit = await b.repo.getCommit(headB);
+    const recovered = await freshView([lo, hi]);
+    // An empty commit on a moved branch also raises.
+    let emptyErr = null;
+    try {
+      await a.db.wt.commit({ onMoved: 'raise' });
+    } catch (e) {
+      emptyErr = e;
+    }
+    out.raiseDisjoint = {
+      lo,
+      hi,
+      sameBase,
+      titles0,
+      error: errorName(err),
+      isBranchMovedError: err instanceof kvgit.BranchMovedError,
+      isConcurrencyError: err instanceof kvgit.ConcurrencyError,
+      errorHeadIsA: err?.head === headA,
+      errorBaseIsBase: err?.base === base,
+      pendingKeptAtThrow: failure?.pendingKept ?? null,
+      storeKeysDelta: keysAfter.keys - keysBefore.keys,
+      inflightAfterRefusal: keysAfter.inflight,
+      afterRefusal: { ...afterRefusal, headIsA: afterRefusal.head === headA, loIsA: afterRefusal.titles[lo] === `A ${stamp}`, hiUnchanged: afterRefusal.titles[hi] === titles0.hi },
+      recovery: {
+        reloadedAtA: bReloadedAt === headA,
+        seesA: bSeesA,
+        redoParents: bCommit.parents.length,
+        fastForwardOnA: bCommit.parents[0] === headA,
+        ...recovered,
+        bothPresent: recovered.titles[lo] === `A ${stamp}` && recovered.titles[hi] === `B ${stamp}`,
+      },
+      emptyCommitOnMoved: { error: errorName(emptyErr), isBranchMovedError: emptyErr instanceof kvgit.BranchMovedError },
+    };
+    await a.db.close();
+    await b.db.close();
+  }
+
+  // --- Same page (two inserts at the end of the table), onMoved 'raise' ---
+  {
+    const a = await tab('raise');
+    const b = await tab('raise');
+    const rows0 = await rowCount(a.db);
+    await a.db.query(INSERT, eventRow(11_000_001));
+    let err = null;
+    try {
+      await b.db.query(INSERT, eventRow(11_000_002));
+    } catch (e) {
+      err = e;
+    }
+    const failedRows = await rowCount(b.db);
+    await b.db.query(INSERT, eventRow(11_000_002));
+    const view = await freshView([]);
+    out.raiseSamePage = { rows0, error: errorName(err), isBranchMovedError: err instanceof kvgit.BranchMovedError, rowsAfterReload: failedRows, rowsFinal: view.rows, tipParents: view.tipParents, integrity: view.integrity };
+    await a.db.close();
+    await b.db.close();
+  }
+
+  // --- Disjoint pages, kvgit's default (merge): the old hazard ---
+  {
+    const a = await tab(undefined);
+    const b = await tab(undefined);
+    const [lo, hi] = [(await a.db.query('SELECT min(id) AS v FROM events'))[0].v, (await a.db.query('SELECT max(id) AS v FROM events'))[0].v];
+    const stamp = Date.now();
+    await a.db.query('UPDATE events SET title = ? WHERE id = ?', [`A2 ${stamp}`, lo]);
+    let err = null;
+    try {
+      await b.db.query('UPDATE events SET title = ? WHERE id = ?', [`B2 ${stamp}`, hi]);
+    } catch (e) {
+      err = e;
+    }
+    // B's pages in memory never saw A's edit, though the branch has it.
+    const bSeesLo = await title(b.db, lo);
+    const view = await freshView([lo, hi]);
+    out.mergeDisjoint = {
+      error: errorName(err),
+      tipParents: view.tipParents,
+      branchHasBoth: view.titles[lo] === `A2 ${stamp}` && view.titles[hi] === `B2 ${stamp}`,
+      bStaleInMemory: bSeesLo !== `A2 ${stamp}`,
+      bSeesLo,
+      integrity: view.integrity,
+    };
+    await a.db.close();
+    await b.db.close();
+  }
   return out;
 };

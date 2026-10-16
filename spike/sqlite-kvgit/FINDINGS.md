@@ -15,7 +15,9 @@ costs a few. Interrupted writes, tab crashes, rollbacks, spilled
 transactions and VACUUM all reopened to the last committed state, and
 `PRAGMA integrity_check` came back ok every time.
 
-These changes are needed before it ships:
+These changes are needed before it ships. Change 1 and kvgit's half of
+change 2 have since landed in kvgit; see "Re-run on fixed kvgit
+(2026-10-16)" at the end.
 
 1. **Fix kvgit's value buffers (a bug that affects the whole studio, not
    just SQLite).** kvgit's CBOR codec returns views into cbor-x's encode
@@ -404,3 +406,234 @@ See the table above: it's in the official build only.
 - Durability: should kvgit open IndexedDB transactions with
   `durability: 'strict'` for database commits, and what would that cost
   per commit?
+
+## Re-run on fixed kvgit (2026-10-16)
+
+kvgit on agex-ts `origin/main` (6115187) has three fixes the spike asked
+for:
+
+- **#115:** values are stored in buffers of their own size.
+- **#116:** `commit({ onMoved: 'raise' })` throws `BranchMovedError`
+  rather than merging onto a moved branch.
+- **#117:** a commit updates the key maps in place, with an undo log,
+  instead of copying them.
+
+This section re-runs the affected measurements against that kvgit,
+with the `exactValues` wrapper switched off.
+
+**How it ran.** kvgit was built in a detached worktree
+(`~/git/.agex-worktrees/agex-ts-main`). `SPIKE_KVGIT` points the spike's
+vite config at it, aliasing each of the package's exports to its built
+file. `SPIKE_NO_WRAP=1` drops the wrapper. In the browser, `info` showed
+the fixed code running: `BranchMovedError` is exported (a subclass of
+`ConcurrencyError`), and `cborCodec.encode` of a 4 KB page returns 4099
+bytes in a 4099-byte buffer. The old kvgit returned an 8192-byte buffer
+in a fresh page.
+
+```
+SPIKE_KVGIT=~/git/.agex-worktrees/agex-ts-main/packages/kvgit-ts SPIKE_NO_WRAP=1 \
+SPIKE_RESULTS=$PWD/spike/sqlite-kvgit/results-fixed.json node spike/sqlite-kvgit/run.mjs \
+  info build sizeProbe encodeProbe open commits commits50 sizeProbe checkpoints twoTabs twoWriters
+SPIKE_MB=200 SPIKE_PAGES=4096 ... build open; SPIKE_MB=10,50,200 SPIKE_PAGES=4096 ... commitsAt
+```
+
+The setup was the same as before: the same machine, the same
+chrome-headless-shell, a fresh on-disk profile, the same workload. The
+first `sizeProbe` was renamed `sizeProbeBuilt` in `results-fixed.json`.
+
+**Two controls.** Other work was running on the machine (load average
+2.3 to 4.4), so the earlier figures aren't a clean baseline. Two more
+runs used the same profile, after the main run:
+
+- *pre-fix*: kvgit just before the fixes (agex-ts 28f77b9), with the
+  wrapper.
+- *repeat*: the fixed kvgit again.
+
+Both are in `results-fixed.json` under `sameDay`. They ran after a
+200 MB database was added to the origin, so their opens are slower
+across the board. Compare them with each other, not with the main run.
+
+### Buffer fix (#115): verdict, fixed
+
+Stored bytes are measured at the same point as in the unfixed run:
+10 MB databases after the commit step, 50 MB just built. The commit
+counts and logical bytes match that run exactly. MB here is 10^6 bytes,
+as in the earlier stored-bytes table.
+
+| db | commits | unfixed logical / physical MB | fixed, no wrapper: logical / physical MB |
+|---|---|---|---|
+| 10mb-4k | 1070 | 42.2 / 160.6 (3.80x) | 42.2 / 42.2 (1.00x) |
+| 10mb-16k | 1070 | 77.2 / 302.7 (3.92x) | 77.2 / 77.2 (1.00x) |
+| 10mb-64k | 1070 | 237.5 / 948.2 (3.99x) | 237.5 / 237.5 (1.00x) |
+| 50mb-4k | 50 | 143.6 / 612.2 (4.26x) | 143.6 / 143.6 (1.00x) |
+| 50mb-16k | 51 | 128.0 / 520.9 (4.07x) | 128.0 / 128.0 (1.00x) |
+| 50mb-64k | 51 | 133.1 / 535.3 (4.02x) | 133.1 / 133.1 (1.00x) |
+
+Just built, the 1 MB databases store 1.3 / 1.3 / 1.8 MB, and the 10 MB
+ones 17.0 / 15.2 / 17.5 MB, all at 1.00x. The 10 MB figures are the
+patched run's "store before" (16.2 / 14.5 / 16.7 MiB). Read straight
+from IndexedDB, stored page blobs are 4099, 16387 and 65541 bytes, in
+buffers of the same size.
+
+Open, median of 3 cold page loads:
+
+| db | patched total ms | unfixed total ms | fixed total ms | patched peak MB | unfixed peak MB | fixed peak MB |
+|---|---|---|---|---|---|---|
+| 1mb-4k | 30 | - | 33 | 10.8 | - | 11.3 |
+| 1mb-16k | 21 | - | 23 | 9.6 | - | 9.7 |
+| 1mb-64k | 20 | - | 21 | 10.0 | - | 10.4 |
+| 10mb-4k | 163 | 227 | 174 | 37.2 | 81 | 37.3 |
+| 10mb-16k | 60 | 81 | 64 | 19.0 | 66 | 30.3 * |
+| 10mb-64k | 41 | 71 | 44 | 28.4 | 63 | 29.1 |
+| 50mb-4k | 576 | 1102 | 601 | 150.4 | 350 | 150.7 |
+| 50mb-16k | 246 | 381 | 270 | 114.6 | 280 | 114.9 |
+| 50mb-64k | 115 | 233 | 116 | 117.3 | 265 | 111.3 |
+
+\* Two of the three 10mb-16k runs peaked at 30 MB and one at 19 MB. The
+difference is when GC ran; the table takes the highest run.
+
+Without any wrapper, the fixed kvgit matches the patched numbers. Storage
+is 1.00x. Peak memory opening 50 MB is 151 / 115 / 111 MB, against
+150 / 115 / 117 patched and 350 / 280 / 265 unfixed. A 50 MB open is
+0.60 s, against 0.58 s patched and 1.10 s unfixed. Opens ran 0 to 10%
+slower than the patched run. #115 changes only the write path, and the
+same-day pair shows the same spread both ways (50mb-4k: pre-fix 674 ms,
+repeat 737 ms), so this is machine conditions. By #115's own account,
+values written before the fix keep their large buffers until rewritten (not tested here).
+
+### Commit cost (#117): verdict, fixed up to 50 MB; still grows at 200 MB
+
+One-row transaction to a durable commit, median / p95 ms, 50 samples, at
+4 KB pages. The three sizes ran back to back in one `commitsAt` pass
+for each kvgit. Each pass adds about 1,050 transactions, so the page
+count grows a little from run to run.
+
+| pages (about) | earlier patched | earlier unfixed | pre-fix, same day | fixed | fixed repeat |
+|---|---|---|---|---|---|
+| 2,800 to 3,700 (10 MB) | 2.2 / 3.1 | 2.4 / 3.9 | 2.8 / 5.0 | 2.0 / 3.9 | 2.3 / 3.7 |
+| 13,000 to 13,900 (50 MB) | 4.2 / 5.4 | - | 4.2 / 5.8 | 2.0 / 2.9 | 2.4 / 4.1 |
+| 51,500 to 51,900 (200 MB) | - | - | 11.8 / 17.3 | 3.9 / 6.6 | 4.3 / 9.9 |
+
+All page sizes, from the `commits` and `commits50` steps. Each cell is
+median / p95 ms, then throughput for 1000 one-row transactions:
+
+| db | earlier patched | pre-fix, same day | fixed | fixed repeat |
+|---|---|---|---|---|
+| 10mb-4k | 2.2 / 3.1, 458 tx/s | 2.2 / 2.9, 398 tx/s | 1.9 / 5.3, 499 tx/s | 2.0 / 2.5, 406 tx/s |
+| 10mb-16k | 1.8 / 2.2, 543 | 2.1 / 3.7, 457 | 1.7 / 2.1, 520 | 1.9 / 4.6, 441 |
+| 10mb-64k | 1.8 / 3.1, 454 | 2.2 / 5.8, 382 | 2.0 / 2.6, 448 | 2.1 / 2.9, 355 |
+| 50mb-4k | 4.2 / 5.4, 210 | 4.3 / 8.0, 216 | 2.5 / 3.8, 381 | 2.3 / 2.9, 322 |
+| 50mb-16k | 2.9 / 3.7, 309 | 2.6 / 4.9, 332 | 2.1 / 3.6, 396 | 2.0 / 2.6, 357 |
+| 50mb-64k | 2.2 / 3.6, 335 | 2.2 / 3.0, 371 | 2.1 / 2.9, 391 | 2.2 / 7.6, 357 |
+
+What changed:
+
+- **At 50 MB / 4 KB, the cost is now flat.** The median is 2.0 to
+  2.5 ms against 4.2 ms, and throughput is 320 to 380 tx/s against 210.
+  It is now about the 10 MB cost.
+- **At 10 MB, the gain is small.** Copying a 2,800-key map was cheap, so
+  2.2 ms became 1.9 to 2.0 ms, within noise. Throughput at 10 MB / 4 KB
+  was 499 and 456 tx/s on the first fixed passes and 406 and 378 tx/s on
+  the repeat, against 458 patched and 324 to 398 pre-fix the same day.
+- **At 200 MB, the cost still grows, though 3x less.** It is 3.9 to
+  4.3 ms against 11.8 ms pre-fix, and 189 to 207 tx/s against 76. The
+  kvgit part is 3.6 to 4.1 ms of it, and nothing in kvgit's commit path
+  should grow with the key count any more. The likely cause is IndexedDB
+  itself getting slower per operation as the store grows; see
+  "Something new" below. That wasn't separated out.
+- **Large transactions didn't change.** 1000 rows in one transaction
+  (68 to 109 ms at 10 MB, 194 to 236 ms at 50 MB) is about the pages
+  written, so #117 doesn't touch it.
+- **p95 is noisy.** A few runs have one outlier, such as the first fixed
+  10mb-4k pass at 5.3 ms. The repeats don't show it.
+
+### Two writers (#116): verdict, fails safe and recovers
+
+Step `twoTabs`. Two writers get their own IndexedDB connection, `Repo`
+and in-memory pages, as two tabs would, and both are loaded at the same
+head. `KvSqlite` gained an `onMoved` field, passed through to
+`wt.commit`. It also records `lastFailure`: the error, and whether kvgit
+kept the pending changes, checked before the reload drops them. The
+existing recovery path already did the rest: a failed flush discards,
+reloads at the branch tip and throws.
+
+- **Disjoint pages with `onMoved: 'raise'`** (the case that used to
+  merge silently): A updates the lowest row id and commits. B updates
+  the highest and commits.
+  - B throws `BranchMovedError`. It's also a `ConcurrencyError`. Its
+    `.base` is the shared head and its `.head` is A's commit.
+  - kvgit kept B's pending changes at the throw.
+  - The refused commit wrote nothing: the store's key count was
+    unchanged and no in-flight marker was left. It saw the moved head
+    before writing anything. The other path, a loss inside the CAS
+    window, which withdraws its marker, needs an interleaving this test
+    can't force and wasn't exercised.
+  - A fresh connection then saw only A's commit: one parent, A's title
+    on the low row, the high row untouched, `integrity_check` ok.
+- **Recovery.** B was already reloaded at A's head and saw A's edit. It
+  redid its update and committed. The result is a one-parent commit
+  fast-forwarded on A's, and a fresh connection sees both edits with
+  `integrity_check` ok.
+- **Empty commit on a moved branch.** `wt.commit({ onMoved: 'raise' })`
+  with nothing pending also throws `BranchMovedError`.
+- **Same page (two inserts at the table's end) with `'raise'`.** B gets
+  `BranchMovedError`, where before it got `MergeConflict on page/…`. It
+  reloads, redoes the insert and commits: both rows, a one-parent tip,
+  integrity ok. An app can now treat every lost race the same way:
+  reload and redo.
+- **Disjoint pages without the option** (kvgit's default, still
+  `'merge'`). B's commit succeeds silently as a two-parent merge, and
+  the branch holds both edits. B's in-memory pages never saw A's edit:
+  the low row still shows its earlier title in B. This is the hazard the
+  test is meant to catch, and it is still there by default. The old
+  `twoWriters` step, one `Repo` for both writers and default merge,
+  gives the same results as before: `MergeConflict` on overlapping
+  inserts, and a two-parent merge holding both disjoint edits.
+
+So the studio's database commits should always pass `onMoved: 'raise'`,
+and still take a Web Lock per database branch so that a second tab
+waits rather than redoing work.
+
+### Checkpoints at 10 MB: verdict, unchanged
+
+| db | | tag ms | full restore ms (move / load) | incremental ms (pages read) | test copy: branch / open / writes / delete ms |
+|---|---|---|---|---|---|
+| 10mb-4k | earlier patched | 3.2 | 102 (29 / 72) | 66 (177) | 0.6 / 29 / 26 / 0.2 |
+| | fixed | 3.5 | 121 (36 / 84) | 67 (177) | 0.6 / 30 / 27 / 0.3 |
+| | pre-fix, same day | 3.4 | 162 (48 / 113) | 82 (191) | 3.6 / 40 / 36 / 0.4 |
+| | fixed repeat | 1.4 | 184 (57 / 127) | 91 (205) | 8.5 / 48 / 30 / 0.3 |
+| 10mb-16k | earlier patched | 0.8 | 29 (4.8 / 24) | 16 (58) | 0.4 / 4.9 / 20 / 0.2 |
+| | fixed | 1.0 | 30 (4.9 / 25) | 17 (58) | 0.5 / 4.9 / 20 / 0.2 |
+| 10mb-64k | earlier patched | 0.8 | 14 (2.8 / 11) | 6.6 (20) | 0.9 / 2.4 / 23 / 0.2 |
+| | fixed | 0.8 | 15 (2.9 / 12) | 10 (20) | 0.4 / 2.8 / 21 / 0.2 |
+
+Every restore passed `integrity_check`. These costs are dominated by
+reading pages and walking the keyset (`repo.worktree()` for the copy),
+and none of the fixes change those. They come out about the same. The
+4 KB full restore was 19% slower on the first fixed pass, and on the
+same day it was slower again on both the pre-fix and repeat runs, so
+that is machine conditions.
+
+### Something new: opening 200 MB is superlinear
+
+The 50,000-page point needed a 200 MB database (51,438 pages), the
+first built in this spike.
+
+- **The open is slow out of proportion.** It takes 11 s: worktree 2.0 s,
+  key walk 1.5 s, page load 7.6 s. That is 19x the 50 MB open for 4x the
+  pages. Per-page read cost rises from about 30 µs to about 145 µs.
+- **Memory.** Peak is 477 MB; settled buffers are 203 MB.
+- **It isn't the fixes.** Pre-fix kvgit takes the same time (12.3 s).
+- **It isn't memory pressure.** Reading in chunks of 256 or 1024 pages,
+  with or without a GC between chunks, still takes 10.8 to 12.2 s,
+  though it lowers the peak to 260 to 290 MB.
+- **It isn't the rest of the store.** A fresh profile holding only that
+  database and a 50 MB one gives the same 10.9 s.
+
+So IndexedDB reads get slower per key somewhere between 13,000 and
+51,000 pages (this origin's LevelDB held 1.2 to 2.4 GB on disk). That
+is probably also why commits at 200 MB still cost twice what they do at
+50 MB. It supports capping app databases at about 50 MB while the
+whole file must be in memory, or measuring lazy page reads (JSPI) for
+anything larger. The open question on a size limit stands, with this
+as its data point.

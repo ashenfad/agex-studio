@@ -63,6 +63,12 @@ export class KvSqlite {
   commits = 0;
   /** If set, called with each commit's writes before they go to kvgit. */
   beforeCommit = null;
+  /** kvgit's `onMoved` for each commit: 'raise' refuses to merge onto a
+   *  branch another writer moved; undefined keeps kvgit's default. */
+  onMoved = undefined;
+  /** The last failed commit: its error and whether kvgit kept the
+   *  pending changes, as seen before the reload dropped them. */
+  lastFailure = null;
 
   /**
    * Open (or create) the database on `branch` of `repo`.
@@ -145,10 +151,14 @@ export class KvSqlite {
     for (const n of removed) await this.wt.delete(pageKey(n));
     this.beforeCommit?.(dirty, removed);
     try {
-      const result = await this.wt.commit({ info: info ?? { tool: 'sql' } });
+      const result = await this.wt.commit({
+        info: info ?? { tool: 'sql' },
+        ...(this.onMoved !== undefined && { onMoved: this.onMoved }),
+      });
       this.commits++;
       return result;
     } catch (e) {
+      this.lastFailure = { error: e, pendingKept: !this.wt.status().clean, base: this.wt.head };
       // The pages in memory are ahead of the branch: drop them and
       // reload what is durable.
       this.wt.discard();

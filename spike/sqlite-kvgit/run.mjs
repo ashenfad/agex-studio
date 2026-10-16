@@ -4,7 +4,8 @@
 //
 // Default steps, in order: info build open commits sync checkpoints
 // lost crash growth. Others, run by name: commits50 (commit cost at
-// 50 MB), openChunked (50 MB opens
+// 50 MB), commitsAt (commit cost at each SPIKE_MB and SPIKE_PAGES),
+// twoTabs (two writers with and without onMoved 'raise'), openChunked (50 MB opens
 // read in chunks, SPIKE_MB=50), syncBurst, spill, twoWriters,
 // sizeProbe, and the diagnostics restoreLatency, loadProbe,
 // encodeProbe, storeProbe, logProbe, markerProbe. Results go to
@@ -14,7 +15,9 @@
 // (the Chromium profile, so IndexedDB persists between runs),
 // SPIKE_RESULTS, SPIKE_MB and SPIKE_PAGES (comma lists), SPIKE_UNFIXED
 // (run on kvgit as it is, without the spike's exact-buffer wrapper),
-// SPIKE_CHROME (the browser binary).
+// SPIKE_NO_WRAP (the same, for a kvgit that stores exact buffers
+// itself), SPIKE_KVGIT (a built kvgit-ts package directory to run
+// against; see vite.config.js), SPIKE_CHROME (the browser binary).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -50,7 +53,7 @@ const context = await chromium.launchPersistentContext(PROFILE, {
 })
 const URL_ = `http://localhost:${PORT}/`
 // Run against kvgit as it is, without the spike's exact-buffer fix.
-if (process.env.SPIKE_UNFIXED) await context.addInitScript(() => (window.SPIKE_UNFIXED = true))
+if (process.env.SPIKE_UNFIXED || process.env.SPIKE_NO_WRAP) await context.addInitScript(() => (window.SPIKE_NO_WRAP = true))
 
 async function freshPage() {
   // A closed page's connections must be gone before the next one opens.
@@ -105,7 +108,7 @@ try {
   for (const step of steps) {
     console.error(`step ${step}`)
     if (step === 'info') {
-      results.info = await call(await freshPage(), 'info')
+      results.info = { ...(await call(await freshPage(), 'info')), kvgitDir: process.env.SPIKE_KVGIT ?? null, wrapped: !(process.env.SPIKE_UNFIXED || process.env.SPIKE_NO_WRAP) }
     } else if (step === 'build') {
       results.build ??= {}
       for (const mb of SIZES) for (const ps of PAGE_SIZES) {
@@ -178,7 +181,7 @@ try {
     } else if (step === 'spill') {
       results.spill = await call(await freshPage(), step)
     } else if (step === 'sizeProbe') {
-      results.sizeProbe = await call(await freshPage(), step, { tags: ['10mb-4k', '10mb-16k', '10mb-64k', '50mb-4k', '50mb-16k', '50mb-64k'] })
+      results.sizeProbe = await call(await freshPage(), step, { tags: SIZES.flatMap((mb) => PAGE_SIZES.map((ps) => tagOf(mb, ps))) })
     } else if (step === 'syncBurst') {
       results.syncBurst = {}
       for (const ps of PAGE_SIZES) {
@@ -187,6 +190,14 @@ try {
       }
     } else if (step === 'twoWriters') {
       results.twoWriters = await call(await freshPage(), step, { tag: tagOf(10, 4096) })
+    } else if (step === 'twoTabs') {
+      results.twoTabs = await call(await freshPage(), step, { tag: tagOf(10, 4096) })
+    } else if (step === 'commitsAt') {
+      results.commitsAt ??= {}
+      for (const mb of SIZES) for (const ps of PAGE_SIZES) {
+        results.commitsAt[tagOf(mb, ps)] = await call(await freshPage(), 'commits', { tag: tagOf(mb, ps) })
+        save()
+      }
     } else if (step === 'commits50') {
       results.commits50 = {}
       for (const ps of PAGE_SIZES) {
