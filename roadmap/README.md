@@ -8,3 +8,6 @@ done.
 - [rebuild.md](rebuild.md): the studio rebuilt on the new agex-ts (one
   TypeScript kernel, the world's sessions and tools): what goes, what
   stays, and the steps.
+- [app-db.md](app-db.md): `agex.db`, a SQLite database for apps, kept
+  in an OPFS file with a changeset log in kvgit for checkpoints and
+  sync between devices.
