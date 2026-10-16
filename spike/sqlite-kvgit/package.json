@@ -1,0 +1,8 @@
+{
+  "name": "sqlite-kvgit-spike",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "wa-sqlite": "github:rhashimoto/wa-sqlite#v1.1.2"
+  }
+}

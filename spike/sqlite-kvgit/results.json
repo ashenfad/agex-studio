@@ -1,0 +1,4438 @@
+{
+  "info": {
+    "version": "3.53.0",
+    "compileOptions": [
+      "ATOMIC_INTRINSICS=1",
+      "COMPILER=clang-19.0.0",
+      "DEFAULT_AUTOVACUUM",
+      "DEFAULT_CACHE_SIZE=-2000",
+      "DEFAULT_FILE_FORMAT=4",
+      "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+      "DEFAULT_MEMSTATUS=0",
+      "DEFAULT_MMAP_SIZE=0",
+      "DEFAULT_PAGE_SIZE=4096",
+      "DEFAULT_PCACHE_INITSZ=20",
+      "DEFAULT_RECURSIVE_TRIGGERS",
+      "DEFAULT_SECTOR_SIZE=4096",
+      "DEFAULT_SYNCHRONOUS=2",
+      "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+      "DEFAULT_WAL_SYNCHRONOUS=1",
+      "DEFAULT_WORKER_THREADS=0",
+      "DIRECT_OVERFLOW_READ",
+      "DQS=0",
+      "ENABLE_BATCH_ATOMIC_WRITE",
+      "LIKE_DOESNT_MATCH_BLOBS",
+      "MALLOC_SOFT_LIMIT=1024",
+      "MAX_ATTACHED=10",
+      "MAX_COLUMN=2000",
+      "MAX_COMPOUND_SELECT=500",
+      "MAX_DEFAULT_PAGE_SIZE=8192",
+      "MAX_EXPR_DEPTH=0",
+      "MAX_FUNCTION_ARG=1000",
+      "MAX_LENGTH=1000000000",
+      "MAX_LIKE_PATTERN_LENGTH=50000",
+      "MAX_MMAP_SIZE=0",
+      "MAX_PAGE_COUNT=0xfffffffe",
+      "MAX_PAGE_SIZE=65536",
+      "MAX_SQL_LENGTH=1000000000",
+      "MAX_TRIGGER_DEPTH=1000",
+      "MAX_VARIABLE_NUMBER=32766",
+      "MAX_VDBE_OP=250000000",
+      "MAX_WORKER_THREADS=0",
+      "MUTEX_OMIT",
+      "OMIT_AUTOINIT",
+      "OMIT_DECLTYPE",
+      "OMIT_DEPRECATED",
+      "OMIT_LOAD_EXTENSION",
+      "OMIT_SHARED_CACHE",
+      "SYSTEM_MALLOC",
+      "TEMP_STORE=1",
+      "THREADSAFE=0",
+      "USE_ALLOCA"
+    ],
+    "exportsSession": false
+  },
+  "build": {
+    "1mb-4k": {
+      "tag": "1mb-4k",
+      "pageSize": 4096,
+      "rows": 4000,
+      "fileBytes": 1159168,
+      "pages": 283,
+      "commits": 4,
+      "stats": {
+        "batches": 8,
+        "batchPages": 295,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 101.90000057220459
+    },
+    "1mb-16k": {
+      "tag": "1mb-16k",
+      "pageSize": 16384,
+      "rows": 4000,
+      "fileBytes": 1196032,
+      "pages": 73,
+      "commits": 4,
+      "stats": {
+        "batches": 8,
+        "batchPages": 85,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 82.69999980926514
+    },
+    "1mb-64k": {
+      "tag": "1mb-64k",
+      "pageSize": 65536,
+      "rows": 4000,
+      "fileBytes": 1441792,
+      "pages": 22,
+      "commits": 4,
+      "stats": {
+        "batches": 8,
+        "batchPages": 34,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 80
+    },
+    "10mb-4k": {
+      "tag": "10mb-4k",
+      "pageSize": 4096,
+      "rows": 40000,
+      "fileBytes": 11554816,
+      "pages": 2821,
+      "commits": 13,
+      "stats": {
+        "batches": 17,
+        "batchPages": 3530,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 1065.6000003814697
+    },
+    "10mb-16k": {
+      "tag": "10mb-16k",
+      "pageSize": 16384,
+      "rows": 40000,
+      "fileBytes": 11288576,
+      "pages": 689,
+      "commits": 13,
+      "stats": {
+        "batches": 17,
+        "batchPages": 897,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 599.8999996185303
+    },
+    "10mb-64k": {
+      "tag": "10mb-64k",
+      "pageSize": 65536,
+      "rows": 40000,
+      "fileBytes": 11403264,
+      "pages": 174,
+      "commits": 13,
+      "stats": {
+        "batches": 17,
+        "batchPages": 271,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 557.1000003814697
+    },
+    "50mb-4k": {
+      "tag": "50mb-4k",
+      "pageSize": 4096,
+      "rows": 184000,
+      "fileBytes": 53219328,
+      "pages": 12993,
+      "commits": 49,
+      "stats": {
+        "batches": 53,
+        "batchPages": 28613,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 8016.099999427795
+    },
+    "50mb-16k": {
+      "tag": "50mb-16k",
+      "pageSize": 16384,
+      "rows": 188000,
+      "fileBytes": 52789248,
+      "pages": 3222,
+      "commits": 50,
+      "stats": {
+        "batches": 54,
+        "batchPages": 7385,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 3973.800000190735
+    },
+    "50mb-64k": {
+      "tag": "50mb-64k",
+      "pageSize": 65536,
+      "rows": 188000,
+      "fileBytes": 52625408,
+      "pages": 803,
+      "commits": 50,
+      "stats": {
+        "batches": 54,
+        "batchPages": 2011,
+        "looseWrites": 0,
+        "rollbacks": 0
+      },
+      "autoVacuum": 0,
+      "journalMode": "memory",
+      "ms": 2773.300000190735
+    }
+  },
+  "open": {
+    "1mb-4k": [
+      {
+        "tag": "1mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 1159168,
+        "keys": 284,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 3.299999237060547,
+        "msKeys": 2.5,
+        "msLoad": 22.600000381469727,
+        "msFirstQuery": 3.1000003814697266,
+        "msTotal": 32.10000038146973,
+        "month": {
+          "ms": 3,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6256054
+        },
+        "heapAfter": {
+          "used": 11218387,
+          "total": 13361419
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 6143568,
+            "totalSize": 8388608,
+            "embedderHeapUsedSize": 2100720,
+            "backingStorageSize": 5120267
+          },
+          "settled": {
+            "usedSize": 4305864,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 391160,
+            "backingStorageSize": 3587421
+          }
+        }
+      },
+      {
+        "tag": "1mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 1159168,
+        "keys": 284,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 3.1999998092651367,
+        "msKeys": 2.40000057220459,
+        "msLoad": 21.199999809265137,
+        "msFirstQuery": 2.8999996185302734,
+        "msTotal": 30.399999618530273,
+        "month": {
+          "ms": 2.799999237060547,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6501814
+        },
+        "heapAfter": {
+          "used": 11227631,
+          "total": 13099275
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 6152812,
+            "totalSize": 8126464,
+            "embedderHeapUsedSize": 2035328,
+            "backingStorageSize": 5120267
+          },
+          "settled": {
+            "usedSize": 4305872,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 391160,
+            "backingStorageSize": 3587421
+          }
+        }
+      },
+      {
+        "tag": "1mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 1159168,
+        "keys": 284,
+        "msIdbOpen": 0.5999994277954102,
+        "msWorktree": 3.3000001907348633,
+        "msKeys": 2.5,
+        "msLoad": 21.199999809265137,
+        "msFirstQuery": 2.8000001907348633,
+        "msTotal": 30.399999618530273,
+        "month": {
+          "ms": 2.8000001907348633,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6305206
+        },
+        "heapAfter": {
+          "used": 11228807,
+          "total": 13099275
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 6153988,
+            "totalSize": 8126464,
+            "embedderHeapUsedSize": 2166256,
+            "backingStorageSize": 5120267
+          },
+          "settled": {
+            "usedSize": 4305780,
+            "totalSize": 4718592,
+            "embedderHeapUsedSize": 391160,
+            "backingStorageSize": 3587421
+          }
+        }
+      }
+    ],
+    "1mb-16k": [
+      {
+        "tag": "1mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 1196032,
+        "keys": 74,
+        "msIdbOpen": 0.5,
+        "msWorktree": 1,
+        "msKeys": 0.5,
+        "msLoad": 16.100000381469727,
+        "msFirstQuery": 3.1000003814697266,
+        "msTotal": 21.200000762939453,
+        "month": {
+          "ms": 3.1000003814697266,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6600118
+        },
+        "heapAfter": {
+          "used": 9552372,
+          "total": 11711176
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5130656,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1095176,
+            "backingStorageSize": 4895432
+          },
+          "settled": {
+            "usedSize": 4219876,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 355064,
+            "backingStorageSize": 3636573
+          }
+        }
+      },
+      {
+        "tag": "1mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 1196032,
+        "keys": 74,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 1.0999994277954102,
+        "msKeys": 0.5,
+        "msLoad": 16,
+        "msFirstQuery": 3,
+        "msTotal": 21.199999809265137,
+        "month": {
+          "ms": 3,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6272438
+        },
+        "heapAfter": {
+          "used": 9548640,
+          "total": 11711176
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 712408,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 4992156,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1099856,
+            "backingStorageSize": 4895432
+          },
+          "settled": {
+            "usedSize": 4219876,
+            "totalSize": 4718592,
+            "embedderHeapUsedSize": 355064,
+            "backingStorageSize": 3636573
+          }
+        }
+      },
+      {
+        "tag": "1mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 1196032,
+        "keys": 74,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 1.1999998092651367,
+        "msKeys": 0.5,
+        "msLoad": 15.800000190734863,
+        "msFirstQuery": 2.8999996185302734,
+        "msTotal": 21,
+        "month": {
+          "ms": 2.8999996185302734,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897590,
+          "total": 6337974
+        },
+        "heapAfter": {
+          "used": 9561372,
+          "total": 11711176
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5098784,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1035336,
+            "backingStorageSize": 4895432
+          },
+          "settled": {
+            "usedSize": 4219588,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 355064,
+            "backingStorageSize": 3636573
+          }
+        }
+      }
+    ],
+    "1mb-64k": [
+      {
+        "tag": "1mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 1441792,
+        "keys": 23,
+        "msIdbOpen": 0.39999961853027344,
+        "msWorktree": 0.8999996185302734,
+        "msKeys": 0.5,
+        "msLoad": 14.90000057220459,
+        "msFirstQuery": 2.5,
+        "msTotal": 19.199999809265137,
+        "month": {
+          "ms": 2.5,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6649270
+        },
+        "heapAfter": {
+          "used": 11142221,
+          "total": 11901381
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 713624,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5099980,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1095104,
+            "backingStorageSize": 5347781
+          },
+          "settled": {
+            "usedSize": 4197876,
+            "totalSize": 4718592,
+            "embedderHeapUsedSize": 350056,
+            "backingStorageSize": 3931487
+          }
+        }
+      },
+      {
+        "tag": "1mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 1441792,
+        "keys": 23,
+        "msIdbOpen": 0.5,
+        "msWorktree": 0.8999996185302734,
+        "msKeys": 0.5,
+        "msLoad": 15.300000190734863,
+        "msFirstQuery": 2.5,
+        "msTotal": 19.699999809265137,
+        "month": {
+          "ms": 2.5,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6305206
+        },
+        "heapAfter": {
+          "used": 10777117,
+          "total": 11901381
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5100000,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1089560,
+            "backingStorageSize": 5347781
+          },
+          "settled": {
+            "usedSize": 4197868,
+            "totalSize": 4718592,
+            "embedderHeapUsedSize": 350056,
+            "backingStorageSize": 3931487
+          }
+        }
+      },
+      {
+        "tag": "1mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 1441792,
+        "keys": 23,
+        "msIdbOpen": 0.5,
+        "msWorktree": 1,
+        "msKeys": 0.39999961853027344,
+        "msLoad": 15.100000381469727,
+        "msFirstQuery": 2.59999942779541,
+        "msTotal": 19.59999942779541,
+        "month": {
+          "ms": 2.59999942779541,
+          "single": 106,
+          "recurring": 37
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897590,
+          "total": 6649270
+        },
+        "heapAfter": {
+          "used": 10400601,
+          "total": 11901381
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5099632,
+            "totalSize": 6815744,
+            "embedderHeapUsedSize": 1096184,
+            "backingStorageSize": 5347781
+          },
+          "settled": {
+            "usedSize": 4197596,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 350056,
+            "backingStorageSize": 3931487
+          }
+        }
+      }
+    ],
+    "10mb-4k": [
+      {
+        "tag": "10mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 11554816,
+        "keys": 2822,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 27.59999942779541,
+        "msKeys": 23.200000762939453,
+        "msLoad": 99,
+        "msFirstQuery": 12.899999618530273,
+        "msTotal": 163.39999961853027,
+        "month": {
+          "ms": 12.899999618530273,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6370742
+        },
+        "heapAfter": {
+          "used": 39183958,
+          "total": 47005642
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 714480,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 13150996,
+            "totalSize": 21233664,
+            "embedderHeapUsedSize": 1765832,
+            "backingStorageSize": 25771978
+          },
+          "settled": {
+            "usedSize": 5089668,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 368984,
+            "backingStorageSize": 13983069
+          }
+        }
+      },
+      {
+        "tag": "10mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 11554816,
+        "keys": 2822,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 26.199999809265137,
+        "msKeys": 23.300000190734863,
+        "msLoad": 99.69999980926514,
+        "msFirstQuery": 12.699999809265137,
+        "msTotal": 162.5,
+        "month": {
+          "ms": 12.699999809265137,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897590,
+          "total": 6354358
+        },
+        "heapAfter": {
+          "used": 39216694,
+          "total": 45694922
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 13153004,
+            "totalSize": 19922944,
+            "embedderHeapUsedSize": 1628168,
+            "backingStorageSize": 25771978
+          },
+          "settled": {
+            "usedSize": 5089380,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 368984,
+            "backingStorageSize": 13983069
+          }
+        }
+      },
+      {
+        "tag": "10mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 11554816,
+        "keys": 2822,
+        "msIdbOpen": 0.5,
+        "msWorktree": 27.299999237060547,
+        "msKeys": 25.600000381469727,
+        "msLoad": 108.19999980926514,
+        "msFirstQuery": 13.90000057220459,
+        "msTotal": 175.5,
+        "month": {
+          "ms": 13.90000057220459,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6469046
+        },
+        "heapAfter": {
+          "used": 39405378,
+          "total": 46481354
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 13233240,
+            "totalSize": 20709376,
+            "embedderHeapUsedSize": 1512680,
+            "backingStorageSize": 25771978
+          },
+          "settled": {
+            "usedSize": 5092220,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 368984,
+            "backingStorageSize": 13983069
+          }
+        }
+      }
+    ],
+    "10mb-16k": [
+      {
+        "tag": "10mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 11288576,
+        "keys": 690,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 4.5,
+        "msKeys": 3.8000001907348633,
+        "msLoad": 39.80000019073486,
+        "msFirstQuery": 11.799999237060547,
+        "msTotal": 60.5,
+        "month": {
+          "ms": 11.699999809265137,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6485430
+        },
+        "heapAfter": {
+          "used": 19691050,
+          "total": 24071654
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5933752,
+            "totalSize": 10485760,
+            "embedderHeapUsedSize": 933512,
+            "backingStorageSize": 13798886
+          },
+          "settled": {
+            "usedSize": 4449884,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 402832,
+            "backingStorageSize": 13729117
+          }
+        }
+      },
+      {
+        "tag": "10mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 11288576,
+        "keys": 690,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 4.799999237060547,
+        "msKeys": 3.8000001907348633,
+        "msLoad": 39,
+        "msFirstQuery": 11.699999809265137,
+        "msTotal": 59.89999961853027,
+        "month": {
+          "ms": 11.600000381469727,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6354358
+        },
+        "heapAfter": {
+          "used": 20187465,
+          "total": 24209877
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5970524,
+            "totalSize": 10485760,
+            "embedderHeapUsedSize": 930240,
+            "backingStorageSize": 13920725
+          },
+          "settled": {
+            "usedSize": 4449660,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 402832,
+            "backingStorageSize": 13729117
+          }
+        }
+      },
+      {
+        "tag": "10mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 11288576,
+        "keys": 690,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 4.199999809265137,
+        "msKeys": 3.8000001907348633,
+        "msLoad": 38.60000038146973,
+        "msFirstQuery": 11.899999618530273,
+        "msTotal": 59.19999980926514,
+        "month": {
+          "ms": 11.899999618530273,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897594,
+          "total": 6337974
+        },
+        "heapAfter": {
+          "used": 20154522,
+          "total": 24071654
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5955172,
+            "totalSize": 10485760,
+            "embedderHeapUsedSize": 924872,
+            "backingStorageSize": 13798886
+          },
+          "settled": {
+            "usedSize": 4449372,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 402832,
+            "backingStorageSize": 13729117
+          }
+        }
+      }
+    ],
+    "10mb-64k": [
+      {
+        "tag": "10mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 11403264,
+        "keys": 175,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 2.40000057220459,
+        "msKeys": 1.6999998092651367,
+        "msLoad": 26.300000190734863,
+        "msFirstQuery": 10.5,
+        "msTotal": 41.60000038146973,
+        "month": {
+          "ms": 10.5,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6354358
+        },
+        "heapAfter": {
+          "used": 19764365,
+          "total": 22893413
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 709576,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5324048,
+            "totalSize": 8912896,
+            "embedderHeapUsedSize": 652544,
+            "backingStorageSize": 13980517
+          },
+          "settled": {
+            "usedSize": 4284552,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 370952,
+            "backingStorageSize": 13892959
+          }
+        }
+      },
+      {
+        "tag": "10mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 11403264,
+        "keys": 175,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 2.40000057220459,
+        "msKeys": 1.6999998092651367,
+        "msLoad": 26,
+        "msFirstQuery": 10.59999942779541,
+        "msTotal": 41.39999961853027,
+        "month": {
+          "ms": 10.59999942779541,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6436278
+        },
+        "heapAfter": {
+          "used": 19486687,
+          "total": 23361287
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 5294332,
+            "totalSize": 9437184,
+            "embedderHeapUsedSize": 663512,
+            "backingStorageSize": 13924103
+          },
+          "settled": {
+            "usedSize": 4284552,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 370952,
+            "backingStorageSize": 13892959
+          }
+        }
+      },
+      {
+        "tag": "10mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 11403264,
+        "keys": 175,
+        "msIdbOpen": 0.5999994277954102,
+        "msWorktree": 2.1999998092651367,
+        "msKeys": 1.6000003814697266,
+        "msLoad": 26,
+        "msFirstQuery": 10.800000190734863,
+        "msTotal": 41.19999980926514,
+        "month": {
+          "ms": 10.800000190734863,
+          "single": 1047,
+          "recurring": 405
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6337974
+        },
+        "heapAfter": {
+          "used": 19655199,
+          "total": 22836999
+        },
+        "wasmHeap": 17432576,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 713832,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 4262804,
+            "totalSize": 7602176,
+            "embedderHeapUsedSize": 1568600,
+            "backingStorageSize": 25473614
+          },
+          "settled": {
+            "usedSize": 4284480,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 370952,
+            "backingStorageSize": 13892959
+          }
+        }
+      }
+    ],
+    "50mb-4k": [
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 75,
+        "msKeys": 70.60000038146973,
+        "msLoad": 393.19999980926514,
+        "msFirstQuery": 37.5,
+        "msTotal": 577,
+        "month": {
+          "ms": 37.5,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897590,
+          "total": 6354358
+        },
+        "heapAfter": {
+          "used": 157689090,
+          "total": 173483798
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 715528,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 47768516,
+            "totalSize": 63520768,
+            "embedderHeapUsedSize": 8356832,
+            "backingStorageSize": 109963030
+          },
+          "settled": {
+            "usedSize": 8065032,
+            "totalSize": 9912320,
+            "embedderHeapUsedSize": 722912,
+            "backingStorageSize": 55647581
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.7999992370605469,
+        "msWorktree": 74.60000038146973,
+        "msKeys": 71,
+        "msLoad": 388.5,
+        "msFirstQuery": 37.80000019073486,
+        "msTotal": 572.6999998092651,
+        "month": {
+          "ms": 37.80000019073486,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6452662
+        },
+        "heapAfter": {
+          "used": 157713466,
+          "total": 173483798
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715152,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 47792892,
+            "totalSize": 63520768,
+            "embedderHeapUsedSize": 8391512,
+            "backingStorageSize": 109963030
+          },
+          "settled": {
+            "usedSize": 8065328,
+            "totalSize": 9388032,
+            "embedderHeapUsedSize": 722792,
+            "backingStorageSize": 55647581
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 75.89999961853027,
+        "msKeys": 71,
+        "msLoad": 390.20000076293945,
+        "msFirstQuery": 37.89999961853027,
+        "msTotal": 575.6999998092651,
+        "month": {
+          "ms": 37.89999961853027,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897622,
+          "total": 6485430
+        },
+        "heapAfter": {
+          "used": 157640058,
+          "total": 173483798
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 47719484,
+            "totalSize": 63520768,
+            "embedderHeapUsedSize": 8366096,
+            "backingStorageSize": 109963030
+          },
+          "settled": {
+            "usedSize": 8065328,
+            "totalSize": 9388032,
+            "embedderHeapUsedSize": 722808,
+            "backingStorageSize": 55647581
+          }
+        }
+      }
+    ],
+    "50mb-16k": [
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 33,
+        "msKeys": 26.5,
+        "msLoad": 152.5,
+        "msFirstQuery": 35.39999961853027,
+        "msTotal": 248.19999980926514,
+        "month": {
+          "ms": 35.39999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6370742
+        },
+        "heapAfter": {
+          "used": 120457813,
+          "total": 135081349
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 11833472,
+            "totalSize": 26738688,
+            "embedderHeapUsedSize": 1822584,
+            "backingStorageSize": 108342661
+          },
+          "settled": {
+            "usedSize": 5201112,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 348936,
+            "backingStorageSize": 55229789
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 32.59999942779541,
+        "msKeys": 26.800000190734863,
+        "msLoad": 149.10000038146973,
+        "msFirstQuery": 37.19999980926514,
+        "msTotal": 246.4000005722046,
+        "month": {
+          "ms": 37.19999980926514,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897594,
+          "total": 6354358
+        },
+        "heapAfter": {
+          "used": 120444897,
+          "total": 135343493
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 11791804,
+            "totalSize": 27000832,
+            "embedderHeapUsedSize": 1674080,
+            "backingStorageSize": 108342661
+          },
+          "settled": {
+            "usedSize": 5200792,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 349128,
+            "backingStorageSize": 55229789
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 33.19999980926514,
+        "msKeys": 26.5,
+        "msLoad": 149.39999961853027,
+        "msFirstQuery": 35.19999980926514,
+        "msTotal": 245,
+        "month": {
+          "ms": 35.19999980926514,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6518198
+        },
+        "heapAfter": {
+          "used": 120458269,
+          "total": 135081349
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 11790748,
+            "totalSize": 26738688,
+            "embedderHeapUsedSize": 1671368,
+            "backingStorageSize": 108342661
+          },
+          "settled": {
+            "usedSize": 5201124,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 349056,
+            "backingStorageSize": 55229789
+          }
+        }
+      }
+    ],
+    "50mb-64k": [
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 5.199999809265137,
+        "msKeys": 3.8000001907348633,
+        "msLoad": 64.89999961853027,
+        "msFirstQuery": 44.5,
+        "msTotal": 119.10000038146973,
+        "month": {
+          "ms": 44.5,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897594,
+          "total": 6436278
+        },
+        "heapAfter": {
+          "used": 70261683,
+          "total": 80937691
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461104,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715824,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 15038744,
+            "totalSize": 25690112,
+            "embedderHeapUsedSize": 1021232,
+            "backingStorageSize": 55263963
+          },
+          "settled": {
+            "usedSize": 4475336,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 368744,
+            "backingStorageSize": 55115103
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.5999994277954102,
+        "msWorktree": 5.199999809265137,
+        "msKeys": 3.40000057220459,
+        "msLoad": 61.5,
+        "msFirstQuery": 44.09999942779541,
+        "msTotal": 114.79999923706055,
+        "month": {
+          "ms": 44.09999942779541,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6321590
+        },
+        "heapAfter": {
+          "used": 123610365,
+          "total": 134238853
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 715056,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 15139532,
+            "totalSize": 26476544,
+            "embedderHeapUsedSize": 964136,
+            "backingStorageSize": 107827845
+          },
+          "settled": {
+            "usedSize": 4475448,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 368736,
+            "backingStorageSize": 55115103
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 5.600000381469727,
+        "msKeys": 3.5,
+        "msLoad": 60.59999942779541,
+        "msFirstQuery": 44.19999980926514,
+        "msTotal": 114.5,
+        "month": {
+          "ms": 44.10000038146973,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5897626,
+          "total": 6501814
+        },
+        "heapAfter": {
+          "used": 70800231,
+          "total": 81396443
+        },
+        "wasmHeap": 20971520,
+        "memory": {
+          "base": {
+            "usedSize": 3461136,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2422198
+          },
+          "peak": {
+            "usedSize": 14997432,
+            "totalSize": 26214400,
+            "embedderHeapUsedSize": 1021072,
+            "backingStorageSize": 55263963
+          },
+          "settled": {
+            "usedSize": 4475656,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 368584,
+            "backingStorageSize": 55115103
+          }
+        }
+      }
+    ]
+  },
+  "commits": {
+    "10mb-4k": {
+      "tag": "10mb-4k",
+      "pageSize": 4096,
+      "fileBytes": 12156928,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 2.1999998092651367,
+          "p95": 3.1000003814697266,
+          "min": 1.8999996185302734,
+          "max": 11.40000057220459,
+          "mean": 2.5620000076293947
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.10000038146972656,
+          "p95": 0.20000076293945312,
+          "min": 0,
+          "max": 0.40000057220458984,
+          "mean": 0.11200000762939454
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 2.1000003814697266,
+          "p95": 2.8999996185302734,
+          "min": 1.8000001907348633,
+          "max": 11.300000190734863,
+          "mean": 2.45
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 6,
+          "mean": 3.18
+        }
+      },
+      "thousandTxMs": 2184.8999996185303,
+      "thousandTxPerSec": 457.68685073668985,
+      "thousandRowsOneTxMs": 68.10000038146973,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 3721,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    },
+    "10mb-16k": {
+      "tag": "10mb-16k",
+      "pageSize": 16384,
+      "fileBytes": 11878400,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 1.7999992370605469,
+          "p95": 2.1999998092651367,
+          "min": 1.5,
+          "max": 2.3000001907348633,
+          "mean": 1.7920000076293945
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.09999942779541016,
+          "p95": 0.19999980926513672,
+          "min": 0,
+          "max": 0.3000001907348633,
+          "mean": 0.08599994659423828
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 1.6999998092651367,
+          "p95": 2,
+          "min": 1.5,
+          "max": 2.1000003814697266,
+          "mean": 1.7060000610351562
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 4,
+          "mean": 3.06
+        }
+      },
+      "thousandTxMs": 1842.6999998092651,
+      "thousandTxPerSec": 542.6819341745853,
+      "thousandRowsOneTxMs": 27.699999809265137,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 3346,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    },
+    "10mb-64k": {
+      "tag": "10mb-64k",
+      "pageSize": 65536,
+      "fileBytes": 11993088,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 1.8000001907348633,
+          "p95": 3.1000003814697266,
+          "min": 1.5,
+          "max": 4.899999618530273,
+          "mean": 1.9719999885559083
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.19999980926513672,
+          "p95": 0.3000001907348633,
+          "min": 0.09999942779541016,
+          "max": 0.5,
+          "mean": 0.1640000534057617
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 1.6999998092651367,
+          "p95": 3,
+          "min": 1.3000001907348633,
+          "max": 4.5,
+          "mean": 1.8079999351501466
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 6,
+          "mean": 3.12
+        }
+      },
+      "thousandTxMs": 2201.5,
+      "thousandTxPerSec": 454.2357483533955,
+      "thousandRowsOneTxMs": 23.100000381469727,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 3279,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    }
+  },
+  "sync": {
+    "10mb-4k": {
+      "tag": "10mb-4k",
+      "pageSize": 4096,
+      "fileBytes": 12156928,
+      "wholeFileGz": 3262699,
+      "initialPush": {
+        "commits": 1070,
+        "raw": 29932423,
+        "gz": 5200710,
+        "valueBytes": 29648090,
+        "updates": 7234,
+        "ms": 2834.5999994277954,
+        "status": "created"
+      },
+      "edits": {
+        "insertOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 12659,
+          "gz": 4465,
+          "valueBytes": 12297,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 54.90000057220459
+        },
+        "updateOne": {
+          "pagesChanged": 2,
+          "commits": 1,
+          "raw": 8545,
+          "gz": 2037,
+          "valueBytes": 8198,
+          "updates": 2,
+          "status": "pushed",
+          "pushMs": 54.5
+        },
+        "updateMoveStart": {
+          "pagesChanged": 4,
+          "commits": 1,
+          "raw": 16771,
+          "gz": 7116,
+          "valueBytes": 16396,
+          "updates": 4,
+          "status": "pushed",
+          "pushMs": 56.5
+        },
+        "deleteOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 12660,
+          "gz": 4598,
+          "valueBytes": 12297,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 54.40000057220459
+        }
+      }
+    },
+    "10mb-16k": {
+      "tag": "10mb-16k",
+      "pageSize": 16384,
+      "fileBytes": 11878400,
+      "wholeFileGz": 3243258,
+      "initialPush": {
+        "commits": 1070,
+        "raw": 69663937,
+        "gz": 5048093,
+        "valueBytes": 69448129,
+        "updates": 4239,
+        "ms": 2079.300000190735,
+        "status": "created"
+      },
+      "edits": {
+        "insertOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 49523,
+          "gz": 11937,
+          "valueBytes": 49161,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 40.09999942779541
+        },
+        "updateOne": {
+          "pagesChanged": 2,
+          "commits": 1,
+          "raw": 33121,
+          "gz": 5554,
+          "valueBytes": 32774,
+          "updates": 2,
+          "status": "pushed",
+          "pushMs": 38.20000076293945
+        },
+        "updateMoveStart": {
+          "pagesChanged": 4,
+          "commits": 1,
+          "raw": 65923,
+          "gz": 24822,
+          "valueBytes": 65548,
+          "updates": 4,
+          "status": "pushed",
+          "pushMs": 41.5
+        },
+        "deleteOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 49522,
+          "gz": 16052,
+          "valueBytes": 49161,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 39.69999980926514
+        }
+      }
+    },
+    "10mb-64k": {
+      "tag": "10mb-64k",
+      "pageSize": 65536,
+      "fileBytes": 11993088,
+      "wholeFileGz": 3216703,
+      "initialPush": {
+        "commits": 1070,
+        "raw": 232341018,
+        "gz": 61261595,
+        "valueBytes": 232277329,
+        "updates": 3545,
+        "ms": 4764.5,
+        "status": "created"
+      },
+      "edits": {
+        "insertOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 196990,
+          "gz": 46727,
+          "valueBytes": 196623,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 50
+        },
+        "updateOne": {
+          "pagesChanged": 2,
+          "commits": 1,
+          "raw": 131432,
+          "gz": 18240,
+          "valueBytes": 131082,
+          "updates": 2,
+          "status": "pushed",
+          "pushMs": 49.30000019073486
+        },
+        "updateMoveStart": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 196989,
+          "gz": 60188,
+          "valueBytes": 196623,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 52.39999961853027
+        },
+        "deleteOne": {
+          "pagesChanged": 3,
+          "commits": 1,
+          "raw": 196988,
+          "gz": 59208,
+          "valueBytes": 196623,
+          "updates": 3,
+          "status": "pushed",
+          "pushMs": 53.5
+        }
+      }
+    }
+  },
+  "checkpoints": {
+    "10mb-4k": {
+      "tag": "10mb-4k",
+      "pageSize": 4096,
+      "fileBytes": 12156928,
+      "tagMs": 3.1999998092651367,
+      "rows": {
+        "before": 42055,
+        "after": 41574,
+        "restored": 42055,
+        "restoredInc": 42055,
+        "copyRows": 42065,
+        "mainRows": 42055
+      },
+      "fullRestoreMs": 101.5,
+      "fullTimings": {
+        "move": 28.800000190734863,
+        "load": 72,
+        "connect": 0.5
+      },
+      "incRestoreMs": 65.5,
+      "incTimings": {
+        "diff": 29.300000190734863,
+        "move": 28.800000190734863,
+        "load": 6.800000190734863,
+        "connect": 0.39999961853027344
+      },
+      "incChangedPages": 177,
+      "integrity": "ok",
+      "testCopy": {
+        "branchMs": 0.6000003814697266,
+        "openCopyMs": 29.199999809265137,
+        "writeCopyMs": 26.399999618530273,
+        "deleteMs": 0.19999980926513672,
+        "totalMs": 56.39999961853027
+      }
+    },
+    "10mb-16k": {
+      "tag": "10mb-16k",
+      "pageSize": 16384,
+      "fileBytes": 11878400,
+      "tagMs": 0.8000001907348633,
+      "rows": {
+        "before": 42055,
+        "after": 41574,
+        "restored": 42055,
+        "restoredInc": 42055,
+        "copyRows": 42065,
+        "mainRows": 42055
+      },
+      "fullRestoreMs": 29.40000057220459,
+      "fullTimings": {
+        "move": 4.800000190734863,
+        "load": 23.5,
+        "connect": 0.8000001907348633
+      },
+      "incRestoreMs": 15.800000190734863,
+      "incTimings": {
+        "diff": 7.5,
+        "move": 4.59999942779541,
+        "load": 3.200000762939453,
+        "connect": 0.2999992370605469
+      },
+      "incChangedPages": 58,
+      "integrity": "ok",
+      "testCopy": {
+        "branchMs": 0.39999961853027344,
+        "openCopyMs": 4.90000057220459,
+        "writeCopyMs": 20.09999942779541,
+        "deleteMs": 0.19999980926513672,
+        "totalMs": 25.59999942779541
+      }
+    },
+    "10mb-64k": {
+      "tag": "10mb-64k",
+      "pageSize": 65536,
+      "fileBytes": 11993088,
+      "tagMs": 0.7999992370605469,
+      "rows": {
+        "before": 42055,
+        "after": 41574,
+        "restored": 42055,
+        "restoredInc": 42055,
+        "copyRows": 42065,
+        "mainRows": 42055
+      },
+      "fullRestoreMs": 13.90000057220459,
+      "fullTimings": {
+        "move": 2.8000001907348633,
+        "load": 10.699999809265137,
+        "connect": 0.3000001907348633
+      },
+      "incRestoreMs": 6.600000381469727,
+      "incTimings": {
+        "diff": 2.6000003814697266,
+        "move": 2.1999998092651367,
+        "load": 1.5,
+        "connect": 0.19999980926513672
+      },
+      "incChangedPages": 20,
+      "integrity": "ok",
+      "testCopy": {
+        "branchMs": 0.8999996185302734,
+        "openCopyMs": 2.40000057220459,
+        "writeCopyMs": 23,
+        "deleteMs": 0.19999980926513672,
+        "totalMs": 26.5
+      }
+    }
+  },
+  "lost": {
+    "tag": "10mb-4k",
+    "error": "simulated: the head write never landed",
+    "rowsBefore": 42055,
+    "rowsAfterError": 42055,
+    "rowsReopened": 42055,
+    "headUnchanged": true,
+    "integrity": "ok"
+  },
+  "crash": [
+    {
+      "trial": 0,
+      "lastDurableSeen": 183868,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 183868,
+      "integrity": "ok",
+      "rowsAfterWrite": 183869
+    },
+    {
+      "trial": 1,
+      "lastDurableSeen": 187469,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 187469,
+      "integrity": "ok",
+      "rowsAfterWrite": 187470
+    },
+    {
+      "trial": 2,
+      "lastDurableSeen": 192070,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 192070,
+      "integrity": "ok",
+      "rowsAfterWrite": 192071
+    },
+    {
+      "trial": 3,
+      "lastDurableSeen": 197471,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 197471,
+      "integrity": "ok",
+      "rowsAfterWrite": 197472
+    },
+    {
+      "trial": 4,
+      "lastDurableSeen": 203272,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 203272,
+      "integrity": "ok",
+      "rowsAfterWrite": 203273
+    },
+    {
+      "trial": 5,
+      "lastDurableSeen": 209073,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 209073,
+      "integrity": "ok",
+      "rowsAfterWrite": 209074
+    },
+    {
+      "trial": 6,
+      "lastDurableSeen": 215274,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 215274,
+      "integrity": "ok",
+      "rowsAfterWrite": 215275
+    },
+    {
+      "trial": 7,
+      "lastDurableSeen": 221675,
+      "inflightMarkers": [
+        "2355799e"
+      ],
+      "rows": 221675,
+      "integrity": "ok",
+      "rowsAfterWrite": 221676
+    }
+  ],
+  "growth": {
+    "growth-4k": {
+      "tag": "growth-4k",
+      "pageSize": 4096,
+      "fileBytes": 11694080,
+      "gc0": {
+        "removed": 0,
+        "ms": 81.59999942779541
+      },
+      "before": {
+        "keys": 7965,
+        "bytes": 16990853,
+        "blobs": 3522,
+        "blobBytes": 14432602,
+        "nodes": 4371,
+        "nodeBytes": 1951750,
+        "commits": 14,
+        "heads": [
+          "db"
+        ]
+      },
+      "after1000": {
+        "keys": 23226,
+        "bytes": 35607211,
+        "blobs": 6164,
+        "blobBytes": 25262160,
+        "nodes": 11990,
+        "nodeBytes": 8540919,
+        "commits": 1014,
+        "heads": [
+          "db"
+        ]
+      },
+      "afterPrune": {
+        "keys": 4978,
+        "bytes": 12679717,
+        "blobs": 2856,
+        "blobBytes": 11702668,
+        "nodes": 2110,
+        "nodeBytes": 599525,
+        "commits": 2,
+        "heads": [
+          "db"
+        ]
+      },
+      "estimate": {
+        "before": {
+          "usage": 1175745109,
+          "idb": 1175745109
+        },
+        "after1000": {
+          "usage": 1116614557,
+          "idb": 1116614557
+        },
+        "afterPrune": {
+          "usage": 1092432361,
+          "idb": 1092432361
+        }
+      },
+      "squashMs": 696.3000001907349,
+      "gc": {
+        "removedCommits": 1013,
+        "ms": 1390.1999998092651
+      },
+      "integrity": "ok"
+    },
+    "growth-16k": {
+      "tag": "growth-16k",
+      "pageSize": 16384,
+      "fileBytes": 11436032,
+      "gc0": {
+        "removed": 0,
+        "ms": 17
+      },
+      "before": {
+        "keys": 1863,
+        "bytes": 15155612,
+        "blobs": 891,
+        "blobBytes": 14584453,
+        "nodes": 900,
+        "nodeBytes": 429247,
+        "commits": 14,
+        "heads": [
+          "db"
+        ]
+      },
+      "after1000": {
+        "keys": 15437,
+        "bytes": 63136138,
+        "blobs": 3459,
+        "blobBytes": 56666269,
+        "nodes": 6906,
+        "nodeBytes": 5260065,
+        "commits": 1014,
+        "heads": [
+          "db"
+        ]
+      },
+      "afterPrune": {
+        "keys": 964,
+        "bytes": 11634359,
+        "blobs": 699,
+        "blobBytes": 11438149,
+        "nodes": 253,
+        "nodeBytes": 123449,
+        "commits": 2,
+        "heads": [
+          "db"
+        ]
+      },
+      "estimate": {
+        "before": {
+          "usage": 1092487063,
+          "idb": 1092487063
+        },
+        "after1000": {
+          "usage": 1113243897,
+          "idb": 1113243897
+        },
+        "afterPrune": {
+          "usage": 1112133353,
+          "idb": 1112133353
+        }
+      },
+      "squashMs": 182.60000038146973,
+      "gc": {
+        "removedCommits": 1013,
+        "ms": 1240.0999994277954
+      },
+      "integrity": "ok"
+    },
+    "growth-64k": {
+      "tag": "growth-64k",
+      "pageSize": 65536,
+      "fileBytes": 11534336,
+      "gc0": {
+        "removed": 0,
+        "ms": 8.59999942779541
+      },
+      "before": {
+        "keys": 630,
+        "bytes": 17487191,
+        "blobs": 265,
+        "blobBytes": 17302849,
+        "nodes": 293,
+        "nodeBytes": 136120,
+        "commits": 14,
+        "heads": [
+          "db"
+        ]
+      },
+      "after1000": {
+        "keys": 13762,
+        "bytes": 188881934,
+        "blobs": 2813,
+        "blobBytes": 184301317,
+        "nodes": 5877,
+        "nodeBytes": 3498505,
+        "commits": 1014,
+        "heads": [
+          "db"
+        ]
+      },
+      "afterPrune": {
+        "keys": 315,
+        "bytes": 11596186,
+        "blobs": 177,
+        "blobBytes": 11535241,
+        "nodes": 126,
+        "nodeBytes": 37113,
+        "commits": 2,
+        "heads": [
+          "db"
+        ]
+      },
+      "estimate": {
+        "before": {
+          "usage": 1086552436,
+          "idb": 1086552436
+        },
+        "after1000": {
+          "usage": 1193178441,
+          "idb": 1193178441
+        },
+        "afterPrune": {
+          "usage": 1126741123,
+          "idb": 1126741123
+        }
+      },
+      "squashMs": 76.10000038146973,
+      "gc": {
+        "removedCommits": 1013,
+        "ms": 1200.3999996185303
+      },
+      "integrity": "ok"
+    }
+  },
+  "storeProbe": {
+    "tag": "10mb-16k",
+    "file": 62521344,
+    "tags": [],
+    "branches": [
+      "db"
+    ],
+    "before": {
+      "keys": 43596,
+      "bytes": 276323288,
+      "blobs": 15719,
+      "blobBytes": 257570889,
+      "nodes": 21763,
+      "nodeBytes": 15392915,
+      "commits": 1222,
+      "heads": 1,
+      "physical": 276323288
+    },
+    "deep": {
+      "removed": 1220,
+      "ms": 4996.39999961853
+    },
+    "after": {
+      "keys": 6526,
+      "bytes": 63832378,
+      "blobs": 3817,
+      "blobBytes": 62532815,
+      "nodes": 2696,
+      "nodeBytes": 804784,
+      "commits": 2,
+      "heads": 1,
+      "physical": 63832378
+    }
+  },
+  "logProbe": {
+    "n": 2,
+    "infos": {
+      "squash": 1,
+      "none": 1
+    },
+    "oldest": {
+      "hash": "821bf06b",
+      "parents": 0,
+      "time": 1792126362.002,
+      "info": null
+    }
+  },
+  "markerProbe": {
+    "now": 1792127519.465,
+    "markers": [
+      {
+        "commit": "2355799e",
+        "value": "1792127621.678",
+        "commitTime": 1792127021.678,
+        "parents": 1
+      }
+    ],
+    "lease": "{\"owner\":\"ts-f8946f11e665\",\"expires\":0}"
+  },
+  "spill": {
+    "statsSpilledTx": {
+      "batches": 1,
+      "looseWrites": 229
+    },
+    "statsRolledBack": {
+      "batches": 0,
+      "looseWrites": 1020,
+      "rollbacks": 0
+    },
+    "rowsCommitted": 5000,
+    "rowsAfterRollback": 5000,
+    "vacuum": {
+      "beforeVacuum": 1462272,
+      "afterVacuum": 966656
+    },
+    "rowsLive": 3334,
+    "rowsReopened": 3334,
+    "sameHead": true,
+    "integrity": "ok"
+  },
+  "sizeProbe": {
+    "10mb-4k": {
+      "keys": 5249,
+      "commits": 2,
+      "logical": 13343395,
+      "physical": 13343395,
+      "ratio": 1
+    },
+    "10mb-16k": {
+      "keys": 43596,
+      "commits": 1222,
+      "logical": 276323288,
+      "physical": 276323288,
+      "ratio": 1
+    },
+    "10mb-64k": {
+      "keys": 330,
+      "commits": 2,
+      "logical": 12188930,
+      "physical": 12188930,
+      "ratio": 1
+    },
+    "50mb-4k": {
+      "keys": 65766,
+      "commits": 50,
+      "logical": 143627904,
+      "physical": 143627904,
+      "ratio": 1
+    },
+    "50mb-16k": {
+      "keys": 18432,
+      "commits": 51,
+      "logical": 128022422,
+      "physical": 128022422,
+      "ratio": 1
+    },
+    "50mb-64k": {
+      "keys": 4776,
+      "commits": 51,
+      "logical": 133129211,
+      "physical": 133129211,
+      "ratio": 1
+    }
+  },
+  "openChunked": {
+    "50mb-4k-c256": [
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 238.5,
+        "msWorktree": 74.80000019073486,
+        "msKeys": 69.90000057220459,
+        "msLoad": 367.3999996185303,
+        "msFirstQuery": 38.60000038146973,
+        "msTotal": 789.2000007629395,
+        "month": {
+          "ms": 38.60000038146973,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 136489769,
+          "total": 152331561
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43330284,
+            "totalSize": 59129856,
+            "embedderHeapUsedSize": 10184800,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8086888,
+            "totalSize": 9650176,
+            "embedderHeapUsedSize": 731536,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 73.5,
+        "msKeys": 70.80000019073486,
+        "msLoad": 362,
+        "msFirstQuery": 38.60000038146973,
+        "msTotal": 545.7000007629395,
+        "month": {
+          "ms": 38.60000038146973,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6411229
+        },
+        "heapAfter": {
+          "used": 136478745,
+          "total": 152331561
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 714632,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43319260,
+            "totalSize": 59129856,
+            "embedderHeapUsedSize": 10314184,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8086844,
+            "totalSize": 10436608,
+            "embedderHeapUsedSize": 723168,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8999996185302734,
+        "msWorktree": 73.30000019073486,
+        "msKeys": 71.30000019073486,
+        "msLoad": 365.69999980926514,
+        "msFirstQuery": 38.09999942779541,
+        "msTotal": 549.2999992370605,
+        "month": {
+          "ms": 38.09999942779541,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6476765
+        },
+        "heapAfter": {
+          "used": 136600385,
+          "total": 152069417
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43440900,
+            "totalSize": 58867712,
+            "embedderHeapUsedSize": 10863080,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8087176,
+            "totalSize": 9912320,
+            "embedderHeapUsedSize": 714072,
+            "backingStorageSize": 55671684
+          }
+        }
+      }
+    ],
+    "50mb-4k-c256-gc": [
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.7999992370605469,
+        "msWorktree": 72.80000019073486,
+        "msKeys": 71.10000038146973,
+        "msLoad": 468.5999994277954,
+        "msFirstQuery": 39.40000057220459,
+        "msTotal": 652.6999998092651,
+        "month": {
+          "ms": 39.19999980926514,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6411229
+        },
+        "heapAfter": {
+          "used": 80439026,
+          "total": 100658982
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 3932160,
+            "embedderHeapUsedSize": 713152,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 22961644,
+            "totalSize": 43139072,
+            "embedderHeapUsedSize": 900952,
+            "backingStorageSize": 57519910
+          },
+          "settled": {
+            "usedSize": 8087156,
+            "totalSize": 8863744,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8999996185302734,
+        "msWorktree": 81.30000019073486,
+        "msKeys": 79.19999980926514,
+        "msLoad": 470.4000005722046,
+        "msFirstQuery": 39.09999942779541,
+        "msTotal": 670.8999996185303,
+        "month": {
+          "ms": 39.09999942779541,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6673373
+        },
+        "heapAfter": {
+          "used": 80341730,
+          "total": 101445414
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715720,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 22864348,
+            "totalSize": 43925504,
+            "embedderHeapUsedSize": 849512,
+            "backingStorageSize": 57519910
+          },
+          "settled": {
+            "usedSize": 8087160,
+            "totalSize": 9125888,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.9000005722045898,
+        "msWorktree": 73.69999980926514,
+        "msKeys": 71.09999942779541,
+        "msLoad": 469.30000019073486,
+        "msFirstQuery": 39.80000019073486,
+        "msTotal": 654.8000001907349,
+        "month": {
+          "ms": 39.80000019073486,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 80435746,
+          "total": 100658982
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 22958364,
+            "totalSize": 43139072,
+            "embedderHeapUsedSize": 860360,
+            "backingStorageSize": 57519910
+          },
+          "settled": {
+            "usedSize": 8087144,
+            "totalSize": 9125888,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55671684
+          }
+        }
+      }
+    ],
+    "50mb-4k-c1024": [
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.9000005722045898,
+        "msWorktree": 74,
+        "msKeys": 71.19999980926514,
+        "msLoad": 394,
+        "msFirstQuery": 43.19999980926514,
+        "msTotal": 583.3000001907349,
+        "month": {
+          "ms": 43.19999980926514,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 136590449,
+          "total": 152331561
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 719488,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43430964,
+            "totalSize": 59129856,
+            "embedderHeapUsedSize": 10113192,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8088724,
+            "totalSize": 9650176,
+            "embedderHeapUsedSize": 717928,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8999996185302734,
+        "msWorktree": 87.30000019073486,
+        "msKeys": 83.90000057220459,
+        "msLoad": 372.0999994277954,
+        "msFirstQuery": 38.60000038146973,
+        "msTotal": 582.8000001907349,
+        "month": {
+          "ms": 38.60000038146973,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6558685
+        },
+        "heapAfter": {
+          "used": 136599533,
+          "total": 152593705
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43440048,
+            "totalSize": 59392000,
+            "embedderHeapUsedSize": 10134872,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8086868,
+            "totalSize": 10436608,
+            "embedderHeapUsedSize": 719352,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.7999992370605469,
+        "msWorktree": 74.5,
+        "msKeys": 71.40000057220459,
+        "msLoad": 362.19999980926514,
+        "msFirstQuery": 38.5,
+        "msTotal": 547.3999996185303,
+        "month": {
+          "ms": 38.5,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6525917
+        },
+        "heapAfter": {
+          "used": 136571413,
+          "total": 152855849
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 43411928,
+            "totalSize": 59654144,
+            "embedderHeapUsedSize": 10139624,
+            "backingStorageSize": 93201705
+          },
+          "settled": {
+            "usedSize": 8087212,
+            "totalSize": 9650176,
+            "embedderHeapUsedSize": 716688,
+            "backingStorageSize": 55671684
+          }
+        }
+      }
+    ],
+    "50mb-4k-c1024-gc": [
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8999996185302734,
+        "msWorktree": 75.10000038146973,
+        "msKeys": 71.80000019073486,
+        "msLoad": 400.29999923706055,
+        "msFirstQuery": 40,
+        "msTotal": 588.0999994277954,
+        "month": {
+          "ms": 40,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6558685
+        },
+        "heapAfter": {
+          "used": 85357413,
+          "total": 105737413
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715320,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 23588032,
+            "totalSize": 43925504,
+            "embedderHeapUsedSize": 1045000,
+            "backingStorageSize": 61811909
+          },
+          "settled": {
+            "usedSize": 8087132,
+            "totalSize": 9388032,
+            "embedderHeapUsedSize": 346320,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 74,
+        "msKeys": 71.60000038146973,
+        "msLoad": 399.30000019073486,
+        "msFirstQuery": 39.09999942779541,
+        "msTotal": 584.8000001907349,
+        "month": {
+          "ms": 39.09999942779541,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6591453
+        },
+        "heapAfter": {
+          "used": 82655322,
+          "total": 104068390
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 23079252,
+            "totalSize": 44449792,
+            "embedderHeapUsedSize": 1092264,
+            "backingStorageSize": 59618598
+          },
+          "settled": {
+            "usedSize": 8087108,
+            "totalSize": 9125888,
+            "embedderHeapUsedSize": 346296,
+            "backingStorageSize": 55671684
+          }
+        }
+      },
+      {
+        "tag": "50mb-4k",
+        "pageSize": 4096,
+        "fileBytes": 53219328,
+        "keys": 12994,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 73.69999980926514,
+        "msKeys": 71.10000038146973,
+        "msLoad": 398.30000019073486,
+        "msFirstQuery": 39.79999923706055,
+        "msTotal": 583.6999998092651,
+        "month": {
+          "ms": 39.79999923706055,
+          "single": 4745,
+          "recurring": 1803
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 82629946,
+          "total": 103281958
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 23053876,
+            "totalSize": 43663360,
+            "embedderHeapUsedSize": 966240,
+            "backingStorageSize": 59618598
+          },
+          "settled": {
+            "usedSize": 8087124,
+            "totalSize": 9125888,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55671684
+          }
+        }
+      }
+    ],
+    "50mb-16k-c256": [
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 1.3000001907348633,
+        "msWorktree": 32.90000057220459,
+        "msKeys": 26.799999237060547,
+        "msLoad": 156.9000005722046,
+        "msFirstQuery": 35.89999961853027,
+        "msTotal": 253.80000019073486,
+        "month": {
+          "ms": 35.89999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 89695381,
+          "total": 105477781
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10501660,
+            "totalSize": 26476544,
+            "embedderHeapUsedSize": 1948872,
+            "backingStorageSize": 79001237
+          },
+          "settled": {
+            "usedSize": 5223096,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 392608,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 31.800000190734863,
+        "msKeys": 26.299999237060547,
+        "msLoad": 151.70000076293945,
+        "msFirstQuery": 35.69999980926514,
+        "msTotal": 246.30000019073486,
+        "month": {
+          "ms": 35.69999980926514,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6558685
+        },
+        "heapAfter": {
+          "used": 89843033,
+          "total": 105215637
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10481044,
+            "totalSize": 26214400,
+            "embedderHeapUsedSize": 1956464,
+            "backingStorageSize": 79001237
+          },
+          "settled": {
+            "usedSize": 5223096,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 392608,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 32.69999980926514,
+        "msKeys": 26.300000190734863,
+        "msLoad": 150.5999994277954,
+        "msFirstQuery": 36.5,
+        "msTotal": 246.79999923706055,
+        "month": {
+          "ms": 36.39999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6509533
+        },
+        "heapAfter": {
+          "used": 89834709,
+          "total": 105477781
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715232,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10506896,
+            "totalSize": 26476544,
+            "embedderHeapUsedSize": 1941544,
+            "backingStorageSize": 79001237
+          },
+          "settled": {
+            "usedSize": 5223096,
+            "totalSize": 5767168,
+            "embedderHeapUsedSize": 392608,
+            "backingStorageSize": 55253892
+          }
+        }
+      }
+    ],
+    "50mb-16k-c256-gc": [
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 32.39999961853027,
+        "msKeys": 26.40000057220459,
+        "msLoad": 168.5999994277954,
+        "msFirstQuery": 35.5,
+        "msTotal": 263.5999994277954,
+        "month": {
+          "ms": 35.5,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 65658201,
+          "total": 82929557
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 7350128,
+            "totalSize": 24903680,
+            "embedderHeapUsedSize": 897360,
+            "backingStorageSize": 58025877
+          },
+          "settled": {
+            "usedSize": 5222496,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 32.59999942779541,
+        "msKeys": 26,
+        "msLoad": 168.19999980926514,
+        "msFirstQuery": 35.20000076293945,
+        "msTotal": 262.80000019073486,
+        "month": {
+          "ms": 35.10000038146973,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6378461
+        },
+        "heapAfter": {
+          "used": 65527353,
+          "total": 82405269
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 7418040,
+            "totalSize": 24379392,
+            "embedderHeapUsedSize": 873752,
+            "backingStorageSize": 58025877
+          },
+          "settled": {
+            "usedSize": 5222832,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 32.39999961853027,
+        "msKeys": 26.600000381469727,
+        "msLoad": 170.19999980926514,
+        "msFirstQuery": 35.5,
+        "msTotal": 265.3999996185303,
+        "month": {
+          "ms": 35.5,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 66572659,
+          "total": 83837759
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 7768936,
+            "totalSize": 25165824,
+            "embedderHeapUsedSize": 1054664,
+            "backingStorageSize": 58671935
+          },
+          "settled": {
+            "usedSize": 5222508,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 346320,
+            "backingStorageSize": 55253892
+          }
+        }
+      }
+    ],
+    "50mb-16k-c1024": [
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 32.5,
+        "msKeys": 26.399999618530273,
+        "msLoad": 147.69999980926514,
+        "msFirstQuery": 36.30000019073486,
+        "msTotal": 243.5999994277954,
+        "month": {
+          "ms": 36.30000019073486,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6443997
+        },
+        "heapAfter": {
+          "used": 119667765,
+          "total": 135891861
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 716112,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10761804,
+            "totalSize": 27525120,
+            "embedderHeapUsedSize": 3221936,
+            "backingStorageSize": 108366741
+          },
+          "settled": {
+            "usedSize": 5222728,
+            "totalSize": 6291456,
+            "embedderHeapUsedSize": 444776,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 32.79999923706055,
+        "msKeys": 26.200000762939453,
+        "msLoad": 148.0999994277954,
+        "msFirstQuery": 36.19999980926514,
+        "msTotal": 244,
+        "month": {
+          "ms": 36.19999980926514,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6509533
+        },
+        "heapAfter": {
+          "used": 119029817,
+          "total": 135629717
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10103384,
+            "totalSize": 27262976,
+            "embedderHeapUsedSize": 3217400,
+            "backingStorageSize": 108366741
+          },
+          "settled": {
+            "usedSize": 5222728,
+            "totalSize": 6291456,
+            "embedderHeapUsedSize": 443896,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 32.29999923706055,
+        "msKeys": 26.700000762939453,
+        "msLoad": 147.69999980926514,
+        "msFirstQuery": 36.09999942779541,
+        "msTotal": 243.5,
+        "month": {
+          "ms": 36.09999942779541,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6493149
+        },
+        "heapAfter": {
+          "used": 119629081,
+          "total": 135629717
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 10712812,
+            "totalSize": 27262976,
+            "embedderHeapUsedSize": 3200768,
+            "backingStorageSize": 108366741
+          },
+          "settled": {
+            "usedSize": 5222728,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 444776,
+            "backingStorageSize": 55253892
+          }
+        }
+      }
+    ],
+    "50mb-16k-c1024-gc": [
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 32.80000019073486,
+        "msKeys": 26.5,
+        "msLoad": 157.39999961853027,
+        "msFirstQuery": 35.40000057220459,
+        "msTotal": 252.80000019073486,
+        "month": {
+          "ms": 35.40000057220459,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6411229
+        },
+        "heapAfter": {
+          "used": 65312893,
+          "total": 82929557
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 3932160,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 6816928,
+            "totalSize": 16777216,
+            "embedderHeapUsedSize": 2574768,
+            "backingStorageSize": 86473808
+          },
+          "settled": {
+            "usedSize": 5222788,
+            "totalSize": 6029312,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 33,
+        "msKeys": 26.399999618530273,
+        "msLoad": 155.60000038146973,
+        "msFirstQuery": 35,
+        "msTotal": 250.80000019073486,
+        "month": {
+          "ms": 35,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6558685
+        },
+        "heapAfter": {
+          "used": 65397777,
+          "total": 82143125
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 6333032,
+            "totalSize": 16515072,
+            "embedderHeapUsedSize": 1468184,
+            "backingStorageSize": 59910481
+          },
+          "settled": {
+            "usedSize": 5222828,
+            "totalSize": 6291456,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55253892
+          }
+        }
+      },
+      {
+        "tag": "50mb-16k",
+        "pageSize": 16384,
+        "fileBytes": 52789248,
+        "keys": 3223,
+        "msIdbOpen": 0.5999994277954102,
+        "msWorktree": 32.40000057220459,
+        "msKeys": 26.699999809265137,
+        "msLoad": 156.19999980926514,
+        "msFirstQuery": 35.39999961853027,
+        "msTotal": 251.29999923706055,
+        "month": {
+          "ms": 35.39999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 65293317,
+          "total": 82667413
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 710568,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 5926944,
+            "totalSize": 16777216,
+            "embedderHeapUsedSize": 810840,
+            "backingStorageSize": 70783240
+          },
+          "settled": {
+            "usedSize": 5224056,
+            "totalSize": 6291456,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55253892
+          }
+        }
+      }
+    ],
+    "50mb-64k-c256": [
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 1,
+        "msWorktree": 5.700000762939453,
+        "msKeys": 3.1999998092651367,
+        "msLoad": 58.69999980926514,
+        "msFirstQuery": 38.30000019073486,
+        "msTotal": 106.90000057220459,
+        "month": {
+          "ms": 38.30000019073486,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6411229
+        },
+        "heapAfter": {
+          "used": 81540110,
+          "total": 85632726
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 3932160,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 6651024,
+            "totalSize": 11272192,
+            "embedderHeapUsedSize": 1237920,
+            "backingStorageSize": 74360534
+          },
+          "settled": {
+            "usedSize": 4496988,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 354856,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.8000001907348633,
+        "msWorktree": 5.199999809265137,
+        "msKeys": 3.5,
+        "msLoad": 57.80000019073486,
+        "msFirstQuery": 37.80000019073486,
+        "msTotal": 105.10000038146973,
+        "month": {
+          "ms": 37.80000019073486,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6460381
+        },
+        "heapAfter": {
+          "used": 83292706,
+          "total": 86157014
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 4746404,
+            "totalSize": 9961472,
+            "embedderHeapUsedSize": 1239080,
+            "backingStorageSize": 81609461
+          },
+          "settled": {
+            "usedSize": 4496984,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 354856,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 5.300000190734863,
+        "msKeys": 3.5,
+        "msLoad": 58,
+        "msFirstQuery": 37.59999942779541,
+        "msTotal": 105.09999942779541,
+        "month": {
+          "ms": 37.5,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6378461
+        },
+        "heapAfter": {
+          "used": 81021909,
+          "total": 85305041
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 4718452,
+            "totalSize": 9437184,
+            "embedderHeapUsedSize": 1339256,
+            "backingStorageSize": 78004706
+          },
+          "settled": {
+            "usedSize": 4496988,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 346832,
+            "backingStorageSize": 55139206
+          }
+        }
+      }
+    ],
+    "50mb-64k-c256-gc": [
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 4.899999618530273,
+        "msKeys": 3.40000057220459,
+        "msLoad": 60.19999980926514,
+        "msFirstQuery": 37.60000038146973,
+        "msTotal": 106.80000019073486,
+        "month": {
+          "ms": 37.60000038146973,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6394845
+        },
+        "heapAfter": {
+          "used": 63989205,
+          "total": 68264401
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 715280,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 4361028,
+            "totalSize": 8650752,
+            "embedderHeapUsedSize": 941608,
+            "backingStorageSize": 62078243
+          },
+          "settled": {
+            "usedSize": 4496860,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 346296,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 5.5,
+        "msKeys": 3.3999996185302734,
+        "msLoad": 60.10000038146973,
+        "msFirstQuery": 38.29999923706055,
+        "msTotal": 108,
+        "month": {
+          "ms": 38.29999923706055,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6280157
+        },
+        "heapAfter": {
+          "used": 64094772,
+          "total": 68402836
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715856,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 6211924,
+            "totalSize": 11010048,
+            "embedderHeapUsedSize": 928544,
+            "backingStorageSize": 57654932
+          },
+          "settled": {
+            "usedSize": 4497160,
+            "totalSize": 4980736,
+            "embedderHeapUsedSize": 346328,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 4.90000057220459,
+        "msKeys": 3.5,
+        "msLoad": 60.69999980926514,
+        "msFirstQuery": 37.89999961853027,
+        "msTotal": 107.69999980926514,
+        "month": {
+          "ms": 37.89999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 63740369,
+          "total": 68264401
+        },
+        "wasmHeap": 20971520,
+        "chunk": 256,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 715296,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 6104236,
+            "totalSize": 10747904,
+            "embedderHeapUsedSize": 908456,
+            "backingStorageSize": 57516497
+          },
+          "settled": {
+            "usedSize": 4496908,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 346312,
+            "backingStorageSize": 55139206
+          }
+        }
+      }
+    ],
+    "50mb-64k-c1024": [
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 5.09999942779541,
+        "msKeys": 3.6000003814697266,
+        "msLoad": 62,
+        "msFirstQuery": 45.89999961853027,
+        "msTotal": 117.19999980926514,
+        "month": {
+          "ms": 45.80000019073486,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 123670332,
+          "total": 133034156
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 714472,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 15359240,
+            "totalSize": 25427968,
+            "embedderHeapUsedSize": 1029696,
+            "backingStorageSize": 107851948
+          },
+          "settled": {
+            "usedSize": 4496596,
+            "totalSize": 5505024,
+            "embedderHeapUsedSize": 368720,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6000003814697266,
+        "msWorktree": 5.5,
+        "msKeys": 3.5,
+        "msLoad": 62.30000019073486,
+        "msFirstQuery": 45.69999980926514,
+        "msTotal": 117.60000038146973,
+        "month": {
+          "ms": 45.69999980926514,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 71040614,
+          "total": 80273666
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 15181172,
+            "totalSize": 25165824,
+            "embedderHeapUsedSize": 1021296,
+            "backingStorageSize": 55288066
+          },
+          "settled": {
+            "usedSize": 4496596,
+            "totalSize": 5505024,
+            "embedderHeapUsedSize": 368808,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 5.199999809265137,
+        "msKeys": 3.5,
+        "msLoad": 62.19999980926514,
+        "msFirstQuery": 46,
+        "msTotal": 117.59999942779541,
+        "month": {
+          "ms": 45.90000057220459,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943601,
+          "total": 6542301
+        },
+        "heapAfter": {
+          "used": 71029554,
+          "total": 80273666
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": false,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4194304,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 15192132,
+            "totalSize": 25165824,
+            "embedderHeapUsedSize": 1021256,
+            "backingStorageSize": 55288066
+          },
+          "settled": {
+            "usedSize": 4496804,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 368768,
+            "backingStorageSize": 55139206
+          }
+        }
+      }
+    ],
+    "50mb-64k-c1024-gc": [
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.7000007629394531,
+        "msWorktree": 5,
+        "msKeys": 3.5,
+        "msLoad": 63.69999980926514,
+        "msFirstQuery": 37.89999961853027,
+        "msTotal": 110.80000019073486,
+        "month": {
+          "ms": 37.89999961853027,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6394845
+        },
+        "heapAfter": {
+          "used": 116690125,
+          "total": 119386321
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 8232404,
+            "totalSize": 11534336,
+            "embedderHeapUsedSize": 1009760,
+            "backingStorageSize": 107851985
+          },
+          "settled": {
+            "usedSize": 4496808,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.5999994277954102,
+        "msWorktree": 4.90000057220459,
+        "msKeys": 3.6999998092651367,
+        "msLoad": 63,
+        "msFirstQuery": 38,
+        "msTotal": 110.19999980926514,
+        "month": {
+          "ms": 38,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943597,
+          "total": 6427613
+        },
+        "heapAfter": {
+          "used": 116616229,
+          "total": 119386321
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482624,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342888,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 8203272,
+            "totalSize": 11534336,
+            "embedderHeapUsedSize": 939736,
+            "backingStorageSize": 107851985
+          },
+          "settled": {
+            "usedSize": 4496508,
+            "totalSize": 5242880,
+            "embedderHeapUsedSize": 346312,
+            "backingStorageSize": 55139206
+          }
+        }
+      },
+      {
+        "tag": "50mb-64k",
+        "pageSize": 65536,
+        "fileBytes": 52625408,
+        "keys": 804,
+        "msIdbOpen": 0.6999998092651367,
+        "msWorktree": 5.5,
+        "msKeys": 3.5,
+        "msLoad": 63.39999961853027,
+        "msFirstQuery": 37.5,
+        "msTotal": 110.59999942779541,
+        "month": {
+          "ms": 37.5,
+          "single": 4842,
+          "recurring": 1844
+        },
+        "quickCheck": "ok",
+        "heapBefore": {
+          "used": 5943629,
+          "total": 6362077
+        },
+        "heapAfter": {
+          "used": 116549685,
+          "total": 119386321
+        },
+        "wasmHeap": 20971520,
+        "chunk": 1024,
+        "gc": true,
+        "memory": {
+          "base": {
+            "usedSize": 3482656,
+            "totalSize": 4456448,
+            "embedderHeapUsedSize": 342704,
+            "backingStorageSize": 2446301
+          },
+          "peak": {
+            "usedSize": 8173844,
+            "totalSize": 11796480,
+            "embedderHeapUsedSize": 1002320,
+            "backingStorageSize": 107851985
+          },
+          "settled": {
+            "usedSize": 4496808,
+            "totalSize": 5505024,
+            "embedderHeapUsedSize": 346288,
+            "backingStorageSize": 55139206
+          }
+        }
+      }
+    ]
+  },
+  "syncBurst": {
+    "10mb-4k": {
+      "tag": "10mb-4k",
+      "pageSize": 4096,
+      "fileBytes": 12775424,
+      "bursts": [
+        {
+          "tx": 10,
+          "pack": {
+            "commits": 10,
+            "raw": 117166,
+            "gz": 29038,
+            "valueBytes": 114772,
+            "updates": 28
+          },
+          "netPages": 15,
+          "netRaw": 61485,
+          "netGz": 27536
+        },
+        {
+          "tx": 100,
+          "pack": {
+            "commits": 100,
+            "raw": 1100785,
+            "gz": 199743,
+            "valueBytes": 1078037,
+            "updates": 263
+          },
+          "netPages": 108,
+          "netRaw": 442692,
+          "netGz": 187799
+        },
+        {
+          "tx": 1000,
+          "pack": {
+            "commits": 1000,
+            "raw": 11128523,
+            "gz": 1186400,
+            "valueBytes": 10899241,
+            "updates": 2659
+          },
+          "netPages": 702,
+          "netRaw": 2877498,
+          "netGz": 976462
+        }
+      ]
+    },
+    "10mb-16k": {
+      "tag": "10mb-16k",
+      "pageSize": 16384,
+      "fileBytes": 62881792,
+      "bursts": [
+        {
+          "tx": 10,
+          "pack": {
+            "commits": 10,
+            "raw": 412028,
+            "gz": 68466,
+            "valueBytes": 409675,
+            "updates": 25
+          },
+          "netPages": 12,
+          "netRaw": 196644,
+          "netGz": 65818
+        },
+        {
+          "tx": 100,
+          "pack": {
+            "commits": 100,
+            "raw": 4217689,
+            "gz": 665402,
+            "valueBytes": 4195072,
+            "updates": 256
+          },
+          "netPages": 106,
+          "netRaw": 1737022,
+          "netGz": 644564
+        },
+        {
+          "tx": 1000,
+          "pack": {
+            "commits": 1000,
+            "raw": 42210997,
+            "gz": 3294261,
+            "valueBytes": 41983494,
+            "updates": 2562
+          },
+          "netPages": 514,
+          "netRaw": 8422918,
+          "netGz": 2919060
+        }
+      ]
+    },
+    "10mb-64k": {
+      "tag": "10mb-64k",
+      "pageSize": 65536,
+      "fileBytes": 12451840,
+      "bursts": [
+        {
+          "tx": 10,
+          "pack": {
+            "commits": 10,
+            "raw": 1640911,
+            "gz": 357907,
+            "valueBytes": 1638525,
+            "updates": 25
+          },
+          "netPages": 10,
+          "netRaw": 655410,
+          "netGz": 223951
+        },
+        {
+          "tx": 100,
+          "pack": {
+            "commits": 100,
+            "raw": 16539235,
+            "gz": 3658651,
+            "valueBytes": 16516332,
+            "updates": 252
+          },
+          "netPages": 44,
+          "netRaw": 2883804,
+          "netGz": 951023
+        },
+        {
+          "tx": 1000,
+          "pack": {
+            "commits": 1000,
+            "raw": 166442531,
+            "gz": 34468124,
+            "valueBytes": 166211976,
+            "updates": 2536
+          },
+          "netPages": 95,
+          "netRaw": 6226395,
+          "netGz": 1796385
+        }
+      ]
+    }
+  },
+  "twoWriters": {
+    "rows0": 44776,
+    "rowsA": 44777,
+    "rowsBAfterReload": 44777,
+    "error": "MergeConflict: Merge conflict on 1 key(s): page/3160",
+    "disjoint": {
+      "error": null,
+      "tipParents": 2,
+      "titles": [
+        "edited by A",
+        "edited by B"
+      ]
+    },
+    "rowsReopened": 44777,
+    "integrity": "ok"
+  },
+  "commits50": {
+    "50mb-4k": {
+      "tag": "50mb-4k",
+      "pageSize": 4096,
+      "fileBytes": 53829632,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 4.199999809265137,
+          "p95": 5.399999618530273,
+          "min": 3.5,
+          "max": 6,
+          "mean": 4.273999996185303
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.19999980926513672,
+          "p95": 0.39999961853027344,
+          "min": 0.09999942779541016,
+          "max": 0.39999961853027344,
+          "mean": 0.18999988555908204
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 4,
+          "p95": 5.199999809265137,
+          "min": 3.40000057220459,
+          "max": 5.899999618530273,
+          "mean": 4.084000110626221
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 6,
+          "min": 3,
+          "max": 6,
+          "mean": 3.3
+        }
+      },
+      "thousandTxMs": 4755.300000190735,
+      "thousandTxPerSec": 210.2916745441697,
+      "thousandRowsOneTxMs": 215.80000019073486,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 4089,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    },
+    "50mb-16k": {
+      "tag": "50mb-16k",
+      "pageSize": 16384,
+      "fileBytes": 53411840,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 2.8999996185302734,
+          "p95": 3.6999998092651367,
+          "min": 2.1999998092651367,
+          "max": 4,
+          "mean": 2.923999996185303
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.19999980926513672,
+          "p95": 0.39999961853027344,
+          "min": 0,
+          "max": 0.6000003814697266,
+          "mean": 0.18999996185302734
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 2.6999998092651367,
+          "p95": 3.5,
+          "min": 2.09999942779541,
+          "max": 3.90000057220459,
+          "mean": 2.7340000343322752
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 4,
+          "mean": 3.06
+        }
+      },
+      "thousandTxMs": 3236,
+      "thousandTxPerSec": 309.0234857849196,
+      "thousandRowsOneTxMs": 90.30000019073486,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 3558,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    },
+    "50mb-64k": {
+      "tag": "50mb-64k",
+      "pageSize": 65536,
+      "fileBytes": 53280768,
+      "oneRowTx": {
+        "total": {
+          "n": 50,
+          "median": 2.1999998092651367,
+          "p95": 3.6000003814697266,
+          "min": 1.7000007629394531,
+          "max": 6.899999618530273,
+          "mean": 2.448000011444092
+        },
+        "sqlite": {
+          "n": 50,
+          "median": 0.19999980926513672,
+          "p95": 0.39999961853027344,
+          "min": 0,
+          "max": 0.6999998092651367,
+          "mean": 0.2220000457763672
+        },
+        "kvgit": {
+          "n": 50,
+          "median": 2,
+          "p95": 3.3000001907348633,
+          "min": 1.6000003814697266,
+          "max": 6.5,
+          "mean": 2.2259999656677247
+        },
+        "pagesPerTx": {
+          "n": 50,
+          "median": 3,
+          "p95": 4,
+          "min": 3,
+          "max": 4,
+          "mean": 3.06
+        }
+      },
+      "thousandTxMs": 2983.5999994277954,
+      "thousandTxPerSec": 335.16557185674463,
+      "thousandRowsOneTxMs": 45.5,
+      "oneTxCommits": 1,
+      "stats": {
+        "batches": 1056,
+        "batchPages": 3318,
+        "looseWrites": 0,
+        "rollbacks": 0
+      }
+    }
+  }
+}
