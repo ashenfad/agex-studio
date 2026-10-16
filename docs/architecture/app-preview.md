@@ -91,7 +91,8 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   nothing, and tells sync (`sync.appChanged`). An app that reloads
   itself gets its page again, seeded with what it saved. `sessionStorage` is in memory;
   `indexedDB` throws, saying to use `localStorage`. A test iframe's
-  shim is read-only.
+  shim is read-only: it reports its stores to the test alone, for a
+  `{reload: true}`.
 - **The cache**: `getCacheValue(key)` reads a value the agent's code
   put in its cache (`cache.set`).
 - **`notify(title, body)`**: the preview shows it (`appNotify` in
@@ -145,26 +146,57 @@ spent, the task failed) rejects with a message the app can show.
   its own iframe and checks every message's source, so concurrent
   calls, a delegate's included, don't meet. An app's agent tasks run
   for real, on the same budget; the iframe stays until every call,
-  including one a result set off, has settled.
+  including one a result set off, has settled. Tool calls run one
+  after another, so the files a call before it wrote are there.
 - **`live: true`** acts on the preview the person sees
-  (`getLiveIframe`). A delegate's `live` is refused: the preview shows
-  the session that asked it.
+  (`getLiveIframe`), once the preview has gone on with the files as
+  they are (`whenLiveSettled`: no rebuild due from a write's debounce
+  or under way). A delegate's `live` is refused: the preview shows the
+  session that asked it.
+
+Before the first action, the call waits for the app's first load
+(`settleFirstLoad`): the page's document `load` (its module scripts
+with their static imports, its images and styles), which the control
+bridge reports (`agex-page-loaded`), then the app's calls to the studio
+settling (`waitForIdle`, with a 1s gap). Past `LOAD_TIMEOUT_MS` (30s)
+the actions run anyway and the result says so. Neither a dynamic
+`import()` nor a `fetch` is counted: the page has no cheap way to see
+a module fetch it didn't declare, and a long-lived fetch would hold
+every action up. The live preview's page is waited for the same way
+when it is still loading.
 
 Actions run in order: `click`, `type`, `select`, `wait`, `read`
 (text or a property), `eval`, `assert` (a failure ends the call with
 an error), `screenshot` (a PNG in the result, seen by a model that
-takes images), `viewport`. The result lists the app's console output,
-then each action's result.
+takes images), `viewport`, `reload`. The result lists the app's
+console output, then each action's result.
 
-An app that navigates or reloads itself throws its page, and the
-control bridge, away. During an action, the iframe's `load` says so;
-between actions, the bootloader posting `agex-host-ready` again does
-(`pageGone`). Either way what's sent next fails at once with a
-`NavigationError` and the call ends there, rather than waiting out
-`sendControl`'s timeout on a page that will never answer. The live
-preview answers the bootloader again, so it takes actions once the
-app's bridge is back (`pageLoaded`); a test's iframe doesn't, and the
-next call builds a fresh one.
+`{reload: true}` (not live) rebuilds the page from the same files in
+the same iframe and waits for its first load again. A test page's
+storage shim is read-only to the person's storage, but reports both
+its stores to the test (`agex-test-storage`, which only the test's
+listener takes, from its own frame); the next page is seeded with what
+the test wrote (`reseedAppPage`, `sessionSeed` for `sessionStorage`,
+which a browser keeps across a reload), and the console output of the
+page before comes first in the result.
+
+### When a page goes
+
+`send-control.js` follows each frame's page (`pageUp` when its bridge
+is ready, `pageLoaded` when its document loaded, `pageGone`). The
+frame fires `load` for the bootloader and once more when the page
+written into it has loaded, seconds after its bridge for an app with
+cold imports: that second `load` is the page's own, not a navigation.
+A `load` after it, or the bootloader saying `agex-host-ready` again,
+means the page was replaced: the actions waiting fail at once with a
+`NavigationError`, so do any sent after, and the call ends there,
+rather than waiting out `sendControl`'s timeout. Why is in the
+message: the app navigated or reloaded itself, or the studio replaced
+the page (the preview rebuilt, or the person reloaded it), which is no
+fault of the app's. The live preview answers the bootloader again, so
+it takes actions once the app's bridge is back; a test's iframe
+answers only a reload it asked for, and the next call builds a fresh
+one.
 
 A screenshot with a `grid` name (and a `label`) is held: at the end of
 the call, `formatResults` tiles each grid's frames, in order, into one

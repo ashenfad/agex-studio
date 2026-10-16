@@ -8,9 +8,10 @@
  * the session's cache.
  */
 
-import { pageGone, sendControl } from "./send-control.js";
+import { pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
+import { checkBag } from "./app-storage.js";
 
 // ---------------------------------------------------------------------------
 // Live preview iframe — module-level ref shared by callers
@@ -29,6 +30,33 @@ export function setLiveIframe(iframe) {
  *  agent.fn registrations. */
 export function getLiveIframe() {
     return _liveIframe;
+}
+
+/** The live preview's `whenSettled`: no rebuild due or under way. */
+/** @type {(() => Promise<unknown>) | null} */
+let _liveSettled = null;
+
+/** Register how to wait for the live preview to settle. Called by
+ *  `AppPreview.svelte` on mount / unmount. */
+export function setLiveSettled(fn) {
+    _liveSettled = fn;
+}
+
+/** How long `test_app` with `live` waits for the preview to rebuild
+ *  from files just written before acting on it as it is. */
+const LIVE_SETTLE_TIMEOUT_MS = 15_000;
+
+/** Settle once the live preview has gone on with the app's files as
+ *  they are (the rebuild a write set off has built its page and handed
+ *  it to the frame), or at once with no preview; past `ms`, settle
+ *  anyway. The page may still be loading: `runLiveApp` waits for that. */
+export function whenLiveSettled(ms = LIVE_SETTLE_TIMEOUT_MS) {
+    if (_liveSettled === null) return Promise.resolve();
+    let timer;
+    return Promise.race([
+        _liveSettled(),
+        new Promise((resolve) => (timer = setTimeout(resolve, ms))),
+    ]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -231,6 +259,9 @@ function _endsTheRun(e) {
  *  viewport action is gated on `opts.allowViewport` — true for the
  *  hidden test iframe, false (a no-op + note) for the live preview,
  *  which the studio's panes own and shouldn't be resized under the user.
+ *  `{ reload: true }` is the caller's to do (`opts.reload`, which
+ *  rebuilds the hidden test iframe and says what came of it); without
+ *  it (the live preview) it's a no-op and a note, too.
  *
  *  Error handling: most action-dispatch failures are caught and
  *  surfaced as `error`-level log entries so a single bad selector
@@ -244,14 +275,35 @@ function _endsTheRun(e) {
  *
  *  @param {HTMLIFrameElement} iframe
  *  @param {Array<object>} actions
- *  @param {{ allowViewport?: boolean }} [opts]
+ *  @param {{ allowViewport?: boolean, reload?: (() => Promise<object[]>) | null }} [opts]
  */
 export async function executeActions(iframe, actions, opts = {}) {
-    const { allowViewport = false } = opts;
+    const { allowViewport = false, reload = null } = opts;
     const results = [];
     for (const action of actions) {
         if (action.wait) {
             await new Promise((r) => setTimeout(r, action.wait));
+            continue;
+        }
+        if (action.reload !== undefined) {
+            if (reload === null) {
+                results.push({
+                    type: "log",
+                    level: "warn",
+                    message:
+                        "reload actions are only supported without live: true — " +
+                        "the studio won't reload the preview the person is using; " +
+                        "test without live to check what survives a reload.",
+                });
+                continue;
+            }
+            try {
+                results.push(...(await reload()));
+            } catch (e) {
+                // the page didn't come back: nothing after this could run
+                results.push({ type: "log", level: "error", message: `reload failed: ${e?.message ?? String(e)}` });
+                break;
+            }
             continue;
         }
         if (action.viewport !== undefined) {
@@ -316,22 +368,28 @@ export async function executeActions(iframe, actions, opts = {}) {
  *  instant for a page that answers at all. */
 const LOGS_TIMEOUT_MS = 5000;
 
-/** Pull the iframe's collected console logs and append the action
- *  results. Capped at 200 entries to keep test_app turn output
- *  bounded — long-tail logs would crowd the agent's context. */
-export async function collectResults(iframe, actionResults) {
-    let logs = [];
+/** The iframe's page's console output so far, as log entries; none
+ *  when the page doesn't answer (collecting logs is best-effort). */
+async function _pageLogs(iframe) {
     try {
         const data = await sendControl(iframe, { "get-logs": true }, { timeoutMs: LOGS_TIMEOUT_MS });
-        logs = (data?.logs || []).map((e) => ({
+        return (data?.logs || []).map((e) => ({
             type: "log",
             level: e.level,
             message: e.message,
         }));
     } catch {
-        /* ignore — collecting logs is best-effort */
+        return [];
     }
-    return capResults([...logs, ...actionResults]);
+}
+
+/** Pull the iframe's collected console logs and append the action
+ *  results, after `leading` (notes, and the console output of pages a
+ *  `{ reload }` replaced). Capped at 200 entries to keep test_app turn
+ *  output bounded — long-tail logs would crowd the agent's context. */
+export async function collectResults(iframe, actionResults, leading = []) {
+    const logs = await _pageLogs(iframe);
+    return capResults([...leading, ...logs, ...actionResults]);
 }
 
 /** The bounds on what one testApp / liveApp call returns: 200 entries,
@@ -392,9 +450,24 @@ export function _enforceTotalCap(entries, max) {
  *  `agex-host-ready` signal, the listener posts `agex-host-init`
  *  with the page (`hostInit`) so the bootloader can document.write it. This
  *  keeps the cross-origin handshake colocated with the rest of
- *  the per-iframe message handling. */
-export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null) {
+ *  the per-iframe message handling. A page is sent once; a function
+ *  gives the page to send each time the bootloader asks, or null when
+ *  none is due (the app reloaded itself, which a `{ reload }` action
+ *  makes room for by having one due).
+ *
+ *  It also follows the page's lifecycle (`pageUp` when its bridge is
+ *  ready, `pageLoaded` when its document loaded), and hands the test
+ *  page's storage, as the page reports it (`agex-test-storage`), to
+ *  `onStorage`. */
+export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null) {
     let initPosted = false;
+    const nextPage = typeof initPage === "function"
+        ? initPage
+        : () => {
+            if (initPosted) return null;
+            initPosted = true;
+            return initPage;
+        };
     const handler = (event) => {
         // Only accept messages from the app iframe's window at the apps
         // origin (see isFromAppFrame in apps-origin.js).
@@ -402,19 +475,37 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
         const data = event.data;
         if (!data) return;
 
-        // Bootloader handshake — respond once per iframe with the
-        // app HTML so the bootloader can render it. The bootloader
-        // saying it again means the app navigated or reloaded itself
-        // away (perhaps between actions, where no action was waiting to
-        // see it): the test goes on without its page, so what's sent to
-        // it next fails at once rather than waiting out its timeout.
+        // Bootloader handshake — respond with the app HTML so the
+        // bootloader can render it. The bootloader asking with no page
+        // due means the app navigated or reloaded itself away (perhaps
+        // between actions, where no action was waiting to see it): the
+        // test goes on without its page, so what's sent to it next
+        // fails at once rather than waiting out its timeout.
         if (data.type === "agex-host-ready" && initPage) {
-            if (initPosted) {
-                pageGone(iframe);
+            const page = nextPage();
+            if (page === null) {
+                pageGone(iframe, "app");
                 return;
             }
-            initPosted = true;
-            replyToApp(iframe, hostInit(initPage, data));
+            replyToApp(iframe, hostInit(page, data));
+            return;
+        }
+
+        if (data.type === "agex-bridge-ready") {
+            pageUp(iframe);
+            return;
+        }
+
+        if (data.type === "agex-page-loaded") {
+            pageLoaded(iframe);
+            return;
+        }
+
+        // what the test's page holds in its storage now, kept for a reload
+        if (data.type === "agex-test-storage") {
+            const local = checkBag(data.local);
+            const session = checkBag(data.session);
+            if (onStorage && local !== null && session !== null) onStorage({ local, session });
             return;
         }
 
@@ -511,20 +602,114 @@ export function bootFailure(hostReady, ms) {
     return text;
 }
 
+/** How long the hidden iframe's bootloader has to load and the app's
+ *  bridge to post ready. The bridge runs as soon as the page parses,
+ *  ahead of the app's own imports, so this is about the sandbox and the
+ *  page, not the app's dependencies: 10s tells "the iframe never came
+ *  up" from "the app crashed during render" without waiting long. */
+const BRIDGE_READY_TIMEOUT_MS = 10000;
+
+/** How long the first action waits for the app's page to finish
+ *  loading (its document's `load`: module scripts with their static
+ *  imports, images, styles). A cold esm.sh import takes seconds, so
+ *  this is generous; past it the actions run anyway, with a note. */
+export const LOAD_TIMEOUT_MS = 30_000;
+
+/** The idle gap after the page loaded, before the first action. Apps
+ *  that defer state init through a `useEffect` (vs synchronous
+ *  `useState(() => init())`) take a couple of frames after load before
+ *  the DOM stabilizes, and a first call to the studio may follow; the
+ *  per-action default (400ms) is too tight for that. */
+const COLD_START_IDLE_GAP_MS = 1000;
+
+/**
+ * Wait for the app in `iframe` to finish its first load: its page's
+ * document `load` (the frame has a page whose module scripts ran, with
+ * their static imports), then the app's calls to the studio settling
+ * (`waitForIdle`). A page that hasn't loaded within `loadMs` gets the
+ * actions anyway, and a note saying so.
+ *
+ * @param {object} iframe
+ * @param {{ loadMs?: number }} [opts]
+ * @returns {Promise<object | null>} the note, or null
+ */
+export async function settleFirstLoad(iframe, { loadMs = LOAD_TIMEOUT_MS } = {}) {
+    const loaded = await waitForLoad(iframe, loadMs);
+    await waitForIdle(iframe, 15000, COLD_START_IDLE_GAP_MS);
+    if (loaded) return null;
+    return {
+        type: "log",
+        level: "warn",
+        message:
+            `test_app: the app's page hadn't finished loading after ${Math.round(loadMs / 1000)}s ` +
+            "(a module import, a script, an image or a stylesheet still loading), so the " +
+            "actions ran on the page as it was.",
+    };
+}
+
+/**
+ * Point `iframe` at the apps origin's bootloader and settle once the
+ * app's control bridge posts ready, or reject past
+ * `BRIDGE_READY_TIMEOUT_MS` (`bootFailure` says why). The frame is
+ * appended to the page the first time; after that, setting its `src`
+ * navigates it, for a fresh page.
+ *
+ * We can't rely on the iframe element's `load`: it fires for the
+ * bootloader, and again only once the written page has loaded, which
+ * for an app with cold imports is seconds after its bridge is up.
+ *
+ * @param {HTMLIFrameElement} iframe
+ */
+function _bootFrame(iframe) {
+    // whether the apps host's page loaded and asked for the app
+    let hostReady = false;
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            window.removeEventListener("message", readyListener);
+            reject(new Error(bootFailure(hostReady, BRIDGE_READY_TIMEOUT_MS)));
+        }, BRIDGE_READY_TIMEOUT_MS);
+        const readyListener = (event) => {
+            if (!isFromAppFrame(event, iframe)) return;
+            if (event.data?.type === "agex-host-ready") hostReady = true;
+            if (event.data?.type !== "agex-bridge-ready") return;
+            clearTimeout(timeout);
+            window.removeEventListener("message", readyListener);
+            resolve(undefined);
+        };
+        window.addEventListener("message", readyListener);
+        iframe.src = `${APPS_ORIGIN}/?t=${Date.now()}`;
+        if (!iframe.isConnected) document.body.appendChild(iframe);
+    });
+}
+
+/** How many keys a bag has, said in a few words. */
+const _keys = (bag, store) => {
+    const n = Object.keys(bag).length;
+    return `${n} ${store} key${n === 1 ? "" : "s"}`;
+};
+
 /**
  * Run a headless app test in a hidden iframe.
  *
  * Builds the iframe's page via the caller-provided `buildAppPage`, wires
- * the cache/task bridges, runs `actions`, collects console + action
- * results, returns the lot. Always tears the iframe down on resolve
- * or reject.
+ * the cache/task bridges, waits for the app's first load, runs
+ * `actions`, collects console + action results, returns the lot.
+ * Always tears the iframe down on resolve or reject.
+ *
+ * The page's storage is the test's own: seeded from `appStorageSeed`,
+ * never written back. A `{ reload: true }` action rebuilds the page
+ * from the same files in the same iframe, seeded with what the test's
+ * pages wrote to `localStorage` and `sessionStorage` so far (each
+ * reports its storage as it changes: `agex-test-storage`), and waits
+ * for its first load again.
  *
  * @param {{
  *   appFiles: Record<string, string>,
  *   appBinaries?: Record<string, Uint8Array>,
  *   actions?: Array<object>,
  *   appStorageSeed?: Record<string, string>,
- *   buildAppPage: (files: Record<string, string>, opts?: any) => Promise<{ html: string, assets: import("./app-assets.js").AppAsset[] }>,
+ *   buildAppPage: (files: Record<string, string>, opts?: any) => Promise<import("./app-html.js").AppPage>,
+ *   reseedAppPage?: ((page: import("./app-html.js").AppPage, storage: any) => import("./app-html.js").AppPage) | null,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
  *   viewport?: string | { width?: number, height?: number },
@@ -538,6 +723,7 @@ export async function runTestApp(opts) {
         actions = [],
         appStorageSeed = {},
         buildAppPage,
+        reseedAppPage = null,
         cacheHandler = null,
         taskHandler = null,
         viewport = null,
@@ -547,6 +733,10 @@ export async function runTestApp(opts) {
     let iframe = null;
     let messageHandler = null;
     const pendingHandlers = [];
+    /** What comes before the page's console output in the result: a
+     *  note that the first load didn't finish, and the console output
+     *  of pages a reload replaced. */
+    const leading = [];
 
     try {
         if (!appFiles || Object.keys(appFiles).length === 0) {
@@ -561,11 +751,17 @@ export async function runTestApp(opts) {
 
         // Read-only: test_app shouldn't write speculative state back
         // to the user's session — keeps tests isolated and
-        // deterministic.
+        // deterministic. The page reports its storage to the test
+        // alone, for a reload.
         const page = await buildAppPage(appFiles, {
             appBinaries,
-            appStorage: { seed: appStorageSeed, writeable: false },
+            appStorage: { seed: appStorageSeed, writeable: false, report: true },
         });
+        /** What the test's pages hold in storage, as last reported. */
+        let storage = { local: { ...appStorageSeed }, session: {} };
+        /** The page the bootloader is sent when it next asks; null when
+         *  none is due. */
+        let due = page;
 
         iframe = document.createElement("iframe");
         // In-viewport but visually hidden: in-viewport so the browser
@@ -593,68 +789,59 @@ export async function runTestApp(opts) {
             "screen-wake-lock; web-share; clipboard-write";
 
         // The bridge listener doubles as the bootloader handshake
-        // responder when an initHtml payload is passed in. It posts
-        // `agex-host-init` to the iframe in response to the
-        // bootloader's `agex-host-ready` signal.
+        // responder: it posts `agex-host-init` with the page due in
+        // response to the bootloader's `agex-host-ready` signal.
         messageHandler = _attachBridges(
             iframe,
             cacheHandler,
             pendingHandlers,
-            page,
+            () => {
+                const next = due;
+                due = null;
+                return next;
+            },
             taskHandler,
+            (bags) => {
+                storage = bags;
+            },
         );
         window.addEventListener("message", messageHandler);
 
-        // Wait for the iframe's control bridge to come up. We can't
-        // rely on a 2nd `load` event after the bootloader's
-        // document.write — `document.open()` from inside an iframe
-        // replaces the document but doesn't fire a fresh `load` on
-        // the iframe *element* (no navigation occurred). Instead the
-        // bridge script (injected by buildAppPage at the end of the
-        // app HTML) posts `agex-bridge-ready` after `installControlBridge`
-        // returns, which is the real post-parse / scripts-ran signal.
-        //
-        // 10s ceiling distinguishes "iframe boot failed" (which would
-        // otherwise wait for the worker's full 60s emission timeout
-        // with an opaque message) from "app crashed during render" —
-        // the agent sees a focused error pointing at the right thing.
-        const BRIDGE_READY_TIMEOUT_MS = 10000;
-        // whether the apps host's page loaded and asked for the app
-        let hostReady = false;
-        await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                window.removeEventListener("message", readyListener);
-                reject(new Error(bootFailure(hostReady, BRIDGE_READY_TIMEOUT_MS)));
-            }, BRIDGE_READY_TIMEOUT_MS);
-            const readyListener = (event) => {
-                if (!isFromAppFrame(event, iframe)) return;
-                if (event.data?.type === "agex-host-ready") hostReady = true;
-                if (event.data?.type !== "agex-bridge-ready") return;
-                clearTimeout(timeout);
-                window.removeEventListener("message", readyListener);
-                resolve();
-            };
-            window.addEventListener("message", readyListener);
-            iframe.src = `${APPS_ORIGIN}/?t=${Date.now()}`;
-            document.body.appendChild(iframe);
-        });
-        // Initial settle. `onload` already fires after the document
-        // fully loads, but apps that defer state init through a
-        // `useEffect` (vs synchronous `useState(() => init())`) take
-        // a couple of frames after onload before the DOM stabilizes.
-        // Use a more generous idle gap here than the per-action
-        // default (400ms) — agent-reported case: first assertion
-        // running 50ms after onload saw an empty board because the
-        // init effect hadn't committed yet. 1000ms covers the
-        // effect chain on a cold-loaded app without slowing per-
-        // action sequences (which keep their own tight 400ms gap).
-        const COLD_START_IDLE_GAP_MS = 1000;
-        await waitForIdle(iframe, 15000, COLD_START_IDLE_GAP_MS);
+        await _bootFrame(iframe);
+        const frame = iframe;
+        const loadNote = await settleFirstLoad(frame);
+        if (loadNote) leading.push(loadNote);
+
+        /** Rebuild the page from the same files, with the storage the
+         *  test's pages wrote, and wait for its first load. */
+        const reload = reseedAppPage === null ? null : async () => {
+            // the old page's console output, and a round trip after which
+            // every storage report it posted has arrived
+            const before = await _pageLogs(frame);
+            if (before.length > 0) {
+                leading.push(...before, { type: "log", level: "info", message: "(test_app reloaded the page: the console output after this is the new page's)" });
+            }
+            const kept = storage;
+            const next = reseedAppPage(page, { seed: kept.local, writeable: false, report: true, sessionSeed: kept.session });
+            pageGone(frame, "studio");
+            callsLost(frame);
+            due = next;
+            await _bootFrame(frame);
+            const note = await settleFirstLoad(frame);
+            return [
+                {
+                    type: "reload",
+                    message: `reloaded: the page rebuilt from the same files, with the test's storage kept (${_keys(kept.local, "localStorage")}, ${_keys(kept.session, "sessionStorage")})`,
+                },
+                ...(note ? [note] : []),
+            ];
+        };
 
         // testApp owns a hidden iframe, so mid-run `{ viewport }` resizes
         // are safe — they let one boot capture several breakpoints.
-        const actionResults = await executeActions(iframe, actions, {
+        const actionResults = await executeActions(frame, actions, {
             allowViewport: true,
+            reload,
         });
 
         // Drain any handler promises spawned by actions but not yet
@@ -673,7 +860,7 @@ export async function runTestApp(opts) {
             if (pendingHandlers.length === 0) break;
         }
 
-        return await collectResults(iframe, actionResults);
+        return await collectResults(frame, actionResults, leading);
     } catch (e) {
         // Assertion failures escape: agent's emission errors out
         // (per agex-ts's recoverable-error path), agent sees the
@@ -684,7 +871,7 @@ export async function runTestApp(opts) {
         // continues normally.
         if (_isAssertionError(e)) {
             // with the console's output, under the same bounds as a passing call's
-            e.results = await collectResults(iframe, e.results ?? []);
+            e.results = await collectResults(iframe, e.results ?? [], leading);
             throw e;
         }
         return [
@@ -705,14 +892,21 @@ export async function runTestApp(opts) {
  * iframe ref; we don't reach into module-level state here so this
  * stays pure / testable.
  *
+ * A preview that is still loading (it just rebuilt) is waited for, as
+ * a test's first load is (`settleFirstLoad`); one that loaded long ago
+ * starts at once.
+ *
  * @param {{
  *   iframe: HTMLIFrameElement | null,
  *   actions?: Array<object>,
+ *   loadMs?: number,
  * }} opts
  * @returns {Promise<Array<object>>}
  */
 export async function runLiveApp(opts) {
-    const { iframe, actions = [] } = opts;
+    const { iframe, actions = [], loadMs = LOAD_TIMEOUT_MS } = opts;
+    /** A note that the preview's page hadn't loaded, before its console output. */
+    const leading = [];
     try {
         if (!iframe || !iframe.contentWindow) {
             return [
@@ -723,12 +917,19 @@ export async function runLiveApp(opts) {
                 },
             ];
         }
+        if (!(await waitForLoad(iframe, loadMs))) {
+            leading.push({
+                type: "log",
+                level: "warn",
+                message: `live_app: the preview's page hadn't finished loading after ${Math.round(loadMs / 1000)}s, so the actions ran on it as it was.`,
+            });
+        }
         const actionResults = await executeActions(iframe, actions);
-        return await collectResults(iframe, actionResults);
+        return await collectResults(iframe, actionResults, leading);
     } catch (e) {
         // Same assertion-escape rule as `runTestApp`.
         if (_isAssertionError(e)) {
-            e.results = await collectResults(iframe, e.results ?? []);
+            e.results = await collectResults(iframe, e.results ?? [], leading);
             throw e;
         }
         return [

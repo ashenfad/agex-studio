@@ -193,6 +193,13 @@ builds the app from its files as they are now in a hidden iframe, runs
 your actions in order, and returns the app's console output and each
 action's result.
 
+Before the first action it waits for the page to load (its scripts and
+their static imports: a first import from esm.sh can take seconds), then
+for the app to settle, so there's no need to wait or poll for a "ready"
+element first. A dynamic `import()`, a `fetch` or a timer the app starts
+isn't waited for: `{wait: N}`, then read. If the page still hasn't
+loaded after 30s, the actions run anyway and the result says so.
+
 ```json
 {"actions": [
   {"click": "#inc"},
@@ -210,6 +217,7 @@ action's result.
 - `{screenshot: true}` or `{screenshot: "#sel"}`: a PNG of the page (or an element), **attached to this result**: you see it on your next step, in the same turn
 - `{screenshot: true | "#sel", grid: "name", label: "after save"}`: held, and at the end of the call every frame of that grid comes back tiled into **one** image, each frame numbered and captioned with its label (up to 12 a grid; it comes back when an assert fails too)
 - `{viewport: "mobile" | "tablet" | "desktop" | {width, height}}`: resize between actions
+- `{reload: true}`: reload the page (rebuilt from the same files), keeping what this test wrote to `localStorage` and `sessionStorage`, and wait for it to load again: checks that what the app saves comes back. The person's storage is never written
 
 Actions are plain JSON objects, not a Playwright API: there's no `page`,
 and functions can't be passed (use `eval` for in-page JS). Keep reads
@@ -224,8 +232,9 @@ Options beside `actions`:
   from the person's, and the test's writes are thrown away).
 - `live: true`: act on the preview **the person is looking at** instead,
   to read what they entered or selected, or to apply something to the
-  open app. The preview shows the files as they are, so a change you just
-  wrote is already in it.
+  open app. A change you just wrote is in it: the call waits for the
+  preview to rebuild and load. `viewport` and `reload` aren't available
+  live.
 
 Use `assert` for a known condition, `eval` when you need the value to
 decide what to do, and a screenshot for layout and look; text checks are
@@ -238,6 +247,10 @@ cheaper and their failures more precise.
   when every fetch failed, so a check of a heading proves nothing.
 - **Exercise the flow:** click the filter, wait, and assert that the
   result changed, not only that the page loaded.
+- **Check that saved data survives a reload:** change something,
+  `{reload: true}`, then read it back.
+- **Check a phone too:** `{viewport: "mobile"}` and a screenshot (a grid
+  beside the desktop one, below) catch layouts that only fit wide.
 - **Fill inputs with `type` and `select`,** not by setting `.value`
   from `eval`: Preact and React don't see that change, and the app
   acts on what it had before.
@@ -346,6 +359,9 @@ page. Arguments and results must be structured-cloneable.
   the sandbox's page, not served at a URL, so navigating tears it down.
   Reset your state and re-render instead.
 - **`document.write`**: it wipes the running app.
+- **IndexedDB**: it isn't available (every use throws). App storage is
+  `localStorage`, which the studio keeps for the app, up to 5 MB in all
+  (measured as its JSON); `sessionStorage` lasts while the page is open.
 - **`npm install`**: there's no install step; esm.sh serves browser ESM
   packages, and anything needing Node or a native build won't work.
 - **`fetch('/api/...')`**: there's no server; use the cache for your

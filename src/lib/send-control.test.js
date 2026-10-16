@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPS_ORIGIN } from "./apps-origin.js";
 import { installControlBridge } from "./iframe-bridge.js";
-import { CONTROL_TIMEOUT_MS, pageGone, pageLoaded, sendControl } from "./send-control.js";
+import { CONTROL_TIMEOUT_MS, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 
 afterEach(() => {
     vi.useRealTimers();
@@ -90,19 +90,16 @@ describe("sendControl", () => {
 
     it("gives up with a TimeoutError when the page never answers, and stops listening", async () => {
         vi.useFakeTimers();
-        const removed = [];
-        const iframe = {
-            contentWindow: { postMessage: () => {} },
-            addEventListener: () => {},
-            removeEventListener: (type) => removed.push(type),
-        };
+        const removed = vi.spyOn(window, "removeEventListener");
+        const iframe = { contentWindow: { postMessage: () => {} } };
         const p = sendControl(iframe, { eval: "new Promise(() => {})" });
         const settled = expect(p).rejects.toThrow(/^TimeoutError: .*within 30s/);
         vi.advanceTimersByTime(CONTROL_TIMEOUT_MS - 1);
         await Promise.resolve();
         vi.advanceTimersByTime(1);
         await settled;
-        expect(removed).toContain("load");
+        expect(removed).toHaveBeenCalledWith("message", expect.any(Function));
+        removed.mockRestore();
     });
 
     it("takes a shorter timeout when asked", async () => {
@@ -115,45 +112,136 @@ describe("sendControl", () => {
 });
 
 describe("sendControl — navigation", () => {
-    /** A frame double whose `load` listener the test can fire. */
+    /** A frame double whose `load` listeners the test can fire, and
+     *  whose page answers each action with "ok" when `answer()` is
+     *  called. */
     function frame() {
+        /** @type {(() => void)[]} */
+        const loads = [];
+        /** @type {any[]} */
+        const sent = [];
         const f = {
-            load: /** @type {(() => void) | null} */ (null),
-            contentWindow: { postMessage: () => {} },
-            addEventListener: (type, fn) => {
-                if (type === "load") f.load = fn;
+            load: () => loads.forEach((fn) => fn()),
+            sent,
+            answer: () => {
+                for (const msg of sent.splice(0)) reply(result(msg, "ok").data, f.contentWindow);
+            },
+            contentWindow: { postMessage: (/** @type {any} */ msg) => sent.push(msg) },
+            addEventListener: (/** @type {string} */ type, /** @type {() => void} */ fn) => {
+                if (type === "load") loads.push(fn);
             },
             removeEventListener: () => {},
         };
         return f;
     }
 
-    it("rejects with NavigationError when the iframe (re)loads mid-action, and later calls at once", async () => {
+    it("takes the frame's load that follows its page coming up as the page's own, not a navigation", async () => {
+        // the written page finishes loading (its imports) after its bridge is up
         const iframe = frame();
-        const p = sendControl(iframe, { eval: "location.reload()" });
+        pageUp(iframe);
+        const p = sendControl(iframe, { read: "#x" });
         iframe.load();
-        await expect(p).rejects.toThrow(/^NavigationError:/);
-        await expect(sendControl(iframe, { "get-logs": true })).rejects.toThrow(/^NavigationError: the app already navigated/);
+        iframe.answer();
+        expect(await p).toBe("ok");
     });
 
-    it("rejects at once when the page went between actions", async () => {
+    it("fails the action at once when the frame loads again after that, saying the app navigated, and later ones too", async () => {
         const iframe = frame();
-        let sent = 0;
-        iframe.contentWindow.postMessage = () => void sent++;
+        pageUp(iframe);
+        iframe.load();
+        const p = sendControl(iframe, { eval: "location.reload()" });
+        iframe.load();
+        await expect(p).rejects.toThrow(/^NavigationError: the app's page went away during this action: it navigated or reloaded itself/);
+        await expect(sendControl(iframe, { "get-logs": true })).rejects.toThrow(/^NavigationError: the app's page went away after an earlier action/);
+        expect(iframe.sent).toHaveLength(1);
+    });
+
+    it("fails the action in flight when the bootloader comes back, and doesn't send the next", async () => {
+        const iframe = frame();
+        pageUp(iframe);
+        const p = sendControl(iframe, { click: "#reload" });
         pageGone(iframe);
-        await expect(sendControl(iframe, { eval: "1 + 1" })).rejects.toThrow(/^NavigationError: the app already navigated/);
-        expect(sent).toBe(0);
+        await expect(p).rejects.toThrow(/^NavigationError: the app's page went away during this action/);
+        await expect(sendControl(iframe, { eval: "1 + 1" })).rejects.toThrow(/^NavigationError:/);
+        expect(iframe.sent).toHaveLength(1);
+    });
+
+    it("says a page the studio replaced isn't the app's doing, whatever follows", async () => {
+        const iframe = frame();
+        pageUp(iframe);
+        const p = sendControl(iframe, { read: "#x" });
+        pageGone(iframe, "studio");
+        // the new bootloader says it's ready, and the frame loads it
+        pageGone(iframe, "app");
+        iframe.load();
+        await expect(p).rejects.toThrow(/^NavigationError: the studio replaced the app's page during this action .*this isn't the app's doing/);
+        await expect(sendControl(iframe, { read: "#x" })).rejects.toThrow(/^NavigationError: the studio replaced/);
     });
 
     it("takes actions again once the frame has a page again", async () => {
         const iframe = frame();
-        const p = sendControl(iframe, { eval: "location.reload()" });
-        iframe.load();
-        await expect(p).rejects.toThrow(/^NavigationError:/);
+        pageUp(iframe);
+        pageGone(iframe);
+        await expect(sendControl(iframe, { read: "#x" })).rejects.toThrow(/^NavigationError:/);
 
+        pageUp(iframe);
+        const p = sendControl(iframe, { read: "#x" });
+        iframe.answer();
+        expect(await p).toBe("ok");
+    });
+
+    it("listens for the frame's loads once, however often its page comes up", () => {
+        const iframe = frame();
+        const add = vi.spyOn(iframe, "addEventListener");
+        pageUp(iframe);
+        pageUp(iframe);
+        expect(add).toHaveBeenCalledOnce();
+    });
+});
+
+describe("waitForLoad", () => {
+    /** Whether `p` has settled, without waiting for it. */
+    async function settled(p) {
+        let done = false;
+        p.then(() => (done = true));
+        await Promise.resolve();
+        await Promise.resolve();
+        return done;
+    }
+
+    it("settles true once the frame has a page whose document loaded", async () => {
+        const iframe = { contentWindow: {} };
+        const p = waitForLoad(iframe, 1000);
+        expect(await settled(p)).toBe(false);
+        pageUp(iframe);
+        expect(await settled(p)).toBe(false);
         pageLoaded(iframe);
-        iframe.contentWindow.postMessage = (msg) => queueMicrotask(() => reply(result(msg, "back").data, iframe.contentWindow));
-        expect(await sendControl(iframe, { read: "#x" })).toBe("back");
+        expect(await p).toBe(true);
+        // a page that already loaded: at once
+        expect(await waitForLoad(iframe, 1000)).toBe(true);
+    });
+
+    it("waits for the next page when the page went", async () => {
+        const iframe = { contentWindow: {} };
+        pageUp(iframe);
+        pageLoaded(iframe);
+        pageGone(iframe, "studio");
+        const p = waitForLoad(iframe, 1000);
+        // a load the old page reported late doesn't count while it's gone
+        pageLoaded(iframe);
+        expect(await settled(p)).toBe(false);
+        pageUp(iframe);
+        pageLoaded(iframe);
+        expect(await p).toBe(true);
+    });
+
+    it("settles false when the page hasn't loaded in time", async () => {
+        vi.useFakeTimers();
+        const iframe = { contentWindow: {} };
+        pageUp(iframe);
+        const p = waitForLoad(iframe, 30_000);
+        vi.advanceTimersByTime(30_000);
+        expect(await p).toBe(false);
     });
 });
 

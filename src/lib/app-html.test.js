@@ -48,7 +48,51 @@ function runShim(html) {
     const posted = []
     const win = { __agexPost: (msg) => posted.push(msg) }
     new Function('window', shim.replace(/^<script>|<\/script>$/g, ''))(win)
-    return { localStorage: win.localStorage, posted }
+    return { localStorage: win.localStorage, sessionStorage: win.sessionStorage, posted }
+}
+
+describe('a test page’s storage', () => {
+    const blank = { 'app/index.html': '<html><head></head><body></body></html>' }
+
+    it('reports both stores to the test, and never as the app’s storage', async () => {
+        const page = await buildAppPage(blank, { workerSources: {}, appStorage: { seed: { a: '1' }, writeable: false, report: true } })
+        const { localStorage, sessionStorage, posted } = runShim(page.html)
+        localStorage.setItem('b', '2')
+        sessionStorage.setItem('tab', 'x')
+        expect(posted.map((m) => m.type)).toEqual(['agex-test-storage', 'agex-test-storage'])
+        expect(posted.at(-1)).toEqual({ type: 'agex-test-storage', local: { a: '1', b: '2' }, session: { tab: 'x' } })
+        // the report is a copy, and the stores show the app nothing extra
+        posted.at(-1).local.a = 'changed'
+        expect(localStorage.getItem('a')).toBe('1')
+        expect(Object.keys(localStorage)).not.toContain('snapshot')
+    })
+
+    it('posts nothing without report, and a writeable page posts its storage as before', async () => {
+        const quiet = runShim((await buildAppPage(blank, { workerSources: {}, appStorage: { writeable: false } })).html)
+        quiet.localStorage.setItem('k', 'v')
+        expect(quiet.posted).toEqual([])
+        const live = runShim((await buildAppPage(blank, { workerSources: {}, appStorage: { writeable: true, report: true } })).html)
+        live.localStorage.setItem('k', 'v')
+        expect(live.posted).toEqual([{ type: 'agex-app-storage', data: { k: 'v' } }])
+    })
+
+    it('starts sessionStorage from its seed', async () => {
+        const page = await buildAppPage(blank, { workerSources: {}, appStorage: { writeable: false, report: true, sessionSeed: { tab: '</script>' } } })
+        expect(runShim(page.html).sessionStorage.getItem('tab')).toBe('</script>')
+    })
+})
+
+describe('the control bridge', () => {
+    it('says when the page’s document has loaded, after it says it is ready', async () => {
+        const page = await buildAppPage(blank(), { workerSources: {} })
+        const bridge = page.html.match(/<script type="module">[\s\S]*?installControlBridge\(window\);([\s\S]*?)<\/script>/)?.[1]
+        expect(bridge).toMatch(/agex-bridge-ready[\s\S]*agex-page-loaded/)
+        expect(bridge).toContain("addEventListener('load'")
+    })
+})
+
+function blank() {
+    return { 'app/index.html': '<html><head></head><body></body></html>' }
 }
 
 describe('content with `$` patterns in it', () => {
