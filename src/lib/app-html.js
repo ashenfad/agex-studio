@@ -213,31 +213,52 @@ window.notify = function(title, body) {
  * `writeable=true` makes the shim post `agex-app-storage` messages on
  * every mutation; the parent debounces and persists them. Pass
  * `false` for ephemeral iframes (e.g. test_app) that shouldn't write
- * back to the session.
+ * back to the session. A test's page passes `report: true` too: each
+ * change to either store posts `agex-test-storage` with both bags, a
+ * message only the test listens for, so its `{reload: true}` can seed
+ * the next page with what this one wrote (`sessionSeed` seeds
+ * `sessionStorage`, which a reload keeps in a browser's tab).
  *
- * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
+ * @param {{ seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> }} [opts]
  * @returns {string}
  */
 function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
+    const report = !writeable && opts.report === true;
     // Every `<` escaped (a JS string escape, so the values read back
     // the same): a stored `</script>` or `<!--` can't end or upset the
     // script element the seed sits in.
-    const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+    const json = (/** @type {Record<string,string>} */ bag) => JSON.stringify(bag).replace(/</g, '\\u003c');
     return `
 <script>
 (function() {
-    var __seed = ${seedJson};
+    var __seed = ${json(seed)};
+    var __sessionSeed = ${json(opts.sessionSeed || {})};
     var __writeable = ${writeable};
+    var __report = ${report};
     var QUOTA = ${APP_STORAGE_QUOTA};
+    // each store's contents, kept off the store the app sees
+    var snapshots = {};
 
-    function buildStore(persist, seed) {
+    function reportBags() {
+        try {
+            window.__agexPost({
+                type: 'agex-test-storage',
+                local: snapshots.local(),
+                session: snapshots.session(),
+            });
+        } catch (e) { /* parent gone — swallow */ }
+    }
+
+    function buildStore(name, persist, seed) {
         var data = Object.assign({}, seed || {});
+        snapshots[name] = function() { return Object.assign({}, data); };
         function size() {
             try { return JSON.stringify(data).length; } catch (e) { return 0; }
         }
         function notify() {
+            if (__report) return reportBags();
             if (!persist || !__writeable) return;
             try {
                 window.__agexPost({
@@ -294,8 +315,8 @@ function buildAppStorageShim(opts = {}) {
         }
     }
 
-    install('localStorage', buildStore(true, __seed));
-    install('sessionStorage', buildStore(false, {}));
+    install('localStorage', buildStore('local', true, __seed));
+    install('sessionStorage', buildStore('session', false, __sessionSeed));
 
     // IndexedDB is not supported inside agex artifacts. Stub every
     // access with a clear error so agents see the contract violation
@@ -325,13 +346,17 @@ const AGENT_CONTROL_BRIDGE_SCRIPT = `
 ${_iframeBridgeSource}
 installControlBridge(window);
 // Signal the parent that the iframe is past document parse and the
-// control bridge is installed. Used by app-control.js's runTestApp
-// as the post-render readiness signal — the 'load' event on the
-// iframe element doesn't fire after the bootloader's document.write
-// replaces the document, so we need an in-doc signal instead. Module
-// scripts run after the document parses, so by the time this runs
-// the app's other scripts have also had a chance to start.
+// control bridge is installed, so it can take actions. Module scripts
+// run in order once the document parses, and this one has no imports,
+// so it runs first: the app's own modules may still be fetching theirs.
 window.__agexPost({ type: 'agex-bridge-ready' });
+// And once the document's load event fires: after the app's module
+// scripts ran, their static imports fetched (from esm.sh, a cold one
+// can take seconds), and its images and styles loaded. test_app waits
+// for it before the first action. Only the event says so: a page
+// written in by document.open() reads readyState 'complete' throughout,
+// and this module runs before the document's load.
+window.addEventListener('load', () => window.__agexPost({ type: 'agex-page-loaded' }), { once: true });
 <\/script>`;
 
 const CDN_IMPORTS = {
@@ -813,7 +838,7 @@ function _workerRegistryScript(workerSources) {
  * @param {Record<string, string>} appFiles - map of filename → content
  * @param {{
  *   appBinaries?: Record<string, Uint8Array>,
- *   appStorage?: { seed?: Record<string,string>, writeable?: boolean },
+ *   appStorage?: { seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> },
  *   workerSources?: Record<string, string>,
  * }} [opts]
  * @returns {Promise<AppPage>}
@@ -860,7 +885,7 @@ export async function buildAppPage(appFiles, opts = {}) {
  * from what the app saved since the page was built.
  *
  * @param {AppPage} page
- * @param {{ seed?: Record<string,string>, writeable?: boolean }} storage
+ * @param {{ seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> }} storage
  * @returns {AppPage}
  */
 export function reseedAppPage(page, storage) {

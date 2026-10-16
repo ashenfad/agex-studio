@@ -47,7 +47,10 @@ it is itself undoable (**Redo**).
   rejections), so the agent sees them.
 - **`test_app`**: a page whose bridge never comes up within 10
   seconds (most often a module that failed to evaluate) ends the call
-  with an error naming that; a failing `assert` ends it with the
+  with an error naming that; one that hasn't finished loading within
+  30 seconds gets its actions anyway, with a note; a page that goes
+  mid-call ends it with a `NavigationError` saying whether the app or
+  the studio replaced it; a failing `assert` ends it with the
   assertion; `live: true` with no preview showing, or from a delegate,
   is refused with the reason. Oversized values are cut and say so
   (see [app-preview.md](app-preview.md)).

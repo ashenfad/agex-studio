@@ -13,14 +13,14 @@
      * the workbench's: it says whether it is loading and whether there is
      * an app, and rebuilds when asked.
      */
-    import { onDestroy, untrack } from 'svelte'
+    import { onDestroy, tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
-    import { callStarted, callsLost, setLiveIframe } from './app-control.js'
+    import { callStarted, callsLost, setLiveIframe, setLiveSettled } from './app-control.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
     import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
-    import { pageGone, pageLoaded } from './send-control.js'
+    import { pageGone, pageLoaded, pageUp } from './send-control.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
@@ -52,7 +52,42 @@
      *  finishes after it is dropped. */
     let latest = 0
 
+    /** Loads in flight: reading the files, building, posting the page. */
+    let building = 0
+    /** Those waiting for the preview to settle (`whenSettled`). */
+    /** @type {(() => void)[]} */
+    let settling = []
+
+    /** Tell those waiting once no rebuild is due or under way. */
+    function settleCheck() {
+        if (timer !== null || building > 0) return
+        const waiting = settling
+        settling = []
+        for (const fn of waiting) fn()
+    }
+
+    /** Settles once the preview has gone on with the app's files as they
+     *  are: no rebuild is due (a write's debounce) or under way. Its page
+     *  may still be loading, which `test_app` waits for on its own. */
+    function whenSettled() {
+        return new Promise((resolve) => {
+            // once the DOM shows what the load did (a first app's iframe)
+            settling.push(() => void tick().then(() => resolve(undefined)))
+            settleCheck()
+        })
+    }
+
     async function load(force = false) {
+        building += 1
+        try {
+            await loadNow(force)
+        } finally {
+            building -= 1
+            settleCheck()
+        }
+    }
+
+    async function loadNow(force = false) {
         const ws = session.ws
         if (ws === null) return
         const ticket = ++loads
@@ -67,6 +102,7 @@
         failed = null
         if (!hasApp(app)) {
             empty = true
+            if (iframe !== null) pageGone(iframe, 'studio')
             appsUrl = null
             return
         }
@@ -80,9 +116,14 @@
             })
             if (ticket !== latest) return
             current = { page, name }
+            // the studio replaces the page: an action waiting on it fails
+            // saying so, not as though the app had navigated
+            if (iframe !== null) pageGone(iframe, 'studio')
             appsUrl = `${APPS_ORIGIN}/?t=${Date.now()}`
         } catch (e) {
             if (ticket !== latest) return
+            // the preview shows the error in the page's place
+            if (iframe !== null) pageGone(iframe, 'studio')
             failed = errorText(e)
             loading = false
         }
@@ -100,12 +141,20 @@
     $effect(() => {
         void session.appStamp
         if (timer !== null) clearTimeout(timer)
-        timer = setTimeout(() => void load(), 300)
+        timer = setTimeout(() => {
+            timer = null
+            void load()
+        }, 300)
     })
 
     $effect(() => {
         setLiveIframe(iframe)
         return () => setLiveIframe(null)
+    })
+
+    $effect(() => {
+        setLiveSettled(whenSettled)
+        return () => setLiveSettled(null)
     })
 
     /** The app data stamp when the app was last built: past it, another
@@ -145,9 +194,10 @@
         const data = event.data
         if (!data) return
         if (data.type === 'agex-host-ready') {
-            // the bootloader is back in the app's place (a rebuild, or the
-            // app reloaded itself): actions wait for the page's bridge
-            pageGone(iframe)
+            // the bootloader is back in the app's place: the app reloaded
+            // itself, unless the studio's rebuild already said it replaced
+            // the page; actions wait for the page's bridge
+            pageGone(iframe, 'app')
         }
         if (data.type === 'agex-host-ready' && current !== null) {
             // seeded with what the app saved so far: on its first load
@@ -162,8 +212,13 @@
         if (data.type === 'agex-bridge-ready') {
             // the app's page is up, and test_app can act on it again; the
             // calls a page before it made will reach no one
-            pageLoaded(iframe)
+            pageUp(iframe)
             callsLost(iframe)
+            return
+        }
+        if (data.type === 'agex-page-loaded') {
+            // its document loaded (its imports with it): live actions start
+            pageLoaded(iframe)
             return
         }
         if (data.type === 'agex-cache-get') {
@@ -217,6 +272,9 @@
 
     onDestroy(() => {
         if (timer !== null) clearTimeout(timer)
+        timer = null
+        building = 0
+        settleCheck()
         flushStorage()
     })
 </script>

@@ -21,12 +21,21 @@ import {
     executeActions,
     resolveViewport,
     runLiveApp,
+    setLiveSettled,
+    settleFirstLoad,
     waitForIdle,
+    whenLiveSettled,
 } from "./app-control.js";
 import { APPS_ORIGIN } from "./apps-origin.js";
-import { pageGone, sendControl } from "./send-control.js";
+import { pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 
-vi.mock("./send-control.js", () => ({ sendControl: vi.fn(), pageGone: vi.fn() }));
+vi.mock("./send-control.js", () => ({
+    sendControl: vi.fn(),
+    pageGone: vi.fn(),
+    pageUp: vi.fn(),
+    pageLoaded: vi.fn(),
+    waitForLoad: vi.fn(async () => true),
+}));
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
 function makeLogs(n, perEntryBytes) {
@@ -404,7 +413,7 @@ describe("a test's app that reloads itself", () => {
         // the app reloaded between actions: no action saw it go
         handler(hostReady);
         expect(posted).toHaveLength(1);
-        expect(pageGone).toHaveBeenCalledWith(iframe);
+        expect(pageGone).toHaveBeenCalledWith(iframe, "app");
     });
 });
 
@@ -421,6 +430,149 @@ describe("a test's app that never comes up", () => {
             expect(text).toContain("this studio is at http://localhost:4176");
         } finally {
             vi.unstubAllGlobals();
+        }
+    });
+});
+
+describe("executeActions — reload action", () => {
+    it("is the caller's to do, its entries in the results, and the run goes on", async () => {
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => ({ type: "read", selector: action.read, value: "kept" }));
+        const reload = vi.fn(async () => [{ type: "reload", message: "reloaded" }]);
+        const results = await executeActions(/** @type {any} */ ({}), [{ reload: true }, { read: "#saved" }], { reload });
+        expect(reload).toHaveBeenCalledOnce();
+        expect(results).toEqual([{ type: "reload", message: "reloaded" }, { type: "read", selector: "#saved", value: "kept" }]);
+    });
+
+    it("no-ops with a note on the live preview", async () => {
+        vi.mocked(sendControl).mockResolvedValue(null);
+        const results = await executeActions(/** @type {any} */ ({}), [{ reload: true }]);
+        expect(results).toHaveLength(1);
+        expect(results[0].level).toBe("warn");
+        expect(results[0].message).toMatch(/reload actions are only supported without live: true/);
+    });
+
+    it("ends the run when the page doesn't come back", async () => {
+        const sent = [];
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => void sent.push(action));
+        const reload = async () => {
+            throw new Error("test_app: iframe failed to come up");
+        };
+        const results = await executeActions(/** @type {any} */ ({}), [{ reload: true }, { read: "#a" }], { reload });
+        expect(sent).toEqual([]);
+        expect(results).toEqual([{ type: "log", level: "error", message: "reload failed: test_app: iframe failed to come up" }]);
+    });
+});
+
+describe("a test's page coming up", () => {
+    const win = { postMessage: () => {} };
+    const iframe = /** @type {any} */ ({ contentWindow: win });
+    const from = (data) => /** @type {any} */ ({ source: win, origin: APPS_ORIGIN, data });
+
+    it("is followed: its bridge up, then its document loaded", () => {
+        const handler = _attachBridges(iframe, null, [], { html: "", assets: [] });
+        handler(from({ type: "agex-bridge-ready" }));
+        expect(pageUp).toHaveBeenCalledWith(iframe);
+        handler(from({ type: "agex-page-loaded" }));
+        expect(pageLoaded).toHaveBeenCalledWith(iframe);
+    });
+
+    it("is sent the page due each time the bootloader asks, and none past that", () => {
+        const posted = [];
+        const frame = /** @type {any} */ ({ contentWindow: { postMessage: (msg) => posted.push(msg) } });
+        const ask = /** @type {any} */ ({ source: frame.contentWindow, origin: APPS_ORIGIN, data: { type: "agex-host-ready", assets: 1 } });
+        const pages = [{ html: "<p>one</p>", assets: [] }, { html: "<p>two</p>", assets: [] }];
+        const handler = _attachBridges(frame, null, [], () => pages.shift() ?? null);
+        handler(ask);
+        handler(ask);
+        expect(posted.map((m) => m.html)).toEqual(["<p>one</p>", "<p>two</p>"]);
+        handler(ask);
+        expect(posted).toHaveLength(2);
+        expect(pageGone).toHaveBeenCalledWith(frame, "app");
+    });
+
+    it("hands on the storage it reports, checked, for a reload", () => {
+        const onStorage = vi.fn();
+        const handler = _attachBridges(iframe, null, [], null, null, onStorage);
+        handler(from({ type: "agex-test-storage", local: { saved: "1" }, session: { tab: "a" } }));
+        expect(onStorage).toHaveBeenCalledWith({ local: { saved: "1" }, session: { tab: "a" } });
+        // a bag the shim wouldn't have kept is dropped
+        handler(from({ type: "agex-test-storage", local: { n: 1 }, session: {} }));
+        expect(onStorage).toHaveBeenCalledOnce();
+        // only from the test's own frame
+        handler(/** @type {any} */ ({ source: {}, origin: APPS_ORIGIN, data: { type: "agex-test-storage", local: {}, session: {} } }));
+        expect(onStorage).toHaveBeenCalledOnce();
+    });
+});
+
+describe("the first load", () => {
+    it("waits for the page's document, then the app's idle gap", async () => {
+        vi.useFakeTimers();
+        try {
+            /** @type {(v: boolean) => void} */
+            let loaded = () => {};
+            vi.mocked(waitForLoad).mockImplementationOnce(() => new Promise((r) => (loaded = r)));
+            let note;
+            const p = settleFirstLoad({}).then((n) => (note = n));
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(note).toBeUndefined();
+            // a cold import arrived, the page loaded
+            loaded(true);
+            await vi.advanceTimersByTimeAsync(999);
+            expect(note).toBeUndefined();
+            await vi.advanceTimersByTimeAsync(1);
+            await p;
+            expect(note).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("carries on with a note when the page hasn't loaded in time", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.mocked(waitForLoad).mockResolvedValueOnce(false);
+            const p = settleFirstLoad({}, { loadMs: 30_000 });
+            await vi.advanceTimersByTimeAsync(1000);
+            const note = await p;
+            expect(note).toMatchObject({ type: "log", level: "warn" });
+            expect(note.message).toMatch(/hadn't finished loading after 30s/);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("is waited for on the live preview too, with a note when it didn't come", async () => {
+        vi.mocked(waitForLoad).mockResolvedValueOnce(false);
+        vi.mocked(sendControl).mockResolvedValue(null);
+        const results = await runLiveApp({ iframe: /** @type {any} */ ({ contentWindow: {} }), actions: [], loadMs: 5000 });
+        expect(waitForLoad).toHaveBeenLastCalledWith(expect.anything(), 5000);
+        expect(results[0].message).toMatch(/preview's page hadn't finished loading after 5s/);
+    });
+});
+
+describe("a live test after a write", () => {
+    it("waits for the preview to go on with the files, at once with no preview, and not past its cap", async () => {
+        await whenLiveSettled();
+        /** @type {() => void} */
+        let rebuilt = () => {};
+        setLiveSettled(() => new Promise((r) => (rebuilt = () => r(undefined))));
+        let done = false;
+        const p = whenLiveSettled().then(() => (done = true));
+        await Promise.resolve();
+        expect(done).toBe(false);
+        rebuilt();
+        await p;
+        expect(done).toBe(true);
+
+        vi.useFakeTimers();
+        try {
+            setLiveSettled(() => new Promise(() => {}));
+            const capped = whenLiveSettled(15_000);
+            await vi.advanceTimersByTimeAsync(15_000);
+            await capped;
+        } finally {
+            vi.useRealTimers();
+            setLiveSettled(null);
         }
     });
 });

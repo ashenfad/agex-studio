@@ -208,7 +208,8 @@ export function installDevHook(studio, sync) {
         /** Act on the preview the person sees, as test_app's live does.
          *  @param {object[]} actions */
         async live(actions) {
-            const { getLiveIframe, runLiveApp } = await import("./app-control.js");
+            const { getLiveIframe, runLiveApp, whenLiveSettled } = await import("./app-control.js");
+            await whenLiveSettled();
             const iframe = getLiveIframe();
             if (iframe === null) throw new Error("the preview isn't showing an app");
             return runLiveApp({ iframe, actions });
