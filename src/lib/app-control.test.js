@@ -27,7 +27,7 @@ import {
     whenLiveSettled,
 } from "./app-control.js";
 import { APPS_ORIGIN } from "./apps-origin.js";
-import { pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
+import { hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 
 vi.mock("./send-control.js", () => ({
     sendControl: vi.fn(),
@@ -35,6 +35,7 @@ vi.mock("./send-control.js", () => ({
     pageUp: vi.fn(),
     pageLoaded: vi.fn(),
     waitForLoad: vi.fn(async () => true),
+    hasLoaded: vi.fn(() => true),
 }));
 
 /** Build N entries with `kind`-shaped payloads summing to ~targetBytes. */
@@ -547,6 +548,40 @@ describe("the first load", () => {
         const results = await runLiveApp({ iframe: /** @type {any} */ ({ contentWindow: {} }), actions: [], loadMs: 5000 });
         expect(waitForLoad).toHaveBeenLastCalledWith(expect.anything(), 5000);
         expect(results[0].message).toMatch(/preview's page hadn't finished loading after 5s/);
+    });
+});
+
+describe("a live preview that was still loading", () => {
+    it("lets the app's calls settle before the first action, and one long loaded starts at once", async () => {
+        vi.useFakeTimers();
+        try {
+            const sent = [];
+            vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+                sent.push(action);
+                return null;
+            });
+            vi.mocked(hasLoaded).mockReturnValueOnce(false);
+            const loading = /** @type {any} */ ({ contentWindow: {} });
+            const p = runLiveApp({ iframe: loading, actions: [{ read: "#a" }] });
+            // its load handler set off a call to the studio
+            await vi.advanceTimersByTimeAsync(100);
+            const done = callStarted(loading);
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(sent).toEqual([]);
+            done();
+            await vi.advanceTimersByTimeAsync(1000);
+            await p;
+            expect(sent[0]).toEqual({ read: "#a" });
+
+            sent.length = 0;
+            const q = runLiveApp({ iframe: /** @type {any} */ ({ contentWindow: {} }), actions: [{ read: "#b" }] });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sent[0]).toEqual({ read: "#b" });
+            await vi.advanceTimersByTimeAsync(1000);
+            await q;
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 

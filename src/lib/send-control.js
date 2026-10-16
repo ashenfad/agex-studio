@@ -153,6 +153,17 @@ export function pageGone(iframe, cause = "app") {
 }
 
 /**
+ * Whether the frame has a page whose document has loaded.
+ *
+ * @param {object} iframe
+ * @returns {boolean}
+ */
+export function hasLoaded(iframe) {
+    const s = stateOf(iframe);
+    return s.gone === null && s.loaded;
+}
+
+/**
  * Settle once the frame has a page whose document has loaded (true),
  * or once `ms` elapse first (false).
  *
