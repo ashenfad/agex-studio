@@ -8,7 +8,7 @@
  * the session's cache.
  */
 
-import { pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
+import { hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 import { checkBag } from "./app-storage.js";
@@ -892,8 +892,9 @@ export async function runTestApp(opts) {
  * iframe ref; we don't reach into module-level state here so this
  * stays pure / testable.
  *
- * A preview that is still loading (it just rebuilt) is waited for, as
- * a test's first load is (`settleFirstLoad`); one that loaded long ago
+ * A preview that is still loading (it just rebuilt) is waited for as
+ * a test's first load is (`settleFirstLoad`): its page's `load`, then
+ * the app's calls to the studio settling. One that loaded long ago
  * starts at once.
  *
  * @param {{
@@ -917,6 +918,7 @@ export async function runLiveApp(opts) {
                 },
             ];
         }
+        const loading = !hasLoaded(iframe);
         if (!(await waitForLoad(iframe, loadMs))) {
             leading.push({
                 type: "log",
@@ -924,6 +926,7 @@ export async function runLiveApp(opts) {
                 message: `live_app: the preview's page hadn't finished loading after ${Math.round(loadMs / 1000)}s, so the actions ran on it as it was.`,
             });
         }
+        if (loading) await waitForIdle(iframe, 15000, COLD_START_IDLE_GAP_MS);
         const actionResults = await executeActions(iframe, actions);
         return await collectResults(iframe, actionResults, leading);
     } catch (e) {
