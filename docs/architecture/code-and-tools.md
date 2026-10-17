@@ -81,6 +81,14 @@ schemas before the method runs) that code calls with `await`:
   `pdf.render(path, { pages, scale, dir })`, which writes pages as
   PNGs for `view_image`. pdf.js runs on the page (it needs a canvas),
   loaded from a CDN on first use.
+- **`db`** (`agent-db.js`): the session's app database, the one its
+  app reaches as `agex.db`: `db.query(sql, params?)` and
+  `db.transaction([[sql, params], ...])`, and `db.tables()` (the
+  app's schema, without SQLite's and the log's own tables), through
+  the same client,
+  worker, lock and log as the app's (`appDbs.dbFor`). A delegate's
+  code reaches its lead's database. A world that isn't a studio session
+  (a task's scratch world) is refused rather than given a database.
 - **`agex`** (agex-ts's `agentTasks`): tasks the agent's code defines
   (`agex.task({ name, instructions, params, returns })`, the types as
   JSON Schema) and calls like a function, or `.map`s over a list. Each
