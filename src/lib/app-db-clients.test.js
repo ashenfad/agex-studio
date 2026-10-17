@@ -54,6 +54,18 @@ describe("the page's app databases", () => {
         expect(dbs.held()).toEqual(new Map([[parent.config.id, ["s-1", "s-2"]]]));
     });
 
+    it("moves a fork this page looked up before the share to its parent's", async () => {
+        const { dbs } = await setup();
+        const parent = await dbs.dbFor("s-1");
+        const own = await dbs.dbFor("s-2");
+        expect(own.config.id).not.toBe(parent.config.id);
+
+        await dbs.share("s-1", "s-2");
+        expect(own.close).toHaveBeenCalledTimes(1);
+        expect(await dbs.dbFor("s-2")).toBe(parent);
+        expect(dbs.held()).toEqual(new Map([[parent.config.id, ["s-1", "s-2"]]]));
+    });
+
     it("closes a client once no session here uses it", async () => {
         const { dbs, connect } = await setup();
         const client = await dbs.dbFor("s-1");
@@ -91,6 +103,21 @@ describe("the page's app databases", () => {
         // a session that never used one
         await dbs.forget("s-3");
         expect(await dbOf(store, "s-3")).toBeNull();
+    });
+
+    it("drops what a lookup still in flight names for a session being deleted", async () => {
+        const { store, dbs, connect } = await setup();
+        const opening = dbs.dbFor("s-1");
+        opening.catch(() => {}); // rejects before it's awaited below
+        await dbs.forget("s-1");
+        await expect(opening).rejects.toThrow("s-1 is deleted");
+        expect(await dbOf(store, "s-1")).toBeNull();
+        expect(dbs.held().size).toBe(0);
+        expect(connect).not.toHaveBeenCalled();
+
+        // and it's never named again here
+        await expect(dbs.dbFor("s-1")).rejects.toThrow("s-1 is deleted");
+        expect(await dbOf(store, "s-1")).toBeNull();
     });
 
     it("starts the worker again after a start that failed", async () => {
