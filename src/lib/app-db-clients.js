@@ -15,7 +15,8 @@
  */
 
 import { connect } from "@agex-ts/kvsql/client";
-import { ensureDb, shareDb, unlinkDb } from "./app-db.js";
+import { dbOf, ensureDb, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
 
 /** @typedef {import("@agex-ts/kvsql/client").DatabaseClient} DatabaseClient */
@@ -39,6 +40,12 @@ async function startWorker() {
 }
 
 /**
+ * A database as the session dialog shows it: its id, its file's size,
+ * its tables, and the sessions naming it.
+ * @typedef {{ id: string, bytes: number, tables: string[], sessions: string[] }} DbSummary
+ */
+
+/**
  * A database's client, and the sessions here that have asked for it.
  * @typedef {{ ref: DbRef, client: Promise<DatabaseClient>, users: Set<string> }} Held
  */
@@ -50,8 +57,12 @@ export class AppDbs {
     #start;
     /** @type {typeof connect} */
     #connect;
+    /** @type {() => Promise<boolean>} */
+    #persist;
     /** @type {Promise<WorkerLike> | null} */
     #worker = null;
+    /** Whether persistent storage has been asked for on this page. */
+    #askedPersist = false;
     /** By database id. @type {Map<string, Held>} */
     #held = new Map();
     /** Each session's database, once looked up. @type {Map<string, Promise<DbRef>>} */
@@ -60,14 +71,16 @@ export class AppDbs {
     #forgotten = new Set();
 
     /**
-     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect }} [deps]
-     *   the store the registry is on, how the worker starts and how a
-     *   client connects to it (each replaceable in tests)
+     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean> }} [deps]
+     *   the store the registry is on, how the worker starts, how a
+     *   client connects to it, and how persistent storage is asked for
+     *   (each replaceable in tests)
      */
-    constructor({ store = openStore, start = startWorker, connect: connectTo = connect } = {}) {
+    constructor({ store = openStore, start = startWorker, connect: connectTo = connect, persist = askPersist } = {}) {
         this.#store = store;
         this.#start = start;
         this.#connect = connectTo;
+        this.#persist = persist;
     }
 
     /** The worker, started once; a start that failed is tried again next time. */
@@ -111,6 +124,13 @@ export class AppDbs {
         this.#refuseForgotten(name);
         let held = this.#held.get(ref.id);
         if (held === undefined) {
+            // the browser's storage is the database's only copy until sync
+            // carries it: ask that it be kept, once a page, when an app
+            // first keeps data
+            if (!this.#askedPersist) {
+                this.#askedPersist = true;
+                void this.#persist().catch(() => {});
+            }
             /** @type {Held} */
             const made = {
                 ref,
@@ -149,6 +169,43 @@ export class AppDbs {
         // `scratch` tells the worker (db-worker.js) to hold it in memory
         const config = /** @type {import("@agex-ts/kvsql/client").DatabaseConfig} */ ({ id, label: DB_LABEL, scratch: true });
         return this.#connect(await this.#workerNow(), config);
+    }
+
+    /**
+     * Session `name`'s database as the session dialog shows it, or null
+     * if it has none yet (looking names none).
+     *
+     * @param {string} name
+     * @returns {Promise<DbSummary | null>}
+     */
+    async describe(name) {
+        const owner = dbOwner(name);
+        const store = await this.#store();
+        const ref = await dbOf(store, owner);
+        if (ref === null) return null;
+        const db = await this.dbFor(owner);
+        const [size, tables, sessions] = await Promise.all([
+            db.query("SELECT page_count * page_size AS bytes FROM pragma_page_count(), pragma_page_size()"),
+            // the app's own: not SQLite's (`sqlite_*`) nor the log's (`_kvsql_*`)
+            db.query("SELECT name FROM sqlite_schema WHERE type = 'table' AND substr(name, 1, 7) NOT IN ('sqlite_', '_kvsql_') ORDER BY name"),
+            sessionsNaming(store, ref.id),
+        ]);
+        return {
+            id: ref.id,
+            bytes: Number(size.rows[0]?.bytes ?? 0),
+            tables: tables.rows.map((r) => String(r.name)),
+            sessions,
+        };
+    }
+
+    /**
+     * Session `name`'s database as a standalone SQLite file, without the
+     * log's own tables, for any SQLite tool to open.
+     *
+     * @param {string} name
+     */
+    async exportFile(name) {
+        return (await this.dbFor(name)).export();
     }
 
     /** The database ids this page holds a client for, each with the

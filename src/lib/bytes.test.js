@@ -24,9 +24,14 @@ describe("formatBytes", () => {
         expect(formatBytes(1024 * 1024 - 1)).toBe("1024.0 KB");
     });
 
-    it("uses MB at 1 MB and above", () => {
+    it("uses MB between 1 MB and 1 GB", () => {
         expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
         expect(formatBytes(47 * 1024 * 1024 + 300_000)).toBe("47.3 MB");
+    });
+
+    it("uses GB at 1 GB and above", () => {
+        expect(formatBytes(1024 ** 3)).toBe("1.0 GB");
+        expect(formatBytes(2.5 * 1024 ** 3)).toBe("2.5 GB");
     });
 });
 

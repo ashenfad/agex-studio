@@ -35,6 +35,8 @@ Globals, no import needed:
 - `getCacheValue(key)`: read a value your code stashed with
   `await cache.set(key, value)` in `run_ts` (see "Data from you to the
   app").
+- `agex.db`: the app's SQLite database, for the data it keeps (see
+  "Keeping data: `agex.db`").
 - `notify(title, body)`: a desktop notification (a timer done, a long
   job finished), shown by the studio only if the person has allowed
   notifications in its settings, at most 5 a minute. Resolves `true`
@@ -119,6 +121,82 @@ mount and applied as CSS variables lets you restyle without rewriting
 files. To apply a new one to the open preview at once, re-run the apply
 step with `test_app` and `live: true` (`{eval: ...}`), rather than
 reloading the page.
+
+## Keeping data: `agex.db`
+
+For data the app keeps (records, entries, scores, history: anything
+that grows, or that you'd filter and sort), use `agex.db`, the
+session's SQLite database, kept by the studio. `localStorage` is for
+small settings (5 MB in all).
+
+```js
+await agex.db.query(`CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  created INTEGER NOT NULL
+)`)
+const { lastInsertRowid } = await agex.db.query(
+  'INSERT INTO tasks (title, created) VALUES (?, ?)', [title, Date.now()])
+const { rows } = await agex.db.query(
+  'SELECT id, title FROM tasks WHERE done = 0 ORDER BY created DESC LIMIT 50')
+await agex.db.transaction([
+  ['UPDATE accounts SET balance = balance - ? WHERE id = ?', [10, 'a']],
+  ['UPDATE accounts SET balance = balance + ? WHERE id = ?', [10, 'b']],
+])
+```
+
+- **`query(sql, params?)`** resolves with `{ rows, changes,
+  lastInsertRowid }`: rows as objects, blobs as `Uint8Array`, integers
+  past 2^53 as `bigint`. Bind values with `?` and an array; never build
+  SQL from strings.
+- **Each call is a transaction of its own;** `transaction([[sql,
+  params], ...])` runs several as one, all or none. `BEGIN` and
+  `COMMIT` are refused. A failure rejects with SQLite's message (in a
+  transaction, `err.index` is the statement that failed): catch it and
+  show it.
+- **Every table needs a primary key whose columns are `NOT NULL`**
+  (`id INTEGER PRIMARY KEY NOT NULL`, or `TEXT PRIMARY KEY NOT NULL`
+  for ids you make): one without is refused. Not available: `ATTACH`,
+  `VACUUM`, virtual tables (FTS5, R*Tree), `TEMP` triggers, and pragmas
+  that change how the file is stored. Each refusal says what to do
+  instead. Foreign keys are enforced (`REFERENCES ... ON DELETE
+  CASCADE` works).
+- **A call that changes the schema** (`CREATE`, `ALTER`, `DROP`,
+  `PRAGMA user_version = n`) is recorded as its SQL and run again
+  wherever the database is rebuilt, so it can't use `random()` or the
+  clock (`datetime('now')`, `CURRENT_TIMESTAMP`). Change the schema in
+  one call and write rows in another, and make times in JS
+  (`Date.now()`) and pass them in.
+- **Create the schema on load** with `CREATE TABLE IF NOT EXISTS` (and
+  `CREATE INDEX IF NOT EXISTS`): one that changes nothing costs nothing.
+  **Change an existing schema with `user_version`**, each step once:
+
+  ```js
+  const { rows: [{ user_version: v }] } = await agex.db.query('PRAGMA user_version')
+  if (v < 1) await agex.db.transaction([
+    ['ALTER TABLE tasks ADD COLUMN due INTEGER'],
+    ['PRAGMA user_version = 1'],
+  ])
+  ```
+- **It's the person's data.** It outlives your edits to the app, an
+  undo doesn't rewind it, and a fork of the session shares it. So
+  migrate what's there rather than dropping tables to start over, and
+  ask before deleting the person's rows to fix a bug.
+- **Read what you show:** `WHERE`, `ORDER BY` and `LIMIT` in SQL, not
+  a whole table filtered in JS. A database can hold far more than a
+  page should load. Add an index for a column you filter or sort a
+  large table by.
+- **It stays on this device for now:** sync doesn't carry it yet. The
+  person can export it as a `.sqlite` file from the session's dialog.
+
+`test_app` gives the app **an empty database of its own** (kept across
+`{reload: true}`, gone after the call), so a test never touches the
+person's data; seed what a test needs from its actions (`{eval:
+"agex.db.query(...)"}`). With `live: true` the app is on the person's
+database, and what a test writes there stays: read with it
+(`{eval: "agex.db.query('SELECT count(*) AS n FROM tasks')"}`), and
+write only when the person asked.
 
 ## An agent in the app: `agex.task`
 
@@ -217,7 +295,7 @@ loaded after 30s, the actions run anyway and the result says so.
 - `{screenshot: true}` or `{screenshot: "#sel"}`: a PNG of the page (or an element), **attached to this result**: you see it on your next step, in the same turn
 - `{screenshot: true | "#sel", grid: "name", label: "after save"}`: held, and at the end of the call every frame of that grid comes back tiled into **one** image, each frame numbered and captioned with its label (up to 12 a grid; it comes back when an assert fails too)
 - `{viewport: "mobile" | "tablet" | "desktop" | {width, height}}`: resize between actions
-- `{reload: true}`: reload the page (rebuilt from the same files), keeping what this test wrote to `localStorage` and `sessionStorage`, and wait for it to load again: checks that what the app saves comes back. The person's storage is never written
+- `{reload: true}`: reload the page (rebuilt from the same files), keeping what this test wrote to `localStorage`, `sessionStorage` and its `agex.db`, and wait for it to load again: checks that what the app saves comes back. The person's storage and database are never written
 
 Actions are plain JSON objects, not a Playwright API: there's no `page`,
 and functions can't be passed (use `eval` for in-page JS). Keep reads
@@ -359,9 +437,10 @@ page. Arguments and results must be structured-cloneable.
   the sandbox's page, not served at a URL, so navigating tears it down.
   Reset your state and re-render instead.
 - **`document.write`**: it wipes the running app.
-- **IndexedDB**: it isn't available (every use throws). App storage is
-  `localStorage`, which the studio keeps for the app, up to 5 MB in all
-  (measured as its JSON); `sessionStorage` lasts while the page is open.
+- **IndexedDB**: it isn't available (every use throws). Keep data in
+  `agex.db`, and small settings in `localStorage`, which the studio
+  keeps for the app, up to 5 MB in all (measured as its JSON);
+  `sessionStorage` lasts while the page is open.
 - **`npm install`**: there's no install step; esm.sh serves browser ESM
   packages, and anything needing Node or a native build won't work.
 - **`fetch('/api/...')`**: there's no server; use the cache for your

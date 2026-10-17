@@ -2,11 +2,16 @@
     /**
      * One session's actions, in one place: its name; a fork of it (with
      * its conversation, its files alone, or as it is now without its
-     * history); a bundle of it to keep or share; publishing it; and
-     * deleting it (with sync on, from this device or everywhere).
+     * history); a bundle of it to keep or share; publishing it; its
+     * app's database (its size, the sessions sharing it, keeping it on
+     * this device, an export); and deleting it (with sync on, from this
+     * device or everywhere).
      */
-    import { untrack } from 'svelte'
+    import { onMount, untrack } from 'svelte'
+    import { appDbs } from './app-db-clients.js'
+    import { formatBytes } from './bytes.js'
     import { errorText } from './errors.js'
+    import { askPersist, isPersisted } from './persist.js'
     import Dialog from './Dialog.svelte'
     import { distribution } from './distribution.svelte.js'
     import { studio } from './studio.svelte.js'
@@ -59,15 +64,61 @@
         )
     }
 
+    /** @param {Uint8Array} bytes @param {string} fileName */
+    function download(bytes, fileName) {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }))
+        a.download = fileName
+        a.click()
+        URL.revokeObjectURL(a.href)
+    }
+
     /** @param {'everything' | 'current'} shape */
     function exportAs(shape) {
         return act(async () => {
             const { bytes, fileName } = await distribution.exportBundle(name, shape)
-            const a = document.createElement('a')
-            a.href = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }))
-            a.download = fileName
-            a.click()
-            URL.revokeObjectURL(a.href)
+            download(bytes, fileName)
+        })
+    }
+
+    /** The app's database: undefined while it's looked up, null if the
+     *  app has kept none. @type {import('./app-db-clients.js').DbSummary | null | undefined} */
+    let db = $state(undefined)
+    /** Whether the browser keeps the studio's storage; null if it can't say. */
+    /** @type {boolean | null} */
+    let persisted = $state(null)
+    /** The other sessions sharing the database, by title. */
+    const sharing = $derived(
+        (db?.sessions ?? []).filter((n) => n !== name).map((n) => studio.sessions.find((s) => s.name === n)?.title || 'Untitled'),
+    )
+
+    onMount(() => {
+        // a delegate's app uses its lead's database, shown there
+        if (name.includes('.')) {
+            db = null
+            return
+        }
+        appDbs.describe(name).then(
+            (found) => (db = found),
+            (e) => {
+                db = null
+                failed = `The app's database couldn't be read: ${errorText(e)}`
+            },
+        )
+        isPersisted().then((p) => (persisted = p))
+    })
+
+    function exportDb() {
+        return act(async () => {
+            const base = (entry?.title || 'app').replace(/[^\p{L}\p{N} _-]+/gu, '').trim() || 'app'
+            download(await appDbs.exportFile(name), `${base}.sqlite`)
+        })
+    }
+
+    function keep() {
+        return act(async () => {
+            persisted = await askPersist()
+            if (!persisted) throw new Error("The browser didn't agree to keep it: it decides by how the site is used (in Safari, add the studio to the home screen)")
         })
     }
 </script>
@@ -102,6 +153,26 @@
             <button disabled={working} onclick={onPublish}>Publish…</button>
         </div>
     </section>
+
+    {#if db}
+        <section>
+            <h3>App database</h3>
+            <p class="hint">
+                {formatBytes(db.bytes)}, {db.tables.length === 1 ? '1 table' : `${db.tables.length} tables`}{#if db.tables.length > 0}: {db.tables.join(', ')}{/if}.
+                {#if sharing.length > 0}Shared with {sharing.join(', ')}.{/if}
+            </p>
+            <p class="hint">
+                On this device only: sync doesn't carry it yet, so export it to keep a copy.
+                {#if persisted === false}The browser may also clear it when space runs low.{/if}
+            </p>
+            <div class="row">
+                <button disabled={working} onclick={exportDb} title="A SQLite file (.sqlite) any SQLite tool opens">Export as .sqlite</button>
+                {#if persisted === false}
+                    <button disabled={working} onclick={keep} title="Ask the browser not to clear the studio's data when space runs low">Keep it on this device</button>
+                {/if}
+            </div>
+        </section>
+    {/if}
 
     <section>
         <h3>Delete</h3>

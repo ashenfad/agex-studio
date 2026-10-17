@@ -23,7 +23,7 @@ function entryPoints() {
 
 /** The packages the studio is built from, whose READMEs the
  *  agex-ecosystem skill carries. */
-const ECOSYSTEM = ['agex-ts', '@agex-ts/world', '@agex-ts/kvgit', '@agex-ts/termish']
+const ECOSYSTEM = ['agex-ts', '@agex-ts/world', '@agex-ts/kvgit', '@agex-ts/termish', '@agex-ts/kvsql']
 
 /** `virtual:package-readmes`: the studio's README and each ecosystem
  *  package's, with its version, read from disk when the studio is
