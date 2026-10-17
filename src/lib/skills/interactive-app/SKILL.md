@@ -190,13 +190,18 @@ await agex.db.transaction([
 - **It stays on this device for now:** sync doesn't carry it yet. The
   person can export it as a `.sqlite` file from the session's dialog.
 
+**From your own code, `db` is the same database:** in `run_ts`,
+`await db.query('SELECT count(*) AS n FROM tasks')` reads what the app
+stored, with the same `query` and `transaction`. Use it to look at the
+data, debug, and seed or migrate it when the person asks; the app
+shows a change the next time it reads.
+
 `test_app` gives the app **an empty database of its own** (kept across
 `{reload: true}`, gone after the call), so a test never touches the
 person's data; seed what a test needs from its actions (`{eval:
 "agex.db.query(...)"}`). With `live: true` the app is on the person's
-database, and what a test writes there stays: read with it
-(`{eval: "agex.db.query('SELECT count(*) AS n FROM tasks')"}`), and
-write only when the person asked.
+database, and what a test writes there stays: write only when the
+person asked.
 
 ## An agent in the app: `agex.task`
 

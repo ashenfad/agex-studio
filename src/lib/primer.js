@@ -26,6 +26,8 @@ const DELEGATION = `Your terminal has \`ws-git\`, this session's own git: \`ws-g
 
 const PDF = `\`pdf\` reads the workspace's PDFs, from run_ts, its pages numbered from 1: \`await pdf.pages(path)\` counts them; \`pdf.text(path, { pages })\` gives each page's text as \`[{ page, text }]\` (a scanned page reads empty); \`pdf.render(path, { pages, scale, dir })\` writes pages as PNGs (by default in \`<name>-pages/\` beside the PDF, the first 20) and returns their paths, for view_image.`;
 
+const DB = `\`db\` is the session's app database, from run_ts: the SQLite database its app reaches as \`agex.db\`. \`await db.query(sql, params?)\` gives \`{ rows, changes, lastInsertRowid }\`; \`db.transaction([[sql, params], ...])\` runs several statements as one, all or none. Read it to see what the app stored and to debug it; \`await db.tables()\` lists its tables, indexes, views and triggers with their SQL. It holds the person's data, which outlives your edits and isn't rewound by an undo: change, migrate or delete it only when the person asked, and say what you changed. The interactive-app skill has the rules for its tables and schema changes.`;
+
 const NO_VISION = `Your model takes no images here: view_image and test_app's screenshots don't reach you. Check an app by what test_app reports as text (its console, its results, values you log from the page), read a PDF with pdf.text, and leave judging a generated image to the person.`;
 
 const HOSTS = "Your run_ts code has host objects of the studio's; an app's code doesn't (it runs in the preview), so build an app's assets with them ahead of time.";
@@ -39,7 +41,7 @@ export function primer(settings) {
     const parts = [STUDIO, HOSTS];
     if (hasRouterKey(settings)) parts.push(WEB, MEDIA);
     else parts.push(NO_ROUTER);
-    parts.push(PDF, DELEGATION);
+    parts.push(PDF, DB, DELEGATION);
     if (!visionOf(settings)) parts.push(NO_VISION);
     return parts.join("\n\n");
 }
