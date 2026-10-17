@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@agex-ts/kvgit": "link:../agex-ts/packages/kvgit-ts",
+    "@agex-ts/kvsql": "link:../agex-ts/packages/kvsql",
     "@agex-ts/termish": "link:../agex-ts/packages/termish-ts",
     "@agex-ts/world": "link:../agex-ts/packages/world",
     "@ai-sdk/anthropic": "4.0.79",

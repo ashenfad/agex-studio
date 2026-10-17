@@ -10,8 +10,10 @@
  *     await __studio.upload([{ name: 'doc.pdf', base64 }])   // into uploads/
  *     await __studio.fork('fresh'); await __studio.undo(0); __studio.sessions()
  *     await __studio.sync.sweep(); __studio.sync.state()   // with sync connected
+ *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  */
 
+import { appDbs } from "./app-db-clients.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { distribution } from "./distribution.svelte.js";
 import { script } from "./scripted.js";
@@ -229,6 +231,32 @@ export function installDevHook(studio, sync) {
         /** The current session's head. */
         head() {
             return session().ws?.head ?? null;
+        },
+        /** The current session's app database, named and opened on
+         *  first use. */
+        db: {
+            /** @param {string} sql @param {unknown[]} [params] */
+            async query(sql, params) {
+                return (await appDbs.dbFor(session().name)).query(sql, /** @type {any} */ (params));
+            },
+            /** @param {[string, unknown[]?][]} statements */
+            async transaction(statements) {
+                return (await appDbs.dbFor(session().name)).transaction(/** @type {any} */ (statements));
+            },
+            /** The database's state, and this tab's part in serving it. */
+            async info() {
+                const client = await appDbs.dbFor(session().name);
+                const [info, status] = await Promise.all([client.info(), client.status()]);
+                return { ...info, status };
+            },
+            /** The databases this page holds a client for, with the sessions using each. */
+            held() {
+                return Object.fromEntries(appDbs.held());
+            },
+            async release() {
+                await appDbs.release(session().name);
+                return this.held();
+            },
         },
         /** Sync, as the session list works it. */
         sync: {

@@ -14,11 +14,9 @@
 
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import { Store } from "@agex-ts/world";
+import { STORE_DB } from "./store-name.js";
 
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
-
-/** The IndexedDB database every session lives in. */
-const DB_NAME = "agex-studio";
 
 /** The plane the studio keeps its own records on. */
 export const PLANE = "studio";
@@ -28,7 +26,7 @@ let opening = null;
 
 /** The store, opened once. */
 export function openStore() {
-    opening ??= IndexedDB.open({ dbName: DB_NAME }).then((kv) => Store.open(kv));
+    opening ??= IndexedDB.open({ dbName: STORE_DB }).then((kv) => Store.open(kv));
     return opening;
 }
 
