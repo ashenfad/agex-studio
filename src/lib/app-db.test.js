@@ -3,7 +3,7 @@ import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { MemoryDirectory, openLog } from "@agex-ts/kvsql";
 import { Store } from "@agex-ts/world";
 import { describe, expect, it } from "vitest";
-import { REGISTRY, dbBranch, dbOf, ensureDb, firstDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { REGISTRY, dbBranch, dbOf, ensureDb, firstDbId, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
 
 describe("the app-database registry", () => {
     it("names a database on first use, the same one after", async () => {
@@ -53,6 +53,19 @@ describe("the app-database registry", () => {
         const used = await ensureDb(store, "s-3");
         expect(await shareDb(store, "s-3", "s-4")).toEqual(used);
         expect(await sessionsNaming(store, used.id)).toEqual(["s-3", "s-4"]);
+    });
+
+    it("has a fork name a copy of its own, apart from its parent's", async () => {
+        const store = await Store.open(new Memory());
+        const parent = await ensureDb(store, "s-1");
+        const id = newDbId();
+        expect(id).toMatch(/^db-[0-9a-f]{16}$/);
+        expect(newDbId()).not.toBe(id);
+        await nameDb(store, "s-2", { id, branch: dbBranch(id) });
+        expect(await dbOf(store, "s-2")).toEqual({ id, branch: dbBranch(id) });
+        expect(await dbOf(store, "s-1")).toEqual(parent);
+        expect(await sessionsNaming(store, id)).toEqual(["s-2"]);
+        expect(await unlinkDb(store, "s-2")).toEqual({ ref: { id, branch: dbBranch(id) }, named: false });
     });
 
     it("drops a deleted session's entry, saying whether another names the database", async () => {
@@ -108,5 +121,35 @@ describe("a database's log on the studio's store", () => {
         expect((await again.query("SELECT * FROM notes")).rows).toEqual([{ id: "n1", body: "hello" }]);
         await again.close();
         expect(await sessionsNaming(store, id)).toEqual(["s-1"]);
+    });
+
+    it("holds a fork's own copy, which goes its own way and rebuilds from its own log", async () => {
+        const kv = new Memory();
+        const store = await Store.open(kv);
+        const ws = await store.open("s-1");
+        await ws.autoCommit({ tool: "test" });
+        const repo = await Repo.open(kv, { codec: "bytes" });
+        const db = await openLog({ dir: new MemoryDirectory(), name: "db.sqlite", repo, branch: (await ensureDb(store, "s-1")).branch });
+        await db.query("CREATE TABLE notes (id TEXT PRIMARY KEY NOT NULL, body TEXT)");
+        await db.query("INSERT INTO notes VALUES (?, ?)", ["n1", "hello"]);
+
+        // the fork's copy, as the database worker makes it
+        const id = newDbId();
+        const ref = { id, branch: dbBranch(id) };
+        const dir = new MemoryDirectory();
+        await db.copy({ dir, name: "db.sqlite", repo, branch: ref.branch });
+        await nameDb(store, "s-2", ref);
+        await db.query("INSERT INTO notes VALUES (?, ?)", ["n2", "parent's"]);
+        await db.close();
+        const fork = await openLog({ dir, name: "db.sqlite", repo, branch: ref.branch });
+        await fork.query("INSERT INTO notes VALUES (?, ?)", ["n3", "fork's"]);
+        await fork.close();
+
+        // the store's sweeps keep the copy's log, as they keep any branch
+        await ws.close();
+        await store.delete("s-1", { minAge: 0 });
+        const again = await openLog({ dir: new MemoryDirectory(), name: "db.sqlite", repo, branch: ref.branch });
+        expect((await again.query("SELECT id FROM notes ORDER BY id")).rows).toEqual([{ id: "n1" }, { id: "n3" }]);
+        await again.close();
     });
 });

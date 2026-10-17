@@ -23,20 +23,25 @@ const CURRENT_KEY = "agex-studio-current";
 
 /**
  * A fork of session `from`, made by `make` under a new name, sharing
- * `from`'s app database (see `app-db-clients.js`). The fork names it
- * before it exists, so no tab can open the fork's app first and name a
- * database of its own. A fork not made (`make` gives null) drops the
- * entry again; one that failed partway may exist, so keeps it.
+ * `from`'s app database, or with `ownDb`, taking a copy of it of its
+ * own (see `app-db-clients.js`). The fork names it before it exists, so
+ * no tab can open the fork's app first and name a database of its own.
+ * A fork not made (`make` gives null) drops the entry again, and the
+ * copy made for it; one that failed partway may exist, so keeps both.
  *
  * @template T
  * @param {string} from @param {(name: string) => Promise<T | null>} make
+ * @param {{ ownDb?: boolean }} [options]
  * @returns {Promise<T | null>}
  */
-async function forkSharing(from, make) {
+async function forkSharing(from, make, { ownDb = false } = {}) {
     const name = newName();
-    await appDbs.share(from, name);
+    let copied = false;
+    // with nothing to copy, the fork names a database of its own on first use
+    if (ownDb) copied = await appDbs.copyTo(from, name);
+    else await appDbs.share(from, name);
     const made = await make(name);
-    if (made === null) await appDbs.forget(name);
+    if (made === null) await appDbs.forget(name, { drop: copied });
     return made;
 }
 
@@ -205,9 +210,13 @@ export class Studio {
      * the history behind it (much smaller; its earlier turns can't be
      * undone). The fork is looked at next.
      *
+     * With `ownDb`, the fork takes a copy of the app's database of its
+     * own, rather than sharing it.
+     *
      * @param {"full" | "fresh" | "compact"} inherit
+     * @param {{ ownDb?: boolean }} [options]
      */
-    async fork(inherit) {
+    async fork(inherit, { ownDb = false } = {}) {
         const from = this.current;
         if (from === null) return;
         if (inherit === "compact") {
@@ -220,13 +229,13 @@ export class Studio {
                     return true;
                 });
                 return made === null ? null : this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` }, as);
-            });
+            }, { ownDb });
             if (name === null) return;
             copyAppStorage(from.name, name);
             await this.switchTo(name);
             return;
         }
-        const child = await forkSharing(from.name, (as) => from.edit((ws) => ws.fork(as, { inherit })));
+        const child = await forkSharing(from.name, (as) => from.edit((ws) => ws.fork(as, { inherit })), { ownDb });
         if (child === null) return;
         const now = Date.now();
         const base = from.title || "Untitled";

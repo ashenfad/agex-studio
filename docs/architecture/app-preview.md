@@ -151,8 +151,11 @@ cross as they are: blobs as `Uint8Array`, integers past 2^53 as
 
 The database is the one the preview's session names
 (`appDbs.dbFor`, in `app-db-clients.js`), never one the message names.
-A fork names its parent's, and a delegate (`lead.scout`) uses the
-top-level session's. It is kvsql's: a file in the origin-private file
+A fork names its parent's, unless the person gave it a copy of its own
+when forking (`appDbs.copyTo`: a kvsql logged copy, by the worker
+holding the parent's database, under a random id, its log a branch
+starting where the parent's stands). A delegate (`lead.scout`) uses
+the top-level session's. It is kvsql's: a file in the origin-private file
 system, served by the tab's database worker (`db-worker.js`), its
 changes logged to a branch of the store. See the design,
 [roadmap/app-db.md](../../roadmap/app-db.md).
