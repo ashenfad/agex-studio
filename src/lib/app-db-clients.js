@@ -46,6 +46,8 @@ export class AppDbs {
     #held = new Map();
     /** Each session's database, once looked up. @type {Map<string, Promise<DbRef>>} */
     #refs = new Map();
+    /** Sessions deleted here, whose databases are never asked for again. @type {Set<string>} */
+    #forgotten = new Set();
 
     /**
      * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect }} [deps]
@@ -85,13 +87,16 @@ export class AppDbs {
      * Session `name`'s database client: its database named in the
      * registry if it has none yet, the worker started and the client
      * connected on first use. Sessions naming the same database share
-     * one client.
+     * one client. A deleted session has none.
      *
      * @param {string} name
      * @returns {Promise<DatabaseClient>}
      */
     async dbFor(name) {
+        this.#refuseForgotten(name);
         const ref = await this.#refOf(name);
+        // deleted while its database was looked up: `forget` unlinks it
+        this.#refuseForgotten(name);
         let held = this.#held.get(ref.id);
         if (held === undefined) {
             /** @type {Held} */
@@ -112,6 +117,11 @@ export class AppDbs {
         }
         held.users.add(name);
         return held.client;
+    }
+
+    /** @param {string} name */
+    #refuseForgotten(name) {
+        if (this.#forgotten.has(name)) throw new Error(`${DB_LABEL}: session ${name} is deleted`);
     }
 
     /** The database ids this page holds a client for, each with the
@@ -145,23 +155,33 @@ export class AppDbs {
     }
 
     /**
-     * Fork `to` of session `from` names the same database as `from`.
+     * Fork `to` of session `from` names the same database as `from`. A
+     * database this page looked up for `to` before is let go, so `to`'s
+     * next use connects to `from`'s.
+     *
+     * Another tab that looked `to` up first keeps what it found, so
+     * share before the fork exists, when no tab can have used it.
      *
      * @param {string} from
      * @param {string} to
      */
     async share(from, to) {
         await shareDb(await this.#store(), from, to);
+        await this.release(to);
     }
 
     /**
      * Session `name` is deleted: its registry entry goes and its client
      * here is released. Its database stays, with its log, for a sweep of
      * the databases no session names (another session may still name it).
+     * A lookup still in flight lands first, so the entry it makes goes
+     * too, and the session's database is never asked for here again.
      *
      * @param {string} name
      */
     async forget(name) {
+        this.#forgotten.add(name);
+        await this.#refs.get(name)?.catch(() => null);
         await unlinkDb(await this.#store(), name);
         await this.release(name);
     }

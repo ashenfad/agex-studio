@@ -21,6 +21,25 @@ import { PLANE, metaOf, newName, openStore, settleFork } from "./store.js";
 /** Where the session last looked at is remembered. */
 const CURRENT_KEY = "agex-studio-current";
 
+/**
+ * A fork of session `from`, made by `make` under a new name, sharing
+ * `from`'s app database (see `app-db-clients.js`). The fork names it
+ * before it exists, so no tab can open the fork's app first and name a
+ * database of its own. A fork not made (`make` gives null) drops the
+ * entry again; one that failed partway may exist, so keeps it.
+ *
+ * @template T
+ * @param {string} from @param {(name: string) => Promise<T | null>} make
+ * @returns {Promise<T | null>}
+ */
+async function forkSharing(from, make) {
+    const name = newName();
+    await appDbs.share(from, name);
+    const made = await make(name);
+    if (made === null) await appDbs.forget(name);
+    return made;
+}
+
 /** The sessions, and the one being looked at. */
 export class Studio {
     /** @type {SessionInfo[]} */
@@ -129,11 +148,10 @@ export class Studio {
      * @param {string} name @param {string} title
      */
     async forkAs(name, title) {
-        const child = await this.withWorkspace(name, (ws) => ws.fork(newName(), { inherit: "full" }));
+        const child = /** @type {Workspace} */ (await forkSharing(name, (as) => this.withWorkspace(name, (ws) => ws.fork(as, { inherit: "full" }))));
         const now = Date.now();
         await settleFork(child, { title, createdAt: now, updatedAt: now }, undefined, "studio.fork");
         copyAppStorage(name, child.session);
-        await appDbs.share(name, child.session);
         await child.close();
         await this.refresh();
         return child.session;
@@ -195,28 +213,27 @@ export class Studio {
         if (inherit === "compact") {
             const store = await openStore();
             const snap = `${from.name}.snapshot-${Math.random().toString(36).slice(2, 8)}`;
-            const made = await from.edit(async (ws) => {
-                if (ws.uncommitted) await ws.commit({ tool: "studio.fork" });
-                await snapshotBranch(store, ws.head, snap, { session: from.name });
-                return true;
+            const name = await forkSharing(from.name, async (as) => {
+                const made = await from.edit(async (ws) => {
+                    if (ws.uncommitted) await ws.commit({ tool: "studio.fork" });
+                    await snapshotBranch(store, ws.head, snap, { session: from.name });
+                    return true;
+                });
+                return made === null ? null : this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` }, as);
             });
-            if (made === null) return;
-            const name = await this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` });
+            if (name === null) return;
             copyAppStorage(from.name, name);
-            await appDbs.share(from.name, name);
             await this.switchTo(name);
             return;
         }
-        const child = await from.edit((ws) => ws.fork(newName(), { inherit }));
+        const child = await forkSharing(from.name, (as) => from.edit((ws) => ws.fork(as, { inherit })));
         if (child === null) return;
         const now = Date.now();
         const base = from.title || "Untitled";
         // a fork of an imported session isn't that import, nor what it published
         await settleFork(child, { title: inherit === "full" ? `${base} (fork)` : `${base} (files)`, createdAt: now, updatedAt: now }, undefined, "studio.fork");
-        // the app's saved data goes with its files, on either kind of
-        // fork, and its database is shared: the fork names the same one
+        // the app's saved data goes with its files, on either kind of fork
         copyAppStorage(from.name, child.session);
-        await appDbs.share(from.name, child.session);
         const session = this.#watch(new ChatSession(child.session, this));
         await session.open(child);
         await this.refresh();
@@ -226,17 +243,19 @@ export class Studio {
     /**
      * A new session made from branch `branch` (a bundle's commits, or a
      * snapshot): a full fork of it, so the conversation is the new
-     * session's own, with `meta` its record. `branch` goes. Its name.
+     * session's own, with `meta` its record, named `name`. `branch` goes.
+     * Its name.
      *
      * @param {string} branch @param {Record<string, unknown>} meta
+     * @param {string} [name]
      */
-    async adopt(branch, meta) {
+    async adopt(branch, meta, name = newName()) {
         const store = await openStore();
         const from = await store.open(branch, { profile: PROFILE });
         /** @type {Workspace} */
         let child;
         try {
-            child = await from.fork(newName(), { inherit: "full" });
+            child = await from.fork(name, { inherit: "full" });
         } finally {
             await from.close();
             await store.repo.branches.delete(branch);
