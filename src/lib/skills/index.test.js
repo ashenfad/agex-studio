@@ -29,6 +29,7 @@ describe("the studio's skills", () => {
             "references/agex-studio.md",
             "references/agex-ts.md",
             "references/kvgit.md",
+            "references/kvsql.md",
             "references/termish.md",
             "references/world.md",
         ]);

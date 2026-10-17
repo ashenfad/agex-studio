@@ -6,7 +6,7 @@ import { dbOf } from "./app-db.js";
 
 /** A manager on a store in memory, with a worker and clients that
  *  record what was asked of them. */
-async function setup({ failStarts = 0 } = {}) {
+async function setup({ failStarts = 0, persist = vi.fn(async () => true) } = {}) {
     const store = await Store.open(new Memory());
     let fails = failStarts;
     const worker = { postMessage() {} };
@@ -18,12 +18,19 @@ async function setup({ failStarts = 0 } = {}) {
     const connected = [];
     const connect = vi.fn((w, config) => {
         expect(w).toBe(worker);
-        const client = { config, close: vi.fn(async () => {}) };
+        const client = {
+            config,
+            close: vi.fn(async () => {}),
+            export: vi.fn(async () => new Uint8Array([83, 81, 76])),
+            query: vi.fn(async (/** @type {string} */ sql) =>
+                sql.includes("page_count") ? { rows: [{ bytes: 8192 }] } : { rows: [{ name: "notes" }, { name: "tags" }] },
+            ),
+        };
         connected.push({ config, client });
         return /** @type {any} */ (client);
     });
-    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect) });
-    return { store, dbs, start, connect, connected };
+    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist });
+    return { store, dbs, start, connect, connected, persist };
 }
 
 describe("the page's app databases", () => {
@@ -141,6 +148,36 @@ describe("the page's app databases", () => {
         // not one the page holds for a session
         expect(dbs.held().size).toBe(0);
         expect(connected).toHaveLength(2);
+    });
+
+    it("asks for persistent storage once, when an app first keeps data", async () => {
+        const { dbs, persist } = await setup();
+        await dbs.scratch();
+        expect(persist).not.toHaveBeenCalled();
+        await dbs.dbFor("s-1");
+        await dbs.dbFor("s-2");
+        expect(persist).toHaveBeenCalledOnce();
+    });
+
+    it("describes a session's database for its dialog, naming none by looking", async () => {
+        const { store, dbs, connect } = await setup();
+        expect(await dbs.describe("s-1")).toBeNull();
+        expect(await dbOf(store, "s-1")).toBeNull();
+        expect(connect).not.toHaveBeenCalled();
+
+        await dbs.dbFor("s-1");
+        await dbs.share("s-1", "s-2");
+        const ref = await dbOf(store, "s-1");
+        expect(await dbs.describe("s-1")).toEqual({ id: ref?.id, bytes: 8192, tables: ["notes", "tags"], sessions: ["s-1", "s-2"] });
+        // a delegate's is its lead's
+        expect((await dbs.describe("s-2.scout"))?.id).toBe(ref?.id);
+    });
+
+    it("exports a session's database as a file", async () => {
+        const { dbs } = await setup();
+        const client = await dbs.dbFor("s-1");
+        expect(await dbs.exportFile("s-1")).toEqual(new Uint8Array([83, 81, 76]));
+        expect(client.export).toHaveBeenCalledOnce();
     });
 
     it("starts the worker again after a start that failed", async () => {

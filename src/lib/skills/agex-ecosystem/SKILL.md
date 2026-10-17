@@ -1,6 +1,6 @@
 ---
 name: agex-ecosystem
-description: What this workspace is built from — agex studio, agex-ts, and its world, kvgit and termish packages; how they fit together, with each one's README. Read it when asked about any of them, or to explain or present them.
+description: What this workspace is built from — agex studio, agex-ts, and its world, kvgit, termish and kvsql packages; how they fit together, with each one's README. Read it when asked about any of them, or to explain or present them.
 ---
 
 # The stack under this workspace
@@ -15,6 +15,7 @@ agex studio        the web workbench: chat, live app preview, sharing
    └─ @agex-ts/world     the workspace: files, cache, shell, code, tools
       ├─ @agex-ts/termish   the terminal: shell commands over the files
       └─ @agex-ts/kvgit     the versioning: commits, branches, merges
+         └─ @agex-ts/kvsql  apps' SQLite databases, logged to kvgit
 ```
 
 ## What each one is
@@ -45,11 +46,17 @@ agex studio        the web workbench: chat, live app preview, sharing
   commits, cheap branches, three-way merges, tags that keep a commit
   alive, and sync. A studio session is a kvgit branch, and the
   conversation lives in the same branch as the files.
+- **@agex-ts/kvsql** is SQLite in the browser with its changes logged
+  to kvgit: the database file in the origin-private file system, one
+  writer across tabs, and every transaction's changes recorded on a
+  kvgit branch, so the file can be rebuilt from the log. It is what an
+  app's `agex.db` runs on.
 
 These are the TypeScript counterparts of Python projects by the same
 author: **agex** (the loop), **nontainer** (the workspace), **kvgit**
 and **termish**. They are kept aligned on meaning rather than bytes,
-except kvgit, whose storage format is the same byte for byte.
+except kvgit, whose storage format is the same byte for byte. kvsql
+has no Python counterpart.
 
 ## The READMEs
 

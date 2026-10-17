@@ -157,6 +157,16 @@ system, served by the tab's database worker (`db-worker.js`), its
 changes logged to a branch of the store. See the design,
 [roadmap/app-db.md](../../roadmap/app-db.md).
 
+Sync doesn't carry a database yet, so the browser's storage is its
+only copy. When an app first keeps data, the studio asks the browser
+to make its storage persistent (`navigator.storage.persist()`, in
+`persist.js`; Chromium decides by how the site is used, Firefox asks
+the person). The session dialog (`SessionDialog.svelte`) shows the
+database (its size, its tables, the forks sharing it), says it is on
+this device only, offers to ask again for persistence when the browser
+hasn't granted it, and exports it as a `.sqlite` file (kvsql's
+`export()`: the file without the log's own tables).
+
 ## `test_app`
 
 `testAppTool` (`test-app.js`) acts on the app in a browser:
