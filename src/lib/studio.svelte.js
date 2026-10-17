@@ -5,6 +5,7 @@
  */
 
 import { SvelteMap } from "svelte/reactivity";
+import { appDbs } from "./app-db-clients.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { readLocal, writeLocal } from "./local.js";
 import { PROFILE } from "./profile.js";
@@ -132,6 +133,7 @@ export class Studio {
         const now = Date.now();
         await settleFork(child, { title, createdAt: now, updatedAt: now }, undefined, "studio.fork");
         copyAppStorage(name, child.session);
+        await appDbs.share(name, child.session);
         await child.close();
         await this.refresh();
         return child.session;
@@ -201,6 +203,7 @@ export class Studio {
             if (made === null) return;
             const name = await this.adopt(snap, { title: `${from.title || "Untitled"} (compact)` });
             copyAppStorage(from.name, name);
+            await appDbs.share(from.name, name);
             await this.switchTo(name);
             return;
         }
@@ -210,8 +213,10 @@ export class Studio {
         const base = from.title || "Untitled";
         // a fork of an imported session isn't that import, nor what it published
         await settleFork(child, { title: inherit === "full" ? `${base} (fork)` : `${base} (files)`, createdAt: now, updatedAt: now }, undefined, "studio.fork");
-        // the app's saved data goes with its files, on either kind of fork
+        // the app's saved data goes with its files, on either kind of
+        // fork, and its database is shared: the fork names the same one
         copyAppStorage(from.name, child.session);
+        await appDbs.share(from.name, child.session);
         const session = this.#watch(new ChatSession(child.session, this));
         await session.open(child);
         await this.refresh();
@@ -258,6 +263,9 @@ export class Studio {
         // its app data's branch (see app-data.js) goes with it
         const appData = `appdata/${name}`;
         if (await store.repo.branches.has(appData)) await store.repo.branches.delete(appData);
+        // its app database's entry goes; the database stays while another
+        // session names it, and for a sweep after
+        await appDbs.forget(name);
         await this.refresh();
         if (this.current?.name === name) {
             this.current = null;

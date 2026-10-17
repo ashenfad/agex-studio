@@ -21,6 +21,10 @@
  *   branch; and with each, its app's saved data, on a branch of its own
  *   (`app-data.js`: never in the session's history, so never in what it
  *   bundles or publishes), the later of two devices' writes winning.
+ * - **What doesn't, yet:** apps' databases (`app-db.js`). Their logs
+ *   (`db/<id>`) and the registry naming them (`dbs/registry`) are
+ *   branches of the same store, but sync pushes only the branches named
+ *   above, so they stay on this device.
  */
 
 import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";

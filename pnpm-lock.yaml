@@ -11,6 +11,9 @@ importers:
       '@agex-ts/kvgit':
         specifier: link:../agex-ts/packages/kvgit-ts
         version: link:../agex-ts/packages/kvgit-ts
+      '@agex-ts/kvsql':
+        specifier: link:../agex-ts/packages/kvsql
+        version: link:../agex-ts/packages/kvsql
       '@agex-ts/termish':
         specifier: link:../agex-ts/packages/termish-ts
         version: link:../agex-ts/packages/termish-ts

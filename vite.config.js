@@ -1,7 +1,8 @@
-import { copyFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { copyFileSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -45,9 +46,27 @@ function packageReadmes() {
   }
 }
 
+/** The directory of the SQLite build kvsql runs, wherever kvsql's own
+ *  dependencies are installed (outside this checkout, for a linked one). */
+function sqliteDir() {
+  const fromKvsql = createRequire(resolve('node_modules/@agex-ts/kvsql/package.json'))
+  return realpathSync(dirname(fromKvsql.resolve('@sqlite.org/sqlite-wasm/package.json')))
+}
+
 export default defineConfig({
   plugins: [svelte(), entryPoints(), packageReadmes()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+  },
+  // SQLite finds its .wasm beside its own module (`new URL('sqlite3.wasm',
+  // import.meta.url)`). Pre-bundled into the dev server's deps folder it
+  // looks there and gets the page instead; served from its package, it
+  // finds the file. A build copies the .wasm as an asset either way.
+  optimizeDeps: {
+    exclude: ['@sqlite.org/sqlite-wasm'],
+  },
+  // and the dev server serves that file only from a directory it allows
+  server: {
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), sqliteDir()] },
   },
 })
