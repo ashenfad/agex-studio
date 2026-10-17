@@ -11,6 +11,7 @@
 import { hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
+import { answerDb } from "./app-db-bridge.js";
 import { checkBag } from "./app-storage.js";
 
 // ---------------------------------------------------------------------------
@@ -458,8 +459,9 @@ export function _enforceTotalCap(entries, max) {
  *  It also follows the page's lifecycle (`pageUp` when its bridge is
  *  ready, `pageLoaded` when its document loaded), and hands the test
  *  page's storage, as the page reports it (`agex-test-storage`), to
- *  `onStorage`. */
-export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null) {
+ *  `onStorage`, and gives the database the app's `agex.db` calls run
+ *  on (`dbHandler`; without one they fail). */
+export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null, dbHandler = null) {
     let initPosted = false;
     const nextPage = typeof initPage === "function"
         ? initPage
@@ -520,6 +522,17 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
                 } catch (err) {
                     replyToApp(iframe, { type: "agex-task-result", id, value: null, error: err?.message || String(err) });
                 }
+                done();
+            })();
+            pendingHandlers.push(p);
+            return;
+        }
+
+        if (data.type === "agex-db") {
+            const done = callStarted(iframe);
+            const p = (async () => {
+                const db = dbHandler ?? (() => Promise.reject(new Error("agex.db isn't available here")));
+                replyToApp(iframe, await answerDb(data, db));
                 done();
             })();
             pendingHandlers.push(p);
@@ -703,6 +716,9 @@ const _keys = (bag, store) => {
  * reports its storage as it changes: `agex-test-storage`), and waits
  * for its first load again.
  *
+ * Its `agex.db` calls run on the database `dbHandler` gives (the
+ * caller's to choose and to close), and fail without one.
+ *
  * @param {{
  *   appFiles: Record<string, string>,
  *   appBinaries?: Record<string, Uint8Array>,
@@ -712,6 +728,7 @@ const _keys = (bag, store) => {
  *   reseedAppPage?: ((page: import("./app-html.js").AppPage, storage: any) => import("./app-html.js").AppPage) | null,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
+ *   dbHandler?: (() => Promise<import("@agex-ts/kvsql/client").DatabaseClient>) | null,
  *   viewport?: string | { width?: number, height?: number },
  * }} opts
  * @returns {Promise<Array<object>>}
@@ -726,6 +743,7 @@ export async function runTestApp(opts) {
         reseedAppPage = null,
         cacheHandler = null,
         taskHandler = null,
+        dbHandler = null,
         viewport = null,
     } = opts;
     const { width: vpWidth, height: vpHeight } = resolveViewport(viewport);
@@ -804,6 +822,7 @@ export async function runTestApp(opts) {
             (bags) => {
                 storage = bags;
             },
+            dbHandler,
         );
         window.addEventListener("message", messageHandler);
 
@@ -831,7 +850,7 @@ export async function runTestApp(opts) {
             return [
                 {
                     type: "reload",
-                    message: `reloaded: the page rebuilt from the same files, with the test's storage kept (${_keys(kept.local, "localStorage")}, ${_keys(kept.session, "sessionStorage")})`,
+                    message: `reloaded: the page rebuilt from the same files, with the test's storage kept (${_keys(kept.local, "localStorage")}, ${_keys(kept.session, "sessionStorage")}${dbHandler ? ", and its agex.db" : ""})`,
                 },
                 ...(note ? [note] : []),
             ];

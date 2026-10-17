@@ -5,9 +5,9 @@
      * origin, so the app can't reach the studio's storage or DOM). The
      * studio posts the built HTML to the origin's bootloader, and
      * answers the app's calls to it: `getCacheValue`, its storage,
-     * `notify`, and its agent tasks (`agex.task`, run on the viewer's
-     * model within this page's budget). The preview rebuilds when the
-     * app's files change.
+     * `notify`, its agent tasks (`agex.task`, run on the viewer's model
+     * within this page's budget) and its database (`agex.db`, the
+     * session's). The preview rebuilds when the app's files change.
      *
      * It is the iframe `test_app` acts on with `live: true`. Its bar is
      * the workbench's: it says whether it is loading and whether there is
@@ -16,6 +16,8 @@
     import { onDestroy, tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import { callStarted, callsLost, setLiveIframe, setLiveSettled } from './app-control.js'
+    import { appDbs } from './app-db-clients.js'
+    import { answerDb } from './app-db-bridge.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
@@ -255,6 +257,19 @@
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: value === undefined ? null : value, error: null })
             } catch (e) {
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: errorText(e) })
+            } finally {
+                done()
+            }
+            return
+        }
+        if (data.type === 'agex-db') {
+            // the database of the session this preview shows, never one
+            // the message names
+            const frame = iframe
+            const name = session.name
+            const done = callStarted(frame)
+            try {
+                replyToApp(frame, await answerDb(data, () => appDbs.dbFor(name)))
             } finally {
                 done()
             }

@@ -23,7 +23,7 @@ and services).
   `media`, `pdf`), skills, and `ui` artifacts.
 - [app-preview.md](architecture/app-preview.md): the apps origin and
   its bootloader, building an app's page, the bridges between the app
-  and the studio (storage, cache, `notify`, `agex.task`), and
+  and the studio (storage, cache, `notify`, `agex.task`, `agex.db`), and
   `test_app`.
 - [sessions-and-storage.md](architecture/sessions-and-storage.md):
   the store, sessions as branches, what the studio keeps on its plane,

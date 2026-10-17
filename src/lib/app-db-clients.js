@@ -5,7 +5,10 @@
  * until no session here needs it.
  *
  * Which database a session uses is the registry's to say (`app-db.js`):
- * a fork shares its parent's, and deleting a session drops its entry.
+ * a fork shares its parent's, and deleting a session drops its entry. A
+ * delegate (`lead.scout`) works for the session it was asked by, and
+ * uses that session's database: the registry names top-level sessions
+ * only.
  * The database itself, its file and its log, stays after the last
  * session naming it is deleted, for a sweep of the databases no session
  * names to delete.
@@ -21,6 +24,13 @@ import { openStore } from "./store.js";
 
 /** How a database names itself in its errors. */
 export const DB_LABEL = "agex.db";
+
+/**
+ * The session whose database session `name` uses: itself, or for a
+ * delegate (`lead.scout.notes`), the top-level session it works for.
+ * @param {string} name
+ */
+export const dbOwner = (name) => name.split(".")[0] ?? name;
 
 /** The tab's database worker, as Vite bundles it. */
 async function startWorker() {
@@ -87,12 +97,14 @@ export class AppDbs {
      * Session `name`'s database client: its database named in the
      * registry if it has none yet, the worker started and the client
      * connected on first use. Sessions naming the same database share
-     * one client. A deleted session has none.
+     * one client, as do a session and its delegates (`dbOwner`). A
+     * deleted session has none.
      *
-     * @param {string} name
+     * @param {string} session
      * @returns {Promise<DatabaseClient>}
      */
-    async dbFor(name) {
+    async dbFor(session) {
+        const name = dbOwner(session);
         this.#refuseForgotten(name);
         const ref = await this.#refOf(name);
         // deleted while its database was looked up: `forget` unlinks it
@@ -122,6 +134,21 @@ export class AppDbs {
     /** @param {string} name */
     #refuseForgotten(name) {
         if (this.#forgotten.has(name)) throw new Error(`${DB_LABEL}: session ${name} is deleted`);
+    }
+
+    /**
+     * A database of its own for a test, empty, held in the worker's
+     * memory and gone once closed: it writes no log anyone keeps. The
+     * caller closes it.
+     *
+     * @returns {Promise<DatabaseClient>}
+     */
+    async scratch() {
+        const bytes = crypto.getRandomValues(new Uint8Array(8));
+        const id = `scratch-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+        // `scratch` tells the worker (db-worker.js) to hold it in memory
+        const config = /** @type {import("@agex-ts/kvsql/client").DatabaseConfig} */ ({ id, label: DB_LABEL, scratch: true });
+        return this.#connect(await this.#workerNow(), config);
     }
 
     /** The database ids this page holds a client for, each with the

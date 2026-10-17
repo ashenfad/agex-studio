@@ -168,6 +168,47 @@ window.agex = {
     },
 };
 
+// agex.db — the session's SQLite database, kept by the studio (forks
+// share it; an undo doesn't rewind it). query(sql, params?) runs one
+// statement as a transaction and resolves with { rows, changes,
+// lastInsertRowid }; transaction([[sql, params?] or sql, ...]) runs
+// several as one, all or none, and resolves with each one's result.
+// A failure rejects with SQLite's message (or what was refused and
+// what to do instead); in a transaction, err.index names the statement.
+// NOTE: this whole block is inside a template literal — no backticks.
+(function() {
+    function call(op, args) {
+        var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        return new Promise(function(resolve, reject) {
+            function handler(event) {
+                if (!event.data || event.data.type !== 'agex-db-result' || event.data.id !== id) return;
+                window.removeEventListener('message', handler);
+                var e = event.data.error;
+                if (!e) { resolve(event.data.value); return; }
+                var err = new Error(e.message);
+                err.name = e.name || 'Error';
+                if (typeof e.index === 'number') err.index = e.index;
+                reject(err);
+            }
+            window.addEventListener('message', handler);
+            if (!window.__agexPost({ type: 'agex-db', id: id, op: op, args: args })) {
+                window.removeEventListener('message', handler);
+                reject(new Error('agex parent origin not configured'));
+            }
+        });
+    }
+    window.agex.db = {
+        query: function(sql, params) {
+            if (typeof sql !== 'string') return Promise.reject(new TypeError('agex.db.query(sql, params?): sql must be a string'));
+            return call('query', [sql, params == null ? null : params]);
+        },
+        transaction: function(statements) {
+            if (!Array.isArray(statements)) return Promise.reject(new TypeError('agex.db.transaction(statements): a list of [sql, params?] (or sql strings)'));
+            return call('transaction', [statements.map(function(st) { return typeof st === 'string' ? [st] : st; })]);
+        },
+    };
+})();
+
 // notify(title, body?) — show a desktop notification via the host.
 // The sandbox can't construct Notifications (or ask for permission)
 // itself, so the studio shows it: only once the person has allowed
@@ -322,7 +363,7 @@ function buildAppStorageShim(opts = {}) {
     // access with a clear error so agents see the contract violation
     // immediately rather than debugging a silent no-op.
     var idbErr = function() {
-        throw new Error('IndexedDB is not supported in agex artifacts — use localStorage instead');
+        throw new Error('IndexedDB is not supported in agex apps: use agex.db (SQLite: agex.db.query, agex.db.transaction) for data, or localStorage for small settings');
     };
     var idbStub = new Proxy(function() { idbErr(); }, {
         get: function() { return idbErr; },

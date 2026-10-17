@@ -505,6 +505,28 @@ describe("a test's page coming up", () => {
     });
 });
 
+describe("a test's database calls", () => {
+    it("run on the database the test gives, or fail without one", async () => {
+        const posted = [];
+        const win = { postMessage: (/** @type {any} */ msg) => posted.push(msg) };
+        const iframe = /** @type {any} */ ({ contentWindow: win });
+        const from = (data) => /** @type {any} */ ({ source: win, origin: APPS_ORIGIN, data });
+        const db = { query: vi.fn(async () => ({ rows: [{ n: 1 }], changes: 0, lastInsertRowid: 0 })) };
+        const pending = [];
+        const handler = _attachBridges(iframe, null, pending, null, null, null, async () => /** @type {any} */ (db));
+        handler(from({ type: "agex-db", id: "q1", op: "query", args: ["SELECT 1 AS n", null] }));
+        await Promise.all(pending);
+        expect(db.query).toHaveBeenCalledWith("SELECT 1 AS n", null);
+        expect(posted).toEqual([{ type: "agex-db-result", id: "q1", value: { rows: [{ n: 1 }], changes: 0, lastInsertRowid: 0 }, error: null }]);
+
+        const none = [];
+        const bare = _attachBridges(iframe, null, none);
+        bare(from({ type: "agex-db", id: "q2", op: "query", args: ["SELECT 1", null] }));
+        await Promise.all(none);
+        expect(posted[1]).toEqual({ type: "agex-db-result", id: "q2", value: null, error: { name: "Error", message: "agex.db isn't available here" } });
+    });
+});
+
 describe("the first load", () => {
     it("waits for the page's document, then the app's idle gap", async () => {
         vi.useFakeTimers();
