@@ -8,9 +8,12 @@
  * history, where undoing past the turn that made the app would forget
  * it and leave the data unnamed. It lives here instead:
  *
- * - `session/<name>` → the database's id (`db-<hex>`), minted on first
- *   use and never spelled from a session name, so a fork can name the
- *   same database and a rename or a delete leaves it be;
+ * - `session/<name>` → the database's id (`db-<hex>`), named on first
+ *   use, so a fork can name the same database and a delete leaves it
+ *   be. A session's first database takes an id hashed from the
+ *   session's name, so two devices that each first use a synced
+ *   session name the same database, whose logs sync merges, rather
+ *   than two that a merged registry would have to choose between;
  * - `db/<id>` → `{ branch }`, the store branch holding the database's
  *   changeset log (`db/<id>/0`).
  *
@@ -53,10 +56,14 @@ const ATTEMPTS = 5;
  * @typedef {{ id: string, branch: string }} DbRef
  */
 
-/** A new database's id: `db-` and 16 random hex digits. */
-export function newDbId() {
-    const bytes = crypto.getRandomValues(new Uint8Array(8));
-    return `db-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+/**
+ * The id of session `name`'s first database: `db-` and 16 hex digits
+ * of a hash of the name, the same on every device.
+ * @param {string} name
+ */
+export async function firstDbId(name) {
+    const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`agex.db/${name}`));
+    return `db-${Array.from(new Uint8Array(hash, 0, 8), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /**
@@ -111,12 +118,12 @@ async function edit(store, fn) {
 }
 
 /**
- * Name a new database for session `name` in `wt`. @param {Worktree} wt
+ * Name session `name`'s first database in `wt`. @param {Worktree} wt
  * @param {string} name
- * @returns {DbRef}
+ * @returns {Promise<DbRef>}
  */
-function mint(wt, name) {
-    const id = newDbId();
+async function mint(wt, name) {
+    const id = await firstDbId(name);
     const branch = dbBranch(id);
     wt.set(dbKey(id), { branch });
     wt.set(sessionKey(name), id);
@@ -147,7 +154,7 @@ export async function ensureDb(store, name) {
  */
 export async function shareDb(store, from, to) {
     return edit(store, async (wt) => {
-        const ref = (await lookup(wt, from)) ?? mint(wt, from);
+        const ref = (await lookup(wt, from)) ?? (await mint(wt, from));
         wt.set(sessionKey(to), ref.id);
         return ref;
     });
