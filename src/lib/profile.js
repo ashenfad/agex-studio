@@ -9,6 +9,7 @@ import { commandFactory, wsGit } from "@agex-ts/world";
 import { AGEX_GUIDE, Agent, AiSdkProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { buildModel, thinkingOf, visionOf } from "./model.js";
+import { dbHost } from "./agent-db.js";
 import { mediaHost } from "./media.js";
 import { pdfHost } from "./pdf.js";
 import { scriptedNow } from "./scripted.js";
@@ -71,8 +72,9 @@ export function toolOptionsNow() {
  * What every world the studio opens is given: code runs in the world's
  * worker, bundled by Vite; a bare import loads from esm.sh; what code
  * puts in `ui` is written under /workspace/ui to show in the reply; the
- * studio's host objects (`web`, `media`, `pdf`, and `agex` for tasks the
- * agent's code defines); `esbuild` in the
+ * studio's host objects (`web`, `media`, `pdf`, `db` for the session's
+ * app database, and `agex` for tasks the agent's code defines);
+ * `esbuild` in the
  * terminal; and the studio's skills (`skills/`: a directory each),
  * mounted read-only under /workspace/skills.
  */
@@ -84,7 +86,7 @@ export const PROFILE = {
         // `ui.chart = spec`: shown in the reply
         ui: true,
     },
-    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), agex },
+    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), db: dbHost(), agex },
     // ws-git: the agent's own git, which brings a delegate's work back
     commands: { esbuild, "ws-git": wsGit },
     skills: SKILLS,
