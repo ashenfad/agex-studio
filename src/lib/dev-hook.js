@@ -249,6 +249,15 @@ export function installDevHook(studio, sync) {
                 const [info, status] = await Promise.all([client.info(), client.status()]);
                 return { ...info, status };
             },
+            /** The database as the session dialog shows it; null if none. */
+            async describe() {
+                return appDbs.describe(session().name);
+            },
+            /** Export it as the dialog does: the file's size and header. */
+            async export() {
+                const bytes = await appDbs.exportFile(session().name);
+                return { size: bytes.length, header: new TextDecoder().decode(bytes.subarray(0, 15)) };
+            },
             /** The databases this page holds a client for, with the sessions using each. */
             held() {
                 return Object.fromEntries(appDbs.held());
