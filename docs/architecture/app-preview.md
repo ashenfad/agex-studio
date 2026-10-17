@@ -178,10 +178,15 @@ hasn't granted it, and exports it as a `.sqlite` file (kvsql's
   its own iframe and checks every message's source, so concurrent
   calls, a delegate's included, don't meet. An app's agent tasks run
   for real, on the same budget; the iframe stays until every call,
-  including one a result set off, has settled. Its `agex.db` is a
-  scratch database of the test's own (`appDbs.scratch`: empty, held in
-  the worker's memory, closed after the call), so a test never writes
-  the person's. Tool calls run one
+  including one a result set off, has settled. Its `agex.db` is the
+  test's own copy of the session's database (`appDbs.testDb`), made on
+  the app's first call: a detached copy (kvsql's `copy`), which records
+  nothing in any log, so a test never writes the person's. The worker
+  holding the session's database, which may be another tab's, copies
+  its file in OPFS to `agex-db-tests/<id>` (`test-dbs.js`); the call
+  deletes it at the end, and the first copy a page makes sweeps the
+  ones closed tabs left. A session with no database yet, or
+  `fresh: true`, gets an empty one. Tool calls run one
   after another, so the files a call before it wrote are there.
 - **`live: true`** acts on the preview the person sees
   (`getLiveIframe`), with the person's storage and database, once the preview has gone on with the files as
@@ -213,7 +218,7 @@ its stores to the test (`agex-test-storage`, which only the test's
 listener takes, from its own frame); the next page is seeded with what
 the test wrote (`reseedAppPage`, `sessionSeed` for `sessionStorage`,
 which a browser keeps across a reload), and the console output of the
-page before comes first in the result. The test's scratch database
+page before comes first in the result. The test's copy of the database
 stays across the reload.
 
 ### When a page goes

@@ -24,7 +24,7 @@ const shown = (/** @type {unknown} */ value, max = 4000) => {
 
 const TEST_APP_DESCRIPTION = `Check the app under /workspace/app by acting on it in a browser.
 
-By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded; agex.db is an empty database of the test's own, kept across its reloads and discarded after). Before the first action it waits for the page to load (its scripts and their imports, which can take seconds from esm.sh), then for the app to settle; if it still hasn't loaded after ${LOAD_TIMEOUT_MS / 1000}s, the actions run anyway and the result says so. With live: true it acts on the preview the person is looking at instead, with the person's own storage and agex.db: what it writes there stays.
+By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded; agex.db is a copy of the person's database as it is now, kept across the test's reloads and discarded after: the person's is never written). Before the first action it waits for the page to load (its scripts and their imports, which can take seconds from esm.sh), then for the app to settle; if it still hasn't loaded after ${LOAD_TIMEOUT_MS / 1000}s, the actions run anyway and the result says so. With live: true it acts on the preview the person is looking at instead, with the person's own storage and agex.db: what it writes there stays.
 
 actions: a list of plain objects, run in order:
 - {click: "#sel"} · {type: "#sel", value: "text"} · {select: "#sel", value: "opt"} · {wait: 500}
@@ -36,7 +36,7 @@ actions: a list of plain objects, run in order:
 - {viewport: "mobile" | "tablet" | "desktop" | {width, height}}: resize (not live)
 - {reload: true}: reload the page (rebuilt from the same files), keeping what this test wrote to localStorage, sessionStorage and agex.db, and wait for it to load again: checks what survives a reload. The person's storage and database are never written (not live)
 
-viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage.
+viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage and an empty agex.db.
 The result lists the app's console output, then each action's result.`;
 
 /**
@@ -89,8 +89,8 @@ export function testAppTool(session) {
                     if (!hasApp(app)) {
                         return { text: "there is no app yet: write /workspace/app/index.html (or app/main.js) first", images: [], isError: true };
                     }
-                    /** The test's own database, opened on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
-                    let scratch = null;
+                    /** The test's copy of the database, made on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
+                    let testDb = null;
                     try {
                         results = await runTestApp({
                             appFiles: app.files,
@@ -107,12 +107,12 @@ export function testAppTool(session) {
                                 const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
                                 return appAgent.call(session.name, call, { ask: imported, prompt: false });
                             },
-                            dbHandler: () => (scratch ??= appDbs.scratch()),
+                            dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
                             viewport: /** @type {any} */ (args.viewport) ?? null,
                         });
                     } finally {
-                        // gone with the test: it's held in memory, and closing frees it
-                        void scratch?.then((db) => db.close()).catch(() => {});
+                        // gone with the test: deleting removes its file
+                        void testDb?.then((db) => db.delete()).catch((e) => console.warn("agex.db: deleting a test's copy failed:", e));
                     }
                 }
             } catch (e) {

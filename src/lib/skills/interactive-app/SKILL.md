@@ -196,9 +196,11 @@ stored, with the same `query` and `transaction`. Use it to look at the
 data, debug, and seed or migrate it when the person asks; the app
 shows a change the next time it reads.
 
-`test_app` gives the app **an empty database of its own** (kept across
-`{reload: true}`, gone after the call), so a test never touches the
-person's data; seed what a test needs from its actions (`{eval:
+`test_app` gives the app **a copy of the person's database** as it is
+at the call (kept across `{reload: true}`, gone after the call), so a
+test runs on real data and still never changes it: write freely, even
+migrate, and check the result. `fresh: true` gives an empty database
+instead; seed what a test needs from its actions (`{eval:
 "agex.db.query(...)"}`). With `live: true` the app is on the person's
 database, and what a test writes there stays: write only when the
 person asked.

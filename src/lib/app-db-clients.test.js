@@ -6,7 +6,7 @@ import { dbOf } from "./app-db.js";
 
 /** A manager on a store in memory, with a worker and clients that
  *  record what was asked of them. */
-async function setup({ failStarts = 0, persist = vi.fn(async () => true) } = {}) {
+async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep = vi.fn(async () => []) } = {}) {
     const store = await Store.open(new Memory());
     let fails = failStarts;
     const worker = { postMessage() {} };
@@ -22,6 +22,7 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true) } = {})
             config,
             close: vi.fn(async () => {}),
             export: vi.fn(async () => new Uint8Array([83, 81, 76])),
+            copy: vi.fn(async () => ({ bytes: 8192, seq: 3, schema: 1, base: "c0" })),
             query: vi.fn(async (/** @type {string} */ sql) =>
                 sql.includes("page_count") ? { rows: [{ bytes: 8192 }] } : { rows: [{ name: "notes" }, { name: "tags" }] },
             ),
@@ -29,8 +30,8 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true) } = {})
         connected.push({ config, client });
         return /** @type {any} */ (client);
     });
-    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist });
-    return { store, dbs, start, connect, connected, persist };
+    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist, sweep });
+    return { store, dbs, start, connect, connected, persist, sweep };
 }
 
 describe("the page's app databases", () => {
@@ -137,22 +138,39 @@ describe("the page's app databases", () => {
         expect(await dbOf(store, "s-1.scout")).toBeNull();
     });
 
-    it("opens a scratch database of a test's own each time, on the same worker", async () => {
-        const { dbs, start, connected } = await setup();
-        const a = await dbs.scratch();
-        const b = await dbs.scratch();
-        expect(a.config).toMatchObject({ scratch: true, label: DB_LABEL });
-        expect(a.config.id).toMatch(/^scratch-[0-9a-f]{16}$/);
+    it("gives a test a detached copy of the session's database, its own each time", async () => {
+        const { store, dbs, start, connected, sweep } = await setup();
+        const lead = /** @type {any} */ (await dbs.dbFor("s-1"));
+        const a = /** @type {any} */ (await dbs.testDb("s-1"));
+        const b = /** @type {any} */ (await dbs.testDb("s-1.scout"));
+        expect(a.config).toEqual({ id: expect.stringMatching(/^test-[0-9a-f]{16}$/), label: DB_LABEL, detached: true });
         expect(b.config.id).not.toBe(a.config.id);
+        // made by the session's client (a delegate's, its lead's), then connected to
+        expect(lead.copy.mock.calls).toEqual([[a.config], [b.config]]);
         expect(start).toHaveBeenCalledTimes(1);
-        // not one the page holds for a session
-        expect(dbs.held().size).toBe(0);
-        expect(connected).toHaveLength(2);
+        // not held for a session
+        expect([...dbs.held().keys()]).toEqual([(await dbOf(store, "s-1"))?.id]);
+        expect(connected).toHaveLength(3);
+        // old copies are swept once a page
+        expect(sweep).toHaveBeenCalledOnce();
+    });
+
+    it("gives a test an empty database where the session has none, or empty is asked", async () => {
+        const { store, dbs, connected } = await setup();
+        const a = /** @type {any} */ (await dbs.testDb("s-1"));
+        expect(a.config.detached).toBe(true);
+        // looking named none
+        expect(await dbOf(store, "s-1")).toBeNull();
+        expect(connected).toHaveLength(1);
+
+        const lead = /** @type {any} */ (await dbs.dbFor("s-1"));
+        await dbs.testDb("s-1", { empty: true });
+        expect(lead.copy).not.toHaveBeenCalled();
     });
 
     it("asks for persistent storage once, when an app first keeps data", async () => {
         const { dbs, persist } = await setup();
-        await dbs.scratch();
+        await dbs.testDb("s-9");
         expect(persist).not.toHaveBeenCalled();
         await dbs.dbFor("s-1");
         await dbs.dbFor("s-2");

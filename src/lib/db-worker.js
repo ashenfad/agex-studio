@@ -13,15 +13,17 @@
  * the store itself, so this worker's handle on the store and the
  * page's (and other tabs') write beside each other safely.
  *
- * A scratch database (`scratch: true` in its config, a test's) is held
- * in memory instead, file and log both, and is gone once it closes.
+ * A test's copy (`detached: true` in its config) has no log: its file
+ * is in OPFS under `agex-db-tests/<id>` (`test-dbs.js`), written by the
+ * worker holding the database copied, which may be another tab's, and
+ * removed when the test deletes it.
  */
 
 import { Repo } from "@agex-ts/kvgit";
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
-import { Memory } from "@agex-ts/kvgit/backends/memory";
-import { MemoryDirectory, OpfsDirectory, serve } from "@agex-ts/kvsql";
+import { OpfsDirectory, serve } from "@agex-ts/kvsql";
 import { STORE_DB } from "./store-name.js";
+import { TEST_DB_ROOT } from "./test-dbs.js";
 
 /** The OPFS directory every database's directory is made in. */
 const ROOT = "agex-db";
@@ -44,27 +46,26 @@ function repo() {
     return opening;
 }
 
-/** @typedef {import("@agex-ts/kvsql").DatabaseConfig & { scratch?: boolean }} DbConfig */
+/** @typedef {import("@agex-ts/kvsql").DatabaseConfig} DbConfig */
 
-/** Database `config`'s file in OPFS and its log on the store. @param {DbConfig} config */
-const opened = async (config) => ({
-    dir: await OpfsDirectory.at(ROOT, config.id),
-    repo: await repo(),
-    // the log's branch is deleted by kvsql itself; the store is shared
-    // with the sessions, so only the database's directory is its own
-    async destroy() {
-        const root = await OpfsDirectory.at(ROOT);
-        try {
-            await root.handle.removeEntry(config.id, { recursive: true });
-        } catch (e) {
-            if (!(e instanceof DOMException && e.name === "NotFoundError")) throw e;
-        }
-    },
-});
+/** Remove directory `id` of OPFS directory `parent`, if it's there. @param {string} parent @param {string} id */
+async function removeDir(parent, id) {
+    const root = await OpfsDirectory.at(parent);
+    try {
+        await root.handle.removeEntry(id, { recursive: true });
+    } catch (e) {
+        if (!(e instanceof DOMException && e.name === "NotFoundError")) throw e;
+    }
+}
 
 serve(async (/** @type {DbConfig} */ config) => {
-    if (config.scratch === true) {
-        return { dir: new MemoryDirectory(), repo: await Repo.open(new Memory(), { codec: "bytes" }) };
-    }
-    return opened(config);
+    const parent = config.detached === true ? TEST_DB_ROOT : ROOT;
+    return {
+        dir: await OpfsDirectory.at(parent, config.id),
+        // a test's copy has no log
+        ...(config.detached !== true && { repo: await repo() }),
+        // the log's branch is deleted by kvsql itself; the store is shared
+        // with the sessions, so only the database's directory is its own
+        destroy: () => removeDir(parent, config.id),
+    };
 });

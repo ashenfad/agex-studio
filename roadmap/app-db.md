@@ -301,9 +301,11 @@ restore one or reset the database.
 ## Tests
 
 `test_app` runs against a copy of the person's database file (38 ms at
-50 MB, 64 ms at 200 MB, 0.5 s at 1 GB). The copy writes no log entries
-and is deleted at the end. `{reload: true}` keeps it for the next call;
-`live: true` uses the real database.
+50 MB, 64 ms at 200 MB, 0.5 s at 1 GB), made on the app's first
+`agex.db` call. The copy writes no log entries and is deleted at the
+end of the call; `{reload: true}` keeps it across the reload, and
+`fresh: true` starts from an empty database instead. `live: true` uses
+the real database.
 
 ## Sync
 
