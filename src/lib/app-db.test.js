@@ -3,7 +3,7 @@ import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { MemoryDirectory, openLog } from "@agex-ts/kvsql";
 import { Store } from "@agex-ts/world";
 import { describe, expect, it } from "vitest";
-import { REGISTRY, dbBranch, dbOf, ensureDb, newDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { REGISTRY, dbBranch, dbOf, ensureDb, firstDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
 
 describe("the app-database registry", () => {
     it("names a database on first use, the same one after", async () => {
@@ -21,8 +21,12 @@ describe("the app-database registry", () => {
         expect((await ensureDb(store, "s-2")).id).not.toBe(ref.id);
     });
 
-    it("mints ids that don't repeat", () => {
-        const ids = new Set(Array.from({ length: 200 }, newDbId));
+    it("names a session's first database alike on every device", async () => {
+        const [a, b] = [await Store.open(new Memory()), await Store.open(new Memory())];
+        const ref = await ensureDb(a, "s-1");
+        expect(ref.id).toBe(await firstDbId("s-1"));
+        expect(await ensureDb(b, "s-1")).toEqual(ref);
+        const ids = new Set(await Promise.all(Array.from({ length: 200 }, (_, i) => firstDbId(`s-${i}`))));
         expect(ids.size).toBe(200);
     });
 
