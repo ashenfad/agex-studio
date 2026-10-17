@@ -12,7 +12,7 @@
  *   use and never spelled from a session name, so a fork can name the
  *   same database and a rename or a delete leaves it be;
  * - `db/<id>` → `{ branch }`, the store branch holding the database's
- *   changeset log (`db/<id>`).
+ *   changeset log (`db/<id>/0`).
  *
  * Neither branch name is a session id (both hold a `/`), so the store
  * never lists them as sessions, and sync, which pushes sessions and
@@ -30,8 +30,14 @@ export const REGISTRY = "dbs/registry";
 /** The prefix of every database's log branch. */
 export const DB_BRANCHES = "db/";
 
-/** Database `id`'s log branch. @param {string} id */
-export const dbBranch = (id) => `${DB_BRANCHES}${id}`;
+/**
+ * Database `id`'s log branch: `db/<id>/0`, its first epoch. Later
+ * epochs (a new snapshot and the log since it) are `db/<id>/<n>`, and a
+ * git remote can't hold `db/<id>` beside refs under it, so even the
+ * first log sits one level down.
+ * @param {string} id
+ */
+export const dbBranch = (id) => `${DB_BRANCHES}${id}/0`;
 
 /** The registry key naming session `name`'s database. @param {string} name */
 const sessionKey = (name) => `session/${name}`;
