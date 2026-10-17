@@ -18,6 +18,7 @@ import { connect } from "@agex-ts/kvsql/client";
 import { dbOf, ensureDb, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
+import { sweepTestDbs } from "./test-dbs.js";
 
 /** @typedef {import("@agex-ts/kvsql/client").DatabaseClient} DatabaseClient */
 /** @typedef {import("@agex-ts/kvsql/client").WorkerLike} WorkerLike */
@@ -59,6 +60,10 @@ export class AppDbs {
     #connect;
     /** @type {() => Promise<boolean>} */
     #persist;
+    /** @type {() => Promise<unknown>} */
+    #sweep;
+    /** Whether this page has swept the copies closed tabs left. */
+    #swept = false;
     /** @type {Promise<WorkerLike> | null} */
     #worker = null;
     /** Whether persistent storage has been asked for on this page. */
@@ -71,16 +76,18 @@ export class AppDbs {
     #forgotten = new Set();
 
     /**
-     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean> }} [deps]
+     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean>, sweep?: () => Promise<unknown> }} [deps]
      *   the store the registry is on, how the worker starts, how a
-     *   client connects to it, and how persistent storage is asked for
-     *   (each replaceable in tests)
+     *   client connects to it, how persistent storage is asked for, and
+     *   how test copies left by closed tabs are swept (each replaceable
+     *   in tests)
      */
-    constructor({ store = openStore, start = startWorker, connect: connectTo = connect, persist = askPersist } = {}) {
+    constructor({ store = openStore, start = startWorker, connect: connectTo = connect, persist = askPersist, sweep = sweepTestDbs } = {}) {
         this.#store = store;
         this.#start = start;
         this.#connect = connectTo;
         this.#persist = persist;
+        this.#sweep = sweep;
     }
 
     /** The worker, started once; a start that failed is tried again next time. */
@@ -157,17 +164,31 @@ export class AppDbs {
     }
 
     /**
-     * A database of its own for a test, empty, held in the worker's
-     * memory and gone once closed: it writes no log anyone keeps. The
-     * caller closes it.
+     * A database of a test's own: a copy of session `name`'s (a
+     * delegate's lead's) as it stands now, transactions not yet flushed
+     * included, or an empty one if the session has none yet or `empty`
+     * is asked. It is detached: what the test writes is recorded in no
+     * log and never reaches the session's database. The caller deletes
+     * it (`delete()`) when the test ends.
      *
+     * @param {string} name
+     * @param {{ empty?: boolean }} [options]
      * @returns {Promise<DatabaseClient>}
      */
-    async scratch() {
+    async testDb(name, { empty = false } = {}) {
+        if (!this.#swept) {
+            this.#swept = true;
+            void this.#sweep().catch((e) => console.warn(`${DB_LABEL}: sweeping old test copies failed:`, e));
+        }
         const bytes = crypto.getRandomValues(new Uint8Array(8));
-        const id = `scratch-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
-        // `scratch` tells the worker (db-worker.js) to hold it in memory
-        const config = /** @type {import("@agex-ts/kvsql/client").DatabaseConfig} */ ({ id, label: DB_LABEL, scratch: true });
+        const id = `test-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+        const config = { id, label: DB_LABEL, detached: true };
+        const owner = dbOwner(name);
+        // looking names no database: a session without one tests on an empty one
+        if (!empty && !this.#forgotten.has(owner) && (await dbOf(await this.#store(), owner)) !== null) {
+            // made by the worker holding the session's database, in OPFS
+            await (await this.dbFor(owner)).copy(config);
+        }
         return this.#connect(await this.#workerNow(), config);
     }
 
