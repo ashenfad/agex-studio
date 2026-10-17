@@ -136,9 +136,9 @@ export function installDevHook(studio, sync) {
             await studio.switchTo(name);
             return this.current;
         },
-        /** @param {"full" | "fresh"} inherit */
-        async fork(inherit = "full") {
-            await studio.fork(inherit);
+        /** @param {"full" | "fresh" | "compact"} inherit @param {{ ownDb?: boolean }} [options] */
+        async fork(inherit = "full", options = {}) {
+            await studio.fork(inherit, options);
             return this.current;
         },
         /** @param {string} name */

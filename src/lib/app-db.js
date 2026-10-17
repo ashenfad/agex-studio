@@ -3,7 +3,8 @@
  * store of its own, `dbs/registry`.
  *
  * An app's database is external state: an undo doesn't rewind it, a
- * fork shares it, and bundles and publishing never carry it. So the
+ * fork shares it (or takes a copy of its own), and bundles and
+ * publishing never carry it. So the
  * link from a session to its database can't live in the session's
  * history, where undoing past the turn that made the app would forget
  * it and leave the data unnamed. It lives here instead:
@@ -13,7 +14,8 @@
  *   be. A session's first database takes an id hashed from the
  *   session's name, so two devices that each first use a synced
  *   session name the same database, whose logs sync merges, rather
- *   than two that a merged registry would have to choose between;
+ *   than two that a merged registry would have to choose between. A
+ *   fork's own copy, made on one device, takes a random id;
  * - `db/<id>` → `{ branch }`, the store branch holding the database's
  *   changeset log (`db/<id>/0`).
  *
@@ -64,6 +66,12 @@ const ATTEMPTS = 5;
 export async function firstDbId(name) {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`agex.db/${name}`));
     return `db-${Array.from(new Uint8Array(hash, 0, 8), (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** A random database id: `db-` and 16 hex digits. */
+export function newDbId() {
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    return `db-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /**
@@ -157,6 +165,21 @@ export async function shareDb(store, from, to) {
         const ref = (await lookup(wt, from)) ?? (await mint(wt, from));
         wt.set(sessionKey(to), ref.id);
         return ref;
+    });
+}
+
+/**
+ * Make session `to` (a fork, before it exists) name database `ref`, a
+ * copy made for it whose log is already on `ref.branch`.
+ *
+ * @param {Store} store
+ * @param {string} to
+ * @param {DbRef} ref
+ */
+export async function nameDb(store, to, ref) {
+    await edit(store, async (wt) => {
+        wt.set(dbKey(ref.id), { branch: ref.branch });
+        wt.set(sessionKey(to), ref.id);
     });
 }
 

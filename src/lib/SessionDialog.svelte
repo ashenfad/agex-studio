@@ -2,7 +2,8 @@
     /**
      * One session's actions, in one place: its name; a fork of it (with
      * its conversation, its files alone, or as it is now without its
-     * history); a bundle of it to keep or share; publishing it; its
+     * history; sharing its app's database or with a copy of its own); a
+     * bundle of it to keep or share; publishing it; its
      * app's database (its size, the sessions sharing it, keeping it on
      * this device, an export); and deleting it (with sync on, from this
      * device or everywhere).
@@ -53,12 +54,16 @@
         })
     }
 
+    /** Whether a fork takes a copy of the app's database of its own,
+     *  rather than sharing it. */
+    let ownDb = $state(false)
+
     /** @param {'full' | 'fresh' | 'compact'} inherit */
     function fork(inherit) {
         return act(
             async () => {
                 await studio.switchTo(name)
-                await studio.fork(inherit)
+                await studio.fork(inherit, { ownDb: db != null && ownDb })
             },
             { close: true, picked: true },
         )
@@ -143,6 +148,15 @@
             <button disabled={working} onclick={() => fork('fresh')}><b>Its files only</b><span>A fresh conversation over the same files</span></button>
             <button disabled={working} onclick={() => fork('compact')}><b>As it is now</b><span>Files and conversation without the history: much smaller</span></button>
         </div>
+        {#if db}
+            <label class="check">
+                <input type="checkbox" disabled={working} bind:checked={ownDb} />
+                <span>
+                    With its own copy of the app's database
+                    <small>{ownDb ? 'As it is now: what either app writes after stays its own' : 'Otherwise the two share it: what either app writes, the other sees'}</small>
+                </span>
+            </label>
+        {/if}
     </section>
 
     <section>
@@ -236,6 +250,22 @@
         padding: 0.45rem 0.7rem;
     }
     .choices span {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+    .check {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        cursor: pointer;
+    }
+    .check input {
+        margin-top: 0.2rem;
+    }
+    .check small {
+        display: block;
         font-size: 0.75rem;
         color: var(--text-muted);
     }

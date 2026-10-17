@@ -39,7 +39,7 @@ app database is the third, external state, as nontainer's `db` is:
 |---|---|---|
 | history | every turn; undo and redo | none implicit; explicit checkpoints only |
 | undo a turn | rewinds | untouched |
-| fork | copied (a branch) | shared: the fork names the same database |
+| fork | copied (a branch) | shared: the fork names the same database, or a copy of its own |
 | delete the session | gone | kept while anything names it; swept after |
 | bundle, publish | carried | never carried |
 
@@ -263,7 +263,11 @@ databases nothing names.
 **A fork names the same database** by default, as in nontainer. A
 schema change made while experimenting in a fork then reaches the
 parent's app. So a fork can also take its own copy: a file copy, a new
-id and a first epoch made from it.
+id and a log branch of its own starting where the parent's stands
+(the two logs share their history up to the copy). The session dialog
+offers it as a checkbox under its fork actions, shown once the app has
+a database. A fork of a session with no database yet has nothing to
+copy, and names a database of its own on first use.
 
 ## The agent
 

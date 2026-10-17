@@ -180,7 +180,8 @@ await agex.db.transaction([
   ])
   ```
 - **It's the person's data.** It outlives your edits to the app, an
-  undo doesn't rewind it, and a fork of the session shares it. So
+  undo doesn't rewind it, and a fork of the session shares it unless
+  the person gave the fork a copy of its own. So
   migrate what's there rather than dropping tables to start over, and
   ask before deleting the person's rows to fix a bug.
 - **Read what you show:** `WHERE`, `ORDER BY` and `LIMIT` in SQL, not

@@ -60,7 +60,11 @@ The session list's fork actions:
   (`snapshotBranch`), adopted as a new session. Much smaller; its
   earlier turns can't be undone.
 
-The app's data is copied to a fork (`copyAppStorage`).
+The app's data is copied to a fork (`copyAppStorage`). Its database
+(`agex.db`) is shared with the fork, or, if the person ticks "With its
+own copy of the app's database", copied as it is now into a database
+of the fork's own (`forkSharing` in `studio.svelte.js`; see
+[app-preview.md](app-preview.md)).
 
 ### Snapshots
 

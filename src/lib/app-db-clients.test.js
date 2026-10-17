@@ -21,6 +21,7 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep 
         const client = {
             config,
             close: vi.fn(async () => {}),
+            delete: vi.fn(async () => {}),
             export: vi.fn(async () => new Uint8Array([83, 81, 76])),
             copy: vi.fn(async () => ({ bytes: 8192, seq: 3, schema: 1, base: "c0" })),
             query: vi.fn(async (/** @type {string} */ sql) =>
@@ -72,6 +73,64 @@ describe("the page's app databases", () => {
         expect(own.close).toHaveBeenCalledTimes(1);
         expect(await dbs.dbFor("s-2")).toBe(parent);
         expect(dbs.held()).toEqual(new Map([[parent.config.id, ["s-1", "s-2"]]]));
+    });
+
+    it("gives a fork that asks a copy of its parent's database of its own", async () => {
+        const { store, dbs, connected } = await setup();
+        const parent = /** @type {any} */ (await dbs.dbFor("s-1"));
+        expect(await dbs.copyTo("s-1", "s-2")).toBe(true);
+
+        const ref = await dbOf(store, "s-2");
+        expect(ref?.id).toMatch(/^db-[0-9a-f]{16}$/);
+        expect(ref?.id).not.toBe((await dbOf(store, "s-1"))?.id);
+        // a logged copy, made by the parent's client: its log on the new id's branch
+        expect(parent.copy.mock.calls).toEqual([[{ id: ref?.id, branch: ref?.branch, label: DB_LABEL }]]);
+        const fork = /** @type {any} */ (await dbs.dbFor("s-2"));
+        expect(fork).not.toBe(parent);
+        expect(fork.config).toEqual({ id: ref?.id, branch: ref?.branch, label: DB_LABEL });
+        expect(connected).toHaveLength(2);
+    });
+
+    it("copies nothing for a fork of a session with no database yet", async () => {
+        const { store, dbs, connect } = await setup();
+        expect(await dbs.copyTo("s-1", "s-2")).toBe(false);
+        // looking named none, for either
+        expect(await dbOf(store, "s-1")).toBeNull();
+        expect(await dbOf(store, "s-2")).toBeNull();
+        expect(connect).not.toHaveBeenCalled();
+    });
+
+    it("deletes a copy it couldn't name", async () => {
+        const { store, dbs, connected } = await setup();
+        await dbs.dbFor("s-1");
+        const registry = vi.spyOn(store.repo, "worktree").mockRejectedValueOnce(new Error("registry down"));
+        await expect(dbs.copyTo("s-1", "s-2")).rejects.toThrow("registry down");
+        registry.mockRestore();
+        expect(await dbOf(store, "s-2")).toBeNull();
+        const copied = connected[0]?.client.copy.mock.calls[0]?.[0];
+        const dropped = connected.at(-1);
+        expect(dropped?.config).toEqual(copied);
+        expect(dropped?.client.delete).toHaveBeenCalledOnce();
+    });
+
+    it("deletes the copy made for a fork that wasn't made", async () => {
+        const { store, dbs, connected } = await setup();
+        await dbs.dbFor("s-1");
+        await dbs.copyTo("s-1", "s-2");
+        const ref = await dbOf(store, "s-2");
+
+        await dbs.forget("s-2", { drop: true });
+        expect(await dbOf(store, "s-2")).toBeNull();
+        const dropped = connected.at(-1);
+        expect(dropped?.config).toEqual({ id: ref?.id, branch: ref?.branch, label: DB_LABEL });
+        expect(dropped?.client.delete).toHaveBeenCalledOnce();
+        // the parent's stays
+        expect(connected[0]?.client.delete).not.toHaveBeenCalled();
+
+        // a database another session still names is kept
+        await dbs.share("s-1", "s-3");
+        await dbs.forget("s-3", { drop: true });
+        expect(connected[0]?.client.delete).not.toHaveBeenCalled();
     });
 
     it("closes a client once no session here uses it", async () => {

@@ -5,7 +5,8 @@
  * until no session here needs it.
  *
  * Which database a session uses is the registry's to say (`app-db.js`):
- * a fork shares its parent's, and deleting a session drops its entry. A
+ * a fork shares its parent's or takes a copy of its own, and deleting a
+ * session drops its entry. A
  * delegate (`lead.scout`) works for the session it was asked by, and
  * uses that session's database: the registry names top-level sessions
  * only.
@@ -15,7 +16,7 @@
  */
 
 import { connect } from "@agex-ts/kvsql/client";
-import { dbOf, ensureDb, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { dbBranch, dbOf, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
 import { sweepTestDbs } from "./test-dbs.js";
@@ -276,19 +277,64 @@ export class AppDbs {
     }
 
     /**
+     * Fork `to` of session `from` takes a copy of `from`'s database as
+     * it stands now, transactions not yet flushed included, as a
+     * database of its own: a new id, its log a branch starting where
+     * `from`'s log stands, so what either writes after stays its own.
+     * Made by the worker holding `from`'s database, which may be
+     * another tab's. With no database for `from` yet, there is nothing
+     * to copy, and `to` names one of its own on first use. Whether a
+     * copy was made.
+     *
+     * Copy before the fork exists, as for `share`.
+     *
+     * @param {string} from
+     * @param {string} to
+     */
+    async copyTo(from, to) {
+        const owner = dbOwner(from);
+        this.#refuseForgotten(owner);
+        const store = await this.#store();
+        if ((await dbOf(store, owner)) === null) return false;
+        const id = newDbId();
+        /** @type {DbRef} */
+        const ref = { id, branch: dbBranch(id) };
+        await (await this.dbFor(owner)).copy({ ...ref, label: DB_LABEL });
+        try {
+            await nameDb(store, to, ref);
+        } catch (e) {
+            // unnamed, nothing would ever find the copy again
+            await this.#drop(ref).catch((d) => console.warn(`${DB_LABEL} (${ref.id}): deleting a copy no session names failed:`, d));
+            throw e;
+        }
+        await this.release(to);
+        return true;
+    }
+
+    /** Delete database `ref`, file and log, by the worker holding it. @param {DbRef} ref */
+    async #drop(ref) {
+        const db = await this.#connect(await this.#workerNow(), { id: ref.id, branch: ref.branch, label: DB_LABEL });
+        await db.delete();
+    }
+
+    /**
      * Session `name` is deleted: its registry entry goes and its client
      * here is released. Its database stays, with its log, for a sweep of
-     * the databases no session names (another session may still name it).
-     * A lookup still in flight lands first, so the entry it makes goes
+     * the databases no session names (another session may still name it),
+     * unless `drop` says it is a copy made for a fork that wasn't made:
+     * then, named by no other session, it goes now, file and log. A
+     * lookup still in flight lands first, so the entry it makes goes
      * too, and the session's database is never asked for here again.
      *
      * @param {string} name
+     * @param {{ drop?: boolean }} [options]
      */
-    async forget(name) {
+    async forget(name, { drop = false } = {}) {
         this.#forgotten.add(name);
         await this.#refs.get(name)?.catch(() => null);
-        await unlinkDb(await this.#store(), name);
+        const unlinked = await unlinkDb(await this.#store(), name);
         await this.release(name);
+        if (drop && unlinked !== null && !unlinked.named) await this.#drop(unlinked.ref);
     }
 }
 
