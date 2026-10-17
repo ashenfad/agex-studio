@@ -70,8 +70,8 @@ await agex.db.transaction([
 ```
 
 - **Each `query` is one transaction;** `transaction([...])` runs
-  several statements as one. A `BEGIN` left open at the end of a call
-  is rolled back.
+  several statements as one. The studio opens and ends each one, so
+  `BEGIN`, `COMMIT` and `ROLLBACK` are refused.
 - **Rows come back as objects;** values are SQLite's (numbers, text,
   `null`, `Uint8Array` for blobs; integers past 2^53 as bigint).
 - **Errors** are SQLite's message, with the statement's index in a
@@ -82,10 +82,17 @@ await agex.db.transaction([
   - `ATTACH`, `VACUUM INTO` and extensions;
   - a table without a non-null `PRIMARY KEY`, checked after every
     schema change, which is rolled back if it fails;
-  - virtual tables (`CREATE VIRTUAL TABLE`: FTS5, R*Tree), for now.
+  - virtual tables (`CREATE VIRTUAL TABLE`: FTS5, R*Tree), for now;
+  - `TEMP` triggers, which would fire again on replay;
+  - PRAGMAs that set how the file is stored or behaves (`page_size`,
+    `journal_mode`, `auto_vacuum`, `recursive_triggers` and the like).
 
   The log records changes by primary key, and silently skips rows it
   can't key. Replaying a virtual table's shadow tables is untested.
+
+  PRAGMAs that store a value in the file's header, `user_version` and
+  `application_id`, aren't rows either. They're logged as a schema
+  change is (below), so every device reaches the same migration state.
 
 It's a `postMessage` call to the studio, as `agex.task` is. The
 studio takes the session from the frame the message came from, never
@@ -152,9 +159,14 @@ costs ~1.1 KB locally and ~130 B synced per edit, a few MB a year.
 ### Epochs
 
 A database's kvgit storage is a series of **epochs**. Each is a branch,
-`db/<id>/<n>`. Its first commit holds a whole snapshot (`VACUUM INTO`,
+`db/<id>/<n>`. Its first commits hold a whole snapshot (`VACUUM INTO`,
 gzipped, in ~8 MB chunks), and every later commit is one log entry, in
 one key overwritten each time, so the commit chain is the log.
+
+The snapshot's chunks go two to a commit. Sync's `PackRemote` sends a
+run of commits up to 16 MB as one request, and GitHub refuses a request
+much past 30 MB, but it can't split a commit. So a snapshot of any size
+uploads as a series of requests, each a few chunks.
 
 - **A new device** downloads the current epoch's snapshot and replays
   its log: 0.4 s at 200 MB and 2.0 s at 1 GB, plus the replay.
@@ -168,9 +180,16 @@ one key overwritten each time, so the commit chain is the log.
 
   A database that's mostly appended to, like a calendar, may never need
   one.
-- **Starting one:** flush, `VACUUM INTO` (writes pause ~2 s per GB),
-  then gzip in the background (~21 s at 1 GB). Then commit the new
-  branch and point the registry at it.
+- **Starting one:**
+  1. Flush, and note the log position the snapshot is taken at.
+  2. `VACUUM INTO` (writes pause ~2 s per GB).
+  3. Gzip in the background (~21 s at 1 GB). Writes go on meanwhile,
+     flushing to the old epoch after that position.
+  4. Commit the snapshot's chunks to the new branch.
+  5. With flushes held: append the old epoch's entries after that
+     position to the new branch, then point the registry at it. Only a
+     few seconds of entries are copied, so the hold is short, and no
+     write made during the gzip is left behind on the old epoch.
 - **The old epoch** is deleted, locally and remotely, once the new one
   is synced. A device still on it rebuilds from the new snapshot and
   rebases its unsynced changes onto it. No branch is ever rewritten,
@@ -217,13 +236,24 @@ storage, which a browser can evict. So:
 
 ## Identity: whose database is it
 
-A database has an id of its own, minted on first use (`db-<hex>`),
-never spelled from a session name, as in nontainer.
+A database has an id of its own (`db-<hex>`), named on first use. A
+session's first database takes an id hashed from the session's name,
+the same on every device; a fork names its parent's; a fork that takes
+its own copy gets a random one. Hashing the first id matters once the
+registry syncs: two devices that each first use a synced session before
+either's registry arrives name the same database, and sync rebases
+their two logs as it does any concurrent writes. With random ids each
+would name its own, the registry's one `session/<name>` key could keep
+only one, and the other's data would be orphaned for the sweep. (If
+both devices made the app's tables, the rebase meets a schema change on
+each side and stops for the person to pick, as any conflict does,
+keeping the other side as a checkpoint.)
 
 The session→database link must survive an undo, so it can't live in
 the session's history: undoing past the turn that made the app would
 forget the link, and the sweep would take the data. It lives in a
-small registry instead, branch `dbs`, synced like app data:
+small registry instead, branch `dbs/registry`, synced like app data
+(the bare `dbs` would look like a session's name):
 - `session/<name>` → id;
 - `db/<id>` → the current epoch.
 
@@ -249,10 +279,16 @@ id and a first epoch made from it.
   Kept: every explicit one, and the last 10 automatic ones.
 - **Restore** inverts the changesets back to the checkpoint, newest
   first: 10,000 transactions in under 2 s at any size. Packed entries
-  reach any transaction. A restore across a schema change rebuilds from
-  the epoch's snapshot and replays forward to the checkpoint instead.
-  - The restore is logged as an ordinary entry, so other devices follow
-    it by fast-forward.
+  reach any transaction.
+  - **Within one schema,** the restore is logged as an ordinary entry
+    (the inverted changesets), so other devices follow it by
+    fast-forward.
+  - **Across a schema change,** it rebuilds the file from the epoch's
+    snapshot, replays forward to the checkpoint, and starts a new epoch
+    from the result. A changeset can't take a schema backwards, and
+    replaying the logged DDL only goes forward, so no ordinary entry
+    could carry this restore; other devices follow the registry to the
+    new epoch as they would after any compaction.
   - It discards everything written since, possibly by the person using
     the app right now. So the agent must ask, as an app from a link
     asks before spending the viewer's key, and the open app reloads.
@@ -271,8 +307,9 @@ and is deleted at the end. `{reload: true}` keeps it for the next call;
 
 ## Sync
 
-- **Sync** pushes the current epoch's branch and `dbs` like any branch:
-  fast-forward, only what's new. A one-row edit is 0.3–0.44 KB.
+- **Sync** pushes the current epoch's branch and `dbs/registry` like
+  any branch: fast-forward, only what's new. A one-row edit is
+  0.3–0.44 KB. The registry merges key by key.
 - **Two devices that both wrote** are rebased as a flush is: undo this
   device's unsynced entries, apply the synced ones, re-apply this
   device's. If nothing conflicts, the merge is automatic. That covers
@@ -433,7 +470,7 @@ PRs follow each phase.
 3. **Checkpoints older than the current epoch:** keep the old epoch
    locally while an explicit checkpoint needs it, or turn such a
    checkpoint into a snapshot of its own when the epoch changes?
-4. **Registry vs. session plane:** is a second synced branch (`dbs`)
+4. **Registry vs. session plane:** is a second synced branch (`dbs/registry`)
    the right home, or should it join `appdata/` as one branch of
    studio-wide records?
 5. **nontainer parity:** nontainer's `db` has no checkpoints. Python's
