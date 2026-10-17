@@ -120,6 +120,29 @@ describe("the page's app databases", () => {
         expect(await dbOf(store, "s-1")).toBeNull();
     });
 
+    it("gives a delegate the database of the session it works for", async () => {
+        const { store, dbs, connect } = await setup();
+        const lead = await dbs.dbFor("s-1");
+        expect(await dbs.dbFor("s-1.scout")).toBe(lead);
+        expect(await dbs.dbFor("s-1.scout.notes")).toBe(lead);
+        expect(connect).toHaveBeenCalledTimes(1);
+        // the registry names top-level sessions only
+        expect(await dbOf(store, "s-1.scout")).toBeNull();
+    });
+
+    it("opens a scratch database of a test's own each time, on the same worker", async () => {
+        const { dbs, start, connected } = await setup();
+        const a = await dbs.scratch();
+        const b = await dbs.scratch();
+        expect(a.config).toMatchObject({ scratch: true, label: DB_LABEL });
+        expect(a.config.id).toMatch(/^scratch-[0-9a-f]{16}$/);
+        expect(b.config.id).not.toBe(a.config.id);
+        expect(start).toHaveBeenCalledTimes(1);
+        // not one the page holds for a session
+        expect(dbs.held().size).toBe(0);
+        expect(connected).toHaveLength(2);
+    });
+
     it("starts the worker again after a start that failed", async () => {
         const { dbs, start } = await setup({ failStarts: 1 });
         await expect(dbs.dbFor("s-1")).rejects.toThrow("no worker");

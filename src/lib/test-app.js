@@ -10,6 +10,7 @@
 import { buildAppPage, reseedAppPage } from "./app-html.js";
 import { readApp, hasApp } from "./app-files.js";
 import { LOAD_TIMEOUT_MS, getLiveIframe, runLiveApp, runTestApp, whenLiveSettled } from "./app-control.js";
+import { appDbs } from "./app-db-clients.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
 import { errorText } from "./errors.js";
@@ -23,7 +24,7 @@ const shown = (/** @type {unknown} */ value, max = 4000) => {
 
 const TEST_APP_DESCRIPTION = `Check the app under /workspace/app by acting on it in a browser.
 
-By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded). Before the first action it waits for the page to load (its scripts and their imports, which can take seconds from esm.sh), then for the app to settle; if it still hasn't loaded after ${LOAD_TIMEOUT_MS / 1000}s, the actions run anyway and the result says so. With live: true it acts on the preview the person is looking at instead.
+By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded; agex.db is an empty database of the test's own, kept across its reloads and discarded after). Before the first action it waits for the page to load (its scripts and their imports, which can take seconds from esm.sh), then for the app to settle; if it still hasn't loaded after ${LOAD_TIMEOUT_MS / 1000}s, the actions run anyway and the result says so. With live: true it acts on the preview the person is looking at instead, with the person's own storage and agex.db: what it writes there stays.
 
 actions: a list of plain objects, run in order:
 - {click: "#sel"} · {type: "#sel", value: "text"} · {select: "#sel", value: "opt"} · {wait: 500}
@@ -33,7 +34,7 @@ actions: a list of plain objects, run in order:
 - {screenshot: true} or {screenshot: "#sel"}: a PNG, attached to this result
 - {screenshot: true | "#sel", grid: "name", label: "1.5s title"}: held, and every frame of a grid comes back tiled into ONE captioned image at the end (also when an assert fails); up to ${GRID_MAX} frames a grid. Use it to check several states (scenes, steps) for the cost of one image
 - {viewport: "mobile" | "tablet" | "desktop" | {width, height}}: resize (not live)
-- {reload: true}: reload the page (rebuilt from the same files), keeping what this test wrote to localStorage and sessionStorage, and wait for it to load again: checks what survives a reload. The person's storage is never written (not live)
+- {reload: true}: reload the page (rebuilt from the same files), keeping what this test wrote to localStorage, sessionStorage and agex.db, and wait for it to load again: checks what survives a reload. The person's storage and database are never written (not live)
 
 viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage.
 The result lists the app's console output, then each action's result.`;
@@ -88,23 +89,31 @@ export function testAppTool(session) {
                     if (!hasApp(app)) {
                         return { text: "there is no app yet: write /workspace/app/index.html (or app/main.js) first", images: [], isError: true };
                     }
-                    results = await runTestApp({
-                        appFiles: app.files,
-                        appBinaries: app.binaries,
-                        actions,
-                        appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
-                        buildAppPage,
-                        reseedAppPage,
-                        cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
-                        // the app's agent tasks run for real, counted in its session's budget
-                        taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
-                            // an app from elsewhere runs here only once the person allowed it in the preview
-                            const { studio } = await import("./studio.svelte.js");
-                            const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
-                            return appAgent.call(session.name, call, { ask: imported, prompt: false });
-                        },
-                        viewport: /** @type {any} */ (args.viewport) ?? null,
-                    });
+                    /** The test's own database, opened on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
+                    let scratch = null;
+                    try {
+                        results = await runTestApp({
+                            appFiles: app.files,
+                            appBinaries: app.binaries,
+                            actions,
+                            appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
+                            buildAppPage,
+                            reseedAppPage,
+                            cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
+                            // the app's agent tasks run for real, counted in its session's budget
+                            taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
+                                // an app from elsewhere runs here only once the person allowed it in the preview
+                                const { studio } = await import("./studio.svelte.js");
+                                const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
+                                return appAgent.call(session.name, call, { ask: imported, prompt: false });
+                            },
+                            dbHandler: () => (scratch ??= appDbs.scratch()),
+                            viewport: /** @type {any} */ (args.viewport) ?? null,
+                        });
+                    } finally {
+                        // gone with the test: it's held in memory, and closing frees it
+                        void scratch?.then((db) => db.close()).catch(() => {});
+                    }
                 }
             } catch (e) {
                 // a failing assertion ends the call, with what came before it

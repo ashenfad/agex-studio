@@ -90,7 +90,8 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   within the quota: `checkBag`), writes it a moment later, all or
   nothing, and tells sync (`sync.appChanged`). An app that reloads
   itself gets its page again, seeded with what it saved. `sessionStorage` is in memory;
-  `indexedDB` throws, saying to use `localStorage`. A test iframe's
+  `indexedDB` throws, saying to use `agex.db` (or `localStorage` for
+  small settings). A test iframe's
   shim is read-only: it reports its stores to the test alone, for a
   `{reload: true}`.
 - **The cache**: `getCacheValue(key)` reads a value the agent's code
@@ -103,6 +104,7 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   the bridge logs. Clicking one switches to the session. A test
   iframe answers false at once.
 - **`agex.task(spec)`**: an agent task the app calls (below).
+- **`agex.db`**: the session's SQLite database (below).
 
 ### App data across devices
 
@@ -135,6 +137,26 @@ The preview's bar shows the count ("agent 2/20") and, once spent,
 "Allow 20 more". A call that can't run (no model, refused, budget
 spent, the task failed) rejects with a message the app can show.
 
+### The app's database
+
+`agex.db.query(sql, params?)` runs one statement as a transaction and
+resolves with `{ rows, changes, lastInsertRowid }`;
+`agex.db.transaction([[sql, params?] or sql, ...])` runs several as
+one, all or none. Each posts `agex-db`, and the answer
+(`agex-db-result`, from `answerDb` in `app-db-bridge.js`) carries the
+value, or the error's name, message and, for a transaction, the failed
+statement's `index`, which the shim rebuilds as an `Error`. Values
+cross as they are: blobs as `Uint8Array`, integers past 2^53 as
+`bigint`.
+
+The database is the one the preview's session names
+(`appDbs.dbFor`, in `app-db-clients.js`), never one the message names.
+A fork names its parent's, and a delegate (`lead.scout`) uses the
+top-level session's. It is kvsql's: a file in the origin-private file
+system, served by the tab's database worker (`db-worker.js`), its
+changes logged to a branch of the store. See the design,
+[roadmap/app-db.md](../../roadmap/app-db.md).
+
 ## `test_app`
 
 `testAppTool` (`test-app.js`) acts on the app in a browser:
@@ -146,10 +168,13 @@ spent, the task failed) rejects with a message the app can show.
   its own iframe and checks every message's source, so concurrent
   calls, a delegate's included, don't meet. An app's agent tasks run
   for real, on the same budget; the iframe stays until every call,
-  including one a result set off, has settled. Tool calls run one
+  including one a result set off, has settled. Its `agex.db` is a
+  scratch database of the test's own (`appDbs.scratch`: empty, held in
+  the worker's memory, closed after the call), so a test never writes
+  the person's. Tool calls run one
   after another, so the files a call before it wrote are there.
 - **`live: true`** acts on the preview the person sees
-  (`getLiveIframe`), once the preview has gone on with the files as
+  (`getLiveIframe`), with the person's storage and database, once the preview has gone on with the files as
   they are (`whenLiveSettled`: no rebuild due from a write's debounce
   or under way). A delegate's `live` is refused: the preview shows the
   session that asked it.
@@ -178,7 +203,8 @@ its stores to the test (`agex-test-storage`, which only the test's
 listener takes, from its own frame); the next page is seeded with what
 the test wrote (`reseedAppPage`, `sessionSeed` for `sessionStorage`,
 which a browser keeps across a reload), and the console output of the
-page before comes first in the result.
+page before comes first in the result. The test's scratch database
+stays across the reload.
 
 ### When a page goes
 

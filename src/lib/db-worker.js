@@ -12,11 +12,15 @@
  * kvgit writes through compare-and-swap and its GC lease, both kept in
  * the store itself, so this worker's handle on the store and the
  * page's (and other tabs') write beside each other safely.
+ *
+ * A scratch database (`scratch: true` in its config, a test's) is held
+ * in memory instead, file and log both, and is gone once it closes.
  */
 
 import { Repo } from "@agex-ts/kvgit";
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
-import { OpfsDirectory, serve } from "@agex-ts/kvsql";
+import { Memory } from "@agex-ts/kvgit/backends/memory";
+import { MemoryDirectory, OpfsDirectory, serve } from "@agex-ts/kvsql";
 import { STORE_DB } from "./store-name.js";
 
 /** The OPFS directory every database's directory is made in. */
@@ -40,7 +44,10 @@ function repo() {
     return opening;
 }
 
-serve(async (config) => ({
+/** @typedef {import("@agex-ts/kvsql").DatabaseConfig & { scratch?: boolean }} DbConfig */
+
+/** Database `config`'s file in OPFS and its log on the store. @param {DbConfig} config */
+const opened = async (config) => ({
     dir: await OpfsDirectory.at(ROOT, config.id),
     repo: await repo(),
     // the log's branch is deleted by kvsql itself; the store is shared
@@ -53,4 +60,11 @@ serve(async (config) => ({
             if (!(e instanceof DOMException && e.name === "NotFoundError")) throw e;
         }
     },
-}));
+});
+
+serve(async (/** @type {DbConfig} */ config) => {
+    if (config.scratch === true) {
+        return { dir: new MemoryDirectory(), repo: await Repo.open(new Memory(), { codec: "bytes" }) };
+    }
+    return opened(config);
+});
