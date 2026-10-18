@@ -141,10 +141,13 @@
                     chosen = preferredRepo(out.choices)
                 }
             } else {
-                // at once, beside the rest: connecting doesn't wait for Save
+                // at once, beside the rest: connecting doesn't wait for Save;
+                // the token was checked against GitHub's own API, so a
+                // stand-in's (syncApi, set only in testing) goes
                 s.syncRepo = out.repo
                 s.syncToken = token.trim()
-                updateSettings({ syncRepo: out.repo, syncToken: token.trim() })
+                s.syncApi = ''
+                updateSettings({ syncRepo: out.repo, syncToken: token.trim(), syncApi: '' })
                 token = ''
                 choices = []
                 connectNote = out.private ? '' : `${out.repo} is public: anyone can read the sessions synced there.`
@@ -157,7 +160,8 @@
     function disconnect() {
         s.syncRepo = ''
         s.syncToken = ''
-        updateSettings({ syncRepo: '', syncToken: '' })
+        s.syncApi = ''
+        updateSettings({ syncRepo: '', syncToken: '', syncApi: '' })
         connectNote = ''
     }
 </script>
