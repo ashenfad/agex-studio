@@ -16,7 +16,7 @@
     import { onDestroy, tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import { callStarted, callsLost, setLiveIframe, setLiveSettled } from './app-control.js'
-    import { appDbs, dbOwner } from './app-db-clients.js'
+    import { appDbs } from './app-db-clients.js'
     import { dbRestores } from './db-restore.svelte.js'
     import { formatDate } from './format-time.js'
     import { answerDb } from './app-db-bridge.js'
@@ -31,8 +31,8 @@
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
 
-    /** @type {{ session: import('./session.svelte.js').ChatSession, loading?: boolean, empty?: boolean }} */
-    let { session, loading = $bindable(false), empty = $bindable(false) } = $props()
+    /** @type {{ session: import('./session.svelte.js').ChatSession, loading?: boolean, empty?: boolean, asking?: boolean }} */
+    let { session, loading = $bindable(false), empty = $bindable(false), asking = $bindable(false) } = $props()
 
     /** @type {HTMLIFrameElement | null} */
     let iframe = $state(null)
@@ -183,8 +183,22 @@
         })
     })
 
+    /** The app's database's id, once it has one: looked up again when a
+     *  question about some database comes (it may be named since). */
+    let dbId = $state(/** @type {string | null} */ (null))
+    $effect(() => {
+        void Object.keys(dbRestores.asking).length
+        const name = session.name
+        void appDbs.idOf(name).then((id) => {
+            if (session.name === name) dbId = id
+        })
+    })
+
     /** A restore of the app's database the agent asks about, waiting on the person. */
-    const restoring = $derived(dbRestores.asking[dbOwner(session.name)] ?? null)
+    const restoring = $derived(dbId === null ? null : (dbRestores.asking[dbId] ?? null))
+    $effect(() => {
+        asking = restoring !== null || appAgent.asking[session.name] !== undefined
+    })
 
     /** The app's storage, the last bag it posted, and its session's name. */
     /** @type {{ name: string, bag: Record<string, string> } | null} */
