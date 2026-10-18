@@ -162,7 +162,7 @@
                     <div class="menu attention">
                         <span>{sync.status[s.name]?.detail}</span>
                         <button onclick={() => act(() => sync.syncAgain(s.name))}>Sync it again</button>
-                        <button class="danger" onclick={() => act(() => studio.remove(s.name))}>Delete here too</button>
+                        <button class="danger" onclick={() => act(() => studio.remove(s.name, { keepDb: true }))}>Delete here too</button>
                     </div>
                 {:else if sync.connected && sync.status[s.name]?.state === 'error'}
                     <div class="menu attention">

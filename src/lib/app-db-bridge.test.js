@@ -50,12 +50,19 @@ describe("an app's agex.db calls", () => {
     });
 });
 
-describe("wroteRows", () => {
-    it("is whether a call's result changed rows", async () => {
-        const { wroteRows } = await import("./app-db-bridge.js");
-        expect(wroteRows({ rows: [], changes: 0 })).toBe(false);
-        expect(wroteRows({ rows: [], changes: 2 })).toBe(true);
-        expect(wroteRows([{ changes: 0 }, { changes: 1 }])).toBe(true);
-        expect(wroteRows(null)).toBe(false);
+describe("mayHaveWritten", () => {
+    it("is whether a call changed rows, or ran anything but a read", async () => {
+        const { mayHaveWritten } = await import("./app-db-bridge.js");
+        const ok = (/** @type {unknown} */ value) => ({ value, error: null });
+        const query = (/** @type {string} */ sql) => ({ op: "query", args: [sql] });
+        expect(mayHaveWritten(query("SELECT 1"), ok({ changes: 0 }))).toBe(false);
+        expect(mayHaveWritten(query("  select * from t"), ok({ changes: 0 }))).toBe(false);
+        expect(mayHaveWritten(query("UPDATE t SET v = 1"), ok({ changes: 2 }))).toBe(true);
+        // a schema change changes no rows
+        expect(mayHaveWritten(query("CREATE TABLE t (id INTEGER PRIMARY KEY)"), ok({ changes: 0 }))).toBe(true);
+        expect(mayHaveWritten({ op: "transaction", args: [[["SELECT 1"], ["ALTER TABLE t ADD c"]]] }, ok([{ changes: 0 }, { changes: 0 }]))).toBe(true);
+        expect(mayHaveWritten({ op: "transaction", args: [[["SELECT 1"]]] }, ok([{ changes: 0 }]))).toBe(false);
+        // a failed call changed nothing
+        expect(mayHaveWritten(query("DROP TABLE t"), { value: null, error: { name: "Error", message: "no" } })).toBe(false);
     });
 });

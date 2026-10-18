@@ -19,7 +19,7 @@
     import { appDbs } from './app-db-clients.js'
     import { dbRestores } from './db-restore.svelte.js'
     import { formatDate } from './format-time.js'
-    import { answerDb, wroteRows } from './app-db-bridge.js'
+    import { answerDb, mayHaveWritten } from './app-db-bridge.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
@@ -303,7 +303,7 @@
             try {
                 const reply = await answerDb(data, () => appDbs.dbFor(name))
                 replyToApp(frame, reply)
-                if (wroteRows(reply.value)) sync.dbChanged(name)
+                if (mayHaveWritten(data, reply)) sync.dbChanged(name)
             } finally {
                 done()
             }

@@ -40,6 +40,19 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep 
 }
 
 describe("the page's app databases", () => {
+    it("lends a client to the sync, closed when it's done if no session uses it", async () => {
+        const { store, dbs } = await setup();
+        const lent = await dbs.dbFor("s-1", "sync:s-1");
+        expect(dbs.held().get((await dbOf(store, "s-1"))?.id ?? "")).toEqual(["sync:s-1"]);
+        await dbs.release("sync:s-1");
+        expect(lent.close).toHaveBeenCalledTimes(1);
+        // released, the session's database stays named: a session removed
+        // here that lives on in the sync repo keeps it
+        expect(await dbOf(store, "s-1")).not.toBeNull();
+        await dbs.forget("s-1");
+        expect(await dbOf(store, "s-1")).toBeNull();
+    });
+
     it("starts the worker and connects on first use, once", async () => {
         const { store, dbs, start, connect } = await setup();
         expect(start).not.toHaveBeenCalled();
