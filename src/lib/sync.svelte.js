@@ -116,9 +116,9 @@ export class Sync {
     /** The remote for the settings now, made once for them. */
     #remoteNow() {
         const s = getSettings();
-        const key = `${s.syncRepo}|${s.syncToken}`;
+        const key = `${s.syncRepo}|${s.syncToken}|${s.syncApi}`;
         if (this.#remote === null || key !== this.#remoteKey) {
-            const remote = this.#connect(s.syncRepo.trim(), s.syncToken.trim());
+            const remote = this.#connect(s.syncRepo.trim(), s.syncToken.trim(), s.syncApi.trim());
             // one that failed to open is tried afresh next time
             remote.catch(() => {
                 if (this.#remote === remote) this.#remote = null;
@@ -130,12 +130,13 @@ export class Sync {
     }
 
     /** A remote on `repo`, noted as the one connected (the sync heads
-     *  kept under no repo go if another was). @param {string} repo
-     *  @param {string} token */
-    async #connect(repo, token) {
+     *  kept under no repo go if another was), through the API at `api`
+     *  (GitHub's when empty: a stand-in's in tests). @param {string} repo
+     *  @param {string} token @param {string} api */
+    async #connect(repo, token, api) {
         const store = await openStore();
-        await adoptRepo(store.repo, repo, notedRepo);
-        const client = new GithubClient({ token, repo, writeIntervalMs: 0 });
+        await adoptRepo(store.repo, api === "" ? repo : `${api} ${repo}`, notedRepo);
+        const client = new GithubClient({ token, repo, writeIntervalMs: 0, ...(api !== "" && { apiBase: api }) });
         return new PackRemote(client, store.repo.store, { meta: (branch) => this.#meta(branch) });
     }
 

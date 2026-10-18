@@ -59,6 +59,10 @@ export const STORAGE_KEY = "agex-studio-settings";
  *     (`owner/name`); empty when sync is off.
  * @property {string} syncToken — a token for that repo (fine-grained,
  *     Contents read and write).
+ * @property {string} syncApi — the GitHub API's root URL sync uses;
+ *     empty for GitHub's own. For testing against a stand-in (kvgit's
+ *     fake GitHub, `pnpm -F @agex-ts/kvgit fake-github` in agex-ts);
+ *     the settings dialog has no field for it.
  * @property {string} publishToken — a token that can write gists, to
  *     publish sessions; the sync token is tried when empty.
  * @property {boolean} notifyOnFinish — a desktop notification when a
@@ -82,6 +86,7 @@ export const DEFAULTS = {
     vision: true,
     syncRepo: "",
     syncToken: "",
+    syncApi: "",
     publishToken: "",
     notifyOnFinish: false,
 };

@@ -24,6 +24,10 @@
  *   DRIVE_BASE_URL, DRIVE_WIRE (custom: anthropic | openai)
  *   CHROME          a Chromium executable, if Playwright's isn't installed
  *   DRIVE_SYNC_REPO, DRIVE_SYNC_TOKEN   connect sync to this repo (owner/name)
+ *   DRIVE_SYNC_API  sync through this GitHub API root instead of GitHub's:
+ *                   a stand-in (`pnpm -F @agex-ts/kvgit fake-github` in
+ *                   agex-ts) that two runs with their own --profile
+ *                   sync through, as two devices
  *   DRIVE_PUBLISH_TOKEN   a token that can write gists, for publishing
  *
  * Options:
@@ -100,7 +104,7 @@ const settings =
             };
 if (env.DRIVE_PUBLISH_TOKEN) settings.publishToken = env.DRIVE_PUBLISH_TOKEN;
 if (env.DRIVE_SYNC_REPO && env.DRIVE_SYNC_TOKEN) {
-    Object.assign(settings, { syncRepo: env.DRIVE_SYNC_REPO, syncToken: env.DRIVE_SYNC_TOKEN });
+    Object.assign(settings, { syncRepo: env.DRIVE_SYNC_REPO, syncToken: env.DRIVE_SYNC_TOKEN, syncApi: env.DRIVE_SYNC_API ?? "" });
 }
 if (mode === "openrouter" && settings.routerKey === "") {
     console.error("OPENROUTER_API_KEY isn't set (or use --scripted, or DRIVE_MODE=custom)");
