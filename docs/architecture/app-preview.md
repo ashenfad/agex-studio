@@ -161,8 +161,9 @@ changes logged to a branch of the store. See the design,
 [roadmap/app-db.md](../../roadmap/app-db.md).
 
 With sync on, a synced session's database syncs with it (`db-sync.js`,
-driven by `sync.svelte.js`): after the session, a few seconds after an
-app writes, and in every sweep. Two devices' changes rebase onto each
+driven by `sync.svelte.js`): after the session, ten seconds after an
+app's last write (and a minute at most after its first, for an app
+that keeps writing), and in every sweep. Two devices' changes rebase onto each
 other; where they don't fit together, nothing changes until the person
 picks a side, and the other is kept as a checkpoint. A database over
 the cap stays on its device until the person allows it. Until it

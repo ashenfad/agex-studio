@@ -44,6 +44,7 @@ import { dbOf, unlinkDb } from "./app-db.js";
 import { appDbs, dbOwner } from "./app-db-clients.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { syncDb, syncRegistry } from "./db-sync.js";
+import { Debouncer } from "./debounce.js";
 
 /** How long after a change a session is pushed. */
 const PUSH_DELAY = 4000;
@@ -51,6 +52,8 @@ const PUSH_DELAY = 4000;
 const APP_DATA_DELAY = 10_000;
 /** How long after a database's sync found the repo moving it tries again. */
 const DB_RETRY_DELAY = 15_000;
+/** How long an app that keeps writing puts off its data's and database's sync, at most. */
+const APP_MAX_WAIT = 60_000;
 
 /** Whether database `id` may sync past the cap. @param {string} id */
 function largeAllowed(id) {
@@ -185,18 +188,12 @@ export class Sync {
     appChanged(name) {
         setAppWrittenAt(name, Date.now());
         if (!this.connected || !this.#syncs(name)) return;
-        clearTimeout(this.#appTimers.get(name));
-        this.#appTimers.set(
-            name,
-            setTimeout(() => {
-                this.#appTimers.delete(name);
-                void exclusively(() => this.#syncApp(name).catch(() => undefined));
-            }, APP_DATA_DELAY),
-        );
+        this.#appTimers.schedule(name, APP_DATA_DELAY, () => {
+            void exclusively(() => this.#syncApp(name).catch(() => undefined));
+        });
     }
 
-    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
-    #appTimers = new Map();
+    #appTimers = new Debouncer(APP_MAX_WAIT);
 
     /**
      * Session `name`'s database changed here (an app wrote to it, or it
@@ -217,18 +214,12 @@ export class Sync {
 
     /** Sync session `owner`'s database after `delay`. @param {string} owner @param {number} delay */
     #scheduleDb(owner, delay) {
-        clearTimeout(this.#dbTimers.get(owner));
-        this.#dbTimers.set(
-            owner,
-            setTimeout(() => {
-                this.#dbTimers.delete(owner);
-                void exclusively(() => this.#syncDbsOf([owner]).catch(() => undefined));
-            }, delay),
-        );
+        this.#dbTimers.schedule(owner, delay, () => {
+            void exclusively(() => this.#syncDbsOf([owner]).catch(() => undefined));
+        });
     }
 
-    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
-    #dbTimers = new Map();
+    #dbTimers = new Debouncer(APP_MAX_WAIT);
 
     /**
      * Sync the registry, then the databases sessions `names` name, each
@@ -684,9 +675,7 @@ export class Sync {
     disconnect() {
         for (const t of this.#timers.values()) clearTimeout(t);
         this.#timers.clear();
-        for (const t of this.#appTimers.values()) clearTimeout(t);
         this.#appTimers.clear();
-        for (const t of this.#dbTimers.values()) clearTimeout(t);
         this.#dbTimers.clear();
         this.dbs = {};
         this.dbIds = {};

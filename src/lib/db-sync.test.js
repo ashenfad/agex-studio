@@ -155,6 +155,42 @@ describe("syncing an app's database", () => {
         expect(await rows(a.db)).toEqual(await rows(b.db));
     });
 
+    for (const epochs of [1, 2]) {
+        it(`brings in a device that joins ${epochs} epoch(s) on, the first gone`, async () => {
+            const remotes = inMemory();
+            const a = await device(remotes);
+            await a.db.query("CREATE TABLE t (id INTEGER PRIMARY KEY NOT NULL, x TEXT, y TEXT)");
+            await a.db.query("INSERT INTO t VALUES (1, 'x1', 'y1')");
+            expect(await a.sync()).toMatchObject({ state: "synced" });
+            for (let i = 0; i < epochs; i++) await a.db.newEpoch();
+            expect(await a.sync()).toMatchObject({ state: "synced" });
+            expect(await a.branches()).toEqual([`db/${ID}/${epochs}`]);
+            const b = await device(remotes);
+            expect(await b.sync()).toMatchObject({ state: "synced", moved: true });
+            expect(b.db.branch).toBe(`db/${ID}/${epochs}`);
+            expect(await rows(b.db)).toEqual(await rows(a.db));
+        });
+    }
+
+    it("takes in another device's pushes to an epoch two back, the epochs since started here", async () => {
+        const { a, b } = await level();
+        await b.db.query("UPDATE t SET y = 'b' WHERE id = 2");
+        expect(await b.sync()).toMatchObject({ state: "synced" });
+        await a.db.query("UPDATE t SET x = 'a' WHERE id = 1");
+        await a.db.flush();
+        await a.db.newEpoch();
+        await a.db.newEpoch();
+        expect(await a.sync()).toMatchObject({ state: "synced", moved: true });
+        expect(await a.branches()).toEqual([`db/${ID}/2`]);
+        expect(await b.sync()).toMatchObject({ state: "synced", moved: true });
+        expect(b.db.branch).toBe(`db/${ID}/2`);
+        expect(await rows(b.db)).toEqual([
+            { id: 1, x: "a", y: "y1" },
+            { id: 2, x: "x2", y: "b" },
+        ]);
+        expect(await rows(a.db)).toEqual(await rows(b.db));
+    });
+
     it("keeps a database over the cap here unless it's allowed", async () => {
         const a = await device(inMemory());
         await a.db.query("CREATE TABLE t (id INTEGER PRIMARY KEY NOT NULL, x TEXT, y TEXT)");
