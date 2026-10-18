@@ -276,7 +276,7 @@
         {:else if sync.synced(name)}
             <p class="hint">It's in the sync repo too.</p>
             <div class="row">
-                <button disabled={working} onclick={() => act(() => studio.remove(name), { close: true })} title="It stays in the sync repo, and shows in the list as a cloud session">From this device</button>
+                <button disabled={working} onclick={() => act(() => studio.remove(name, { keepDb: true }), { close: true })} title="It stays in the sync repo, and shows in the list as a cloud session">From this device</button>
                 <button class="danger" disabled={working} onclick={() => act(() => sync.deleteEverywhere(name), { close: true })} title="Into the sync repo's trash, on every device: restorable until it's emptied">Everywhere</button>
                 <button disabled={working} onclick={() => (deleting = false)}>Keep it</button>
             </div>

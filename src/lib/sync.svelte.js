@@ -40,7 +40,7 @@ import { SessionBusy } from "./gate.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
 import { adoptRepo, localNote, nextState } from "./sync-state.js";
-import { dbOf } from "./app-db.js";
+import { dbOf, unlinkDb } from "./app-db.js";
 import { appDbs, dbOwner } from "./app-db-clients.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { syncDb, syncRegistry } from "./db-sync.js";
@@ -466,7 +466,7 @@ export class Sync {
                         // archived elsewhere: unchanged here since, it goes
                         // (it's in the trash); changed here, the person decides
                         // ...and its app data unchanged too: a write not yet pushed keeps it here
-                        if (synced === head && this.studio.current?.name !== name && !(await this.#appDataUnpushed(name, remote))) await this.studio.remove(name);
+                        if (synced === head && this.studio.current?.name !== name && !(await this.#appDataUnpushed(name, remote))) await this.studio.remove(name, { keepDb: true });
                         else this.#mark(name, "remote-gone", "It was moved to the trash on another device.");
                         continue;
                     }
@@ -586,7 +586,8 @@ export class Sync {
             if (hasApp) await remote.restoreBranch(app).catch(() => false);
             throw new Error("the session changed in the sync repo meanwhile; sync, then delete again");
         }
-        await this.studio.remove(name);
+        // restorable from the trash, so its database stays named
+        await this.studio.remove(name, { keepDb: true });
         await this.sweep({ force: true });
     }
 
@@ -610,8 +611,15 @@ export class Sync {
     /** Delete every session in the repo's trash for good. */
     async emptyTrash() {
         const remote = await this.#remoteNow();
+        const gone = this.trash.map((t) => t.name);
         await remote.emptyTrash();
         this.trash = [];
+        // gone for good: the databases they named are no longer theirs
+        // (one a session here still names stays named by it)
+        const store = await openStore();
+        const here = new Set(this.studio.sessions.map((s) => s.name));
+        for (const name of gone) if (!here.has(name)) await unlinkDb(store, name);
+        await exclusively(() => this.#syncDbsOf([]).catch(() => undefined));
     }
 
     /** Whether the repo holds session `name`, as last seen (what

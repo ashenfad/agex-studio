@@ -280,7 +280,13 @@ export class Studio {
     }
 
     /** Delete session `name` for good. @param {string} name */
-    async remove(name) {
+    /**
+     * @param {string} name
+     * @param {{ keepDb?: boolean }} [options] `keepDb`: the session stays
+     *   in the sync repo (on other devices, or in its trash), so its
+     *   database's registry entry stays, for it to come back to
+     */
+    async remove(name, { keepDb = false } = {}) {
         const session = this.#open.get(name);
         if (session?.busy || session?.folding) throw new Error("a turn is running in that session; stop it first");
         await session?.close();
@@ -291,9 +297,11 @@ export class Studio {
         // its app data's branch (see app-data.js) goes with it
         const appData = `appdata/${name}`;
         if (await store.repo.branches.has(appData)) await store.repo.branches.delete(appData);
-        // its app database's entry goes; the database stays while another
-        // session names it, and for a sweep after
-        await appDbs.forget(name);
+        // its app database's entry goes, unless the session lives on
+        // elsewhere; the database stays while another session names it,
+        // and for a sweep after
+        if (keepDb) await appDbs.release(name);
+        else await appDbs.forget(name);
         await this.refresh();
         if (this.current?.name === name) {
             this.current = null;

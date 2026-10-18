@@ -30,14 +30,20 @@ export function dbError(e) {
 }
 
 /**
- * Whether a call's result (`answerDb`'s `value`) changed any rows: a
- * query's, or any statement of a transaction's.
+ * Whether an app's `agex-db` call `data`, answered with `reply`, may
+ * have changed the database: it succeeded, and changed rows, or ran
+ * anything but a plain read (a schema change changes no rows).
  *
- * @param {unknown} value
+ * @param {{ op?: unknown, args?: unknown }} data
+ * @param {{ value: unknown, error: unknown }} reply
  */
-export function wroteRows(value) {
-    const results = Array.isArray(value) ? value : [value];
-    return results.some((r) => Number(/** @type {{ changes?: unknown } | null} */ (r)?.changes ?? 0) > 0);
+export function mayHaveWritten(data, reply) {
+    if (reply.error !== null) return false;
+    const results = Array.isArray(reply.value) ? reply.value : [reply.value];
+    if (results.some((r) => Number(/** @type {{ changes?: unknown } | null} */ (r)?.changes ?? 0) > 0)) return true;
+    const args = Array.isArray(data.args) ? data.args : [];
+    const sqls = data.op === "transaction" ? (Array.isArray(args[0]) ? args[0] : []).map((s) => (Array.isArray(s) ? s[0] : s)) : [args[0]];
+    return sqls.some((sql) => !/^\s*(SELECT|EXPLAIN|VALUES)\b/i.test(String(sql ?? "")));
 }
 
 /**
