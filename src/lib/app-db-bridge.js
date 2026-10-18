@@ -30,6 +30,17 @@ export function dbError(e) {
 }
 
 /**
+ * Whether a call's result (`answerDb`'s `value`) changed any rows: a
+ * query's, or any statement of a transaction's.
+ *
+ * @param {unknown} value
+ */
+export function wroteRows(value) {
+    const results = Array.isArray(value) ? value : [value];
+    return results.some((r) => Number(/** @type {{ changes?: unknown } | null} */ (r)?.changes ?? 0) > 0);
+}
+
+/**
  * Answer the app's `agex-db` message `data` on the database `db` gives:
  * the reply to post back to its frame. A call that isn't one of
  * `agex.db`'s is answered with an error, as is any the database fails.

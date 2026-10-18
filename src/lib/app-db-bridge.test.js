@@ -49,3 +49,13 @@ describe("an app's agex.db calls", () => {
         expect(reply.error).toEqual({ name: "Error", message: "no worker" });
     });
 });
+
+describe("wroteRows", () => {
+    it("is whether a call's result changed rows", async () => {
+        const { wroteRows } = await import("./app-db-bridge.js");
+        expect(wroteRows({ rows: [], changes: 0 })).toBe(false);
+        expect(wroteRows({ rows: [], changes: 2 })).toBe(true);
+        expect(wroteRows([{ changes: 0 }, { changes: 1 }])).toBe(true);
+        expect(wroteRows(null)).toBe(false);
+    });
+});

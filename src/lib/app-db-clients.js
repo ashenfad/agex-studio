@@ -136,9 +136,11 @@ export class AppDbs {
      * deleted session has none.
      *
      * @param {string} session
+     * @param {string} [user] who uses it: the session, by default; the
+     *   sync borrows it as `sync:<session>`, and releases that
      * @returns {Promise<DatabaseClient>}
      */
-    async dbFor(session) {
+    async dbFor(session, user) {
         const name = dbOwner(session);
         this.#refuseForgotten(name);
         const ref = await this.#refOf(name);
@@ -169,7 +171,7 @@ export class AppDbs {
             this.#held.set(ref.id, made);
             held = made;
         }
-        held.users.add(name);
+        held.users.add(user ?? name);
         return held.client;
     }
 
