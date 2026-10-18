@@ -6,7 +6,9 @@
      * bundle of it to keep or share; publishing it; its
      * app's database (its size, the sessions sharing it, keeping it on
      * this device, an export, its checkpoints to restore); and deleting it (with sync on, from this
-     * device or everywhere).
+     * device or everywhere). With sync on, the database's sync too, and
+     * the choice when it changed here and elsewhere in ways that don't
+     * fit together.
      */
     import { onMount, untrack } from 'svelte'
     import { appDbs } from './app-db-clients.js'
@@ -165,6 +167,17 @@
         })
     }
 
+    /** Where the database's sync stands. */
+    const dbSync = $derived(db ? sync.dbState(name) : undefined)
+
+    /** Settle the database's conflict on `side`. @param {'mine' | 'theirs'} side */
+    function settleDb(side) {
+        return act(async () => {
+            await sync.resolveDb(name, side)
+            await readDb()
+        })
+    }
+
     function keep() {
         return act(async () => {
             persisted = await askPersist()
@@ -220,11 +233,36 @@
                 {formatBytes(db.bytes)}, {db.tables.length === 1 ? '1 table' : `${db.tables.length} tables`}{#if db.tables.length > 0}: {db.tables.join(', ')}{/if}.
                 {#if sharing.length > 0}Shared with {sharing.join(', ')}.{/if}
             </p>
-            <p class="hint">
-                On this device only: sync doesn't carry it yet, so export it to keep a copy.
-                {#if persisted === false}The browser may also clear it when space runs low.{/if}
-            </p>
+            {#if dbSync?.state === 'conflict'}
+                <div class="attention">
+                    <p>{dbSync.detail} Nothing has changed until you pick a side; the other is kept as a checkpoint here.</p>
+                    <div class="row">
+                        <button disabled={working} onclick={() => settleDb('mine')} title="This device's data stands; the synced changes are kept as a checkpoint">Keep this device's</button>
+                        {#if dbSync.conflict?.step !== 'adopt'}
+                            <button disabled={working} onclick={() => settleDb('theirs')} title="The synced data stands; this device's changes are kept as a checkpoint">Use the synced</button>
+                        {/if}
+                    </div>
+                </div>
+            {:else if dbSync?.state === 'too-large'}
+                <p class="hint">{dbSync.detail} Syncing it uploads a copy of it whole now and then.</p>
+            {:else if dbSync?.state === 'error'}
+                <p class="hint">Its sync failed: {dbSync.detail}</p>
+            {:else if dbSync?.state === 'waiting'}
+                <p class="hint">{dbSync.detail} It syncs again shortly.</p>
+            {:else if sync.syncs(name)}
+                <p class="hint">{dbSync?.state === 'synced' ? 'Synced with the session.' : 'It syncs with the session.'}</p>
+            {:else}
+                <p class="hint">
+                    On this device only{sync.connected ? ' until the session syncs (once it has a name)' : ': sync is off'}, so export it to keep a copy.
+                    {#if persisted === false}The browser may also clear it when space runs low.{/if}
+                </p>
+            {/if}
             <div class="row">
+                {#if dbSync?.state === 'too-large'}
+                    <button disabled={working} onclick={() => act(() => sync.allowLarge(db?.id ?? '', name))}>Sync it anyway</button>
+                {:else if dbSync?.state === 'error'}
+                    <button disabled={working} onclick={() => act(() => sync.syncDbNow(name))}>Retry</button>
+                {/if}
                 <button disabled={working} onclick={exportDb} title="A SQLite file (.sqlite) any SQLite tool opens">Export as .sqlite</button>
                 {#if persisted === false}
                     <button disabled={working} onclick={keep} title="Ask the browser not to clear the studio's data when space runs low">Keep it on this device</button>
@@ -428,6 +466,16 @@
     section button:disabled {
         opacity: 0.5;
         cursor: default;
+    }
+    .attention {
+        border: 1px solid var(--caution);
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        margin-block: 0.5rem;
+    }
+    .attention p {
+        margin: 0 0 0.5rem;
+        font-size: 0.8rem;
     }
     .danger {
         border-color: var(--error) !important;

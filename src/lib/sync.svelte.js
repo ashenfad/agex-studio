@@ -104,9 +104,11 @@ export class Sync {
     /**
      * Where each app database's sync stands, by its id: an error's too,
      * as `{ state: "error", detail }`.
-     * @type {Record<string, import("./db-sync.js").DbSyncState | { state: "error", detail: string, moved: false }>}
+     * @type {Record<string, import("./db-sync.js").DbSyncState | { state: "error", detail: string, moved: false, conflict?: undefined }>}
      */
     dbs = $state({});
+    /** The id of the database each session names, as the last sync of it found. @type {Record<string, string>} */
+    dbIds = $state({});
 
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     #timers = new Map();
@@ -226,7 +228,9 @@ export class Sync {
         const ids = new Map();
         for (const name of names) {
             const ref = await dbOf(store, name);
-            if (ref !== null && !ids.has(ref.id)) ids.set(ref.id, name);
+            if (ref === null) continue;
+            this.dbIds[name] = ref.id;
+            if (!ids.has(ref.id)) ids.set(ref.id, name);
         }
         if (ids.size === 0) return;
         heads ??= new Map((await remote.listRefs()).map((r) => [r.branch, r.head]));
@@ -263,6 +267,26 @@ export class Sync {
      */
     async resolveDb(name, keep) {
         await exclusively(() => this.#syncDbsOf([dbOwner(name)], { keep }));
+    }
+
+    /** Whether session `name` syncs (with its app's database). @param {string} name */
+    syncs(name) {
+        return this.connected && this.#syncs(dbOwner(name));
+    }
+
+    /** Sync session `name`'s database now (a retry). @param {string} name */
+    async syncDbNow(name) {
+        await exclusively(() => this.#syncDbsOf([dbOwner(name)]));
+    }
+
+    /**
+     * Where session `name`'s database's sync stands, if it has synced on
+     * this page.
+     * @param {string} name
+     */
+    dbState(name) {
+        const id = this.dbIds[dbOwner(name)];
+        return id === undefined ? undefined : this.dbs[id];
     }
 
     /** Let database `id` sync past the cap. @param {string} id @param {string} name a session naming it */
@@ -645,6 +669,7 @@ export class Sync {
         for (const t of this.#dbTimers.values()) clearTimeout(t);
         this.#dbTimers.clear();
         this.dbs = {};
+        this.dbIds = {};
         this.status = {};
         this.cloud = [];
         this.trash = [];

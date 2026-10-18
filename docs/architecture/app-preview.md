@@ -160,14 +160,23 @@ system, served by the tab's database worker (`db-worker.js`), its
 changes logged to a branch of the store. See the design,
 [roadmap/app-db.md](../../roadmap/app-db.md).
 
-Sync doesn't carry a database yet, so the browser's storage is its
-only copy. When an app first keeps data, the studio asks the browser
-to make its storage persistent (`navigator.storage.persist()`, in
-`persist.js`; Chromium decides by how the site is used, Firefox asks
-the person). The session dialog (`SessionDialog.svelte`) shows the
-database (its size, its tables, the forks sharing it), says it is on
-this device only, offers to ask again for persistence when the browser
-hasn't granted it, exports it as a `.sqlite` file (kvsql's
+With sync on, a synced session's database syncs with it (`db-sync.js`,
+driven by `sync.svelte.js`): after the session, a few seconds after an
+app writes, and in every sweep. Two devices' changes rebase onto each
+other; where they don't fit together, nothing changes until the person
+picks a side, and the other is kept as a checkpoint. A database over
+the cap stays on its device until the person allows it. Until it
+syncs, the browser's storage is its only copy, so when an app first
+keeps data the studio asks the browser to make its storage persistent
+(`navigator.storage.persist()`, in `persist.js`; Chromium decides by
+how the site is used, Firefox asks the person). The session dialog
+(`SessionDialog.svelte`) shows the database (its size, its tables, the
+forks sharing it) and where its sync stands: synced, waiting, too
+large (with a button to sync it anyway), failed (with a retry), or a
+conflict with the two sides to pick from, which the session list shows
+too. On a device without sync, it says the database is on this device
+only, and offers to ask again for persistence when the browser hasn't
+granted it. It exports the database as a `.sqlite` file (kvsql's
 `export()`: the file without the log's own tables), and lists its
 checkpoints, newest first, to restore (after a second click), delete,
 or take another.

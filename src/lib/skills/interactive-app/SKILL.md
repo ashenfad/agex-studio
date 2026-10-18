@@ -188,8 +188,13 @@ await agex.db.transaction([
   a whole table filtered in JS. A database can hold far more than a
   page should load. Add an index for a column you filter or sort a
   large table by.
-- **It stays on this device for now:** sync doesn't carry it yet. The
-  person can export it as a `.sqlite` file from the session's dialog.
+- **It syncs with the session:** with sync on, another device opening
+  the session gets the same data, and the app reloads when its data
+  changes underneath it (a sync, a restore), so read state from the
+  database when the page loads rather than keeping it only in memory.
+  When two devices changed the same rows, the person picks a side in
+  the session's dialog. They can also export it as a `.sqlite` file
+  there.
 
 **From your own code, `db` is the same database:** in `run_ts`,
 `await db.query('SELECT count(*) AS n FROM tasks')` reads what the app
