@@ -19,7 +19,7 @@
     import { appDbs } from './app-db-clients.js'
     import { dbRestores } from './db-restore.svelte.js'
     import { formatDate } from './format-time.js'
-    import { answerDb } from './app-db-bridge.js'
+    import { answerDb, wroteRows } from './app-db-bridge.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
     import { hostInit } from './app-assets.js'
@@ -301,7 +301,9 @@
             const name = session.name
             const done = callStarted(frame)
             try {
-                replyToApp(frame, await answerDb(data, () => appDbs.dbFor(name)))
+                const reply = await answerDb(data, () => appDbs.dbFor(name))
+                replyToApp(frame, reply)
+                if (wroteRows(reply.value)) sync.dbChanged(name)
             } finally {
                 done()
             }

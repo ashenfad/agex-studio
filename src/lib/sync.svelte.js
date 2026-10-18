@@ -21,10 +21,12 @@
  *   branch; and with each, its app's saved data, on a branch of its own
  *   (`app-data.js`: never in the session's history, so never in what it
  *   bundles or publishes), the later of two devices' writes winning.
- * - **What doesn't, yet:** apps' databases (`app-db.js`). Their logs
- *   (`db/<id>/<n>`) and the registry naming them (`dbs/registry`) are
- *   branches of the same store, but sync pushes only the branches named
- *   above, so they stay on this device.
+ * - **Apps' databases** (`app-db.js`, `db-sync.js`): the registry naming
+ *   them (`dbs/registry`), and the database each synced session names,
+ *   its log's current epoch, after the session, and after an app writes
+ *   to it. Two devices' changes rebase; a conflict waits for the person
+ *   to pick a side (`resolveDb`); a database over the cap stays here
+ *   until allowed (`allowLarge`). They never show as sessions.
  */
 
 import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
@@ -38,11 +40,20 @@ import { SessionBusy } from "./gate.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
 import { adoptRepo, localNote, nextState } from "./sync-state.js";
+import { dbOf } from "./app-db.js";
+import { appDbs, dbOwner } from "./app-db-clients.js";
+import { dbRestores } from "./db-restore.svelte.js";
+import { syncDb, syncRegistry } from "./db-sync.js";
 
 /** How long after a change a session is pushed. */
 const PUSH_DELAY = 4000;
 /** How long after an app writes its data it is pushed. */
 const APP_DATA_DELAY = 10_000;
+
+/** Whether database `id` may sync past the cap. @param {string} id */
+function largeAllowed(id) {
+    return readLocal(`agex-db-large:${id}`) === "1";
+}
 
 /** When session `name`'s app last wrote its data here. @param {string} name */
 function appWrittenAt(name) {
@@ -90,6 +101,12 @@ export class Sync {
     /** What went wrong with sync as a whole (the repo or the token). */
     /** @type {string | null} */
     problem = $state(null);
+    /**
+     * Where each app database's sync stands, by its id: an error's too,
+     * as `{ state: "error", detail }`.
+     * @type {Record<string, import("./db-sync.js").DbSyncState | { state: "error", detail: string, moved: false }>}
+     */
+    dbs = $state({});
 
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     #timers = new Map();
@@ -176,6 +193,84 @@ export class Sync {
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     #appTimers = new Map();
 
+    /** Session `name`'s app wrote to its database: synced a little later. @param {string} name */
+    dbChanged(name) {
+        const owner = dbOwner(name);
+        if (!this.connected || !this.#syncs(owner)) return;
+        clearTimeout(this.#dbTimers.get(owner));
+        this.#dbTimers.set(
+            owner,
+            setTimeout(() => {
+                this.#dbTimers.delete(owner);
+                void exclusively(() => this.#syncDbsOf([owner]).catch(() => undefined));
+            }, APP_DATA_DELAY),
+        );
+    }
+
+    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+    #dbTimers = new Map();
+
+    /**
+     * Sync the registry, then the databases sessions `names` name, each
+     * once: against the repo's branches as `heads` gives them (read now
+     * if not given). Settles a conflict on the side `keep` names.
+     *
+     * @param {string[]} names
+     * @param {{ heads?: Map<string, string>, keep?: "mine" | "theirs" }} [opts]
+     */
+    async #syncDbsOf(names, { heads, keep } = {}) {
+        const store = await openStore();
+        const remote = await this.#remoteNow();
+        await syncRegistry({ repo: store.repo, remote });
+        /** @type {Map<string, string>} */
+        const ids = new Map();
+        for (const name of names) {
+            const ref = await dbOf(store, name);
+            if (ref !== null && !ids.has(ref.id)) ids.set(ref.id, name);
+        }
+        if (ids.size === 0) return;
+        heads ??= new Map((await remote.listRefs()).map((r) => [r.branch, r.head]));
+        for (const [id, name] of ids) {
+            const user = `sync:${name}`;
+            try {
+                const state = await syncDb({
+                    kv: store.repo.store,
+                    repo: store.repo,
+                    remote,
+                    id,
+                    heads,
+                    db: () => appDbs.dbFor(name, user),
+                    large: largeAllowed(id),
+                    ...(keep !== undefined && { keep }),
+                });
+                this.dbs[id] = state;
+                // what its apps here show is from before
+                if (state.moved) dbRestores.announce(id);
+            } catch (e) {
+                this.dbs[id] = { state: "error", detail: describe(e), moved: false };
+            } finally {
+                await appDbs.release(user);
+            }
+        }
+    }
+
+    /**
+     * Settle session `name`'s database's conflict on side `keep`: this
+     * device's changes, or the synced ones; the other is kept as a
+     * checkpoint.
+     *
+     * @param {string} name @param {"mine" | "theirs"} keep
+     */
+    async resolveDb(name, keep) {
+        await exclusively(() => this.#syncDbsOf([dbOwner(name)], { keep }));
+    }
+
+    /** Let database `id` sync past the cap. @param {string} id @param {string} name a session naming it */
+    async allowLarge(id, name) {
+        writeLocal(`agex-db-large:${id}`, "1");
+        await exclusively(() => this.#syncDbsOf([dbOwner(name)]));
+    }
+
     /**
      * Sync session `name`'s app data: what the app wrote here is
      * committed, then pulled and pushed; pulled data replaces what is
@@ -257,10 +352,13 @@ export class Sync {
     /**
      * Pull session `name`, then push it. A session with a turn running
      * waits for the turn to end; one open here takes in what was pulled.
+     * Its app's data and database sync after it (the database unless
+     * `dbs` is false: a sweep syncs every database at its end).
      *
      * @param {string} name
+     * @param {{ dbs?: boolean }} [opts]
      */
-    async syncNow(name) {
+    async syncNow(name, { dbs = true } = {}) {
         if (!this.connected) return;
         let moved = false;
         await exclusively(async () => {
@@ -291,8 +389,9 @@ export class Sync {
                     this.#mark(name, "pending", "after the turn");
                     return;
                 }
-                // its app's data beside it (a failure there isn't the session's)
+                // its app's data and database beside it (a failure there isn't the session's)
                 await this.#syncApp(name).catch(() => undefined);
+                if (dbs) await this.#syncDbsOf([name]).catch(() => undefined);
                 if (out.status === "diverged") this.#mark(name, "diverged", "It changed on another device too.");
                 else if (out.status === "remote-gone") this.#mark(name, "remote-gone", "It was removed from the sync repo elsewhere.");
                 else this.#mark(name, "synced");
@@ -334,7 +433,8 @@ export class Sync {
                     if (!r.archived) appHeads.set(r.branch.slice(APP_DATA.length), r.head);
                     continue;
                 }
-                if (r.branch.includes(".")) continue;
+                // a delegate's or a task's, or an app database's or the registry
+                if (r.branch.includes(".") || r.branch.includes("/")) continue;
                 (r.archived ? archived : live).set(r.branch, r);
             }
             const here = new Set(this.studio.sessions.map((s) => s.name));
@@ -371,8 +471,12 @@ export class Sync {
                         continue;
                     }
                 }
-                if (this.#syncs(name)) await this.syncNow(name);
+                if (this.#syncs(name)) await this.syncNow(name, { dbs: false });
             }
+            // every synced session's database, against the roster read above
+            const heads = new Map(roster.filter((r) => !r.archived).map((r) => [r.branch, r.head]));
+            const names = this.studio.sessions.map((s) => s.name).filter((n) => this.#syncs(n));
+            await exclusively(() => this.#syncDbsOf(names, { heads }));
         } catch (e) {
             this.problem = describe(e);
         }
@@ -530,6 +634,9 @@ export class Sync {
         this.#timers.clear();
         for (const t of this.#appTimers.values()) clearTimeout(t);
         this.#appTimers.clear();
+        for (const t of this.#dbTimers.values()) clearTimeout(t);
+        this.#dbTimers.clear();
+        this.dbs = {};
         this.status = {};
         this.cloud = [];
         this.trash = [];

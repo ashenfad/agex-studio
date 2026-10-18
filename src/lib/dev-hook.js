@@ -293,6 +293,10 @@ export function installDevHook(studio, sync) {
             restores() {
                 return dbRestores.restored.count;
             },
+            /** Start the database's next epoch. */
+            async newEpoch() {
+                return (await appDbs.dbFor(session().name)).newEpoch();
+            },
         },
         /** Sync, as the session list works it. */
         sync: {
@@ -304,7 +308,13 @@ export function installDevHook(studio, sync) {
                     status: Object.fromEntries(Object.entries(sync.status).map(([k, v]) => [k, v.state + (v.detail ? `: ${v.detail}` : "")])),
                     cloud: sync.cloud.map((c) => ({ ...c })),
                     trash: sync.trash.map((t) => ({ ...t })),
+                    dbs: Object.fromEntries(Object.entries(sync.dbs).map(([k, v]) => [k, v.state + (v.detail ? `: ${v.detail}` : "")])),
                 };
+            },
+            /** Settle the current session's database's conflict, as the dialog will. @param {"mine" | "theirs"} keep */
+            async resolveDb(keep) {
+                await sync.resolveDb(session().name, keep);
+                return this.state();
             },
             async sweep() {
                 await sync.sweep({ force: true });
