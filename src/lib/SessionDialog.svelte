@@ -144,6 +144,8 @@
         return act(async () => {
             confirming = null
             const result = await appDbs.restore(name, id)
+            // a restore is a change here: synced like any
+            if (result.how !== 'none') sync.dbChanged(name)
             restored =
                 result.how === 'none'
                     ? 'It was at that checkpoint already.'
@@ -249,6 +251,8 @@
                 <p class="hint">Its sync failed: {dbSync.detail}</p>
             {:else if dbSync?.state === 'waiting'}
                 <p class="hint">{dbSync.detail} It syncs again shortly.</p>
+            {:else if dbSync?.state === 'pending'}
+                <p class="hint">{dbSync.detail}</p>
             {:else if sync.syncs(name)}
                 <p class="hint">{dbSync?.state === 'synced' ? 'Synced with the session.' : 'It syncs with the session.'}</p>
             {:else}
@@ -260,7 +264,7 @@
             <div class="row">
                 {#if dbSync?.state === 'too-large'}
                     <button disabled={working} onclick={() => act(() => sync.allowLarge(db?.id ?? '', name))}>Sync it anyway</button>
-                {:else if dbSync?.state === 'error'}
+                {:else if dbSync?.state === 'error' || dbSync?.state === 'waiting'}
                     <button disabled={working} onclick={() => act(() => sync.syncDbNow(name))}>Retry</button>
                 {/if}
                 <button disabled={working} onclick={exportDb} title="A SQLite file (.sqlite) any SQLite tool opens">Export as .sqlite</button>

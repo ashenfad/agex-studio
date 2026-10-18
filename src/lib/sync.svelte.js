@@ -49,6 +49,8 @@ import { syncDb, syncRegistry } from "./db-sync.js";
 const PUSH_DELAY = 4000;
 /** How long after an app writes its data it is pushed. */
 const APP_DATA_DELAY = 10_000;
+/** How long after a database's sync found the repo moving it tries again. */
+const DB_RETRY_DELAY = 15_000;
 
 /** Whether database `id` may sync past the cap. @param {string} id */
 function largeAllowed(id) {
@@ -103,8 +105,9 @@ export class Sync {
     problem = $state(null);
     /**
      * Where each app database's sync stands, by its id: an error's too,
-     * as `{ state: "error", detail }`.
-     * @type {Record<string, import("./db-sync.js").DbSyncState | { state: "error", detail: string, moved: false, conflict?: undefined }>}
+     * as `{ state: "error", detail }`, and a change here not synced yet,
+     * as `{ state: "pending" }`.
+     * @type {Record<string, import("./db-sync.js").DbSyncState | { state: "error" | "pending", detail: string, moved: false, conflict?: undefined }>}
      */
     dbs = $state({});
     /** The id of the database each session names, as the last sync of it found. @type {Record<string, string>} */
@@ -195,17 +198,32 @@ export class Sync {
     /** @type {Map<string, ReturnType<typeof setTimeout>>} */
     #appTimers = new Map();
 
-    /** Session `name`'s app wrote to its database: synced a little later. @param {string} name */
+    /**
+     * Session `name`'s database changed here (an app wrote to it, or it
+     * was restored): marked not synced, and synced a little later.
+     * @param {string} name
+     */
     dbChanged(name) {
         const owner = dbOwner(name);
         if (!this.connected || !this.#syncs(owner)) return;
+        const id = this.dbIds[owner];
+        const now = id === undefined ? undefined : this.dbs[id]?.state;
+        // a choice or a cap waiting on the person stays shown
+        if (id !== undefined && now !== "conflict" && now !== "too-large") {
+            this.dbs[id] = { state: "pending", detail: "Changed here; it syncs in a moment.", moved: false };
+        }
+        this.#scheduleDb(owner, APP_DATA_DELAY);
+    }
+
+    /** Sync session `owner`'s database after `delay`. @param {string} owner @param {number} delay */
+    #scheduleDb(owner, delay) {
         clearTimeout(this.#dbTimers.get(owner));
         this.#dbTimers.set(
             owner,
             setTimeout(() => {
                 this.#dbTimers.delete(owner);
                 void exclusively(() => this.#syncDbsOf([owner]).catch(() => undefined));
-            }, APP_DATA_DELAY),
+            }, delay),
         );
     }
 
@@ -250,6 +268,8 @@ export class Sync {
                 this.dbs[id] = state;
                 // what its apps here show is from before
                 if (state.moved) dbRestores.announce(id);
+                // the repo moved meanwhile: again shortly
+                if (state.state === "waiting") this.#scheduleDb(name, DB_RETRY_DELAY);
             } catch (e) {
                 this.dbs[id] = { state: "error", detail: describe(e), moved: false };
             } finally {
