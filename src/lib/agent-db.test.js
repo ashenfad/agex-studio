@@ -21,9 +21,10 @@ async function setup() {
     const dbFor = vi.fn(async () => /** @type {any} */ (client));
     const restore = vi.fn(async () => /** @type {any} */ ({ how: "undo", undone: 2, checkpoint: cp, seq: 6, branch: "db/x/0" }));
     const ask = vi.fn(async () => true);
+    const idOf = vi.fn(async () => "db-1");
     /** @param {string} session */
     const db = (session) =>
-        new AgentDb(/** @type {any} */ ({ session }), { dbs: { dbFor, restore }, store: async () => store, ask });
+        new AgentDb(/** @type {any} */ ({ session }), { dbs: { dbFor, idOf, restore }, store: async () => store, ask });
     return { db, dbFor, client, restore, ask, cp };
 }
 
@@ -67,23 +68,25 @@ describe("the agent's db", () => {
         expect(await db("s-1").checkpoints()).toEqual([shown]);
     });
 
-    it("restores once the person allows it, asking for the lead's database", async () => {
+    it("restores once the person allows it, asking about the database by its id", async () => {
         const { db, restore, ask } = await setup();
         expect(await db("s-1.scout").restore("kvsql/checkpoint/db/x/3-ab")).toMatchObject({ how: "undo", undone: 2, checkpoint: { label: "before" } });
-        expect(ask).toHaveBeenCalledWith("s-1", "s-1.scout", { id: "kvsql/checkpoint/db/x/3-ab", label: "before", auto: false, time: Date.UTC(2026, 9, 17) });
+        expect(ask).toHaveBeenCalledWith("db-1", "s-1.scout", { id: "kvsql/checkpoint/db/x/3-ab", label: "before", auto: false, time: Date.UTC(2026, 9, 17) });
         expect(restore).toHaveBeenCalledWith("s-1.scout", "kvsql/checkpoint/db/x/3-ab");
     });
 
-    it("doesn't restore when the person says no, nor asks when there's nothing to undo", async () => {
+    it("doesn't restore when the person says no, nor at all when there's nothing to undo", async () => {
         const { db, restore, ask, client } = await setup();
         ask.mockResolvedValueOnce(false);
         await expect(db("s-1").restore("kvsql/checkpoint/db/x/3-ab")).rejects.toThrow(/didn't allow the restore/);
         expect(restore).not.toHaveBeenCalled();
 
+        // at the checkpoint already: nothing asked, and nothing restored,
+        // so a write landing meanwhile can't be undone unasked
         client.info.mockResolvedValueOnce({ base: "c3", pendingCount: 0 });
-        await db("s-1").restore("kvsql/checkpoint/db/x/3-ab");
+        expect(await db("s-1").restore("kvsql/checkpoint/db/x/3-ab")).toMatchObject({ how: "none", undone: 0 });
         expect(ask).toHaveBeenCalledTimes(1);
-        expect(restore).toHaveBeenCalledTimes(1);
+        expect(restore).not.toHaveBeenCalled();
 
         await expect(db("s-1").restore("nope")).rejects.toThrow(/no checkpoint "nope"/);
     });

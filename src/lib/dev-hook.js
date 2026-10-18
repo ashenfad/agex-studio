@@ -13,7 +13,7 @@
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  */
 
-import { appDbs, dbOwner } from "./app-db-clients.js";
+import { appDbs } from "./app-db-clients.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { distribution } from "./distribution.svelte.js";
@@ -279,13 +279,15 @@ export function installDevHook(studio, sync) {
                 return appDbs.restore(session().name, id);
             },
             /** The restore the agent asks about, waiting on the person, if one is. */
-            asking() {
-                const open = dbRestores.asking[dbOwner(session().name)];
+            async asking() {
+                const id = await appDbs.idOf(session().name);
+                const open = id === null ? undefined : dbRestores.asking[id];
                 return open === undefined ? null : { checkpoint: open.checkpoint, asker: open.asker };
             },
             /** Answer it as the preview's buttons do. @param {boolean} yes */
-            answer(yes) {
-                dbRestores.asking[dbOwner(session().name)]?.answer(yes);
+            async answer(yes) {
+                const id = await appDbs.idOf(session().name);
+                if (id !== null) dbRestores.asking[id]?.answer(yes);
             },
             /** How many restores this page has heard of. */
             restores() {

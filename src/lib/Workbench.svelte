@@ -6,9 +6,7 @@
      * adding files. The app stays loaded while the files are shown.
      */
     import AppPreview from './AppPreview.svelte'
-    import { dbOwner } from './app-db-clients.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
-    import { dbRestores } from './db-restore.svelte.js'
     import { isDriveImportAvailable } from './drive-import.js'
     import FilesPanel from './FilesPanel.svelte'
 
@@ -19,6 +17,8 @@
     let tab = $state('app')
     let loading = $state(false)
     let empty = $state(false)
+    /** Whether the app's preview has a question waiting on the person. */
+    let asking = $state(false)
     /** @type {AppPreview | undefined} */
     let preview = $state()
     /** @type {FilesPanel | undefined} */
@@ -29,7 +29,7 @@
     // the app's data, waits on the person, and the question shows with
     // the app: its tab comes forward
     $effect(() => {
-        if (appAgent.asking[session.name] !== undefined || dbRestores.asking[dbOwner(session.name)] !== undefined) tab = 'app'
+        if (asking) tab = 'app'
     })
 
     /** The files listed, folders aside. */
@@ -77,7 +77,7 @@
         {/if}
     </div>
     <div class="panel" hidden={tab !== 'app' && !fullscreen}>
-        <AppPreview bind:this={preview} bind:loading bind:empty {session} />
+        <AppPreview bind:this={preview} bind:loading bind:empty bind:asking {session} />
     </div>
     {#if tab === 'files' && !fullscreen}
         <FilesPanel bind:this={files} {session} />

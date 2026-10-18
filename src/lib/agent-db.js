@@ -37,9 +37,9 @@ export class AgentDb {
 
     /**
      * @param {Workspace} ws
-     * @param {{ dbs?: Pick<import("./app-db-clients.js").AppDbs, "dbFor" | "restore">, store?: () => Promise<import("@agex-ts/world").Store>, ask?: typeof dbRestores.ask }} [deps]
+     * @param {{ dbs?: Pick<import("./app-db-clients.js").AppDbs, "dbFor" | "idOf" | "restore">, store?: () => Promise<import("@agex-ts/world").Store>, ask?: typeof dbRestores.ask }} [deps]
      */
-    constructor(ws, { dbs = defaultDbs, store = openStore, ask = (owner, asker, cp) => dbRestores.ask(owner, asker, cp) } = {}) {
+    constructor(ws, { dbs = defaultDbs, store = openStore, ask = (id, asker, cp) => dbRestores.ask(id, asker, cp) } = {}) {
         this._ws = ws;
         this._dbs = dbs;
         this._store = store;
@@ -111,9 +111,9 @@ export class AgentDb {
     /**
      * Bring the database back to checkpoint `id`, discarding everything
      * written since: once the person allows it, which they are asked to
-     * in the app's tab (a database already there needs no asking). The
-     * app reloads after. `{ how, undone }`: how many transactions were
-     * undone.
+     * in the app's tab. A database already there is left as it is, with
+     * no asking. The app reloads after. `{ how, undone }`: how many
+     * transactions were undone.
      *
      * @param {string} id
      */
@@ -124,14 +124,17 @@ export class AgentDb {
             throw new Error(`db.restore: there's no checkpoint ${JSON.stringify(id)}; db.checkpoints() lists them`);
         }
         const info = await db.info();
-        if (info.base !== checkpoint.commit || info.pendingCount > 0) {
-            const owner = dbOwner(this._ws.session);
-            const { label, auto, time } = checkpoint;
-            if (!(await this._ask(owner, this._ws.session, { id, label, auto, time }))) {
-                throw new Error(
-                    "db.restore: the person kept the database as it is: they didn't allow the restore (or the turn ended before they answered). Don't ask again unless they say so.",
-                );
-            }
+        // at the checkpoint already: nothing to lose, so nothing is
+        // restored either (a write landing after this look would be)
+        if (info.base === checkpoint.commit && info.pendingCount === 0) {
+            return { how: "none", undone: 0, checkpoint: shown(checkpoint) };
+        }
+        const dbId = await this._dbs.idOf(this._ws.session);
+        const { label, auto, time } = checkpoint;
+        if (dbId === null || !(await this._ask(dbId, this._ws.session, { id, label, auto, time }))) {
+            throw new Error(
+                "db.restore: the person kept the database as it is: they didn't allow the restore (or the turn ended before they answered). Don't ask again unless they say so.",
+            );
         }
         const result = await this._dbs.restore(this._ws.session, id);
         return { how: result.how, undone: result.undone, checkpoint: shown(result.checkpoint) };

@@ -23,9 +23,9 @@ const CHANNEL = "agex-db-restored";
 
 class DbRestores {
     /**
-     * Restores the agent asks for, waiting on the person: by the session
-     * whose app's database it is (a delegate asks for its lead's), each
-     * with the session that asked.
+     * Restores the agent asks for, waiting on the person: by the
+     * database's id (forks may share one), each with the session that
+     * asked.
      * @type {Record<string, { checkpoint: AskedCheckpoint, asker: string, answer: (yes: boolean) => void }>}
      */
     asking = $state({});
@@ -46,24 +46,24 @@ class DbRestores {
     }
 
     /**
-     * Ask the person whether session `owner`'s app database may go back
-     * to `checkpoint`, for session `asker` (the agent's, or a
-     * delegate's): true if they allow it. One question per database at a
-     * time.
+     * Ask the person whether app database `id` may go back to
+     * `checkpoint`, for session `asker` (the agent's, or a delegate's):
+     * true if they allow it. One question per database at a time, from
+     * whichever session sharing it asks.
      *
-     * @param {string} owner @param {string} asker @param {AskedCheckpoint} checkpoint
+     * @param {string} id @param {string} asker @param {AskedCheckpoint} checkpoint
      * @returns {Promise<boolean>}
      */
-    ask(owner, asker, checkpoint) {
-        if (this.asking[owner] !== undefined) {
+    ask(id, asker, checkpoint) {
+        if (this.asking[id] !== undefined) {
             return Promise.reject(new Error("another restore of this database is waiting on the person"));
         }
         return new Promise((resolve) => {
-            this.asking[owner] = {
+            this.asking[id] = {
                 checkpoint,
                 asker,
                 answer: (yes) => {
-                    delete this.asking[owner];
+                    delete this.asking[id];
                     resolve(yes);
                 },
             };
