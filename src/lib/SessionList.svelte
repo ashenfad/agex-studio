@@ -170,6 +170,16 @@
                         <button onclick={() => act(() => sync.syncNow(s.name))}>Retry</button>
                     </div>
                 {/if}
+                {#if sync.connected && sync.dbState(s.name)?.state === 'conflict'}
+                    {@const dbSync = sync.dbState(s.name)}
+                    <div class="menu attention">
+                        <span title={dbSync?.detail}>Its app's data changed on another device too.</span>
+                        <button onclick={() => act(() => sync.resolveDb(s.name, 'mine'))} title="This device's data stands; the synced changes are kept as a checkpoint">Keep this device's</button>
+                        {#if dbSync?.conflict?.step !== 'adopt'}
+                            <button onclick={() => act(() => sync.resolveDb(s.name, 'theirs'))} title="The synced data stands; this device's changes are kept as a checkpoint">Use the synced</button>
+                        {/if}
+                    </div>
+                {/if}
             </li>
         {/each}
     </ul>
@@ -283,7 +293,8 @@
         /* what the tools fade into: the row's own background */
         --row-bg: var(--surface);
         position: relative;
-        flex: 1;
+        /* the whole width: a menu under it (a sync choice) wraps below */
+        flex: 1 1 100%;
         min-width: 0;
         display: flex;
         align-items: center;

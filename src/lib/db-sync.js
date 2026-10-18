@@ -199,11 +199,13 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
     const stopped = (step, result) => ({
         state: "conflict",
         detail:
-            result.schemaChange === "mine"
-                ? "Its schema changed here, and its data on another device."
-                : result.schemaChange === "theirs"
-                  ? "Its schema changed on another device, and its data here."
-                  : "It changed here and on another device in ways that don't fit together.",
+            step === "adopt"
+                ? "Changes another device synced to an older copy of it don't fit with this device's."
+                : result.schemaChange === "mine"
+                  ? "Its tables changed here, and its data on another device."
+                  : result.schemaChange === "theirs"
+                    ? "Its tables changed on another device, and its data here."
+                    : "It changed here and on another device in ways that don't fit together.",
         moved,
         conflict: { step, result },
     });

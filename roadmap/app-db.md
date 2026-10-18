@@ -1,8 +1,7 @@
 # App database: `agex.db`
 
-Status: phases 1 and 2 built (2026-10-17); phase 3, sync, built
-through Y4 (databases sync with sessions); Y5, the conflict choice and
-sync status in the session dialog, is next (the plan is under Phases).
+Status: phases 1, 2 and 3 (sync) built (2026-10-18); phase 4 (Later)
+and the open questions remain.
 Where the build differs from the design below, the design says so. The numbers come from five
 spikes in headless Chromium (Apple M4), each kept on a `spike/sqlite-*`
 branch with its findings:
