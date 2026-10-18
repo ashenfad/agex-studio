@@ -56,7 +56,7 @@ export const SYNC_CAP_BYTES = 1 << 30;
  * @typedef {{
  *   flush(): Promise<unknown>,
  *   info(): Promise<{ branch: string }>,
- *   rebase(onto?: string, options?: { keep?: "mine" | "theirs", synced?: string }): Promise<RebaseResult>,
+ *   rebase(onto?: string, options?: { keep?: "mine" | "theirs", synced?: string | null }): Promise<RebaseResult>,
  *   adopt(tip: string, options?: { keep?: "mine" }): Promise<RebaseResult>,
  *   query(sql: string): Promise<{ rows: Record<string, unknown>[] }>,
  * }} SyncedDb
@@ -222,11 +222,12 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
         // what the newer epoch holds of this one: up to where its snapshot
         // was taken, if that commit is here (the database works it out);
         // else up to where this device last synced, whose later pushes the
-        // device that started the epoch takes in before the old one goes
+        // device that started the epoch takes in before the old one goes,
+        // or none of it if it never synced this epoch
         const taken = await takenAt(repo, tip);
-        const synced = taken?.branch === current ? null : await getSyncHead(kv, current, remote);
+        const synced = taken?.branch === current ? undefined : await getSyncHead(kv, current, remote);
         const result = await db.rebase(undefined, {
-            ...(synced !== null && { synced }),
+            ...(synced !== undefined && { synced }),
             ...(keep !== undefined && { keep }),
         });
         if (result.status === "conflict") return stopped("rebase", result);
@@ -264,11 +265,16 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
     }
 
     // older epochs the repo still holds: what was pushed to them comes in
-    // first, then they go at the tip that was taken in
+    // first, then they go at the tip that was taken in. Each is pulled
+    // before any is taken in, so the snapshots linking an older one to
+    // this are here.
     const now = epochOf(log, current) ?? 0;
-    for (const epoch of [...theirs].reverse()) {
-        if (/** @type {number} */ (epoch.n) >= now) break;
-        const tip = (await pullBranch(kv, remote, epoch.branch)).remoteHead;
+    const older = [...theirs].reverse().filter((e) => /** @type {number} */ (e.n) < now);
+    /** @type {Map<string, string | null>} */
+    const tips = new Map();
+    for (const epoch of older) tips.set(epoch.branch, (await pullBranch(kv, remote, epoch.branch)).remoteHead);
+    for (const epoch of older) {
+        const tip = tips.get(epoch.branch) ?? null;
         if (tip === null) continue;
         let result;
         try {

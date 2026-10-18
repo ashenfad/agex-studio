@@ -196,6 +196,36 @@ await agex.db.transaction([
   the session's dialog. They can also export it as a `.sqlite` file
   there.
 
+**What it suits, and what it doesn't.** Build to its strengths:
+
+- **Well supported:** what a person makes and keeps at a person's pace:
+  tasks, notes, journals, trackers, collections, contacts, budgets,
+  game saves. Thousands of rows a day and tens of MB are comfortable.
+  A query takes a millisecond or two even on a large database, so read
+  from it as the page needs rather than caching it all in memory.
+- **Fine, written well:** state that changes fast here (a game loop, a
+  slider, a timer saving each second): repeated updates of the same
+  rows cost little. Bulk data (an import, a generated dataset, a
+  backfill) goes in as one `transaction([...])` or one `INSERT ...
+  SELECT`, not a call per row: a thousand rows take ~15 ms as one call
+  and over a second as a thousand.
+- **Poor fits:**
+  - *Live sharing between devices* (chat, presence, cursors, a game
+    two people play at once): sync is periodic, about a minute at most
+    while an app keeps writing, and two devices changing the same rows
+    meet a conflict the person settles. It suits one person on several
+    devices, not several people at once.
+  - *Media as blobs* (images, audio, video, big documents): every copy
+    and every sync carries them. Store a URL, or a small thumbnail.
+  - *Hundreds of MB, or a large database rewritten again and again:*
+    when its changes reach about half its compressed size, the whole
+    database uploads again, and a new device downloads all of it; over
+    1 GB it stays on the device unless the person allows its sync.
+    Keep what the person made, and recompute or refetch what's derived
+    (caches, imported reference data) rather than storing it.
+  - *Logging without end* (a row every few ms, kept forever): prune old
+    rows, or keep a summary.
+
 **From your own code, `db` is the same database:** in `run_ts`,
 `await db.query('SELECT count(*) AS n FROM tasks')` reads what the app
 stored, with the same `query` and `transaction`. Use it to look at the
