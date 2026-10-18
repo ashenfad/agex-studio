@@ -310,7 +310,9 @@ export class Sync {
      * Sync session `name`'s app data: what the app wrote here is
      * committed, then pulled and pushed; pulled data replaces what is
      * here, and two devices' writes settle on the later. An app showing
-     * is told, not reloaded under the person.
+     * is told, not reloaded under the person. An app that wrote again
+     * while this ran keeps its write: what was pulled isn't taken, and
+     * the sync the write scheduled commits it over that.
      *
      * @param {string} name
      */
@@ -319,22 +321,30 @@ export class Sync {
         const kv = store.repo.store;
         const remote = await this.#remoteNow();
         const branch = appBranch(name);
-        await commitAppData(store, name, { bag: readAppStorage(name), at: appWrittenAt(name) });
+        const bag = readAppStorage(name);
+        const at = appWrittenAt(name);
+        await commitAppData(store, name, { bag, at });
+        const kept = JSON.stringify(bag);
+        const wroteSince = () => appWrittenAt(name) !== at || JSON.stringify(readAppStorage(name)) !== kept;
+        /** Take the app data `branch` holds, unless the app wrote since. */
+        const take = async () => {
+            if (!wroteSince()) await this.#takeAppData(name, { branch });
+        };
         const here = await store.repo.branches.has(branch);
         if (!here) {
             // nothing written here: take what another device wrote, if any
             const pulled = await pullBranch(kv, remote, branch);
-            if (pulled.status === "created") await this.#takeAppData(name, { branch });
+            if (pulled.status === "created") await take();
             return;
         }
         let out = await syncBranch(kv, remote, branch);
-        if (out.pull.status === "fast-forwarded" || out.pull.status === "created") await this.#takeAppData(name, { branch });
+        if (out.pull.status === "fast-forwarded" || out.pull.status === "created") await take();
         if (out.status === "diverged" && out.pull.remoteHead !== null) {
             // both wrote: the later wins, on top of the other's, so the push is a fast-forward
             const theirs = await readAppData(store, { commit: out.pull.remoteHead });
             const mine = await readAppData(store, { branch });
             await moveAppData(store, name, out.pull.remoteHead);
-            if (theirs !== null && (mine === null || theirs.at >= mine.at)) await this.#takeAppData(name, { branch });
+            if (theirs !== null && (mine === null || theirs.at >= mine.at)) await take();
             else if (mine !== null) await commitAppData(store, name, mine);
             out = await syncBranch(kv, remote, branch);
         }
