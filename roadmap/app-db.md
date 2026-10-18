@@ -1,6 +1,7 @@
 # App database: `agex.db`
 
-Status: phases 1 and 2 built (2026-10-17); sync, phase 3, is next.
+Status: phases 1 and 2 built (2026-10-17); sync, phase 3, is next
+(its plan is under Phases).
 Where the build differs from the design below, the design says so. The numbers come from five
 spikes in headless Chromium (Apple M4), each kept on a `spike/sqlite-*`
 branch with its findings:
@@ -472,6 +473,52 @@ kvgit changes this needs:
 
 Phase 1 needs 1–4 and 6; phase 2, 5; phase 3, 7 and 8. The studio's
 PRs follow each phase.
+
+### Phase 3: the plan
+
+Phases 1 and 2 built 1–7 but rebase, the content hash and sync. What
+syncs: `dbs/registry` (merged key by key) and each synced session's
+database as its current epoch's branch; test copies never.
+
+| # | where | what |
+|---|---|---|
+| Y0 | agex-ts | a local stand-in for GitHub, to test sync against |
+| Y1 | kvgit | delete a remote branch (CAS-checked); cheaper pushes; large snapshot pushes checked end to end |
+| Y2 | kvsql | rebase within an epoch: renumbering this device's entries, conflicts, the pick-a-side resolution |
+| Y3 | kvsql | rebase across epochs (a device with unsynced entries on an epoch another device replaced), entries pushed during an epoch's commit, the content hash |
+| Y4 | studio | sync the registry and databases: fast-forward, rebase through the worker, pushing epochs and deleting old ones, the sync cap |
+| Y5 | studio | the conflict choice, and sync status in the session dialog |
+
+The hard parts:
+- **Rebase.** Entries are numbered across the log, so this device's
+  unsynced ones (and its pending transactions) are re-applied as new
+  entries numbered after the synced ones. A conflict stops it with the
+  file unchanged; the person picks a side, and the other is kept as a
+  checkpoint.
+- **Epochs across devices.** A device with unsynced entries on an
+  epoch another device replaced rebuilds from the new snapshot and
+  re-applies them. The device that started the epoch deletes the old
+  one remotely only if nothing was pushed to it meanwhile; otherwise it
+  takes those entries into the new epoch first.
+- **The content hash** of a snapshot's rows, compared by any device
+  that reaches the same transaction by replay.
+
+**Testing** comes in three layers:
+- **The logic**, in Node: kvgit's `MemoryRemote`, two stores standing
+  in for two devices. Most rebase, epoch and conflict tests go here.
+- **Two browsers through a local stand-in for GitHub (Y0).** Sync
+  speaks GitHub's GraphQL API and raw blob reads (kvgit's
+  `PackRemote`), not git, so a local bare repo can't stand in; kvgit's
+  in-memory fake of those calls can, behind a local HTTP server that
+  allows cross-origin requests, through `GithubClient`'s `apiBase`.
+  Deterministic, with no secrets, and it can inject rate limits and
+  oversized requests.
+- **GitHub itself**, for the limits the chunked snapshots are shaped
+  by (~30 MB requests, secondary rate limits): a private scratch repo
+  and a token for it alone, read from the environment by the drive
+  script (`DRIVE_SYNC_REPO`, `DRIVE_SYNC_TOKEN`) and kvgit's live suite
+  (`KVGIT_GH_REPO`, `KVGIT_GH_TOKEN`). The API allows cross-origin
+  requests, so the browser needs no proxy.
 
 ## Open questions
 
