@@ -16,7 +16,9 @@
     import { onDestroy, tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import { callStarted, callsLost, setLiveIframe, setLiveSettled } from './app-control.js'
-    import { appDbs } from './app-db-clients.js'
+    import { appDbs, dbOwner } from './app-db-clients.js'
+    import { dbRestores } from './db-restore.svelte.js'
+    import { formatDate } from './format-time.js'
     import { answerDb } from './app-db-bridge.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
     import { buildAppPage, reseedAppPage } from './app-html.js'
@@ -168,6 +170,22 @@
         void load(true)
     }
 
+    // A restore of the app's database (here, or in another tab) leaves
+    // the app holding data from before it: it reloads.
+    let seenRestores = untrack(() => dbRestores.restored.count)
+    $effect(() => {
+        const { count, id } = dbRestores.restored
+        if (count === seenRestores) return
+        seenRestores = count
+        const name = session.name
+        void appDbs.idOf(name).then((mine) => {
+            if (mine !== null && mine === id && session.name === name) void load(true)
+        })
+    })
+
+    /** A restore of the app's database the agent asks about, waiting on the person. */
+    const restoring = $derived(dbRestores.asking[dbOwner(session.name)] ?? null)
+
     /** The app's storage, the last bag it posted, and its session's name. */
     /** @type {{ name: string, bag: Record<string, string> } | null} */
     let storageToWrite = null
@@ -301,6 +319,16 @@
         <div class="data-note">
             The app's data changed on another device.
             <button onclick={reloadWithData}>Reload the app</button>
+        </div>
+    {/if}
+    {#if restoring}
+        <div class="consent">
+            <p>
+                The agent asks to restore the app's data to the checkpoint “{restoring.checkpoint.label || 'unnamed'}”, taken {formatDate(new Date(restoring.checkpoint.time).toISOString())}.
+                Everything the app stored since then is lost.
+            </p>
+            <button onclick={() => restoring.answer(true)}>Restore</button>
+            <button class="secondary" onclick={() => restoring.answer(false)}>Keep it as it is</button>
         </div>
     {/if}
     {#if appAgent.asking[session.name]}

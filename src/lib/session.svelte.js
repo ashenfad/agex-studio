@@ -9,6 +9,7 @@
 
 import { Inbox, Policy, Sessions } from "@agex-ts/world";
 import { Agent, RunStream, ScriptedProvider } from "agex-ts";
+import { dbRestores } from "./db-restore.svelte.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, foldBudgetOf, thinkingOf } from "./model.js";
 import { attachmentsOf } from "./notes.js";
@@ -634,6 +635,8 @@ export class ChatSession {
                 this.#lastStatus = "failed";
             } finally {
                 this.#turn = null;
+                // a restore of the app's database it asked about goes unanswered
+                dbRestores.cancel(this.name);
                 // a woken turn that found nothing waiting opened on nothing
                 this.#awaitingOpening = false;
                 await this.#reloadAfter();

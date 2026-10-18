@@ -6,7 +6,7 @@ import { dbOf } from "./app-db.js";
 
 /** A manager on a store in memory, with a worker and clients that
  *  record what was asked of them. */
-async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep = vi.fn(async () => []) } = {}) {
+async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep = vi.fn(async () => []), restored = vi.fn() } = {}) {
     const store = await Store.open(new Memory());
     let fails = failStarts;
     const worker = { postMessage() {} };
@@ -22,6 +22,10 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep 
             config,
             close: vi.fn(async () => {}),
             delete: vi.fn(async () => {}),
+            checkpoints: vi.fn(async () => [{ id: "c1" }]),
+            checkpoint: vi.fn(async (/** @type {string} */ label) => ({ id: "c2", label })),
+            deleteCheckpoint: vi.fn(async () => {}),
+            restore: vi.fn(async () => ({ how: "undo", undone: 1 })),
             export: vi.fn(async () => new Uint8Array([83, 81, 76])),
             copy: vi.fn(async () => ({ bytes: 8192, seq: 3, schema: 1, base: "c0" })),
             query: vi.fn(async (/** @type {string} */ sql) =>
@@ -31,8 +35,8 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep 
         connected.push({ config, client });
         return /** @type {any} */ (client);
     });
-    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist, sweep });
-    return { store, dbs, start, connect, connected, persist, sweep };
+    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist, sweep, restored });
+    return { store, dbs, start, connect, connected, persist, sweep, restored };
 }
 
 describe("the page's app databases", () => {
@@ -263,5 +267,33 @@ describe("the page's app databases", () => {
         expect(dbs.held().size).toBe(0);
         await expect(dbs.dbFor("s-1")).resolves.toBeDefined();
         expect(start).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe("a database's checkpoints, from the page", () => {
+    it("lists none, naming nothing, for a session without a database", async () => {
+        const { store, dbs, connect } = await setup();
+        expect(await dbs.checkpoints("s-1")).toEqual([]);
+        expect(await dbs.idOf("s-1")).toBeNull();
+        expect(await dbOf(store, "s-1")).toBeNull();
+        expect(connect).not.toHaveBeenCalled();
+    });
+
+    it("takes, lists, deletes and restores them on the session's database, announcing a restore", async () => {
+        const { store, dbs, restored } = await setup();
+        const client = /** @type {any} */ (await dbs.dbFor("s-1"));
+        const id = (await dbOf(store, "s-1"))?.id;
+        expect(await dbs.idOf("s-1.scout")).toBe(id);
+        expect(await dbs.checkpoint("s-1", "mine")).toEqual({ id: "c2", label: "mine" });
+        expect(await dbs.checkpoints("s-1")).toEqual([{ id: "c1" }]);
+        await dbs.deleteCheckpoint("s-1", "c1");
+        expect(client.deleteCheckpoint).toHaveBeenCalledWith("c1");
+        expect(await dbs.restore("s-1", "c1")).toEqual({ how: "undo", undone: 1 });
+        expect(restored).toHaveBeenCalledWith(id);
+
+        // a restore that did nothing reloads nothing
+        client.restore.mockResolvedValueOnce({ how: "none", undone: 0 });
+        await dbs.restore("s-1", "c1");
+        expect(restored).toHaveBeenCalledTimes(1);
     });
 });

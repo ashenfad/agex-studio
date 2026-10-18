@@ -10,14 +10,21 @@ async function setup() {
     const ws = await store.open("s-1");
     await ws.autoCommit({ tool: "test" });
     await ws.close();
+    const cp = { id: "kvsql/checkpoint/db/x/3-ab", label: "before", auto: false, seq: 3, schema: 1, time: Date.UTC(2026, 9, 17), commit: "c3" };
     const client = {
         query: vi.fn(async () => ({ rows: [{ n: 1 }], changes: 0, lastInsertRowid: 0 })),
         transaction: vi.fn(async (/** @type {unknown[]} */ s) => s.map(() => ({ rows: [], changes: 1, lastInsertRowid: 0 }))),
+        checkpoint: vi.fn(async () => cp),
+        checkpoints: vi.fn(async () => [cp]),
+        info: vi.fn(async () => ({ base: "c5", pendingCount: 0 })),
     };
     const dbFor = vi.fn(async () => /** @type {any} */ (client));
+    const restore = vi.fn(async () => /** @type {any} */ ({ how: "undo", undone: 2, checkpoint: cp, seq: 6, branch: "db/x/0" }));
+    const ask = vi.fn(async () => true);
     /** @param {string} session */
-    const db = (session) => new AgentDb(/** @type {any} */ ({ session }), { dbs: { dbFor }, store: async () => store });
-    return { db, dbFor, client };
+    const db = (session) =>
+        new AgentDb(/** @type {any} */ ({ session }), { dbs: { dbFor, restore }, store: async () => store, ask });
+    return { db, dbFor, client, restore, ask, cp };
 }
 
 describe("the agent's db", () => {
@@ -50,5 +57,34 @@ describe("the agent's db", () => {
         const { db, dbFor } = await setup();
         await expect(db("summarize-1a2b3c4d").query("SELECT 1")).rejects.toThrow(/isn't a studio session/);
         expect(dbFor).not.toHaveBeenCalled();
+    });
+
+    it("takes and lists checkpoints, their times as ISO strings", async () => {
+        const { db, client } = await setup();
+        const shown = { id: "kvsql/checkpoint/db/x/3-ab", label: "before", auto: false, time: "2026-10-17T00:00:00.000Z", seq: 3 };
+        expect(await db("s-1").checkpoint("before")).toEqual(shown);
+        expect(client.checkpoint).toHaveBeenCalledWith("before");
+        expect(await db("s-1").checkpoints()).toEqual([shown]);
+    });
+
+    it("restores once the person allows it, asking for the lead's database", async () => {
+        const { db, restore, ask } = await setup();
+        expect(await db("s-1.scout").restore("kvsql/checkpoint/db/x/3-ab")).toMatchObject({ how: "undo", undone: 2, checkpoint: { label: "before" } });
+        expect(ask).toHaveBeenCalledWith("s-1", "s-1.scout", { id: "kvsql/checkpoint/db/x/3-ab", label: "before", auto: false, time: Date.UTC(2026, 9, 17) });
+        expect(restore).toHaveBeenCalledWith("s-1.scout", "kvsql/checkpoint/db/x/3-ab");
+    });
+
+    it("doesn't restore when the person says no, nor asks when there's nothing to undo", async () => {
+        const { db, restore, ask, client } = await setup();
+        ask.mockResolvedValueOnce(false);
+        await expect(db("s-1").restore("kvsql/checkpoint/db/x/3-ab")).rejects.toThrow(/didn't allow the restore/);
+        expect(restore).not.toHaveBeenCalled();
+
+        client.info.mockResolvedValueOnce({ base: "c3", pendingCount: 0 });
+        await db("s-1").restore("kvsql/checkpoint/db/x/3-ab");
+        expect(ask).toHaveBeenCalledTimes(1);
+        expect(restore).toHaveBeenCalledTimes(1);
+
+        await expect(db("s-1").restore("nope")).rejects.toThrow(/no checkpoint "nope"/);
     });
 });

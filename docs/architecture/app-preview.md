@@ -167,8 +167,18 @@ to make its storage persistent (`navigator.storage.persist()`, in
 the person). The session dialog (`SessionDialog.svelte`) shows the
 database (its size, its tables, the forks sharing it), says it is on
 this device only, offers to ask again for persistence when the browser
-hasn't granted it, and exports it as a `.sqlite` file (kvsql's
-`export()`: the file without the log's own tables).
+hasn't granted it, exports it as a `.sqlite` file (kvsql's
+`export()`: the file without the log's own tables), and lists its
+checkpoints, newest first, to restore (after a second click), delete,
+or take another.
+
+A restore (`appDbs.restore`) moves the database forward to its state at
+the checkpoint, and the apps on it reload: `db-restore.svelte.js`
+counts restores, here and, through a `BroadcastChannel`, in every tab,
+and the preview reloads when one was its database's. The agent's
+`db.restore(id)` first asks the person, as an app asks before spending
+the viewer's key: the question shows above the app (its tab comes
+forward), and a turn that ends before an answer takes it as a no.
 
 ## `test_app`
 

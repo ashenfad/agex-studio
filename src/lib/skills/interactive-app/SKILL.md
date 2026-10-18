@@ -197,6 +197,19 @@ stored, with the same `query` and `transaction`. Use it to look at the
 data, debug, and seed or migrate it when the person asks; the app
 shows a change the next time it reads.
 
+**Checkpoints** are points to bring the data back to. The database
+takes one itself before every schema change (from the app or from
+you), labelled with the statement, and keeps the last 10. Take your
+own before a bulk change to rows, which no schema change precedes:
+`await db.checkpoint('before the date backfill')`. `await
+db.checkpoints()` lists them, oldest first (`{ id, label, auto, time
+}`). `await db.restore(id)` brings the data back to one and discards
+everything written since, the person's own use of the app included,
+so the person is asked in the app's tab first; if they say no, it
+throws, and you leave it unless they ask. After a restore the app
+reloads. Restoring past a schema change brings the old schema back,
+so the app's code must still read it, or be changed back too.
+
 `test_app` gives the app **a copy of the person's database** as it is
 at the call (kept across `{reload: true}`, gone after the call), so a
 test runs on real data and still never changes it: write freely, even

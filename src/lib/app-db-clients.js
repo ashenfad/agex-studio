@@ -17,6 +17,7 @@
 
 import { connect } from "@agex-ts/kvsql/client";
 import { dbBranch, dbOf, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { dbRestores } from "./db-restore.svelte.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
 import { sweepTestDbs } from "./test-dbs.js";
@@ -24,6 +25,8 @@ import { sweepTestDbs } from "./test-dbs.js";
 /** @typedef {import("@agex-ts/kvsql/client").DatabaseClient} DatabaseClient */
 /** @typedef {import("@agex-ts/kvsql/client").WorkerLike} WorkerLike */
 /** @typedef {import("./app-db.js").DbRef} DbRef */
+/** @typedef {import("@agex-ts/kvsql/client").Checkpoint} Checkpoint A checkpoint of a database. */
+/** @typedef {import("@agex-ts/kvsql/client").RestoreResult} RestoreResult */
 
 /** How a database names itself in its errors. */
 export const DB_LABEL = "agex.db";
@@ -63,6 +66,8 @@ export class AppDbs {
     #persist;
     /** @type {() => Promise<unknown>} */
     #sweep;
+    /** @type {(id: string) => void} */
+    #restored;
     /** Whether this page has swept the copies closed tabs left. */
     #swept = false;
     /** @type {Promise<WorkerLike> | null} */
@@ -77,18 +82,27 @@ export class AppDbs {
     #forgotten = new Set();
 
     /**
-     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean>, sweep?: () => Promise<unknown> }} [deps]
+     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean>, sweep?: () => Promise<unknown>, restored?: (id: string) => void }} [deps]
      *   the store the registry is on, how the worker starts, how a
-     *   client connects to it, how persistent storage is asked for, and
-     *   how test copies left by closed tabs are swept (each replaceable
-     *   in tests)
+     *   client connects to it, how persistent storage is asked for, how
+     *   test copies left by closed tabs are swept, and how a restore is
+     *   announced to the apps on the database (each replaceable in
+     *   tests)
      */
-    constructor({ store = openStore, start = startWorker, connect: connectTo = connect, persist = askPersist, sweep = sweepTestDbs } = {}) {
+    constructor({
+        store = openStore,
+        start = startWorker,
+        connect: connectTo = connect,
+        persist = askPersist,
+        sweep = sweepTestDbs,
+        restored = (id) => dbRestores.announce(id),
+    } = {}) {
         this.#store = store;
         this.#start = start;
         this.#connect = connectTo;
         this.#persist = persist;
         this.#sweep = sweep;
+        this.#restored = restored;
     }
 
     /** The worker, started once; a start that failed is tried again next time. */
@@ -218,6 +232,59 @@ export class AppDbs {
             tables: tables.rows.map((r) => String(r.name)),
             sessions,
         };
+    }
+
+    /**
+     * The id of session `name`'s database (a delegate's, its lead's), or
+     * null if it has none yet. Names none.
+     *
+     * @param {string} name
+     */
+    async idOf(name) {
+        return (await dbOf(await this.#store(), dbOwner(name)))?.id ?? null;
+    }
+
+    /**
+     * Session `name`'s database's checkpoints, oldest first; none if it
+     * has no database yet (looking names none).
+     *
+     * @param {string} name
+     * @returns {Promise<Checkpoint[]>}
+     */
+    async checkpoints(name) {
+        if ((await this.idOf(name)) === null) return [];
+        return (await this.dbFor(name)).checkpoints();
+    }
+
+    /**
+     * Checkpoint session `name`'s database, labelled `label`.
+     *
+     * @param {string} name @param {string} [label]
+     * @returns {Promise<Checkpoint>}
+     */
+    async checkpoint(name, label = "") {
+        return (await this.dbFor(name)).checkpoint(label);
+    }
+
+    /** Delete checkpoint `id` of session `name`'s database. @param {string} name @param {string} id */
+    async deleteCheckpoint(name, id) {
+        await (await this.dbFor(name)).deleteCheckpoint(id);
+    }
+
+    /**
+     * Restore session `name`'s database to checkpoint `id`: everything
+     * written since is gone. The apps on the database reload, in every
+     * tab. Ask the person first, unless they asked for it.
+     *
+     * @param {string} name @param {string} id
+     * @returns {Promise<RestoreResult>}
+     */
+    async restore(name, id) {
+        const db = await this.dbFor(name);
+        const ref = await this.#refOf(dbOwner(name));
+        const result = await db.restore(id);
+        if (result.how !== "none") this.#restored(ref.id);
+        return result;
     }
 
     /**

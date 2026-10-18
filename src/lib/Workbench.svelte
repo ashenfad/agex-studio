@@ -6,7 +6,9 @@
      * adding files. The app stays loaded while the files are shown.
      */
     import AppPreview from './AppPreview.svelte'
+    import { dbOwner } from './app-db-clients.js'
     import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
+    import { dbRestores } from './db-restore.svelte.js'
     import { isDriveImportAvailable } from './drive-import.js'
     import FilesPanel from './FilesPanel.svelte'
 
@@ -23,10 +25,11 @@
     let files = $state()
     const drive = isDriveImportAvailable()
 
-    // an app asking to use the model waits on the person, and the
-    // question shows with the app: its tab comes forward
+    // an app asking to use the model, or the agent asking to restore
+    // the app's data, waits on the person, and the question shows with
+    // the app: its tab comes forward
     $effect(() => {
-        if (appAgent.asking[session.name] !== undefined) tab = 'app'
+        if (appAgent.asking[session.name] !== undefined || dbRestores.asking[dbOwner(session.name)] !== undefined) tab = 'app'
     })
 
     /** The files listed, folders aside. */

@@ -1,6 +1,7 @@
 # App database: `agex.db`
 
-Status: design, 2026-10-16; not started. The numbers come from five
+Status: phases 1 and 2 built (2026-10-17); sync, phase 3, is next.
+Where the build differs from the design below, the design says so. The numbers come from five
 spikes in headless Chromium (Apple M4), each kept on a `spike/sqlite-*`
 branch with its findings:
 
@@ -180,18 +181,22 @@ uploads as a series of requests, each a few chunks.
 
   A database that's mostly appended to, like a calendar, may never need
   one.
-- **Starting one:**
-  1. Flush, and note the log position the snapshot is taken at.
-  2. `VACUUM INTO` (writes pause ~2 s per GB).
-  3. Gzip in the background (~21 s at 1 GB). Writes go on meanwhile,
-     flushing to the old epoch after that position.
-  4. Commit the snapshot's chunks to the new branch.
-  5. With flushes held: append the old epoch's entries after that
-     position to the new branch, then point the registry at it. Only a
-     few seconds of entries are copied, so the hold is short, and no
-     write made during the gzip is left behind on the old epoch.
-- **The old epoch** is deleted, locally and remotely, once the new one
-  is synced. A device still on it rebuilds from the new snapshot and
+- **Starting one** (as built, kvsql's `newEpoch()`):
+  1. `VACUUM INTO` a file beside the database (writes pause ~2 s per
+     GB). The snapshot holds every transaction so far, pending ones
+     too, which is how an import goes into a snapshot rather than the
+     log.
+  2. Gzip it and commit its chunks to the new branch (~21 s at 1 GB).
+     Writes go on meanwhile; flushes wait, their transactions safe in
+     the file, so nothing reaches the old epoch after the snapshot.
+  3. Move the file onto the new branch in one transaction, and flush
+     what waited there. Opening follows a log to its newest epoch, so
+     the registry keeps naming `db/<id>/0`.
+
+  The design copied the entries flushed during the gzip over instead;
+  holding flushes needs no copying and leaves nothing behind.
+- **The old epoch** is deleted at the move for now; once sync exists,
+  once the new one is synced. A device still on it rebuilds from the new snapshot and
   rebases its unsynced changes onto it. No branch is ever rewritten,
   so sync stays fast-forward, and nothing like squashing or re-rooting
   is needed.
@@ -471,11 +476,16 @@ PRs follow each phase.
 ## Open questions
 
 1. **The caps:** a ~2 GB soft cap and a ~500 MB-gzipped sync cap?
-2. **The agent's restore:** ask every time, or only when the database
-   changed since the checkpoint?
-3. **Checkpoints older than the current epoch:** keep the old epoch
+2. ~~**The agent's restore:** ask every time, or only when the
+   database changed since the checkpoint?~~ Decided: every time,
+   unless the database is at the checkpoint already (nothing to lose).
+3. ~~**Checkpoints older than the current epoch:** keep the old epoch
    locally while an explicit checkpoint needs it, or turn such a
-   checkpoint into a snapshot of its own when the epoch changes?
+   checkpoint into a snapshot of its own?~~ Decided: a checkpoint is a
+   kvgit tag, which keeps its commit's history from being collected,
+   so an old epoch stays (without its branch) while a checkpoint on it
+   does. A restore to it rebuilds the database at the checkpoint and
+   starts a new epoch, as one across a schema change does.
 4. **Registry vs. session plane:** is a second synced branch (`dbs/registry`)
    the right home, or should it join `appdata/` as one branch of
    studio-wide records?
