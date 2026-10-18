@@ -5,12 +5,13 @@
      * history; sharing its app's database or with a copy of its own); a
      * bundle of it to keep or share; publishing it; its
      * app's database (its size, the sessions sharing it, keeping it on
-     * this device, an export); and deleting it (with sync on, from this
+     * this device, an export, its checkpoints to restore); and deleting it (with sync on, from this
      * device or everywhere).
      */
     import { onMount, untrack } from 'svelte'
     import { appDbs } from './app-db-clients.js'
     import { formatBytes } from './bytes.js'
+    import { formatDate } from './format-time.js'
     import { errorText } from './errors.js'
     import { askPersist, isPersisted } from './persist.js'
     import Dialog from './Dialog.svelte'
@@ -97,21 +98,65 @@
         (db?.sessions ?? []).filter((n) => n !== name).map((n) => studio.sessions.find((s) => s.name === n)?.title || 'Untitled'),
     )
 
+    /** The database's checkpoints, newest first.
+     *  @type {import('./app-db-clients.js').Checkpoint[]} */
+    let checkpoints = $state([])
+    /** What a new checkpoint is called. */
+    let label = $state('')
+    /** The checkpoint whose restore waits on a second click. @type {string | null} */
+    let confirming = $state(null)
+    /** What the last restore did. @type {string | null} */
+    let restored = $state(null)
+
+    /** Read the database and its checkpoints again. */
+    async function readDb() {
+        const found = await appDbs.describe(name)
+        db = found
+        checkpoints = found === null ? [] : (await appDbs.checkpoints(name)).reverse()
+    }
+
     onMount(() => {
         // a delegate's app uses its lead's database, shown there
         if (name.includes('.')) {
             db = null
             return
         }
-        appDbs.describe(name).then(
-            (found) => (db = found),
-            (e) => {
-                db = null
-                failed = `The app's database couldn't be read: ${errorText(e)}`
-            },
-        )
+        readDb().catch((e) => {
+            db = null
+            failed = `The app's database couldn't be read: ${errorText(e)}`
+        })
         isPersisted().then((p) => (persisted = p))
     })
+
+    function takeCheckpoint() {
+        return act(async () => {
+            await appDbs.checkpoint(name, label.trim())
+            label = ''
+            restored = null
+            await readDb()
+        })
+    }
+
+    /** @param {string} id */
+    function restore(id) {
+        return act(async () => {
+            confirming = null
+            const result = await appDbs.restore(name, id)
+            restored =
+                result.how === 'none'
+                    ? 'It was at that checkpoint already.'
+                    : `Restored: ${result.undone === 1 ? '1 change' : `${result.undone} changes`} undone. The app reloads.`
+            await readDb()
+        })
+    }
+
+    /** @param {string} id */
+    function forget(id) {
+        return act(async () => {
+            await appDbs.deleteCheckpoint(name, id)
+            await readDb()
+        })
+    }
 
     function exportDb() {
         return act(async () => {
@@ -185,6 +230,42 @@
                     <button disabled={working} onclick={keep} title="Ask the browser not to clear the studio's data when space runs low">Keep it on this device</button>
                 {/if}
             </div>
+            <h4>Checkpoints</h4>
+            <p class="hint">
+                Points to bring the app's data back to. One is taken before each change to its tables (the last 10 are kept), and you can take your own.
+            </p>
+            {#if checkpoints.length > 0}
+                <ul class="checkpoints">
+                    {#each checkpoints as cp (cp.id)}
+                        <li>
+                            <span class="what">
+                                {cp.label || 'Checkpoint'}
+                                <small>{cp.auto ? 'automatic' : 'yours'} · {formatDate(new Date(cp.time).toISOString())}</small>
+                            </span>
+                            {#if confirming === cp.id}
+                                <span class="confirm">
+                                    Everything stored since is lost.
+                                    <button class="danger" disabled={working} onclick={() => restore(cp.id)}>Restore</button>
+                                    <button disabled={working} onclick={() => (confirming = null)}>Cancel</button>
+                                </span>
+                            {:else}
+                                <button disabled={working} onclick={() => (confirming = cp.id)} title="Bring the app's data back to this">Restore…</button>
+                                <button class="icon" disabled={working} onclick={() => forget(cp.id)} title="Delete this checkpoint" aria-label="Delete this checkpoint">×</button>
+                            {/if}
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+            {#if restored}<p class="hint">{restored}</p>{/if}
+            <div class="row">
+                <input
+                    class="input small"
+                    bind:value={label}
+                    placeholder="What it's before (optional)"
+                    onkeydown={(e) => e.key === 'Enter' && takeCheckpoint()}
+                />
+                <button disabled={working} onclick={takeCheckpoint}>Take a checkpoint</button>
+            </div>
         </section>
     {/if}
 
@@ -252,6 +333,63 @@
     .choices span {
         font-size: 0.75rem;
         color: var(--text-muted);
+    }
+    h4 {
+        font-family: var(--font-body);
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin: 0.8rem 0 0.25rem;
+    }
+    .checkpoints {
+        list-style: none;
+        margin: 0 0 0.5rem;
+        padding: 0;
+        max-height: 12rem;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+    }
+    .checkpoints li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.5rem;
+        font-size: 0.85rem;
+    }
+    .checkpoints li + li {
+        border-top: 1px solid var(--border);
+    }
+    .checkpoints .what {
+        flex: 1;
+        min-width: 10rem;
+        overflow-wrap: anywhere;
+    }
+    .checkpoints small {
+        display: block;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+    .checkpoints .confirm {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+    }
+    .checkpoints button {
+        padding: 0.2rem 0.55rem;
+        font-size: 0.8rem;
+    }
+    .checkpoints .icon {
+        padding: 0.2rem 0.45rem;
+    }
+    .input.small {
+        flex: 1;
+        min-width: 10rem;
+        padding: 0.3rem 0.55rem;
+        font-size: 0.85rem;
     }
     .check {
         display: flex;

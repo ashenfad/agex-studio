@@ -22,6 +22,7 @@
 
 import { Inbox, Sessions, sessionsTool, untilSettled } from "@agex-ts/world";
 import { RunStream } from "agex-ts";
+import { dbRestores } from "./db-restore.svelte.js";
 
 /** How deep delegation nests: a delegate's delegate, and no further. */
 const DEPTH_CAP = 2;
@@ -231,6 +232,8 @@ export class StudioRunner {
                     };
                     const turn = prompt !== null ? delegate.stream(prompt, { onEvent }) : new RunStream(delegate, { wake: true, onEvent });
                     const outcome = await turn.wait();
+                    // a restore of the app's database it asked about goes unanswered
+                    dbRestores.cancel(session);
                     await this.host.observe(session)?.observed();
                     if (outcome.status !== "completed") {
                         const said = outcome.text !== "" ? `${outcome.text}\n\n` : "";

@@ -13,7 +13,8 @@
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  */
 
-import { appDbs } from "./app-db-clients.js";
+import { appDbs, dbOwner } from "./app-db-clients.js";
+import { dbRestores } from "./db-restore.svelte.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { distribution } from "./distribution.svelte.js";
 import { script } from "./scripted.js";
@@ -265,6 +266,30 @@ export function installDevHook(studio, sync) {
             async release() {
                 await appDbs.release(session().name);
                 return this.held();
+            },
+            /** Take a checkpoint, as the dialog does. @param {string} [label] */
+            async checkpoint(label) {
+                return appDbs.checkpoint(session().name, label);
+            },
+            async checkpoints() {
+                return appDbs.checkpoints(session().name);
+            },
+            /** Restore, as the dialog does (no asking). @param {string} id */
+            async restore(id) {
+                return appDbs.restore(session().name, id);
+            },
+            /** The restore the agent asks about, waiting on the person, if one is. */
+            asking() {
+                const open = dbRestores.asking[dbOwner(session().name)];
+                return open === undefined ? null : { checkpoint: open.checkpoint, asker: open.asker };
+            },
+            /** Answer it as the preview's buttons do. @param {boolean} yes */
+            answer(yes) {
+                dbRestores.asking[dbOwner(session().name)]?.answer(yes);
+            },
+            /** How many restores this page has heard of. */
+            restores() {
+                return dbRestores.restored.count;
             },
         },
         /** Sync, as the session list works it. */
