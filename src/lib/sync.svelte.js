@@ -275,6 +275,27 @@ export class Sync {
     }
 
     /**
+     * Delete the databases here no session names (`appDbs.sweepUnnamed`),
+     * one that synced once a sync of it has pushed what it holds: a
+     * session elsewhere the registry here doesn't name yet may use it.
+     * Against the repo's branches as `heads` gives them (read now if not
+     * given).
+     *
+     * @param {Map<string, string>} [heads]
+     */
+    async #sweepUnnamedDbs(heads) {
+        const store = await openStore();
+        const remote = await this.#remoteNow();
+        await appDbs.sweepUnnamed({
+            pushed: async (ref, db) => {
+                heads ??= new Map((await remote.listRefs()).map((r) => [r.branch, r.head]));
+                const state = await syncDb({ kv: store.repo.store, repo: store.repo, remote, id: ref.id, heads, db: async () => db });
+                return state.state === "synced";
+            },
+        });
+    }
+
+    /**
      * Settle session `name`'s database's conflict on side `keep`: this
      * device's changes, or the synced ones; the other is kept as a
      * checkpoint.
@@ -526,7 +547,10 @@ export class Sync {
             // every synced session's database, against the roster read above
             const heads = new Map(roster.filter((r) => !r.archived).map((r) => [r.branch, r.head]));
             const names = this.studio.sessions.map((s) => s.name).filter((n) => this.#syncs(n));
-            await exclusively(() => this.#syncDbsOf(names, { heads }));
+            await exclusively(async () => {
+                await this.#syncDbsOf(names, { heads });
+                await this.#sweepUnnamedDbs(heads);
+            });
         } catch (e) {
             this.problem = describe(e);
         }
@@ -669,7 +693,10 @@ export class Sync {
         const store = await openStore();
         const here = new Set(this.studio.sessions.map((s) => s.name));
         for (const name of gone) if (!here.has(name)) await unlinkDb(store, name);
-        await exclusively(() => this.#syncDbsOf([]).catch(() => undefined));
+        await exclusively(async () => {
+            await this.#syncDbsOf([]).catch(() => undefined);
+            await this.#sweepUnnamedDbs().catch(() => undefined);
+        });
     }
 
     /** Whether the repo holds session `name`, as last seen (what

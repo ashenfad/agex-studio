@@ -12,11 +12,12 @@
  * only.
  * The database itself, its file and its log, stays after the last
  * session naming it is deleted, for a sweep of the databases no session
- * names to delete.
+ * names to delete (`sweepUnnamed`).
  */
 
+import { hasSyncHead } from "@agex-ts/kvgit";
 import { connect } from "@agex-ts/kvsql/client";
-import { dbBranch, dbOf, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb } from "./app-db.js";
+import { DB_BRANCHES, dbBranch, dbOf, dropDbRecord, ensureDb, firstDbId, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb, unnamedDbs } from "./app-db.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
@@ -37,6 +38,25 @@ export const DB_LABEL = "agex.db";
  * @param {string} name
  */
 export const dbOwner = (name) => name.split(".")[0] ?? name;
+
+/** The OPFS directory every database's directory is in (`db-worker.js`). */
+const DB_ROOT = "agex-db";
+
+/** Whether database `id` has a directory in OPFS. @param {string} id */
+async function hasFiles(id) {
+    try {
+        await (await (await navigator.storage.getDirectory()).getDirectoryHandle(DB_ROOT)).getDirectoryHandle(id);
+        return true;
+    } catch (e) {
+        if (e instanceof DOMException && e.name === "NotFoundError") return false;
+        throw e;
+    }
+}
+
+/**
+ * The part of the Web Locks API the sweep reads.
+ * @typedef {{ query(): Promise<{ held?: { name?: string }[], pending?: { name?: string }[] }> }} LockQuery
+ */
 
 /** The tab's database worker, as Vite bundles it. */
 async function startWorker() {
@@ -68,6 +88,12 @@ export class AppDbs {
     #sweep;
     /** @type {(id: string) => void} */
     #restored;
+    /** @type {() => LockQuery} */
+    #locks;
+    /** @type {(id: string) => Promise<boolean>} */
+    #files;
+    /** The sweep of unnamed databases running in this page. @type {Promise<unknown>} */
+    #sweeping = Promise.resolve();
     /** Whether this page has swept the copies closed tabs left. */
     #swept = false;
     /** @type {Promise<WorkerLike> | null} */
@@ -82,12 +108,13 @@ export class AppDbs {
     #forgotten = new Set();
 
     /**
-     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean>, sweep?: () => Promise<unknown>, restored?: (id: string) => void }} [deps]
+     * @param {{ store?: () => Promise<import("@agex-ts/world").Store>, start?: () => Promise<WorkerLike>, connect?: typeof connect, persist?: () => Promise<boolean>, sweep?: () => Promise<unknown>, restored?: (id: string) => void, locks?: () => LockQuery, files?: (id: string) => Promise<boolean> }} [deps]
      *   the store the registry is on, how the worker starts, how a
      *   client connects to it, how persistent storage is asked for, how
-     *   test copies left by closed tabs are swept, and how a restore is
-     *   announced to the apps on the database (each replaceable in
-     *   tests)
+     *   test copies left by closed tabs are swept, how a restore is
+     *   announced to the apps on the database, which Web Locks the tabs
+     *   hold, and whether a database has files here (each replaceable
+     *   in tests)
      */
     constructor({
         store = openStore,
@@ -96,6 +123,8 @@ export class AppDbs {
         persist = askPersist,
         sweep = sweepTestDbs,
         restored = (id) => dbRestores.announce(id),
+        locks = () => navigator.locks,
+        files = hasFiles,
     } = {}) {
         this.#store = store;
         this.#start = start;
@@ -103,6 +132,8 @@ export class AppDbs {
         this.#persist = persist;
         this.#sweep = sweep;
         this.#restored = restored;
+        this.#locks = locks;
+        this.#files = files;
     }
 
     /** The worker, started once; a start that failed is tried again next time. */
@@ -380,6 +411,63 @@ export class AppDbs {
         return true;
     }
 
+    /**
+     * Delete the databases no session names (`unnamedDbs`): file, log
+     * and registry record. One some tab has open (its Web Lock held or
+     * waited for) stays for a later sweep. One whose log synced stays
+     * unless `pushed` says what it holds is in the sync repo now (the
+     * sync passes it): a session on another device that the registry
+     * here doesn't know of yet may still name it. One with nothing here
+     * (named on another device only) loses just its record. A session
+     * still here keeps its first database, even unnamed. One sweep at a
+     * time in this page; returns the ids deleted.
+     *
+     * @param {{ pushed?: (ref: DbRef, db: DatabaseClient) => Promise<boolean> }} [options]
+     * @returns {Promise<string[]>}
+     */
+    sweepUnnamed(options = {}) {
+        const run = this.#sweeping.then(() => this.#sweepUnnamed(options));
+        this.#sweeping = run.catch(() => undefined);
+        return run;
+    }
+
+    /** @param {{ pushed?: (ref: DbRef, db: DatabaseClient) => Promise<boolean> }} options */
+    async #sweepUnnamed({ pushed }) {
+        const store = await this.#store();
+        const unnamed = await unnamedDbs(store);
+        if (unnamed.length === 0) return [];
+        // a session here whose entry another device's delete took (it
+        // emptied its trash of a session changed here since) would name
+        // its first database again on its next use
+        const here = new Set(await Promise.all((await store.sessions()).filter((n) => !n.includes(".")).map(firstDbId)));
+        const locks = await this.#locks().query();
+        const open = new Set([...(locks.held ?? []), ...(locks.pending ?? [])].map((lock) => lock.name));
+        const branches = await store.repo.branches.list();
+        /** @type {string[]} */
+        const deleted = [];
+        for (const ref of unnamed) {
+            if (this.#held.has(ref.id) || here.has(ref.id) || open.has(`kvsql:${ref.id}`)) continue;
+            const logs = branches.filter((b) => b.startsWith(`${DB_BRANCHES}${ref.id}/`));
+            let synced = false;
+            for (const log of logs) synced ||= await hasSyncHead(store.repo.store, log);
+            if (synced && pushed === undefined) continue;
+            try {
+                if (logs.length > 0 || (await this.#files(ref.id))) {
+                    const db = await this.#connect(await this.#workerNow(), { id: ref.id, branch: ref.branch, label: DB_LABEL });
+                    if (synced && !(await pushed?.(ref, db).catch(() => false))) {
+                        await db.close();
+                        continue;
+                    }
+                    await db.delete();
+                }
+                if (await dropDbRecord(store, ref.id)) deleted.push(ref.id);
+            } catch (e) {
+                console.warn(`${DB_LABEL} (${ref.id}): deleting a database no session names failed:`, e);
+            }
+        }
+        return deleted;
+    }
+
     /** Delete database `ref`, file and log, by the worker holding it. @param {DbRef} ref */
     async #drop(ref) {
         const db = await this.#connect(await this.#workerNow(), { id: ref.id, branch: ref.branch, label: DB_LABEL });
@@ -388,10 +476,10 @@ export class AppDbs {
 
     /**
      * Session `name` is deleted: its registry entry goes and its client
-     * here is released. Its database stays, with its log, for a sweep of
-     * the databases no session names (another session may still name it),
-     * unless `drop` says it is a copy made for a fork that wasn't made:
-     * then, named by no other session, it goes now, file and log. A
+     * here is released. Its database, named by no other session, goes in
+     * a sweep of the databases no session names (`sweepUnnamed`), which
+     * this starts; or now, file and log, if `drop` says it is a copy made
+     * for a fork that wasn't made. A
      * lookup still in flight lands first, so the entry it makes goes
      * too, and the session's database is never asked for here again.
      *
@@ -404,6 +492,11 @@ export class AppDbs {
         const unlinked = await unlinkDb(await this.#store(), name);
         await this.release(name);
         if (drop && unlinked !== null && !unlinked.named) await this.#drop(unlinked.ref);
+        // named by no other session, it goes, unless it synced (the sync
+        // sweeps those) or is still open, when a later sweep takes it
+        else if (unlinked !== null && !unlinked.named) {
+            void this.sweepUnnamed().catch((e) => console.warn(`${DB_LABEL}: sweeping databases no session names failed:`, e));
+        }
     }
 }
 
