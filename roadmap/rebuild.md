@@ -2,8 +2,11 @@
 
 The studio rebuilt on the new agex-ts: one TypeScript kernel, the
 world's sessions and tools, and agex-ts's loop, tasks and delegation.
-agex-ts's [`plan.md`](https://github.com/ashenfad/agex-ts/blob/main/plan.md)
+agex-ts's [design history](https://github.com/ashenfad/agex-ts/blob/main/docs/design.md)
 holds the foundation's decisions; this is the studio's half.
+
+**Status:** done. agex.studio switched to the rebuild on 2026-10-19, on
+agex-ts 0.6.0; S6 is designed and deferred (below).
 
 ## Ground rules
 
@@ -199,7 +202,7 @@ built meanwhile takes their names or contradicts them.
 **S7. Docs and the switch.** `docs/` rewritten for the new shape; the
 README and the in-app docs; agex-ts released, and the links replaced by
 its versions; agex.studio switched to the new build. Exit: the
-deploy-day checklist passes on agex.studio.
+deploy-day checklist passes on agex.studio. *Switched 2026-10-19.*
 
 ## Later: variables, secrets and services
 
