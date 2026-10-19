@@ -28,6 +28,7 @@ import { BranchMovedError } from "@agex-ts/kvgit";
 
 /** @typedef {import("@agex-ts/world").Store} Store */
 /** @typedef {import("@agex-ts/kvgit").Worktree<unknown>} Worktree */
+/** @typedef {import("@agex-ts/kvgit").Repo<unknown>} Repo */
 
 /** The registry's branch. */
 export const REGISTRY = "dbs/registry";
@@ -102,18 +103,19 @@ export async function dbOf(store, name) {
 }
 
 /**
- * Change the registry with `fn`, committing what it set or deleted. A
- * commit another tab's write beat is redone from the new tip, so `fn`
- * must decide from what it reads, not from what it read before.
+ * Change the registry in `repo` with `fn`, committing what it set or
+ * deleted. A commit another tab's write beat is redone from the new
+ * tip, so `fn` must decide from what it reads, not from what it read
+ * before.
  *
  * @template T
- * @param {Store} store
+ * @param {Repo} repo
  * @param {(wt: Worktree) => Promise<T>} fn
  * @returns {Promise<T>}
  */
-async function edit(store, fn) {
+async function edit(repo, fn) {
     for (let attempt = 1; ; attempt++) {
-        const wt = await store.repo.worktree(REGISTRY, { create: true });
+        const wt = await repo.worktree(REGISTRY, { create: true });
         const out = await fn(wt);
         if (wt.status().clean) return out;
         try {
@@ -147,7 +149,7 @@ async function mint(wt, name) {
  * @returns {Promise<DbRef>}
  */
 export async function ensureDb(store, name) {
-    return (await dbOf(store, name)) ?? edit(store, async (wt) => (await lookup(wt, name)) ?? mint(wt, name));
+    return (await dbOf(store, name)) ?? edit(store.repo, async (wt) => (await lookup(wt, name)) ?? mint(wt, name));
 }
 
 /**
@@ -161,7 +163,7 @@ export async function ensureDb(store, name) {
  * @returns {Promise<DbRef>}
  */
 export async function shareDb(store, from, to) {
-    return edit(store, async (wt) => {
+    return edit(store.repo, async (wt) => {
         const ref = (await lookup(wt, from)) ?? (await mint(wt, from));
         wt.set(sessionKey(to), ref.id);
         return ref;
@@ -177,7 +179,7 @@ export async function shareDb(store, from, to) {
  * @param {DbRef} ref
  */
 export async function nameDb(store, to, ref) {
-    await edit(store, async (wt) => {
+    await edit(store.repo, async (wt) => {
         wt.set(dbKey(ref.id), { branch: ref.branch });
         wt.set(sessionKey(to), ref.id);
     });
@@ -196,11 +198,57 @@ export async function nameDb(store, to, ref) {
  */
 export async function unlinkDb(store, name) {
     if (!(await store.repo.branches.has(REGISTRY))) return null;
-    return edit(store, async (wt) => {
+    return edit(store.repo, async (wt) => {
         const ref = await lookup(wt, name);
         if (ref === null) return null;
         await wt.delete(sessionKey(name));
         return { ref, named: (await namersIn(wt, ref.id)).length > 0 };
+    });
+}
+
+/**
+ * Sessions `names`' entries in the registry in `repo`, each with the
+ * record of the database it names: what a sync keeps of the sessions
+ * here (`keepEntries`).
+ *
+ * @param {Repo} repo
+ * @param {string[]} names
+ * @returns {Promise<Map<string, { id: string, record: unknown }>>}
+ */
+export async function entriesOf(repo, names) {
+    /** @type {Map<string, { id: string, record: unknown }>} */
+    const out = new Map();
+    if (!(await repo.branches.has(REGISTRY))) return out;
+    const read = await repo.snapshot({ branch: REGISTRY });
+    for (const name of names) {
+        const id = await read.get(sessionKey(name));
+        if (typeof id === "string") out.set(name, { id, record: await read.get(dbKey(id)) });
+    }
+    return out;
+}
+
+/**
+ * Put back the entries of `entries` (from `entriesOf`) the registry in
+ * `repo` no longer has, of sessions still in it: another device that
+ * deleted a session for good, from its sync repo's trash, takes its
+ * entry from the merged registry, though the session lives on here.
+ * Whether any came back.
+ *
+ * @param {Repo} repo
+ * @param {Map<string, { id: string, record: unknown }>} entries
+ */
+export async function keepEntries(repo, entries) {
+    if (entries.size === 0) return false;
+    return edit(repo, async (wt) => {
+        let back = false;
+        for (const [name, { id, record }] of entries) {
+            // gone here meanwhile, its entry went with it
+            if ((await wt.get(sessionKey(name))) !== undefined || !(await repo.branches.has(name))) continue;
+            wt.set(sessionKey(name), id);
+            if ((await wt.get(dbKey(id))) === undefined && record !== undefined) wt.set(dbKey(id), record);
+            back = true;
+        }
+        return back;
     });
 }
 
@@ -236,7 +284,7 @@ export async function unnamedDbs(store) {
  * @param {string} id
  */
 export async function dropDbRecord(store, id) {
-    return edit(store, async (wt) => {
+    return edit(store.repo, async (wt) => {
         if ((await namersIn(wt, id)).length > 0) return false;
         await wt.delete(dbKey(id));
         return true;

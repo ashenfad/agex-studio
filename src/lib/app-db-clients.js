@@ -17,7 +17,7 @@
 
 import { hasSyncHead } from "@agex-ts/kvgit";
 import { connect } from "@agex-ts/kvsql/client";
-import { DB_BRANCHES, dbBranch, dbOf, dropDbRecord, ensureDb, firstDbId, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb, unnamedDbs } from "./app-db.js";
+import { DB_BRANCHES, dbBranch, dbOf, dropDbRecord, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb, unnamedDbs } from "./app-db.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
@@ -418,9 +418,9 @@ export class AppDbs {
      * unless `pushed` says what it holds is in the sync repo now (the
      * sync passes it): a session on another device that the registry
      * here doesn't know of yet may still name it. One with nothing here
-     * (named on another device only) loses just its record. A session
-     * still here keeps its first database, even unnamed. One sweep at a
-     * time in this page; returns the ids deleted.
+     * (named on another device only) loses just its record. One sweep at
+     * a time in this page; returns the ids deleted. (A session here is
+     * never without its entry: the registry's sync keeps it.)
      *
      * @param {{ pushed?: (ref: DbRef, db: DatabaseClient) => Promise<boolean> }} [options]
      * @returns {Promise<string[]>}
@@ -436,17 +436,13 @@ export class AppDbs {
         const store = await this.#store();
         const unnamed = await unnamedDbs(store);
         if (unnamed.length === 0) return [];
-        // a session here whose entry another device's delete took (it
-        // emptied its trash of a session changed here since) would name
-        // its first database again on its next use
-        const here = new Set(await Promise.all((await store.sessions()).filter((n) => !n.includes(".")).map(firstDbId)));
         const locks = await this.#locks().query();
         const open = new Set([...(locks.held ?? []), ...(locks.pending ?? [])].map((lock) => lock.name));
         const branches = await store.repo.branches.list();
         /** @type {string[]} */
         const deleted = [];
         for (const ref of unnamed) {
-            if (this.#held.has(ref.id) || here.has(ref.id) || open.has(`kvsql:${ref.id}`)) continue;
+            if (this.#held.has(ref.id) || open.has(`kvsql:${ref.id}`)) continue;
             const logs = branches.filter((b) => b.startsWith(`${DB_BRANCHES}${ref.id}/`));
             let synced = false;
             for (const log of logs) synced ||= await hasSyncHead(store.repo.store, log);

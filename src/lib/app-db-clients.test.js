@@ -350,19 +350,6 @@ describe("the sweep of databases no session names", () => {
         expect(clientsOf(connected, ref.id)[2].delete).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps a session here its first database, its entry gone", async () => {
-        const { store, dbs, connected } = await setup();
-        await store.open("s-1");
-        await dbs.dbFor("s-1");
-        await dbs.release("s-1");
-        const ref = await dbOf(store, "s-1");
-        // another device emptied its trash of s-1: the merged registry lost the entry
-        await unlinkDb(store, "s-1");
-        expect(await dbs.sweepUnnamed()).toEqual([]);
-        expect(clientsOf(connected, ref?.id)).toHaveLength(1);
-        expect(await unnamedDbs(store)).toHaveLength(1);
-    });
-
     it("drops only the record of one with nothing here", async () => {
         const { store, dbs, connect } = await setup({ files: vi.fn(async () => false) });
         await nameDb(store, "s-elsewhere", { id: "db-00000000000000aa", branch: "db/db-00000000000000aa/0" });
