@@ -1,7 +1,7 @@
 # Deploy
 
 How the studio gets from `git push` to `agex.studio`, and the checklist
-for a deploy: the switch to the rebuild first of all.
+for a deploy.
 
 ## Where it lives
 
@@ -48,15 +48,15 @@ What `vite.config.js` adds to a plain Vite build:
 `deploy.yml` installs with pnpm (`pnpm install --frozen-lockfile`)
 and runs `pnpm build`, taking agex-ts's packages from npm.
 `.github/workflows/test.yml` runs the same install, then the typecheck,
-the tests and the build, on pushes and pull requests to `main` and
-`rebuild`, so a pull request's checks build what the deploy would.
+the tests and the build, on pushes and pull requests to `main`, so a
+pull request's checks build what the deploy would.
 
 The Google ids stay as they are: `VITE_GOOGLE_CLIENT_ID` and
 `VITE_GOOGLE_API_KEY`, from the repo's secrets.
 
-## The switch to the rebuild
+## The checklist
 
-Before merging:
+For a larger change, before merging:
 
 - [ ] `pnpm build` locally: `dist/run/index.html` is there, and
       `dist/assets/` has the entry, the type-stripper chunk and the
@@ -66,8 +66,9 @@ Before merging:
 - [ ] The pull request's Tests run passes: its build is the deploy's
       (above).
 
-Then `rebuild` becomes `main` (merge or fast-forward), Pages deploys,
-and on **agex.studio**, in a fresh browser profile:
+Then, once Pages has deployed, on **agex.studio** in a fresh browser
+profile, the checks the change touches (all of them for a release of
+agex-ts):
 
 - [ ] **First load.** The network panel: the entry chunk about 390 KB
       gzipped; the type-stripper chunk not loaded until the first code
@@ -115,11 +116,12 @@ git revert <bad-commit>
 git push origin main
 ```
 
-Pages redeploys in a couple of minutes. For the switch itself, the old
-studio stays in `main`'s history (and its packages on npm): reverting
-the switch brings it back. Sessions don't move between the two: each
+Pages redeploys in a couple of minutes. The studio before the rebuild
+stays in `main`'s history (and its packages on npm): the rebuild came
+in as one merge commit, `c3bf570`, and `git revert -m 1 c3bf570` would
+bring the old studio back. Sessions don't move between the two: each
 keeps its own IndexedDB data (the rebuild's database is
-`agex-studio`), so rolling back leaves the rebuild's sessions in place
+`agex-studio`), so going back leaves the rebuild's sessions in place
 for when it returns.
 
 Hashed asset names make a new deploy's files new URLs; a tab open
@@ -128,8 +130,7 @@ across a deploy keeps its old code until it reloads.
 ## Conventions
 
 `main` deploys on every push; there's no staging. Larger changes go
-through a pull request (Codex reviews it); during the rebuild, pull
-requests target `rebuild`, one per step.
+through a pull request into `main` (Codex reviews it).
 
 ## Design notes
 
