@@ -2,11 +2,19 @@ import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { Store } from "@agex-ts/world";
 import { describe, expect, it, vi } from "vitest";
 import { AppDbs, DB_LABEL } from "./app-db-clients.js";
-import { dbOf } from "./app-db.js";
+import { setSyncHead } from "@agex-ts/kvgit";
+import { dbOf, firstDbId, nameDb, unlinkDb, unnamedDbs } from "./app-db.js";
 
 /** A manager on a store in memory, with a worker and clients that
  *  record what was asked of them. */
-async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep = vi.fn(async () => []), restored = vi.fn() } = {}) {
+async function setup({
+    failStarts = 0,
+    persist = vi.fn(async () => true),
+    sweep = vi.fn(async () => []),
+    restored = vi.fn(),
+    /** @type {string[]} */ locked = [],
+    files = vi.fn(async (/** @type {string} */ _id) => true),
+} = {}) {
     const store = await Store.open(new Memory());
     let fails = failStarts;
     const worker = { postMessage() {} };
@@ -35,8 +43,9 @@ async function setup({ failStarts = 0, persist = vi.fn(async () => true), sweep 
         connected.push({ config, client });
         return /** @type {any} */ (client);
     });
-    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist, sweep, restored });
-    return { store, dbs, start, connect, connected, persist, sweep, restored };
+    const locks = () => ({ query: async () => ({ held: locked.map((name) => ({ name })), pending: [] }) });
+    const dbs = new AppDbs({ store: async () => store, start, connect: /** @type {any} */ (connect), persist, sweep, restored, locks, files });
+    return { store, dbs, start, connect, connected, persist, sweep, restored, files };
 }
 
 describe("the page's app databases", () => {
@@ -190,7 +199,8 @@ describe("the page's app databases", () => {
     });
 
     it("drops what a lookup still in flight names for a session being deleted", async () => {
-        const { store, dbs, connect } = await setup();
+        // never opened, it has no files: the sweep drops just its record
+        const { store, dbs, connect } = await setup({ files: vi.fn(async () => false) });
         const opening = dbs.dbFor("s-1");
         opening.catch(() => {}); // rejects before it's awaited below
         await dbs.forget("s-1");
@@ -280,6 +290,86 @@ describe("the page's app databases", () => {
         expect(dbs.held().size).toBe(0);
         await expect(dbs.dbFor("s-1")).resolves.toBeDefined();
         expect(start).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe("the sweep of databases no session names", () => {
+    /** The clients connected to database `id`. @param {{ config: any, client: any }[]} connected @param {string | undefined} id */
+    const clientsOf = (connected, id) => connected.filter((c) => c.config.id === id).map((c) => c.client);
+
+    it("deletes a deleted session's database, file, log and record", async () => {
+        const { store, dbs, connected } = await setup();
+        await dbs.dbFor("s-1");
+        const ref = await dbOf(store, "s-1");
+        await dbs.forget("s-1");
+        // the sweep forget started took it; this one, after it, finds none
+        expect(await dbs.sweepUnnamed()).toEqual([]);
+        const [used, swept] = clientsOf(connected, ref?.id);
+        expect(used.delete).not.toHaveBeenCalled();
+        expect(swept.delete).toHaveBeenCalledTimes(1);
+        expect(await unnamedDbs(store)).toEqual([]);
+    });
+
+    it("keeps one another session names, or a tab has open", async () => {
+        const { store, dbs, connected } = await setup();
+        await dbs.dbFor("s-1");
+        await dbs.share("s-1", "s-2");
+        const ref = await dbOf(store, "s-1");
+        await dbs.forget("s-1");
+        expect(await dbs.sweepUnnamed()).toEqual([]);
+        expect(clientsOf(connected, ref?.id)).toHaveLength(1);
+
+        // another tab still has it open
+        const id = await firstDbId("s-1");
+        const held = await setup({ locked: [`kvsql:${id}`] });
+        await held.dbs.dbFor("s-1");
+        await held.dbs.forget("s-1");
+        expect(await held.dbs.sweepUnnamed()).toEqual([]);
+        expect(await unnamedDbs(held.store)).toHaveLength(1);
+    });
+
+    it("keeps one whose log synced until the sync has pushed it", async () => {
+        const { store, dbs, connected } = await setup();
+        await dbs.dbFor("s-1");
+        const ref = /** @type {import("./app-db.js").DbRef} */ (await dbOf(store, "s-1"));
+        await store.repo.branches.create(ref.branch);
+        await setSyncHead(store.repo.store, ref.branch, await store.repo.branches.get(ref.branch), "github:o/r");
+        await dbs.forget("s-1");
+        expect(await dbs.sweepUnnamed()).toEqual([]);
+        expect(clientsOf(connected, ref.id)).toHaveLength(1);
+
+        // not pushed: left as it is
+        expect(await dbs.sweepUnnamed({ pushed: async () => false })).toEqual([]);
+        const kept = clientsOf(connected, ref.id)[1];
+        expect(kept.close).toHaveBeenCalledTimes(1);
+        expect(kept.delete).not.toHaveBeenCalled();
+        // pushed: it goes
+        const pushed = vi.fn(async () => true);
+        expect(await dbs.sweepUnnamed({ pushed })).toEqual([ref.id]);
+        expect(pushed).toHaveBeenCalledWith(ref, clientsOf(connected, ref.id)[2]);
+        expect(clientsOf(connected, ref.id)[2].delete).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a session here its first database, its entry gone", async () => {
+        const { store, dbs, connected } = await setup();
+        await store.open("s-1");
+        await dbs.dbFor("s-1");
+        await dbs.release("s-1");
+        const ref = await dbOf(store, "s-1");
+        // another device emptied its trash of s-1: the merged registry lost the entry
+        await unlinkDb(store, "s-1");
+        expect(await dbs.sweepUnnamed()).toEqual([]);
+        expect(clientsOf(connected, ref?.id)).toHaveLength(1);
+        expect(await unnamedDbs(store)).toHaveLength(1);
+    });
+
+    it("drops only the record of one with nothing here", async () => {
+        const { store, dbs, connect } = await setup({ files: vi.fn(async () => false) });
+        await nameDb(store, "s-elsewhere", { id: "db-00000000000000aa", branch: "db/db-00000000000000aa/0" });
+        await unlinkDb(store, "s-elsewhere");
+        expect(await dbs.sweepUnnamed()).toEqual(["db-00000000000000aa"]);
+        expect(connect).not.toHaveBeenCalled();
+        expect(await unnamedDbs(store)).toEqual([]);
     });
 });
 

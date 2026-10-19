@@ -10,6 +10,7 @@
     import { readLocal, writeLocal } from './lib/local.js'
     import { loadModels } from './lib/openrouter-models.js'
     import { getSettings } from './lib/settings.js'
+    import { appDbs } from './lib/app-db-clients.js'
     import AppPreview from './lib/AppPreview.svelte'
     import Chat from './lib/Chat.svelte'
     import { installDevHook } from './lib/dev-hook.js'
@@ -146,6 +147,9 @@
             // every session against the repo, on arrival and on coming back
             void sync.sweep({ force: true })
             void distribution.checkUpdates()
+            // the databases no session names any more (the sync sweeps
+            // those that synced)
+            void appDbs.sweepUnnamed().catch((e) => console.warn('sweeping databases no session names failed:', e))
         })()
         const back = () => {
             if (document.visibilityState === 'visible') void sync.sweep()

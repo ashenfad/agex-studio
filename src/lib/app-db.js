@@ -20,8 +20,8 @@
  *   changeset log (`db/<id>/0`).
  *
  * Neither branch name is a session id (both hold a `/`), so the store
- * never lists them as sessions, and sync, which pushes sessions and
- * their `appdata/` branches by name, leaves them on this device.
+ * never lists them as sessions; the sync takes them up apart from the
+ * sessions (`db-sync.js`).
  */
 
 import { BranchMovedError } from "@agex-ts/kvgit";
@@ -185,7 +185,8 @@ export async function nameDb(store, to, ref) {
 
 /**
  * Drop session `name`'s entry (it is being deleted). Its database stays,
- * with its log, until a sweep deletes the databases no session names.
+ * with its log, until a sweep deletes the databases no session names
+ * (`appDbs.sweepUnnamed`).
  * What the entry named, and whether another session still names it;
  * null if it named none.
  *
@@ -200,6 +201,45 @@ export async function unlinkDb(store, name) {
         if (ref === null) return null;
         await wt.delete(sessionKey(name));
         return { ref, named: (await namersIn(wt, ref.id)).length > 0 };
+    });
+}
+
+/**
+ * The databases the registry records that no session names: a session
+ * deleted for good (here, or from the sync repo's trash) leaves its
+ * database so. A copy made for a fork is recorded with its name, in one
+ * step, so a copy not yet named isn't among them.
+ *
+ * @param {Store} store
+ * @returns {Promise<DbRef[]>}
+ */
+export async function unnamedDbs(store) {
+    if (!(await store.repo.branches.has(REGISTRY))) return [];
+    const read = await store.repo.snapshot({ branch: REGISTRY });
+    const keys = await read.keys();
+    const values = await read.getMany(keys);
+    const named = new Set(keys.filter((k) => k.startsWith("session/")).map((k) => values.get(k)));
+    return keys
+        .filter((k) => k.startsWith("db/") && !named.has(k.slice("db/".length)))
+        .map((k) => {
+            const id = k.slice("db/".length);
+            const record = /** @type {{ branch?: unknown } | undefined} */ (values.get(k));
+            return { id, branch: typeof record?.branch === "string" ? record.branch : dbBranch(id) };
+        });
+}
+
+/**
+ * Drop database `id`'s record, its database deleted, unless a session
+ * names it again; whether it went.
+ *
+ * @param {Store} store
+ * @param {string} id
+ */
+export async function dropDbRecord(store, id) {
+    return edit(store, async (wt) => {
+        if ((await namersIn(wt, id)).length > 0) return false;
+        await wt.delete(dbKey(id));
+        return true;
     });
 }
 
