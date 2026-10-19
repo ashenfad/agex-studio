@@ -166,7 +166,12 @@ app's last write (and a minute at most after its first, for an app
 that keeps writing), and in every sweep. Two devices' changes rebase onto each
 other; where they don't fit together, nothing changes until the person
 picks a side, and the other is kept as a checkpoint. A database over
-the cap stays on its device until the person allows it. Until it
+the cap stays on its device until the person allows it. Its log starts
+a new epoch (a fresh snapshot) as it grows; an older epoch that synced
+stays here until no device can still push to it (the sync deletes it
+once the repo's copy is gone), and what older epochs, or a deleted
+database's log, held is freed by a sweep of the store (`store-sweep.js`)
+a minute after kvsql or the sync deletes them. Until it
 syncs, the browser's storage is its only copy, so when an app first
 keeps data the studio asks the browser to make its storage persistent
 (`navigator.storage.persist()`, in `persist.js`; Chromium decides by

@@ -45,6 +45,7 @@ import { appDbs, dbOwner } from "./app-db-clients.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { syncDb, syncRegistry } from "./db-sync.js";
 import { Debouncer } from "./debounce.js";
+import { Sweeper } from "./store-sweep.js";
 
 /** How long after a change a session is pushed. */
 const PUSH_DELAY = 4000;
@@ -221,6 +222,9 @@ export class Sync {
 
     #dbTimers = new Debouncer(APP_MAX_WAIT);
 
+    /** Sweeps of the store, after a sync deleted a database's older epochs here. */
+    #storeSweeper = new Sweeper(async () => (await openStore()).clean());
+
     /**
      * Sync the registry, then the databases sessions `names` name, each
      * once: against the repo's branches as `heads` gives them (read now
@@ -259,6 +263,7 @@ export class Sync {
                 this.dbs[id] = state;
                 // what its apps here show is from before
                 if (state.moved) dbRestores.announce(id);
+                if (state.pruned) this.#storeSweeper.request();
                 // the repo moved meanwhile: again shortly
                 if (state.state === "waiting") this.#scheduleDb(name, DB_RETRY_DELAY);
             } catch (e) {

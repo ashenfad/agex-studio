@@ -22,6 +22,10 @@
  *   or it was taken already), then deletes it at that tip. A device
  *   that can't tell where the snapshot was taken (it never had that
  *   commit) leaves it for one that can.
+ * - **Older epochs here** stay while the repo may hold them (kvsql
+ *   keeps an epoch that synced, and those after it): taking in what
+ *   was pushed to one goes through them. Once the repo has none from
+ *   one on, the sync deletes them here.
  * - **A conflict** stops the database where it is, with nothing changed
  *   (`state: "conflict"`): the person picks a side (`keep`), the other
  *   kept as a checkpoint.
@@ -32,6 +36,7 @@
 
 import {
     MergeChoice,
+    UnknownBranchError,
     UnknownCommitError,
     cborCodec,
     clearSyncHead,
@@ -79,12 +84,14 @@ export const SYNC_CAP_BYTES = 1 << 30;
  *   finished in the repo; the next sync takes it up.
  *
  * `moved` says whether the database changed under its apps here (they
- * reload).
+ * reload). `pruned` names the older epochs deleted here: what they
+ * alone held stays in the store until a sweep.
  *
  * @typedef {{
  *   state: "synced" | "conflict" | "too-large" | "waiting",
  *   detail: string,
  *   moved: boolean,
+ *   pruned?: string[],
  *   conflict?: { step: "rebase" | "adopt", result: RebaseResult },
  * }} DbSyncState
  */
@@ -273,6 +280,8 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
     /** @type {Map<string, string | null>} */
     const tips = new Map();
     for (const epoch of older) tips.set(epoch.branch, (await pullBranch(kv, remote, epoch.branch)).remoteHead);
+    /** The oldest epoch the repo still has, past this sync. */
+    let left = Number.POSITIVE_INFINITY;
     for (const epoch of older) {
         const tip = tips.get(epoch.branch) ?? null;
         if (tip === null) continue;
@@ -282,7 +291,10 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
         } catch (e) {
             // where the snapshot was taken isn't known here: left for a
             // device that knows
-            if (e instanceof Error && /isn't known here/.test(e.message)) continue;
+            if (e instanceof Error && /isn't known here/.test(e.message)) {
+                left = Math.min(left, /** @type {number} */ (epoch.n));
+                continue;
+            }
             throw e;
         }
         if (result.status === "conflict") return stopped("adopt", result);
@@ -295,5 +307,22 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
             return { state: "waiting", detail: "An older copy of it changed in the sync repo meanwhile.", moved };
         }
     }
-    return { state: "synced", detail: "", moved };
+
+    // older epochs here the repo no longer has go, with their sync heads:
+    // what was pushed to them is in. The oldest it still has stays, and
+    // those after it, which taking it in later goes through.
+    const pruned = [];
+    for (const branch of await repo.branches.list()) {
+        const k = epochOf(log, branch);
+        if (k === null || k >= Math.min(now, left)) continue;
+        try {
+            await repo.branches.delete(branch);
+        } catch (e) {
+            // the database deleted it meanwhile
+            if (!(e instanceof UnknownBranchError)) throw e;
+        }
+        await clearSyncHead(kv, branch);
+        pruned.push(branch);
+    }
+    return { state: "synced", detail: "", moved, ...(pruned.length > 0 && { pruned }) };
 }
