@@ -1,4 +1,4 @@
-import { MemoryRemote, Repo, pushBranch } from "@agex-ts/kvgit";
+import { MemoryRemote, Repo, hasSyncHead, pushBranch } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { PackRemote } from "@agex-ts/kvgit/github";
 import { FakeGithub } from "@agex-ts/kvgit/github/fake";
@@ -258,6 +258,12 @@ describe("syncing an app's database", () => {
             { id: 1, x: "a", y: "y1" },
             { id: 2, x: "x2", y: "b" },
         ]);
+        // the old epoch went here, and its sync heads, the repo's own (by
+        // its id) included
+        for (const d of [a, b]) {
+            expect(await d.repo.branches.has(`db/${ID}/0`)).toBe(false);
+            expect(await hasSyncHead(d.kv, `db/${ID}/0`)).toBe(false);
+        }
     });
 });
 

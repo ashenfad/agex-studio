@@ -171,7 +171,8 @@ a new epoch (a fresh snapshot) as it grows; an older epoch that synced
 stays here until no device can still push to it (the sync deletes it
 once the repo's copy is gone), and what older epochs, or a deleted
 database's log, held is freed by a sweep of the store (`store-sweep.js`)
-a minute after kvsql or the sync deletes them. Until it
+a minute after kvsql or the sync deletes them, and by one more an hour
+on (a sweep keeps what was written in the hour before it). Until it
 syncs, the browser's storage is its only copy, so when an app first
 keeps data the studio asks the browser to make its storage persistent
 (`navigator.storage.persist()`, in `persist.js`; Chromium decides by
