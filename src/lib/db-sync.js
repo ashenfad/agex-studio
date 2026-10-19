@@ -7,7 +7,8 @@
  *   two devices both changed it, the two merge key by key: one names a
  *   session's database the other didn't, and a key both set (two forks
  *   that each took a copy) keeps this device's, so the push after is a
- *   fast-forward.
+ *   fast-forward. A session here keeps its entry, whatever another
+ *   device deleted.
  * - **A database's log** is its current epoch's branch, `db/<id>/<n>`.
  *   Before pushing, the database flushes and takes in what the repo has:
  *   - a newer epoch another device started: the database moves onto it,
@@ -46,7 +47,7 @@ import {
     pushBranch,
     syncBranch,
 } from "@agex-ts/kvgit";
-import { DB_BRANCHES, REGISTRY } from "./app-db.js";
+import { DB_BRANCHES, REGISTRY, entriesOf, keepEntries } from "./app-db.js";
 
 /**
  * Past this size a database's file isn't uploaded as a new epoch unless
@@ -140,17 +141,20 @@ async function takenAt(repo, commit) {
 
 /**
  * Sync the registry: pulled and pushed, two devices' changes merged key
- * by key, this device's kept where both set one.
+ * by key, this device's kept where both set one. The entries of
+ * `sessions` (the sessions here) stay: another device that deleted one
+ * for good, from its trash, doesn't take its database from it here.
  *
- * @param {{ repo: import("@agex-ts/kvgit").Repo<unknown>, remote: Remote }} deps
+ * @param {{ repo: import("@agex-ts/kvgit").Repo<unknown>, remote: Remote, sessions?: string[] }} deps
  */
-export async function syncRegistry({ repo, remote }) {
+export async function syncRegistry({ repo, remote, sessions = [] }) {
     const kv = repo.store;
     const here = await repo.branches.has(REGISTRY);
     if (!here) {
         await pullBranch(kv, remote, REGISTRY);
         return;
     }
+    const kept = await entriesOf(repo, sessions);
     let out = await syncBranch(kv, remote, REGISTRY);
     if (out.status === "remote-gone") {
         await clearSyncHead(kv, REGISTRY, remote);
@@ -165,6 +169,7 @@ export async function syncRegistry({ repo, remote }) {
         });
         await pushBranch(kv, remote, REGISTRY);
     }
+    if (await keepEntries(repo, kept)) await pushBranch(kv, remote, REGISTRY);
 }
 
 /**

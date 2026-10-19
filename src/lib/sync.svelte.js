@@ -236,7 +236,8 @@ export class Sync {
     async #syncDbsOf(names, { heads, keep } = {}) {
         const store = await openStore();
         const remote = await this.#remoteNow();
-        await syncRegistry({ repo: store.repo, remote });
+        const sessions = (await store.sessions()).filter((n) => !n.includes("."));
+        await syncRegistry({ repo: store.repo, remote, sessions });
         /** @type {Map<string, string>} */
         const ids = new Map();
         for (const name of names) {

@@ -5,7 +5,7 @@ import { FakeGithub } from "@agex-ts/kvgit/github/fake";
 import { MemoryDirectory, openLog } from "@agex-ts/kvsql";
 import { Store } from "@agex-ts/world";
 import { afterEach, describe, expect, it } from "vitest";
-import { REGISTRY, dbBranch, dbOf, ensureDb, nameDb } from "./app-db.js";
+import { REGISTRY, dbBranch, dbOf, ensureDb, nameDb, unlinkDb } from "./app-db.js";
 import { syncDb, syncRegistry } from "./db-sync.js";
 
 const ID = "db-0123456789abcdef";
@@ -285,6 +285,39 @@ describe("syncing the registry", () => {
             expect((await dbOf(store, "s-3"))?.id).toBe("db-bbbbbbbbbbbbbbbb");
         }
         expect(await a.repo.branches.get(REGISTRY)).toBe(await b.repo.branches.get(REGISTRY));
+    });
+
+    it("keeps a session here its entry when another device deletes that session for good", async () => {
+        const remote = new MemoryRemote(new Memory());
+        const [a, b] = [await Store.open(new Memory()), await Store.open(new Memory())];
+        // a fork's own copy: a random id, not one the session's name gives
+        const copy = { id: "db-cccccccccccccccc", branch: "db/db-cccccccccccccccc/0" };
+        await nameDb(a, "s-1", copy);
+        await a.open("s-1");
+        await syncRegistry({ repo: a.repo, remote, sessions: ["s-1"] });
+        await syncRegistry({ repo: b.repo, remote });
+        // b empties its trash of s-1; a still has it
+        await unlinkDb(b, "s-1");
+        await syncRegistry({ repo: b.repo, remote });
+        expect(await dbOf(b, "s-1")).toBeNull();
+        await syncRegistry({ repo: a.repo, remote, sessions: ["s-1"] });
+        expect(await dbOf(a, "s-1")).toEqual(copy);
+        // and b sees it named again, as the session lives on
+        await syncRegistry({ repo: b.repo, remote });
+        expect(await dbOf(b, "s-1")).toEqual(copy);
+    });
+
+    it("lets the entry go of a session not here", async () => {
+        const remote = new MemoryRemote(new Memory());
+        const [a, b] = [await Store.open(new Memory()), await Store.open(new Memory())];
+        await nameDb(a, "s-1", { id: "db-cccccccccccccccc", branch: "db/db-cccccccccccccccc/0" });
+        await syncRegistry({ repo: a.repo, remote });
+        await syncRegistry({ repo: b.repo, remote });
+        await unlinkDb(b, "s-1");
+        await syncRegistry({ repo: b.repo, remote });
+        // named among a's sessions, but not a session here (deleted meanwhile)
+        await syncRegistry({ repo: a.repo, remote, sessions: ["s-1"] });
+        expect(await dbOf(a, "s-1")).toBeNull();
     });
 
     it("takes the repo's on a device that has none", async () => {
