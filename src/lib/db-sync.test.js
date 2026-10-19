@@ -1,4 +1,4 @@
-import { MemoryRemote, Repo } from "@agex-ts/kvgit";
+import { MemoryRemote, Repo, pushBranch } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { PackRemote } from "@agex-ts/kvgit/github";
 import { FakeGithub } from "@agex-ts/kvgit/github/fake";
@@ -153,6 +153,49 @@ describe("syncing an app's database", () => {
             { id: 2, x: "x2", y: "b" },
         ]);
         expect(await rows(a.db)).toEqual(await rows(b.db));
+    });
+
+    it("keeps an epoch that synced here until it's taken in, through a sweep of the store, then deletes it", async () => {
+        const { a, b } = await level();
+        await a.db.query("UPDATE t SET x = 'a' WHERE id = 1");
+        await a.db.flush();
+        await a.db.newEpoch();
+        // a's old epoch synced: kept for what b pushes to it meanwhile
+        expect(await a.repo.branches.list()).toContain(`db/${ID}/0`);
+        await b.db.query("UPDATE t SET y = 'b' WHERE id = 2");
+        expect(await b.sync()).toMatchObject({ state: "synced" });
+        await a.store.clean({ minAge: 0 });
+        expect(await a.sync()).toMatchObject({ state: "synced", moved: true, pruned: [`db/${ID}/0`] });
+        expect((await a.repo.branches.list()).filter((n) => n.startsWith("db/"))).toEqual([`db/${ID}/1`]);
+        expect(await b.sync()).toMatchObject({ state: "synced", moved: true, pruned: [`db/${ID}/0`] });
+        expect((await b.repo.branches.list()).filter((n) => n.startsWith("db/"))).toEqual([`db/${ID}/1`]);
+        expect(await rows(b.db)).toEqual([
+            { id: 1, x: "a", y: "y1" },
+            { id: 2, x: "x2", y: "b" },
+        ]);
+        expect(await rows(a.db)).toEqual(await rows(b.db));
+        // nothing more to delete
+        expect((await a.sync()).pruned).toBeUndefined();
+    });
+
+    it("keeps the older epochs from the oldest the repo still has", async () => {
+        const remotes = inMemory();
+        const { a, b } = await level(remotes);
+        // b starts epoch 1 from a change a never sees, and pushes it alone
+        await b.db.query("UPDATE t SET y = 'b' WHERE id = 2");
+        await b.db.flush();
+        await b.db.newEpoch();
+        expect((await pushBranch(b.kv, remotes(b.kv), `db/${ID}/1`)).status).toBe("created");
+        // a moves onto it, but can't take in epoch 0: it stays, here too
+        const synced = await a.sync();
+        expect(synced).toMatchObject({ state: "synced", moved: true });
+        expect(synced.pruned).toBeUndefined();
+        expect(await a.branches()).toEqual([`db/${ID}/0`, `db/${ID}/1`]);
+        expect((await a.repo.branches.list()).filter((n) => n.startsWith("db/"))).toEqual([`db/${ID}/0`, `db/${ID}/1`]);
+        // b takes it in and deletes it from the repo; a then deletes its own
+        expect(await b.sync()).toMatchObject({ state: "synced", pruned: [`db/${ID}/0`] });
+        expect(await a.sync()).toMatchObject({ state: "synced", pruned: [`db/${ID}/0`] });
+        expect((await a.repo.branches.list()).filter((n) => n.startsWith("db/"))).toEqual([`db/${ID}/1`]);
     });
 
     for (const epochs of [1, 2]) {
