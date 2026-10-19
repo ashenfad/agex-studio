@@ -12,16 +12,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        path: agex-studio
-
-    # During the rebuild the studio depends on agex-ts by link, to a
-    # built clone beside it (`link:../agex-ts/packages/...`).
-    - uses: actions/checkout@v4
-      with:
-        repository: ashenfad/agex-ts
-        ref: main
-        path: agex-ts
 
     - uses: pnpm/action-setup@v4
       with:
@@ -31,25 +21,18 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: 22
-
-    - name: Build agex-ts
-      working-directory: agex-ts
-      run: pnpm install --frozen-lockfile && pnpm -r build
+        cache: pnpm
 
     - name: Install dependencies
-      working-directory: agex-studio
       run: pnpm install --frozen-lockfile
 
     - name: Typecheck
-      working-directory: agex-studio
       run: pnpm typecheck
 
     - name: Run tests
-      working-directory: agex-studio
       run: pnpm vitest run
 
-    # the one check of Vite bundling the linked packages and the
-    # world's worker
+    # the one check of Vite bundling agex-ts's packages and the world's
+    # worker
     - name: Build
-      working-directory: agex-studio
       run: pnpm build

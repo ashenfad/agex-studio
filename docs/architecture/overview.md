@@ -49,9 +49,8 @@ The studio is built on four agex-ts packages:
   record, AI SDK models as providers, folding, delegation's runner,
   and tasks.
 
-During the rebuild the studio depends on them by pnpm `link:` to a
-built clone of agex-ts beside it (`../agex-ts/packages/...`), so a
-change there is a `pnpm -r build` away; releases replace the links.
+The studio takes them from npm; a change there reaches the studio as a
+release and a version bump here.
 
 ## A session and a turn
 

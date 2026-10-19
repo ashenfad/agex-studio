@@ -68,14 +68,11 @@ The in-app docs (`public/docs/`) cover sessions, sharing and the agent.
 
 ## Running it locally
 
-The studio depends on [agex-ts](https://github.com/ashenfad/agex-ts)'s
-four packages (`agex-ts`, `@agex-ts/world`, `@agex-ts/kvgit`,
-`@agex-ts/termish`). Until they are released, by pnpm `link:` to a clone
-beside this repo, `../agex-ts`, which has to be built: the studio reads
-its `dist/`. Node 22 and pnpm 11.
+The studio is built on [agex-ts](https://github.com/ashenfad/agex-ts)'s
+packages from npm (`agex-ts`, `@agex-ts/world`, `@agex-ts/kvgit`,
+`@agex-ts/kvsql`, `@agex-ts/termish`). Node 22 and pnpm 11.
 
 ```bash
-(cd ../agex-ts && pnpm install && pnpm -r build)
 pnpm install
 pnpm dev                # http://localhost:5173
 ```
@@ -96,8 +93,10 @@ pnpm dev                # http://localhost:5173
   [agex-studio-apps](https://github.com/ashenfad/agex-studio-apps),
   serve it and point the studio at it:
   `VITE_APPS_ORIGIN=http://localhost:8090 pnpm dev`.
-- **After changing agex-ts:** `pnpm -r build` in `../agex-ts`, then
-  restart `pnpm dev`.
+- **Against a local agex-ts:** to try an unreleased change, point the
+  packages at a built clone (`pnpm -r build` in it) with
+  `"link:../agex-ts/packages/<dir>"` in `package.json` and a
+  `pnpm install`, and don't commit that change.
 - **The production build:** `pnpm build && pnpm preview`
   (http://localhost:4173). The build copies the page to
   `dist/run/index.html`, so a published link's `/run/` path is served

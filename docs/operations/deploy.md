@@ -45,22 +45,11 @@ What `vite.config.js` adds to a plain Vite build:
   gzipped) come in a chunk of their own on the first code run, and
   esbuild-wasm on the first `esbuild`.
 
-`.github/workflows/test.yml` runs the typecheck, the tests and a build
-on pushes and pull requests to `main` and `rebuild`, against agex-ts
-built beside it.
-
-### Before the switch: the deploy workflow
-
-`deploy.yml` still installs and builds the old way (`npm ci`,
-`npm run build`). The rebuild uses pnpm, and until agex-ts is released
-its packages are `link:` dependencies on `../agex-ts`, which the deploy
-job doesn't have. Before `rebuild` becomes `main`, either:
-
-- release agex-ts and replace the links by its versions (S7's plan),
-  and change the workflow to pnpm (`pnpm/action-setup`, `pnpm install
-  --frozen-lockfile`, `pnpm build`); or
-- check out and build agex-ts beside the studio in the deploy job, as
-  `test.yml` does.
+`deploy.yml` installs with pnpm (`pnpm install --frozen-lockfile`)
+and runs `pnpm build`, taking agex-ts's packages from npm.
+`.github/workflows/test.yml` runs the same install, then the typecheck,
+the tests and the build, on pushes and pull requests to `main` and
+`rebuild`, so a pull request's checks build what the deploy would.
 
 The Google ids stay as they are: `VITE_GOOGLE_CLIENT_ID` and
 `VITE_GOOGLE_API_KEY`, from the repo's secrets.
@@ -74,7 +63,8 @@ Before merging:
       worker.
 - [ ] `pnpm preview` (port 4173, which the bootloader accepts): a turn
       on a real model works, and the preview shows an app.
-- [ ] The deploy workflow builds the rebuild (above).
+- [ ] The pull request's Tests run passes: its build is the deploy's
+      (above).
 
 Then `rebuild` becomes `main` (merge or fast-forward), Pages deploys,
 and on **agex.studio**, in a fresh browser profile:
