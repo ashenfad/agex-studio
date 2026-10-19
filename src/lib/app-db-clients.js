@@ -17,7 +17,7 @@
 
 import { hasSyncHead } from "@agex-ts/kvgit";
 import { connect } from "@agex-ts/kvsql/client";
-import { DB_BRANCHES, dbBranch, dbOf, dropDbRecord, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb, unnamedDbs } from "./app-db.js";
+import { DB_BRANCHES, REGISTRY, dbBranch, dbOf, dropDbRecord, ensureDb, nameDb, newDbId, sessionsNaming, shareDb, unlinkDb, unnamedDbs } from "./app-db.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { askPersist } from "./persist.js";
 import { openStore } from "./store.js";
@@ -412,17 +412,17 @@ export class AppDbs {
     }
 
     /**
-     * Delete the databases no session names (`unnamedDbs`): file, log
-     * and registry record. One some tab has open (its Web Lock held or
-     * waited for) stays for a later sweep. One whose log synced stays
-     * unless `pushed` says what it holds is in the sync repo now (the
-     * sync passes it): a session on another device that the registry
-     * here doesn't know of yet may still name it. One with nothing here
-     * (named on another device only) loses just its record. One sweep at
-     * a time in this page; returns the ids deleted. (A session here is
-     * never without its entry: the registry's sync keeps it.)
+     * Delete the databases no session names (`unnamedDbs`): file and
+     * log here, then their copies in the sync repo (`remote`, which the
+     * sync passes: true once they're gone), then the registry record. A
+     * record stays while a copy in the repo may: without `remote`, unless
+     * the registry never synced. One some tab has open (its Web Lock held
+     * or waited for) stays for a later sweep. A device whose registry
+     * didn't know of a session naming one yet uploads its own copy again
+     * when it syncs. One sweep at a time in this page; returns the ids
+     * whose records went.
      *
-     * @param {{ pushed?: (ref: DbRef, db: DatabaseClient) => Promise<boolean> }} [options]
+     * @param {{ remote?: (ref: DbRef) => Promise<boolean> }} [options]
      * @returns {Promise<string[]>}
      */
     sweepUnnamed(options = {}) {
@@ -431,37 +431,32 @@ export class AppDbs {
         return run;
     }
 
-    /** @param {{ pushed?: (ref: DbRef, db: DatabaseClient) => Promise<boolean> }} options */
-    async #sweepUnnamed({ pushed }) {
+    /** @param {{ remote?: (ref: DbRef) => Promise<boolean> }} options */
+    async #sweepUnnamed({ remote }) {
         const store = await this.#store();
         const unnamed = await unnamedDbs(store);
         if (unnamed.length === 0) return [];
+        // never synced, the registry's records name copies here only
+        const local = !(await hasSyncHead(store.repo.store, REGISTRY));
         const locks = await this.#locks().query();
         const open = new Set([...(locks.held ?? []), ...(locks.pending ?? [])].map((lock) => lock.name));
         const branches = await store.repo.branches.list();
         /** @type {string[]} */
-        const deleted = [];
+        const dropped = [];
         for (const ref of unnamed) {
             if (this.#held.has(ref.id) || open.has(`kvsql:${ref.id}`)) continue;
-            const logs = branches.filter((b) => b.startsWith(`${DB_BRANCHES}${ref.id}/`));
-            let synced = false;
-            for (const log of logs) synced ||= await hasSyncHead(store.repo.store, log);
-            if (synced && pushed === undefined) continue;
             try {
-                if (logs.length > 0 || (await this.#files(ref.id))) {
+                if (branches.some((b) => b.startsWith(`${DB_BRANCHES}${ref.id}/`)) || (await this.#files(ref.id))) {
                     const db = await this.#connect(await this.#workerNow(), { id: ref.id, branch: ref.branch, label: DB_LABEL });
-                    if (synced && !(await pushed?.(ref, db).catch(() => false))) {
-                        await db.close();
-                        continue;
-                    }
                     await db.delete();
                 }
-                if (await dropDbRecord(store, ref.id)) deleted.push(ref.id);
+                if (remote === undefined ? !local : !(await remote(ref))) continue;
+                if (await dropDbRecord(store, ref.id)) dropped.push(ref.id);
             } catch (e) {
                 console.warn(`${DB_LABEL} (${ref.id}): deleting a database no session names failed:`, e);
             }
         }
-        return deleted;
+        return dropped;
     }
 
     /** Delete database `ref`, file and log, by the worker holding it. @param {DbRef} ref */
@@ -488,8 +483,8 @@ export class AppDbs {
         const unlinked = await unlinkDb(await this.#store(), name);
         await this.release(name);
         if (drop && unlinked !== null && !unlinked.named) await this.#drop(unlinked.ref);
-        // named by no other session, it goes, unless it synced (the sync
-        // sweeps those) or is still open, when a later sweep takes it
+        // named by no other session, it goes, unless it's still open, when
+        // a later sweep takes it
         else if (unlinked !== null && !unlinked.named) {
             void this.sweepUnnamed().catch((e) => console.warn(`${DB_LABEL}: sweeping databases no session names failed:`, e));
         }

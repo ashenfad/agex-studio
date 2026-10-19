@@ -1,4 +1,4 @@
-import { MemoryRemote, Repo, hasSyncHead, pushBranch } from "@agex-ts/kvgit";
+import { MemoryRemote, Repo, deleteRemoteBranch, hasSyncHead, pushBranch } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { PackRemote } from "@agex-ts/kvgit/github";
 import { FakeGithub } from "@agex-ts/kvgit/github/fake";
@@ -232,6 +232,21 @@ describe("syncing an app's database", () => {
             { id: 2, x: "x2", y: "b" },
         ]);
         expect(await rows(a.db)).toEqual(await rows(b.db));
+    });
+
+    it("uploads it again from a device still naming it, once another deleted it from the repo", async () => {
+        const remotes = inMemory();
+        const { a, b } = await level(remotes);
+        // a's registry named it no longer: its sweep deleted the repo's copy
+        const remote = remotes(a.kv);
+        expect((await deleteRemoteBranch(a.kv, remote, `db/${ID}/0`)).status).toBe("deleted");
+        expect(await a.branches()).toEqual([]);
+        await b.db.query("INSERT INTO t VALUES (3, 'b', 'b')");
+        expect(await b.sync()).toMatchObject({ state: "synced" });
+        expect(await b.branches()).toEqual([`db/${ID}/0`]);
+        const c = await device(remotes);
+        expect(await c.sync()).toMatchObject({ state: "synced", moved: true });
+        expect(await rows(c.db)).toEqual(await rows(b.db));
     });
 
     it("keeps a database over the cap here unless it's allowed", async () => {

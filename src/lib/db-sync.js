@@ -30,6 +30,9 @@
  * - **A conflict** stops the database where it is, with nothing changed
  *   (`state: "conflict"`): the person picks a side (`keep`), the other
  *   kept as a checkpoint.
+ * - **Deleted from the repo** by a device whose registry named it no
+ *   longer (`appDbs.sweepUnnamed`), while a session here still names it
+ *   (a fork that device didn't know of yet): it goes up again from here.
  * - **The cap:** a database whose file is over {@link SYNC_CAP_BYTES}
  *   isn't pushed as a new epoch (each epoch uploads its whole snapshot)
  *   unless the person allows it; what the repo has still comes in.
@@ -271,7 +274,13 @@ export async function syncDb({ kv, repo, remote, id, heads, db: open, large = fa
         }
     }
 
-    const pushed = await pushBranch(kv, remote, current);
+    let pushed = await pushBranch(kv, remote, current);
+    // its copy in the repo went (a device whose registry named it no
+    // longer deleted it), with no newer epoch: this one goes up again
+    if (pushed.status === "remote-gone" && !theirs.some((e) => /** @type {number} */ (e.n) > (epochOf(log, current) ?? 0))) {
+        await clearSyncHead(kv, current, remote);
+        pushed = await pushBranch(kv, remote, current);
+    }
     if (pushed.status === "diverged" || pushed.status === "remote-gone") {
         return { state: "waiting", detail: "It changed in the sync repo meanwhile.", moved };
     }

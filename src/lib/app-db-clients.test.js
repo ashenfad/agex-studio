@@ -3,7 +3,7 @@ import { Store } from "@agex-ts/world";
 import { describe, expect, it, vi } from "vitest";
 import { AppDbs, DB_LABEL } from "./app-db-clients.js";
 import { setSyncHead } from "@agex-ts/kvgit";
-import { dbOf, firstDbId, nameDb, unlinkDb, unnamedDbs } from "./app-db.js";
+import { REGISTRY, dbOf, firstDbId, nameDb, unlinkDb, unnamedDbs } from "./app-db.js";
 
 /** A manager on a store in memory, with a worker and clients that
  *  record what was asked of them. */
@@ -328,26 +328,26 @@ describe("the sweep of databases no session names", () => {
         expect(await unnamedDbs(held.store)).toHaveLength(1);
     });
 
-    it("keeps one whose log synced until the sync has pushed it", async () => {
+    it("deletes one that synced, keeping its record until the sync says its copies in the repo are gone", async () => {
         const { store, dbs, connected } = await setup();
         await dbs.dbFor("s-1");
         const ref = /** @type {import("./app-db.js").DbRef} */ (await dbOf(store, "s-1"));
+        // the registry and the database's log both synced
         await store.repo.branches.create(ref.branch);
         await setSyncHead(store.repo.store, ref.branch, await store.repo.branches.get(ref.branch), "github:o/r");
+        await setSyncHead(store.repo.store, REGISTRY, await store.repo.branches.get(REGISTRY), "github:o/r");
         await dbs.forget("s-1");
         expect(await dbs.sweepUnnamed()).toEqual([]);
-        expect(clientsOf(connected, ref.id)).toHaveLength(1);
+        expect(clientsOf(connected, ref.id)[1].delete).toHaveBeenCalledTimes(1);
+        expect(await unnamedDbs(store)).toEqual([ref]);
 
-        // not pushed: left as it is
-        expect(await dbs.sweepUnnamed({ pushed: async () => false })).toEqual([]);
-        const kept = clientsOf(connected, ref.id)[1];
-        expect(kept.close).toHaveBeenCalledTimes(1);
-        expect(kept.delete).not.toHaveBeenCalled();
-        // pushed: it goes
-        const pushed = vi.fn(async () => true);
-        expect(await dbs.sweepUnnamed({ pushed })).toEqual([ref.id]);
-        expect(pushed).toHaveBeenCalledWith(ref, clientsOf(connected, ref.id)[2]);
-        expect(clientsOf(connected, ref.id)[2].delete).toHaveBeenCalledTimes(1);
+        // a copy in the repo moved meanwhile: the record stays
+        expect(await dbs.sweepUnnamed({ remote: async () => false })).toEqual([]);
+        expect(await unnamedDbs(store)).toEqual([ref]);
+        const remote = vi.fn(async () => true);
+        expect(await dbs.sweepUnnamed({ remote })).toEqual([ref.id]);
+        expect(remote).toHaveBeenCalledWith(ref);
+        expect(await unnamedDbs(store)).toEqual([]);
     });
 
     it("drops only the record of one with nothing here", async () => {

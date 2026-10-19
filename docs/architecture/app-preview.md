@@ -161,11 +161,11 @@ changes logged to a branch of the store. See the design,
 [roadmap/app-db.md](../../roadmap/app-db.md). Deleting a session
 leaves its database to the sessions still naming it; once none does
 (its last one deleted for good, here or from the sync repo's trash), a
-sweep deletes it here, file, log and registry record
-(`appDbs.sweepUnnamed`): after the delete and at page load, and, for one
-that synced, from the sync's sweep once it has pushed what it holds. A
-tab with it open keeps it for a later sweep, and its copy in the sync
-repo stays.
+sweep deletes it here, file and log (`appDbs.sweepUnnamed`), after the
+delete and at page load; the sync's sweep deletes its copy in the sync
+repo too, and then its registry record. A tab with it open keeps it for
+a later sweep. A device with a fork naming it that the registry didn't
+know of yet uploads its own copy again when it syncs.
 
 With sync on, a synced session's database syncs with it (`db-sync.js`,
 driven by `sync.svelte.js`): after the session, ten seconds after an

@@ -29,7 +29,7 @@
  *   until allowed (`allowLarge`). They never show as sessions.
  */
 
-import { MergeChoice, clearSyncHead, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
+import { MergeChoice, clearSyncHead, deleteRemoteBranch, getSyncHead, pullBranch, syncBranch } from "@agex-ts/kvgit";
 import { GithubClient, PackRemote } from "@agex-ts/kvgit/github";
 import { readLocal, writeLocal } from "./local.js";
 import { getSettings, settingsStore } from "./settings.js";
@@ -43,7 +43,7 @@ import { adoptRepo, localNote, nextState } from "./sync-state.js";
 import { dbOf, unlinkDb } from "./app-db.js";
 import { appDbs, dbOwner } from "./app-db-clients.js";
 import { dbRestores } from "./db-restore.svelte.js";
-import { syncDb, syncRegistry } from "./db-sync.js";
+import { dbLog, syncDb, syncRegistry } from "./db-sync.js";
 import { Debouncer } from "./debounce.js";
 import { Sweeper } from "./store-sweep.js";
 
@@ -276,22 +276,26 @@ export class Sync {
     }
 
     /**
-     * Delete the databases here no session names (`appDbs.sweepUnnamed`),
-     * one that synced once a sync of it has pushed what it holds: a
-     * session elsewhere the registry here doesn't name yet may use it.
-     * Against the repo's branches as `heads` gives them (read now if not
-     * given).
+     * Delete the databases no session names (`appDbs.sweepUnnamed`), here
+     * and in the repo: each of its epochs there at the head `heads` gives
+     * (read now if not given), so one pushed meanwhile stays for a later
+     * sweep.
      *
      * @param {Map<string, string>} [heads]
      */
     async #sweepUnnamedDbs(heads) {
-        const store = await openStore();
+        const kv = (await openStore()).repo.store;
         const remote = await this.#remoteNow();
         await appDbs.sweepUnnamed({
-            pushed: async (ref, db) => {
+            remote: async (ref) => {
                 heads ??= new Map((await remote.listRefs()).map((r) => [r.branch, r.head]));
-                const state = await syncDb({ kv: store.repo.store, repo: store.repo, remote, id: ref.id, heads, db: async () => db });
-                return state.state === "synced";
+                let gone = true;
+                for (const [branch, head] of heads) {
+                    if (!branch.startsWith(`${dbLog(ref.id)}/`)) continue;
+                    const deleted = await deleteRemoteBranch(kv, remote, branch, { expected: head });
+                    if (deleted.status === "moved") gone = false;
+                }
+                return gone;
             },
         });
     }
