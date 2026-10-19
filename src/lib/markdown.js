@@ -4,9 +4,10 @@
  * Wraps `marked` with a preprocessor that inserts blank lines before block
  * elements (lists, headings, fenced code) when the source only has a single
  * newline. This matches the forgiving behavior users expect in chat UIs.
+ * The inside of a fenced code block is left as written.
  *
- * Mermaid code blocks are rendered as placeholders, then initialized
- * client-side via renderMermaidBlocks().
+ * Mermaid code blocks are rendered as placeholders, which
+ * renderMermaidBlocks() (mermaid.js) draws once they're in the page.
  */
 
 import { marked } from "marked";
@@ -22,19 +23,95 @@ marked.setOptions({ breaks: true });
  * bundle (gist links), so the markdown source is untrusted. marked
  * passes raw HTML through by default; DOMPurify strips script
  * vectors (event handlers, javascript: URLs, <script>) while
- * keeping the tags our renderers emit. `data-vfs-path` survives
+ * keeping the tags our renderers emit. `data-ws-path` survives
  * via DOMPurify's default data-* allowance; explicit ADD_ATTR
  * guards against that default ever being turned off.
  */
 function sanitize(html) {
-    return DOMPurify.sanitize(html, { ADD_ATTR: ["data-vfs-path"] });
+    return DOMPurify.sanitize(html, { ADD_ATTR: ["data-ws-path"] });
+}
+
+/** The workspace's root, which file links resolve against. */
+const WORKSPACE = "/workspace";
+
+/**
+ * What a link's href points at: null for a URL (a scheme like
+ * `https:` or `mailto:`, a protocol-relative `//host/…`, a fragment
+ * `#…`, a root path outside /workspace), which renders as an ordinary
+ * link; otherwise a path in the workspace, `{ path }` with the file's
+ * normalized absolute path, or `{ path: null }` when it names no file
+ * there (a `..` that climbs above /workspace, /workspace itself).
+ *
+ * A path is absolute under /workspace (`/workspace/notes/plan.md`) or
+ * relative to `base`, a folder in the workspace (`notes/plan.md`,
+ * `./plan.md`, `../data.csv`). A query or fragment on it is dropped, and
+ * %-escapes are decoded (`my%20plan.md`).
+ *
+ * @param {string} href
+ * @param {string} [base] the folder a relative path starts from
+ * @returns {{ path: string | null } | null}
+ */
+function resolveLink(href, base = WORKSPACE) {
+    let path = String(href ?? "").trim();
+    if (path === "" || path.startsWith("#") || path.startsWith("//")) return null;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+    if (path.startsWith("/")) {
+        if (path !== WORKSPACE && !/^\/workspace[/?#]/.test(path)) return null;
+        path = path.slice(WORKSPACE.length);
+    } else {
+        // from the base's folder, within the workspace
+        path = `${base.slice(WORKSPACE.length)}/${path}`;
+    }
+    path = path.replace(/[?#].*$/, "");
+    try {
+        path = decodeURIComponent(path);
+    } catch {
+        return { path: null };
+    }
+    /** @type {string[]} */
+    const parts = [];
+    for (const part of path.split("/")) {
+        if (part === "" || part === ".") continue;
+        if (part === "..") {
+            if (parts.length === 0) return { path: null };
+            parts.pop();
+        } else parts.push(part);
+    }
+    return { path: parts.length === 0 ? null : `${WORKSPACE}/${parts.join("/")}` };
+}
+
+/**
+ * The workspace file a link's href names, as a normalized absolute
+ * path (`/workspace/notes/plan.md`), or null when it names none.
+ *
+ * @param {string} href
+ */
+export function workspacePath(href) {
+    return resolveLink(href)?.path ?? null;
+}
+
+/**
+ * The file a rendered link's `data-ws-path` opens, relative to
+ * /workspace as the file viewer takes it; null for a value the renderer
+ * wouldn't have written. Raw HTML in a reply can carry the attribute
+ * too (`<a data-ws-path="/workspace/../../x">`), so only a value that is
+ * already a normalized workspace path is trusted.
+ *
+ * @param {string | null} attribute
+ * @returns {string | null}
+ */
+export function fileLinkTarget(attribute) {
+    const path = workspacePath(attribute ?? "");
+    if (path === null || path !== attribute) return null;
+    return path.slice(WORKSPACE.length + 1);
 }
 
 // Custom renderer:
 // - mermaid code blocks → <pre class="mermaid"> for client-side rendering
-// - vfs: scheme links   → <a class="vfs-download"> for inline file
-//                         downloads from the agent's VFS.  See the click
-//                         handler in vfs-download.js.
+// - a link to a workspace file → <a class="ws-file" data-ws-path="…">,
+//   which a host with the session at hand (ReplyText) opens in the
+//   file viewer on click; an href that tries to leave /workspace
+//   renders as its text alone.
 const renderer = new marked.Renderer();
 const origCode = renderer.code.bind(renderer);
 const origLink = renderer.link.bind(renderer);
@@ -97,22 +174,32 @@ renderer.blockquote = function (token) {
     }
     return origBlockquote(token);
 };
+/**
+ * The folder workspace links resolve against in the markdown being
+ * rendered now (`renderMarkdown`'s `linkBase`); null renders every link
+ * as an ordinary one, for a place with no file viewer to open.
+ * @type {string | null}
+ */
+let linkBase = null;
+
+/** @param {import("marked").Tokens.Link} token */
 renderer.link = function (token) {
-    const { href, title, text } = token;
-    if (href && href.startsWith("vfs:")) {
-        const path = href.slice(4);
-        // Round-trip through encodeURIComponent so attribute escaping
-        // can't be broken by paths containing quotes or angle brackets.
-        // Slashes are preserved for human readability (paths look like
-        // paths in DOM inspectors).
-        const safePath = encodeURIComponent(path).replace(/%2F/g, "/");
-        const titleAttr = title ? ` title="${escapeAttr(title)}"` : "";
-        return `<a class="vfs-download" data-vfs-path="${safePath}" href="#"${titleAttr}>${text}</a>`;
+    const { href, title, tokens } = token;
+    const target = linkBase === null ? null : resolveLink(href, linkBase);
+    if (target !== null) {
+        const { path } = target;
+        const inner = this.parser.parseInline(tokens);
+        if (path === null) return inner;
+        // Escaped as an attribute, so a path holding quotes or angle
+        // brackets can't break out; getAttribute hands back the path.
+        const titleAttr = ` title="${escapeAttr(title || path)}"`;
+        return `<a class="ws-file" data-ws-path="${escapeAttr(path)}" href="#"${titleAttr}>${inner}</a>`;
     }
     // Pass the full token through — marked's default renderer reads
     // ``tokens`` to re-parse inline content, not just ``text``.
     return origLink(token);
 };
+
 marked.setOptions({ renderer });
 
 /** Minimal HTML attribute escape. */
@@ -120,7 +207,8 @@ function escapeAttr(s) {
     return String(s)
         .replace(/&/g, "&amp;")
         .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;");
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 }
 
 /** Full HTML text escape for element content. */
@@ -132,13 +220,58 @@ function escapeHtml(s) {
         .replace(/"/g, "&quot;");
 }
 
-/** Ensure blank lines before block elements so marked recognizes them. */
-function prepare(text) {
+/** Ensure blank lines before block elements so marked recognizes them.
+ *  @param {string} text */
+function spaceBlocks(text) {
     return text
         .replace(/([^\n])\n([ \t]*[-*+] )/g, "$1\n\n$2") // unordered lists
         .replace(/([^\n])\n([ \t]*\d+[.)] )/g, "$1\n\n$2") // ordered lists
         .replace(/([^\n])\n(#{1,6} )/g, "$1\n\n$2") // headings
         .replace(/([^\n])\n(```)/g, "$1\n\n$2"); // fenced code blocks
+}
+
+/** A fenced code block's opening line: three or more backticks (with
+ *  no backtick in the info string after them) or three or more tildes,
+ *  indented any amount, since a model nests a fence in a list item at
+ *  whatever depth the item sits. The cost is an indented code block
+ *  holding a line of bare backticks, read here as a fence, so the
+ *  prose after it until the next such line gets no blank lines added. */
+const FENCE_OPEN = /^[ \t]*(?:(`{3,})[^`]*|(~{3,}).*)$/;
+
+/**
+ * `text` with blank lines before its block elements (`spaceBlocks`),
+ * but only outside fenced code: a code block's lines (a comment's `#`,
+ * a YAML list's `-`) are kept byte for byte. A fence closes on a line
+ * of the same character, at least as long, with nothing after it but
+ * whitespace; one never closed runs to the end of the text.
+ *
+ * @param {string} text
+ */
+function prepare(text) {
+    const lines = text.split("\n");
+    /** @type {string[]} */
+    const out = [];
+    // Markdown outside the fences, from a closing fence's line through
+    // the next opening fence's line, so the blank line goes in before
+    // an opening fence and after a closing one as it would without them.
+    /** @type {string[]} */
+    let prose = [];
+    let i = 0;
+    while (i < lines.length) {
+        const line = lines[i++];
+        prose.push(line);
+        const open = line.match(FENCE_OPEN);
+        if (open === null) continue;
+        out.push(spaceBlocks(prose.join("\n")));
+        prose = [];
+        const fence = open[1] ?? open[2];
+        const close = new RegExp(`^[ \\t]*${fence[0]}{${fence.length},}[ \\t\\r]*$`);
+        while (i < lines.length && !close.test(lines[i])) out.push(lines[i++]);
+        // the closing fence, which opens nothing
+        if (i < lines.length) prose.push(lines[i++]);
+    }
+    if (prose.length > 0) out.push(spaceBlocks(prose.join("\n")));
+    return out.join("\n");
 }
 
 /** Parse markdown to HTML with forgiving block handling.
@@ -149,16 +282,31 @@ function prepare(text) {
  * documentation contexts where the markdown source is hand-
  * wrapped for editor readability and shouldn't render those
  * wraps as visual breaks. Per-call options are merged onto the
- * module-level defaults set via `marked.setOptions`. */
-export function renderMarkdown(text, { breaks = true } = {}) {
-    return sanitize(marked.parse(prepare(text), { breaks }));
+ * module-level defaults set via `marked.setOptions`.
+ *
+ * `linkBase`, a folder in the workspace, makes links to workspace files
+ * (`/workspace/notes/plan.md`, or relative to that folder) render as
+ * file links (`data-ws-path`) for the caller to open: a reply's base is
+ * /workspace, a file's is its own folder. Without one, every link is an
+ * ordinary link.
+ *
+ * @param {string} text
+ * @param {{ breaks?: boolean, linkBase?: string | null }} [opts] */
+export function renderMarkdown(text, { breaks = true, linkBase: base = null } = {}) {
+    // parsing is synchronous: the base holds for this text alone
+    linkBase = base;
+    try {
+        return sanitize(marked.parse(prepare(text), { breaks }));
+    } finally {
+        linkBase = null;
+    }
 }
 
 /** Parse markdown to inline HTML — no block elements (paragraphs,
  *  lists, headings, fenced code). Suitable for places that must
  *  stay on a single line, like table cells. The shared custom
- *  renderer above still applies, so inline `code` and `vfs:` links
- *  render the same as elsewhere.
+ *  renderer above still applies, so inline `code` renders the same as
+ *  elsewhere; links stay ordinary ones, as with no `linkBase`.
  *
  *  Newlines in the source are flattened to spaces before parsing
  *  because `breaks: true` (which we want in chat) would otherwise
@@ -169,46 +317,19 @@ export function renderMarkdownInline(text) {
     return sanitize(marked.parseInline(flat));
 }
 
-const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-let mermaidPromise = null;
-
-/** Lazily load mermaid from CDN and initialize with dark theme. */
-function loadMermaid() {
-    if (!mermaidPromise) {
-        mermaidPromise = import(/* @vite-ignore */ MERMAID_CDN).then((mod) => {
-            mod.default.initialize({
-                startOnLoad: false,
-                theme: "dark",
-                fontFamily: "system-ui, -apple-system, sans-serif",
-            });
-            return mod.default;
-        });
-    }
-    return mermaidPromise;
-}
-
 /**
- * Find and render all <pre class="mermaid"> blocks inside a container.
- * Uses mermaid.render() with textContent to avoid HTML-entity escaping
- * issues (marked escapes `"` → `&quot;`, `>` → `&gt;` which breaks mermaid parsing).
- * @param {HTMLElement} container
+ * A table cell as HTML. A string gets inline markdown, so `**bold**`,
+ * `` `code` ``, `*italic*` and `[links](url)` render (sanitized);
+ * anything else is text, escaped, with an object or array shown as
+ * JSON; null and undefined are empty. Block-level markdown isn't
+ * possible — parseInline won't produce paragraphs, lists or headings —
+ * which keeps rows one height for the table's virtualization.
+ *
+ * @param {unknown} cell
  */
-export async function renderMermaidBlocks(container) {
-    if (!container) return;
-    const blocks = container.querySelectorAll("pre.mermaid:not([data-processed])");
-    if (blocks.length === 0) return;
-
-    const mermaid = await loadMermaid();
-    for (const block of blocks) {
-        const code = block.textContent;
-        try {
-            const id = `mermaid-${Math.random().toString(36).slice(2)}`;
-            const { svg } = await mermaid.render(id, code);
-            block.innerHTML = svg;
-            block.setAttribute("data-processed", "true");
-        } catch (e) {
-            console.warn("Mermaid render error:", e);
-            block.setAttribute("data-processed", "true");
-        }
-    }
+export function renderTableCell(cell) {
+    if (cell == null) return "";
+    if (typeof cell === "string") return renderMarkdownInline(cell);
+    const text = typeof cell === "object" ? JSON.stringify(cell) : String(cell);
+    return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }

@@ -1,115 +1,141 @@
 # Getting started
 
-**agex.studio is a tool, not a service.** It's a static webpage that runs
-an AI agent inside your browser. There's no company behind it collecting
-your data, no account to create, no subscription to manage, no servers to
-talk to.
+**agex.studio is a tool, not a service.** It's a webpage that runs an
+AI agent in your browser: no account to create, no subscription, no
+server of ours in between.
 
-The trade-off: the LLM has to run *somewhere*, and that somewhere is a
-provider you choose, paid for with your own API key. Your messages, your
-files, your costs. All yours.
+The model runs somewhere else: at a provider you choose, paid with
+your own key. Your messages, your files, your costs.
 
-Think of it less like ChatGPT and more like VS Code: a tool you keep open
-in a tab, with your own data and your own external services plugged in.
+Think of it less like a chat service and more like an editor you keep
+open in a tab, with your own data and your own model plugged in.
 
 ---
 
 ## What you need
 
-Access to an LLM. The studio supports three paths:
+Access to a model, one of two ways:
 
-- **OpenRouter** *(recommended for most people)*: one account, one
-  bill, hundreds of models from Anthropic, Google, OpenAI, and the
-  open-source ecosystem. The fastest way to get started.
-- **Direct OpenAI or Anthropic**: your own account with one of those
-  providers, using their API key directly. Saves OpenRouter's small
-  routing fee if you've already got an account; loses model variety.
-- **Custom endpoint**: any OpenAI-compatible HTTP API. Lets you point
-  the studio at a local model server (LM Studio, llama.cpp's server,
-  Ollama in OpenAI-compatibility mode, vLLM, etc.) or at a self-hosted
-  router. Useful for offline work, private data, or experimenting with
-  models that aren't on commercial gateways.
-
-The rest of this page walks through the OpenRouter path because it's
-the smoothest. For the other two, head to **Settings → Access mode →
-Custom** and fill in the base URL + key + model name.
+- **OpenRouter** *(recommended)*: one account and one key for models
+  from many providers. It also powers the agent's web search and its
+  images, speech and music, which need an OpenRouter key.
+- **An endpoint of your own**: any service that speaks Anthropic's
+  Messages API (a local proxy such as Meridian, say) or the
+  OpenAI-compatible API (a local model server, a self-hosted router).
+  Useful for local models and private setups. Add an OpenRouter key
+  beside it and the agent keeps its web search and media.
 
 ### OpenRouter setup
 
-**[Sign up at openrouter.ai →](https://openrouter.ai/)**. It takes about
-a minute. New accounts get a small free credit balance you can use to try
-the studio before adding payment info.
-
-Once you're in, head to **[Keys →](https://openrouter.ai/settings/keys)**,
-create a new key, and copy it.
+**[Sign up at openrouter.ai →](https://openrouter.ai/)**, then create
+a key under **[Keys →](https://openrouter.ai/settings/keys)** and copy
+it.
 
 ---
 
-## Pasting your key
+## Settings
 
-1. Click the **gear icon** at the top-right of the editor.
-2. Paste your key into the **OpenRouter API key** field.
-3. Pick a model (the default is a good starting point: capable but
-   inexpensive).
-4. Close the settings drawer and start typing.
+Click the **⚙** at the top right. Settings has three tabs.
 
-Your key is stored in your browser's `localStorage` and used only when
-making requests directly to OpenRouter. It never touches an agex.studio
-server. There isn't one.
+**Model** holds what you need to start, with the rest under
+**Advanced**, whose header sums up what's set ("Auto provider · folds
+at 150k").
+
+- **Service**: OpenRouter, or an endpoint of your own (then its
+  **URL**, its **Shape**, Anthropic or OpenAI-compatible, and its
+  **Key**, if it needs one).
+- **Key**: your OpenRouter key. A line under it says whether
+  OpenRouter accepts it and what it has spent today and this month
+  (its "more" shows what's left, for a key with a limit); it's checked when settings
+  open, and again once you stop typing.
+- **Model**: on OpenRouter, pick from its list as you type (each with
+  its context size, its price per million tokens and whether it takes
+  images; models that can't call tools are hidden, since the agent
+  needs them), or type any model's id; `google/gemini-3.8-flash` is
+  the default. With an endpoint of your own, the endpoint's name for
+  its model. Each service keeps its own, so switching back and forth
+  doesn't lose either.
+- **Thinking**: how hard the model thinks each turn: off, low,
+  medium or high. It doesn't apply to an OpenRouter model that doesn't
+  reason.
+
+Under **Advanced**:
+
+- **Provider**, on OpenRouter: which of the providers serving the
+  model takes its requests, each with its price and recent uptime.
+  Auto lets OpenRouter pick, optionally preferring the lowest price,
+  highest throughput or lowest latency. A chosen provider is tried
+  first, falling back to others if it's down unless you tick **Only
+  this provider**. Each model keeps its own choice.
+- **Skip providers that may train on my prompts** and **Zero data
+  retention only**, on OpenRouter, for every request there (the
+  model's, and the agent's web search and media): keep to providers
+  whose stated policy is not to store or train on prompts, or to
+  endpoints that keep nothing of a request once it's answered. Fewer
+  providers qualify; when none does, requests fail.
+- **The model takes images**, with an endpoint of your own (or a
+  model OpenRouter doesn't list): tick it for a model that reads
+  images, so it can look at screenshots of the apps it builds and at
+  images you give it. Untick it for one that doesn't; the agent then
+  checks its work by text. On OpenRouter, its list says.
+- **Fold**: once a conversation is longer than this, its earlier part
+  is folded into a summary for the model (the chat still shows all of
+  it), or Never. On OpenRouter, it folds by three quarters of the
+  model's context window at the latest.
+- **Web search and media**, with an endpoint of your own: an
+  OpenRouter key for the agent's web search and its images, speech and
+  music, which run on OpenRouter whatever the model. It goes only to
+  OpenRouter, never to your endpoint.
+
+**Notifications**: **Notify me when a turn ends while I'm away**, a
+desktop notification when the agent finishes (or fails) while you're
+in another session, tab or app. Turning it on asks your browser's
+permission. See [Sessions](#sessions).
+
+**Sync & sharing**: **Sync** keeps your sessions in a GitHub repo of
+your own, to use them on another device (see [Sessions](#sessions));
+**Publishing** shares a session as a link (see [Sharing](#sharing)).
+
+Your keys are kept in your browser's storage on this device, each
+sent only to the service it's for.
 
 > [!NOTE]
-> Switching browsers or devices means re-entering your key. The studio
-> has no account system to remember you across browsers. The upside is
-> that nothing about you is on any server.
-
----
-
-## What it actually costs
-
-Wildly variable, but rough order of magnitude:
-
-| Activity | Typical cost |
-|---|---|
-| Casual chat (a few questions) | well under a cent |
-| Building a small interactive app | a few cents to ~$0.50 |
-| Long data-analysis session with charts | $0.50–$2 |
-
-The token meter at the top of the chat shows you exactly how much context
-you've used. OpenRouter's dashboard shows you exactly what you've spent.
-Nobody else is in the loop.
-
-You can swap to a cheaper or stronger model anytime in Settings. The
-studio uses whichever model you've picked for the next turn.
+> Another browser or device means entering your key again: there's no
+> account to remember you.
 
 ---
 
 ## Where your data lives
 
-Inside your browser. Specifically:
+In your browser, for this site:
 
-- **`localStorage`**: your API key, session pointer, UI preferences.
-- **`IndexedDB`**: your sessions, their event logs, agent state, and any
-  files in the agent's workspace.
+- **localStorage**: your settings and keys, and the data apps save.
+- **IndexedDB**: your sessions: their files, conversations and
+  history.
 
-Clearing your browser's data for `agex.studio` wipes everything. There's
-no other copy unless you've exported a session bundle yourself (see the
-sessions drawer's "Export" option) or published a session to a GitHub
-gist (which lives on github.com, under your account, controlled by you).
+Clearing the site's data in your browser wipes it all. Other copies
+exist only where you put them: a GitHub repo you sync to, a gist you
+publish, a bundle you export.
+
+---
+
+## What it costs
+
+That depends on the model you pick and what you ask for. A short
+question costs a fraction of a cent on a small model; building and
+testing an app takes many model calls and costs more. Your provider's
+dashboard shows exactly what you've spent. You can change the model
+any time; the next turn uses it.
 
 ---
 
 ## Your first message
 
-Try something concrete. The studio's agent is most fun when you give it
-something it can *do*, not just answer:
+Give the agent something to *do*:
 
-- "What's in this CSV?" *(after dragging a CSV into the chat input)*
 - "Build me a study app for 4th-grade multiplication."
-- "Find me three recent papers on diffusion models and summarize each."
-- "Render this PDF and pull out the key claims." *(after attaching one)*
+- "Chart this CSV for me." *(after adding it in the Files tab)*
+- "Find three recent articles on diffusion models and summarize each."
+- "What are the key claims in this PDF?" *(after adding one)*
 
-The agent has TypeScript code execution, web search, PDF rendering, an
-interactive-app preview pane, and a virtual filesystem available. Most of
-those surface naturally when you ask for the right thing.
-
-Welcome in.
+See [The agent](#the-agent) for what it can do.

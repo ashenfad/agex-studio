@@ -4,7 +4,10 @@
 // but mis-sanitizes (drops <strong>, passes <script> through), so the
 // sanitization tests below would silently test the wrong thing.
 import { describe, it, expect } from "vitest";
-import { renderMarkdown, renderMarkdownInline } from "./markdown.js";
+import { fileLinkTarget, renderMarkdown, renderMarkdownInline, renderTableCell, workspacePath } from "./markdown.js";
+
+/** How a reply renders: its workspace links open files. */
+const REPLY = { linkBase: "/workspace" };
 
 describe("renderMarkdown", () => {
     it("renders basic text", () => {
@@ -61,62 +64,153 @@ describe("prepare (via renderMarkdown)", () => {
         expect(html).toContain("code");
     });
 
+    // ---- fenced code is left as written --------------------------
+
+    /** The text of the code blocks `md` renders, entities decoded. */
+    function codeOf(md) {
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        return [...doc.querySelectorAll("pre > code")].map((c) => c.textContent);
+    }
+
+    it("keeps a code block's #, -, and 1. lines as written", () => {
+        const body = "x = 1\n# comment\n## another\n- not a list\n* nor this\n1. nor this\n2) nor this\ny = 2";
+        expect(codeOf(`Here:\n\`\`\`python\n${body}\n\`\`\``)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps a YAML list in a tilde fence as written", () => {
+        const body = "steps:\n  - one\n  - two\nnext:\n- three";
+        expect(codeOf(`Config:\n~~~yaml\n${body}\n~~~\nafter`)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps a fence indented up to three spaces, and a longer one, as written", () => {
+        const body = "a\n# b\n- c\n```\nd";
+        expect(codeOf(`step one\n   \`\`\`\`sh\n${body}\n   \`\`\`\``)).toEqual([`${body}\n`]);
+    });
+
+    it("keeps a fence nested in a list item, indented 4 spaces, as written", () => {
+        const body = "# comment\n- item\n1. x";
+        const indented = body.replace(/^/gm, "    ");
+        const md = `Steps:\n- first\n    \`\`\`python\n${indented}\n    \`\`\`\n- second\n- third`;
+        expect(codeOf(md)).toEqual([`${body}\n`]);
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        expect([...doc.querySelectorAll("ul > li")].map((li) => li.firstChild?.textContent?.trim())).toEqual(["first", "second", "third"]);
+        expect(doc.querySelector("ul > li pre > code")).not.toBeNull();
+    });
+
+    it("keeps a fence nested 8 spaces deep, in a second-level list, as written", () => {
+        const body = "# comment\n- item\n1. x";
+        const indented = body.replace(/^/gm, "        ");
+        const md = `1. outer\n    - inner\n        \`\`\`\n${indented}\n        \`\`\`\n2. next`;
+        expect(codeOf(md)).toEqual([`${body}\n`]);
+        const doc = new DOMParser().parseFromString(renderMarkdown(md), "text/html");
+        expect(doc.querySelectorAll("ol > li")).toHaveLength(2);
+        expect(doc.querySelector("ol > li ul > li pre > code")).not.toBeNull();
+    });
+
+    it("keeps an unclosed fence's lines as written, to the end", () => {
+        const body = "x\n# y\n- z";
+        expect(codeOf(`text\n\`\`\`\n${body}`)).toEqual([`${body}\n`]);
+    });
+
+    it("still breaks out lists and headings around a code block", () => {
+        const html = renderMarkdown("intro\n- a\n- b\n```\n# kept\n```\nafter\n## Heading\nmore\n1. one");
+        expect(html).toContain("<ul>");
+        expect(html).toContain("<h2");
+        expect(html).toContain("<ol>");
+        expect(html).not.toContain("<h1");
+        expect(codeOf("intro\n```\n# kept\n```")).toEqual(["# kept\n"]);
+    });
+
+    it("treats a closing fence as prose's start, not another opening", () => {
+        const html = renderMarkdown("```\na\n```\ntext\n# Title\n```\nb\n```");
+        expect(html).toContain("<h1");
+        expect(codeOf("```\na\n```\ntext\n# Title\n```\nb\n```")).toEqual(["a\n", "b\n"]);
+    });
+
     it("renders mermaid blocks as pre.mermaid", () => {
         const html = renderMarkdown("```mermaid\ngraph TD\n```");
         expect(html).toContain('<pre class="mermaid">');
         expect(html).toContain("graph TD");
     });
 
-    // ---- vfs: scheme link rendering ----------------------------
+    // ---- workspace file links ----------------------------------
 
-    it("renders [label](vfs:path) as a vfs-download anchor", () => {
-        const html = renderMarkdown("[chart](vfs:output.png)");
-        expect(html).toContain('class="vfs-download"');
-        expect(html).toContain('data-vfs-path="output.png"');
-        expect(html).toContain(">chart</a>");
+    it("renders a /workspace path as a file link", () => {
+        const html = renderMarkdown("[the plan](/workspace/notes/plan.md)", REPLY);
+        expect(html).toContain('class="ws-file"');
+        expect(html).toContain('data-ws-path="/workspace/notes/plan.md"');
+        expect(html).toContain('href="#"');
+        expect(html).toContain(">the plan</a>");
     });
 
-    it("preserves slashes in nested vfs paths", () => {
-        const html = renderMarkdown("[r](vfs:reports/2026/q1.pdf)");
-        expect(html).toContain('data-vfs-path="reports/2026/q1.pdf"');
+    it("resolves a relative path against /workspace", () => {
+        expect(renderMarkdown("[p](notes/plan.md)", REPLY)).toContain('data-ws-path="/workspace/notes/plan.md"');
+        expect(renderMarkdown("[p](./notes/plan.md)", REPLY)).toContain('data-ws-path="/workspace/notes/plan.md"');
     });
 
-    it("escapes vfs paths with special characters", () => {
-        // Path containing characters that would break attribute syntax —
-        // encodeURIComponent prevents them from escaping the attribute
-        // value.  The encoded form lands in data-vfs-path; the click
-        // handler decodes back before passing to downloadFile.
-        const html = renderMarkdown('[bad](vfs:weird"name<x>.png)');
-        // Quotes and angle brackets are URL-encoded, not raw.
-        expect(html).toContain("data-vfs-path=");
-        expect(html).toContain("%22"); // quote
-        expect(html).toContain("%3C"); // <
-        expect(html).toContain("%3E"); // >
-        expect(html).toContain('class="vfs-download"');
+    it("renders the link's inline markdown", () => {
+        const html = renderMarkdown("[**the** `plan`](notes/plan.md)");
+        expect(html).toContain("<strong>the</strong>");
+        expect(html).toContain("<code>plan</code>");
     });
 
-    it("leaves http(s) links as ordinary anchors", () => {
-        const html = renderMarkdown("[home](https://example.com)");
-        expect(html).toContain('href="https://example.com"');
-        expect(html).not.toContain("vfs-download");
+    it("renders a path that climbs out of /workspace as text alone", () => {
+        for (const href of ["../etc/passwd", "/workspace/../etc/passwd", "notes/../../x"]) {
+            const html = renderMarkdown(`[secret](${href})`, REPLY);
+            expect(html).not.toContain("<a");
+            expect(html).not.toContain("data-ws-path");
+            expect(html).toContain("secret");
+        }
     });
 
-    it("leaves relative links as ordinary anchors", () => {
-        const html = renderMarkdown("[help](/help)");
-        expect(html).toContain('href="/help"');
-        expect(html).not.toContain("vfs-download");
+    it("leaves URLs, fragments and other root paths as ordinary anchors", () => {
+        const cases = {
+            "https://example.com/a.md": 'href="https://example.com/a.md"',
+            "http://example.com": 'href="http://example.com"',
+            "mailto:someone@example.com": 'href="mailto:someone@example.com"',
+            "#section": 'href="#section"',
+            "//example.com/a.md": 'href="//example.com/a.md"',
+            "/help": 'href="/help"',
+            "/workspaces/x.md": 'href="/workspaces/x.md"',
+        };
+        for (const [href, expected] of Object.entries(cases)) {
+            const html = renderMarkdown(`[x](${href})`);
+            expect(html, href).toContain(expected);
+            expect(html, href).not.toContain("ws-file");
+            expect(html, href).not.toContain("data-ws-path");
+        }
     });
 
-    it("supports multiple vfs links inline alongside prose", () => {
-        const html = renderMarkdown(
-            "Saved [a](vfs:a.png) and [b](vfs:b.png) — done."
-        );
-        expect(html).toContain('data-vfs-path="a.png"');
-        expect(html).toContain('data-vfs-path="b.png"');
-        // Surrounding prose stays intact
+    it("escapes a path with special characters in the attribute", () => {
+        const html = renderMarkdown('[bad](<weird"name<x>.md>)', REPLY);
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const a = doc.querySelector("a.ws-file");
+        expect(a?.getAttribute("data-ws-path")).toBe('/workspace/weird"name<x>.md');
+        expect(doc.querySelectorAll("a").length).toBe(1);
+    });
+
+    it("supports several file links inline alongside prose", () => {
+        const html = renderMarkdown("Saved [a](a.png) and [b](/workspace/b.png) — done.", REPLY);
+        expect(html).toContain('data-ws-path="/workspace/a.png"');
+        expect(html).toContain('data-ws-path="/workspace/b.png"');
         expect(html).toContain("Saved ");
-        expect(html).toContain(" and ");
         expect(html).toContain(" — done.");
+    });
+});
+
+describe("workspacePath", () => {
+    it("normalizes a path under /workspace", () => {
+        expect(workspacePath("/workspace/notes/plan.md")).toBe("/workspace/notes/plan.md");
+        expect(workspacePath("notes//./plan.md")).toBe("/workspace/notes/plan.md");
+        expect(workspacePath("notes/old/../plan.md")).toBe("/workspace/notes/plan.md");
+        expect(workspacePath("my%20plan.md")).toBe("/workspace/my plan.md");
+        expect(workspacePath("notes/plan.md#intro")).toBe("/workspace/notes/plan.md");
+    });
+
+    it("names no file for a URL, an escape, or /workspace itself", () => {
+        for (const href of ["https://x.y", "mailto:a@b.c", "#top", "//x.y/a", "/help", "", "..", "../x", "/workspace", "/workspace/", "%E0%A4%A"]) {
+            expect(workspacePath(href), href).toBeNull();
+        }
     });
 });
 
@@ -134,10 +228,10 @@ describe("renderMarkdownInline", () => {
         expect(html).toContain("<code>foo()</code>");
     });
 
-    it("renders links (with vfs: handling intact)", () => {
-        const html = renderMarkdownInline("[open](vfs:doc.pdf)");
-        expect(html).toContain('class="vfs-download"');
-        expect(html).toContain('data-vfs-path="doc.pdf"');
+    it("renders links as ordinary links: a cell has no file viewer", () => {
+        const html = renderMarkdownInline("[open](docs/doc.pdf)");
+        expect(html).not.toContain("data-ws-path");
+        expect(html).toContain('href="docs/doc.pdf"');
     });
 
     it("does NOT produce block elements (no paragraphs, no headings, no lists)", () => {
@@ -217,14 +311,32 @@ describe("sanitization", () => {
         expect(html).toContain("&lt;/pre&gt;&lt;img src=x onerror=alert(1)&gt;");
     });
 
-    it("keeps benign markup: vfs links, callouts, code, emphasis", () => {
+    it("keeps benign markup: file links, callouts, code, emphasis", () => {
         const html = renderMarkdown(
-            "> [!NOTE]\n> heads up\n\n**bold** [f](vfs:a.png) `code`"
-        );
+            "> [!NOTE]\n> heads up\n\n**bold** [f](/workspace/a.png) `code`"
+        , REPLY);
         expect(html).toContain('class="callout callout-note"');
-        expect(html).toContain('data-vfs-path="a.png"');
+        expect(html).toContain('data-ws-path="/workspace/a.png"');
         expect(html).toContain("<strong>bold</strong>");
         expect(html).toContain("<code>code</code>");
+    });
+
+    it("strips script vectors from a file link's text and title", () => {
+        const html = renderMarkdown('[<img src=x onerror=alert(1)>](notes/a.md "x\\" onclick=\\"alert(1)")', REPLY);
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const a = doc.querySelector("a.ws-file");
+        expect(a?.getAttribute("data-ws-path")).toBe("/workspace/notes/a.md");
+        // The quote in the title stays inside it, as text.
+        expect(a?.getAttribute("onclick")).toBeNull();
+        expect(a?.getAttribute("title")).toBe('x" onclick="alert(1)');
+        expect(doc.querySelector("img")?.getAttribute("onerror")).toBeNull();
+    });
+
+    it("keeps data-ws-path on a raw anchor but strips its script vectors", () => {
+        const html = renderMarkdown('<a class="ws-file" data-ws-path="/workspace/a.md" href="javascript:alert(1)" onclick="alert(1)">x</a>');
+        expect(html).toContain('data-ws-path="/workspace/a.md"');
+        expect(html).not.toContain("javascript:");
+        expect(html).not.toContain("onclick");
     });
 
     it("sanitizes renderMarkdownInline output too", () => {
@@ -232,3 +344,60 @@ describe("sanitization", () => {
         expect(html).not.toContain("onerror");
     });
 });
+
+describe("renderTableCell", () => {
+    it("renders a string as inline markdown, sanitized", () => {
+        expect(renderTableCell("**up**")).toContain("<strong>up</strong>");
+        expect(renderTableCell("<img src=x onerror=alert(1)>")).not.toContain("onerror");
+    });
+
+    it("escapes anything else, with objects and arrays as JSON", () => {
+        const html = renderTableCell(["<img src=x onerror=alert(1)>"]);
+        expect(html).not.toContain("<img");
+        expect(html).toBe("[&#34;&#60;img src=x onerror=alert(1)&#62;&#34;]");
+        expect(renderTableCell({ a: 1 })).toBe("{&#34;a&#34;:1}");
+        expect(renderTableCell(42)).toBe("42");
+        expect(renderTableCell(null)).toBe("");
+    });
+});
+
+describe("fileLinkTarget", () => {
+    it("opens what the renderer wrote, relative to /workspace", () => {
+        expect(fileLinkTarget("/workspace/notes/plan.md")).toBe("notes/plan.md");
+    });
+
+    it("opens nothing for a value raw HTML could set that the renderer wouldn't", () => {
+        for (const raw of ["/workspace/../../secret", "/workspace/a/../b.md", "notes/plan.md", "/etc/passwd", "/workspace", "", null]) {
+            expect(fileLinkTarget(raw)).toBeNull();
+        }
+    });
+
+    it("keeps a raw-HTML attribute through sanitizing, which is why it's checked on click", () => {
+        const html = renderMarkdown('<a data-ws-path="/workspace/../../secret" href="#">x</a>');
+        expect(html).toContain('data-ws-path="/workspace/../../secret"');
+    });
+});
+
+
+describe("workspace links, by where they're rendered", () => {
+    it("are ordinary links where there's no file viewer (no linkBase)", () => {
+        const html = renderMarkdown("[details](details.md) and [plan](/workspace/notes/plan.md)");
+        expect(html).not.toContain("data-ws-path");
+        expect(html).toContain('href="details.md"');
+    });
+
+    it("resolve from a file's own folder, as the file viewer renders them", () => {
+        const base = { linkBase: "/workspace/notes" };
+        expect(renderMarkdown("[d](details.md)", base)).toContain('data-ws-path="/workspace/notes/details.md"');
+        expect(renderMarkdown("[d](../data/sales.csv)", base)).toContain('data-ws-path="/workspace/data/sales.csv"');
+        expect(renderMarkdown("[d](/workspace/app/index.html)", base)).toContain('data-ws-path="/workspace/app/index.html"');
+        // climbing out of the workspace from a folder is still refused
+        expect(renderMarkdown("[d](../../etc/passwd)", base)).not.toContain("data-ws-path");
+    });
+
+    it("leave the next render alone: the base holds for one text", () => {
+        renderMarkdown("[d](details.md)", REPLY);
+        expect(renderMarkdown("[d](details.md)")).not.toContain("data-ws-path");
+    });
+});
+

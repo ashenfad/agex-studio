@@ -1,212 +1,142 @@
 # Deploy
 
-How the studio gets from `git push` to `agex.studio`. Plus the
-pre-deploy smoke checks that have saved us from "works in dev,
-broken in prod" surprises.
+How the studio gets from `git push` to `agex.studio`, and the checklist
+for a deploy: the switch to the rebuild first of all.
 
 ## Where it lives
 
-GitHub Pages serves the static `dist/` from `main`. Custom
-domain is set via `public/CNAME` (currently `agex.studio`).
-The Pages workflow rebuilds on every push to main.
+GitHub Pages serves the static `dist/` from `main`; the custom domain is
+`public/CNAME` (`agex.studio`). There's no backend.
 
-There's no backend; no other infrastructure to maintain.
+The preview's apps run on a second origin, `apps.agex.studio`, served by
+GitHub Pages from [agex-studio-apps](https://github.com/ashenfad/agex-studio-apps):
+a static bootloader (and the OAuth relay page) the studio's preview
+iframe loads, then posts the built app to. It deploys on its own; the
+studio only needs it up. The bootloader takes an app only from a studio
+at `agex.studio`, or from `localhost` on port 5173 or 4173 (dev and
+`vite preview`).
 
-## Build pipeline
+## Build
 
 ```
 git push origin main
     ▼
-GitHub Actions (Pages workflow)
+GitHub Actions: .github/workflows/deploy.yml
     ▼
-npm install        ← installs @agex-ts/* from the npm registry
-npm run build      ← vite build → dist/
+install, then vite build → dist/   (Google ids from repo secrets)
     ▼
-Pages publishes dist/ to <gh-pages branch / Pages bucket>
+actions/deploy-pages publishes dist/
     ▼
-agex.studio (custom domain via CNAME)
+agex.studio
 ```
 
-The vite config (`vite.config.js`) does a couple of
-agex-studio-specific things:
+What `vite.config.js` adds to a plain Vite build:
 
-- **`copyRunEntryPoint` plugin** — copies `dist/index.html` to
-  `dist/run/index.html`. Why: the SPA serves a published-artifact
-  entry point at `/run/?gist=...` (see `initSessionsFromUrl`).
-  Vite's dev server has SPA fallback so any path locally returns
-  index.html, but GitHub Pages doesn't. Without a real file at
-  `/run/index.html`, the deployed `agex.studio/run/?gist=X` URL
-  returns 404. Copying the entry point keeps the status code
-  correct (200, not 404) without forcing a multi-entry vite
-  config.
-- **Standard Svelte + worker handling** — vite handles `?worker`
-  / `?worker&url` / `?url` query suffixes for asset URL imports.
+- **`dist/run/index.html`**, a copy of `dist/index.html`. A published
+  session's link is `/run/?gist=…`; Vite's dev server answers any path
+  with the page, GitHub Pages doesn't, so the page has to exist there.
+  Assets load by absolute path (`/assets/…`), so it works from `run/`.
+- **The world's worker**, imported as
+  `@agex-ts/world/worker?worker&url` and bundled as a worker entry
+  (`dist/assets/worker-*.js`), its URL passed in each session's
+  profile.
+- **Chunks:** the entry (`index-*.js`, about 390 KB gzipped) loads
+  first; the TypeScript type stripper and its compiler (about 1 MB
+  gzipped) come in a chunk of their own on the first code run, and
+  esbuild-wasm on the first `esbuild`.
 
-## Pre-deploy smoke checklist
+`deploy.yml` installs with pnpm (`pnpm install --frozen-lockfile`)
+and runs `pnpm build`, taking agex-ts's packages from npm.
+`.github/workflows/test.yml` runs the same install, then the typecheck,
+the tests and the build, on pushes and pull requests to `main` and
+`rebuild`, so a pull request's checks build what the deploy would.
 
-The TS kernel work surfaced two classes of "works in dev,
-breaks in prod" bugs that the test suite + dev server didn't
-catch. Both relate to vite's prod-only transforms. Run through
-this before pushing changes that touch worker setup, agent
-registrations, or LLM-client wiring:
+The Google ids stay as they are: `VITE_GOOGLE_CLIENT_ID` and
+`VITE_GOOGLE_API_KEY`, from the repo's secrets.
 
-### 1. Function-name minification
+## The switch to the rebuild
 
-Symptom in deploy: `agent.fn(): no name available — the value
-has no usable .name property (anonymous / arrow / bound
-function?)`. Pass `{ name: '...' }` explicitly.
+Before merging:
 
-Why dev didn't catch it: dev builds don't minify, so `fn.name`
-returned the source-name (`"testApp"`, etc.). Prod builds
-strip names to single chars, so `fn.name === ""` and the check
-in agex-ts throws.
+- [ ] `pnpm build` locally: `dist/run/index.html` is there, and
+      `dist/assets/` has the entry, the type-stripper chunk and the
+      worker.
+- [ ] `pnpm preview` (port 4173, which the bootloader accepts): a turn
+      on a real model works, and the preview shows an app.
+- [ ] The pull request's Tests run passes: its build is the deploy's
+      (above).
 
-Defense: every `_agent.fn(fn, opts)` call in `ts-agent.js`
-passes an explicit `name:` field. Hardcoded — independent of
-whatever the minifier does. New host-fn registrations should
-do the same.
+Then `rebuild` becomes `main` (merge or fast-forward), Pages deploys,
+and on **agex.studio**, in a fresh browser profile:
 
-To verify: `npm run build && grep "agent\.fn(): no name" dist/`
-shouldn't match. (The agex-ts error string is in the bundle as
-a literal; a grep for it just confirms the message text is
-present — the actual check is at runtime.)
+- [ ] **First load.** The network panel: the entry chunk about 390 KB
+      gzipped; the type-stripper chunk not loaded until the first code
+      run.
+- [ ] **A turn** on a real model (OpenRouter key; Muse Spark or the
+      default model): it streams, runs code, writes files, and a reload
+      shows it again.
+- [ ] **The preview**, through `apps.agex.studio`: ask for a small app;
+      it renders beside the chat and rebuilds as its files change.
+- [ ] **`test_app`**: the agent checks the app it built; with vision on,
+      its screenshot comes back.
+- [ ] **Rich replies**: ask for a chart and a table; both render in the
+      reply.
+- [ ] **Sync** with a real fine-grained token: a private repo with a
+      README, a token with Contents read and write on it alone, connect
+      in settings, then two browsers: a session made in one appears in
+      the other, a turn in either syncs, and an app's saved data
+      follows. *Not verified before the switch: every live run used a
+      classic token.*
+- [ ] **Publish** a session with an app to a gist, then open its
+      `/run/?gist=…&play=1` link in a fresh browser with no model key:
+      the app alone shows; "how it was made" shows the conversation.
+      *Not verified before the switch on the real host: `/run/` was
+      checked in dev only.*
+- [ ] **An app that calls an agent**: publish an app using `agex.task`;
+      in a fresh browser with a model key, its first call asks ("This
+      app asks to use your model…"), and allowing it runs the task.
+- [ ] **Google Drive import** (the Files tab, "From Drive"): sign-in, the
+      Picker, a file lands in `uploads/`. The OAuth client must list
+      `https://agex.studio` among its JavaScript origins. *Not verified
+      before the switch: sign-in can't run headless.*
+- [ ] **The leave warning**: with a turn running, closing the tab asks
+      first.
 
-### 2. Worker bundling
+## Watching, and rolling back
 
-Symptom in deploy: `worker failed during boot` the first time
-the agent tries to emit. Dev works fine.
+There's no telemetry: what goes wrong shows in the browser's console
+and the chat's error line. After a deploy, watch the console on the
+checks above, and the Actions run.
 
-Why: the `@agex-ts/runtime-worker` package's `dist/worker.js`
-has bare imports (`agex-ts/wrap-fs`, sibling chunks). Vite's default
-behavior in prod is to copy the worker file verbatim into
-`dist/`, leaving the bare imports unresolved (works in dev
-because vite's dev server resolves them on the fly).
-
-Defense: `ts-agent.js` imports the worker via
-`agex-runtime-worker/worker?worker&url` so vite compiles it
-as a worker entry point and bundles all imports inline. The
-URL is passed explicitly to `workerRuntime({ workerUrl })`.
-
-To verify after a build:
-
-```bash
-npm run build
-grep -E "^import|from ['\"]" dist/assets/worker-*.js | head
-```
-
-The bundled worker should have **no bare imports** — only the
-file's own minified body. If `agex-ts/wrap-fs` or similar
-bare specifiers show up, the worker bundling regressed.
-
-### 3. Smoke test on the built bundle
-
-The cheapest end-to-end check that catches both classes plus
-anything else prod-only:
-
-```bash
-npm run build
-npx http-server dist/ -p 5174 --silent
-# Open http://localhost:5174, send one chat message, watch console
-```
-
-Anything that errors in the browser console here would error
-on the real deploy. Worth ~30 seconds before pushing major
-changes.
-
-## Cache invalidation post-deploy
-
-The service worker (`src/sw.js` — caches Pyodide + the studio
-bundle) does cache-busting via the bundle's hashed asset names.
-A new deploy gets new hashes; the SW picks up the new
-`index.html`, sees different asset refs, fetches them.
-
-In practice users sometimes hit the *old* SW serving the old
-bundle. Symptoms:
-
-- "Site is broken since the last deploy" — but only for some
-  users
-- New features missing in the chat UI but old features still
-  work
-
-Workaround (user-side): hard refresh (Cmd-Shift-R) or
-devtools → Application → Service Workers → Update.
-
-We could add a "new version available" toast in the SW
-`updatefound` event; not done yet because the symptom is rare
-enough that hard-refresh is acceptable as a manual escape.
-
-## Rolling back
-
-`main` is the deploy branch. Roll back = revert the offending
-commit + push:
+Roll back by reverting and pushing:
 
 ```bash
 git revert <bad-commit>
 git push origin main
 ```
 
-Pages picks up the revert and redeploys in a couple of minutes.
-The cache-invalidation caveat above applies.
+Pages redeploys in a couple of minutes. For the switch itself, the old
+studio stays in `main`'s history (and its packages on npm): reverting
+the switch brings it back. Sessions don't move between the two: each
+keeps its own IndexedDB data (the rebuild's database is
+`agex-studio`), so rolling back leaves the rebuild's sessions in place
+for when it returns.
 
-## Local-dev quirks
+Hashed asset names make a new deploy's files new URLs; a tab open
+across a deploy keeps its old code until it reloads.
 
-- **TS kernel cold-boot is fast** (~1s) and uses no service
-  worker. Iterate freely.
-- **Py kernel cold-boot is slow** (~30s for Pyodide + wheels)
-  the first time per session. Subsequent reloads cached. If
-  you're iterating on py-side code, run with the service
-  worker registered so the cache hits.
-- **`?gist=` URLs** require a real GitHub gist or a local mock.
-  For testing the published-artifact flow without publishing,
-  the simplest path is to manually save a `.agex.b64` payload
-  to a local file and load it via the file drawer's import.
+## Conventions
 
-## Branch / PR conventions
-
-`main` is the deploy branch — every push deploys. There's no
-staging environment.
-
-For larger changes that warrant review:
-
-- Open a PR against `main`
-- The gemini-code-assist bot leaves review comments
-- After landing, push to main → deploy
-
-For routine work (the bulk of this codebase's history), commits
-land directly on main. Tests + the smoke checklist above are
-the gate.
-
-## What we don't do
-
-- **Pre-deploy CI tests**. Tests run locally before commit. No
-  GitHub Actions test step gates the deploy. If you want to add
-  one, the existing `npm run build` already exercises most of
-  the integration; a `npx vitest run` step would be additive.
-- **Multi-environment deploys**. There's no `staging.agex.studio`.
-  If you want to share a WIP, use the bundle export → secret
-  gist flow.
-- **Analytics / observability**. No telemetry collected from
-  user sessions. Errors that escape to the chat are visible to
-  the user (via the error bubble + stack trace) but not phoned
-  home anywhere.
+`main` deploys on every push; there's no staging. Larger changes go
+through a pull request (Codex reviews it); during the rebuild, pull
+requests target `rebuild`, one per step.
 
 ## Design notes
 
-### Why GitHub Pages and not Vercel / Cloudflare?
+**Why GitHub Pages?** Free, fast for a static app, the custom domain
+works without a paid tier, and Vite's output fits it as it is.
 
-Free, fast for static SPAs, no signup beyond the GitHub account.
-The custom domain works without a paid tier. The vite-build
-output is naturally Pages-compatible.
-
-### Why no CI test gate?
-
-The studio is a personal project; a missing-by-one-commit deploy
-isn't a production incident. Adding CI tests is fine if you
-prefer them — the existing test suite is fast (<2s).
-
-### Why a CNAME and not a subdomain?
-
-The custom domain (agex.studio) is the user-facing brand. Pages
-supports it cleanly via CNAME + DNS. Subdomain on the
-`*.github.io` namespace would work too, just less
-brand-recognizable.
+**Why a second origin for apps?** An app's code runs in a page that
+can't reach the studio's storage, its keys or its DOM: the preview's
+iframe loads from `apps.agex.studio`, and the two talk only by
+`postMessage`, each checking the other's origin.

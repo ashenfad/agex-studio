@@ -1,90 +1,72 @@
-import { defineConfig } from 'vite'
+import { copyFileSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { readFileSync, copyFileSync, mkdirSync } from 'fs'
-import { resolve } from 'path'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
-/**
- * Copy ``dist/index.html`` to ``dist/run/index.html`` after the build.
- *
- * The SPA serves a published-artifact entry point at ``/run/?gist=...``
- * (see ``initSessionsFromUrl``).  Vite's dev server has SPA fallback,
- * so locally any path returns ``index.html`` and the route resolver
- * picks it up — but GitHub Pages (production) doesn't fall back.
- * Without a real file at ``/run/index.html`` the deployed shareable
- * URL 404s.  Building a real entry point under that path keeps the
- * status code correct (200, not 404) and doesn't require a multi-
- * entry Vite config — same bundle, two paths.
- */
-function copyRunEntryPoint() {
+/** `/run/` (a published session's link) and `/docs/` (the help pages)
+ *  are the studio's page too: a static host serves each from its own
+ *  `index.html`, the same page, which looks at its path. */
+function entryPoints() {
   return {
-    name: 'copy-run-entry-point',
+    name: 'entry-points',
     closeBundle() {
-      const out = resolve('dist', 'run')
-      mkdirSync(out, { recursive: true })
-      copyFileSync(resolve('dist', 'index.html'), resolve(out, 'index.html'))
+      for (const dir of ['run', 'docs']) {
+        mkdirSync(resolve('dist', dir), { recursive: true })
+        copyFileSync(resolve('dist', 'index.html'), resolve('dist', dir, 'index.html'))
+      }
     },
   }
 }
 
-/**
- * Mirror of ``copyRunEntryPoint`` for the gallery page. ``/gallery/``
- * is an additional SPA entry point — App.svelte detects the path and
- * renders the gallery component instead of the chat shell. Same
- * bundle, three real paths (``/``, ``/run/``, ``/gallery/``).
- */
-function copyGalleryEntryPoint() {
+/** The packages the studio is built from, whose READMEs the
+ *  agex-ecosystem skill carries. */
+const ECOSYSTEM = ['agex-ts', '@agex-ts/world', '@agex-ts/kvgit', '@agex-ts/termish', '@agex-ts/kvsql']
+
+/** `virtual:package-readmes`: the studio's README and each ecosystem
+ *  package's, with its version, read from disk when the studio is
+ *  built (a package's `exports` don't offer its README to an import). */
+function packageReadmes() {
+  const id = 'virtual:package-readmes'
   return {
-    name: 'copy-gallery-entry-point',
-    closeBundle() {
-      const out = resolve('dist', 'gallery')
-      mkdirSync(out, { recursive: true })
-      copyFileSync(resolve('dist', 'index.html'), resolve(out, 'index.html'))
+    name: 'package-readmes',
+    resolveId: (source) => (source === id ? `\0${id}` : null),
+    load(loaded) {
+      if (loaded !== `\0${id}`) return null
+      const read = (dir) => ({
+        version: JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf-8')).version,
+        readme: readFileSync(resolve(dir, 'README.md'), 'utf-8'),
+      })
+      const out = { 'agex-studio': read('.') }
+      for (const name of ECOSYSTEM) out[name] = read(resolve('node_modules', name))
+      return `export default ${JSON.stringify(out)}`
     },
   }
 }
 
-/**
- * Mirror of the other entry-point copiers, for the /docs/ help
- * pages. App.svelte route-detects on mount and renders the Docs
- * component instead of the editor. Same bundle, same trick.
- */
-function copyDocsEntryPoint() {
-  return {
-    name: 'copy-docs-entry-point',
-    closeBundle() {
-      const out = resolve('dist', 'docs')
-      mkdirSync(out, { recursive: true })
-      copyFileSync(resolve('dist', 'index.html'), resolve(out, 'index.html'))
-    },
-  }
+/** The directory of the SQLite build kvsql runs, wherever kvsql's own
+ *  dependencies are installed (outside this checkout, for a linked one). */
+function sqliteDir() {
+  const fromKvsql = createRequire(resolve('node_modules/@agex-ts/kvsql/package.json'))
+  return realpathSync(dirname(fromKvsql.resolve('@sqlite.org/sqlite-wasm/package.json')))
 }
 
 export default defineConfig({
-  plugins: [svelte(), copyRunEntryPoint(), copyGalleryEntryPoint(), copyDocsEntryPoint()],
+  plugins: [svelte(), entryPoints(), packageReadmes()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  // SQLite finds its .wasm beside its own module (`new URL('sqlite3.wasm',
+  // import.meta.url)`). Pre-bundled into the dev server's deps folder it
+  // looks there and gets the page instead; served from its package, it
+  // finds the file. A build copies the .wasm as an asset either way.
   optimizeDeps: {
-    // @agex-ts/runtime-worker spawns its worker via
-    // `new Worker(new URL('./worker.js', import.meta.url))` from
-    // inside its own dist. Vite's pre-bundling rewrites
-    // `import.meta.url` to point at `node_modules/.vite/deps/`,
-    // where `worker.js` doesn't exist — the worker fails to load
-    // with `worker failed during boot: undefined` (ErrorEvent has
-    // no message for a script-load 404 in workers). Excluding the
-    // package keeps Vite serving it from its original dist path,
-    // where `worker.js` and its chunk live alongside `index.js`.
-    exclude: ['@agex-ts/runtime-worker'],
-    // Force-include the runtime-worker's transitive deps so they
-    // still get pre-bundled. `ts-blank-space` does
-    // `import tslib from "typescript"` — typescript ships as CJS,
-    // and without esbuild's pre-bundle interop the browser sees
-    // raw CJS and chokes with "does not provide an export named
-    // 'default'". Excluding runtime-worker stops Vite from
-    // following its import graph for pre-bundling, so we re-add
-    // these by hand.
-    include: ['ts-blank-space', 'typescript'],
+    exclude: ['@sqlite.org/sqlite-wasm'],
+  },
+  // and the dev server serves that file only from a directory it allows
+  server: {
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), sqliteDir()] },
   },
 })

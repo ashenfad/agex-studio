@@ -2,7 +2,7 @@
  * Google Drive Picker integration.
  *
  * Loads the Google Picker API and opens a file picker dialog.
- * Picked file persistence is handled by sessions.js (kvgit state).
+ * Picked files are downloaded by drive-import.js.
  */
 
 const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY || "";

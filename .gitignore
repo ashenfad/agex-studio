@@ -24,3 +24,6 @@ pyodide/
 
 # Local wheels for dev iteration against unreleased agex/kvgit/termish
 public/wheels/
+
+# Driver profiles (scripts/drive.mjs --profile)
+.drive-profile/

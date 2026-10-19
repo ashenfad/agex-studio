@@ -1,114 +1,175 @@
-# Sessions and workspace
+# Sessions
 
-A *session* is the studio's unit of conversation, history, and
-workspace. Open the sessions drawer (left-rail icon) to see the
-list. Everything below — undo, forking, exporting, publishing —
-operates on whichever session is currently active.
+A **session** is one conversation and its workspace: its files, its
+apps, and the full history of both. The session list is on the left;
+fold it away and back with the panel button at the top left, or ⌘B
+(Ctrl+B). Each session keeps to itself: different files, a different
+conversation.
 
 ## The mental model
 
-Each session is a versioned branch. Every turn you take (your
-message + the agent's reply, including any files it wrote) is a
-commit on that branch. Switching sessions switches workspaces:
-different files, different chat history, different agent memory.
-Nothing is shared between sessions unless you explicitly export
-or publish.
-
-This is closer to a git repo than to a ChatGPT thread. You can
-rewind, you can fork, you can throw a branch away. The history is
+A session is closer to a git repository than to a chat thread. Every
+change (a tool call that writes, a turn's end) is a commit in its
+history. That's what makes undo, forks and sync work: the history is
 real history.
 
-## Undo
+## New sessions and names
 
-The most useful trick in the studio. Hover any prior turn in the
-chat scroll and you'll see an **undo** button (tooltip: *Undo
-from here*). Click it and the session rewinds to that point: the
-workspace files revert, the agent forgets later turns, the chat
-trims back.
+**+ New session** starts an empty one. Its first message names it at
+first; then the model names it from the conversation, after the first
+exchange and again every few turns, so the name follows the work. Name
+it yourself (double-click its name in the list, or in its **⋯**
+dialog) and that name stays.
 
-Good for: an agent reply went sideways and you want to rephrase;
-a code change broke something and you want the previous state
-back; you're experimenting and want a clean baseline without
-losing the work that led up to it. If you want to keep the
-current state *and* explore an alternate path, fork first, then
-undo on the fork.
+Hover a session in the list for its tools: **⑂** forks it (with its
+conversation), and **⋯** opens its dialog: its name, the other forks,
+export, publish and delete.
 
-## Fork
+## Working in several at once
 
-Two flavors, both in the active session's row menu:
+A session's turn keeps running when you switch to another one. A dot
+before a session's name says how it's doing:
 
-- **Fork** copies the current session — files, history,
-  agent memory — into a brand-new branch. Useful when you want to
-  try an alternate direction without losing the current thread.
-- **Fork (fresh chat)** copies only the files, not the chat. The
-  agent starts with the same workspace but no memory of how it
-  got there. Useful when a session's history has grown long and
-  you want a clean chat against the same files.
+- **Pulsing**: the agent is working.
+- **Green**: a turn finished while you were looking elsewhere (another
+  session, another tab, another app).
+- **Amber**: a turn ended with an error while you were away.
 
-Forks are full sessions in their own right. Rename them, delete
-them, publish them independently.
+The dot goes once you look at that session. The studio's tab icon shows
+a dot too, of the most pressing color, so you can see from another tab
+when something is running, done, or needs you.
 
-## Files and the workspace
+To hear about it without looking, turn on **Notify me when a turn ends
+while I'm away** in Settings (your browser asks for permission). A turn
+that ends while you're elsewhere then shows a desktop notification: the
+session's name and the first line of the agent's reply, or what went
+wrong. Click it to go to that session. Notifications come only while
+the studio's tab is open; once it's closed, nothing runs to send them.
 
-Every session has a virtual filesystem. Open the **Files** drawer
-(folder icon at the top-right of the chat) to browse it. Files
-land here three ways:
+## Undo and redo
 
-- Drag-and-drop into the chat input (any file type).
-- The Google Drive picker (button in the chat input).
-- The agent writing them as part of its work (code, generated
-  data, app scaffolds, helper modules).
+Hover one of your messages for its tools (the turns your delegates'
+answers started have none: undoing the message before them takes them
+too). **Undo** (↶) goes back to
+where that turn began: the files, the conversation, the folds, all of
+it. **Edit** (✎) does the same and puts your message back in the box,
+its files attached again, to change and send anew. **Redo** brings it
+all back, until the next turn.
 
-The workspace persists across turns. The agent can read anything
-in it on later turns without you re-attaching. Common patterns:
+Undo doesn't erase history: it's a new commit restoring the earlier
+state. Delegates asked since that turn are stopped, and answers they
+haven't delivered are dropped.
 
-- **`/app/`** — interactive apps the agent builds. The preview
-  pane renders whatever's here in a sandboxed iframe.
-- **`/helpers/`** — reusable functions the agent factors out
-  during a session. They survive across turns and become part of
-  the agent's toolkit for the rest of the conversation.
-- **anywhere else** — your uploads, the agent's working notes,
-  generated outputs. Organize however you like.
+## Forks
 
-## Naming and metadata
+**⑂** beside a session, or **Fork** in its **⋯** dialog:
 
-A brand-new session shows up as "New Chat." After the first turn,
-the drawer label updates to whatever the agent named its last
-action — a rough auto-title that tracks where the conversation is
-going. The session-settings action (gear icon on the session row)
-lets you override that with a curated title and an optional
-description; once set, your title sticks regardless of later
-agent actions.
+- **With its conversation** (what **⑂** does): a copy with everything,
+  to try another direction without losing this one.
+- **Its files only**: the same files, a fresh conversation.
+- **As it is now**: the files and the conversation as they are,
+  without the history behind them. Much smaller, but its earlier
+  turns can't be undone.
 
-Worth setting if you plan to come back to a session or share it
-(curated titles also flow into published-gist comments and the
-gallery-submission prefill). Not worth setting for throwaway
-scratch work — the auto-title is usually descriptive enough.
+A fork is a session like any other: rename it, delete it, publish it.
 
-## Export, import, purge
+## Files
 
-- **Export** writes the session to a `.agex` bundle (a single
-  binary file) that you can save to disk. Bundles include the
-  full event log and workspace; they're a complete snapshot.
-- **Import** ingests a bundle into your studio as a new session.
-  If you already have a session for the same branch, the import
-  deduplicates rather than creating a copy.
-- **Delete** removes one session. **Purge all data** (at the
-  bottom of the drawer) wipes every session, every file, and
-  every setting from this browser. Both are permanent locally,
-  though previously-exported bundles or published gists are
-  unaffected.
+The **Files** tab (beside **App**, right of the chat) shows the
+session's files as a tree. Open one to read it (text, Markdown or an image), **Download**
+it, or **Delete** it. **Upload** and **From Drive** add files under
+`uploads/`.
 
-## Active turn protection
+Some places matter:
 
-While the agent is working, navigating away triggers the browser's
-"Leave site?" prompt. Active-turn work hasn't been committed yet;
-the prompt stops you from losing it by accident.
+- `app/` is the session's app, shown in the preview.
+- `ui/` holds the charts, tables and cards in the agent's replies.
 
-## Sessions and sharing
+## Long conversations
 
-Publishing a session pushes a bundle to a secret GitHub gist
-under your account — your gist, not any agex.studio server. See
-[Sharing & gallery](#sharing) for the publishing flow, share URLs
-(play vs showcase), gallery submission, and what gets included in
-a bundle.
+Past the fold limit in Settings, the earlier part of a conversation
+is folded into a summary for the model, so it keeps working within
+its context. The chat still shows everything; a band marks where the
+fold is.
+
+## Bundles: export and import
+
+**Export** (in the session's **⋯** dialog) saves it as a `.agex` file:
+
+- **As it is now**: its files and conversation, without the history.
+  Smaller.
+- **With its history**: every commit, so each turn can still be undone
+  after import.
+
+**Import…** (beside **+ New session**) opens a `.agex` file as a new
+session. Importing the same bundle again goes to the copy you already
+have.
+
+A bundle holds the session's files and conversation. It doesn't hold
+your settings or keys, or the data its app saved.
+
+## Deleting
+
+**Delete…** in the **⋯** dialog removes a session from this browser,
+for good. With sync on, a synced session asks:
+
+- **From this device**: it stays in your sync repo, and shows under
+  *In the sync repo* to download again.
+- **Everywhere**: it goes to your sync repo's trash, on every device,
+  and can be restored until the trash is emptied.
+
+## Syncing across devices
+
+Sync keeps your sessions in a **private GitHub repository of your
+own**, so you can work on them from another browser or device. There's
+no agex.studio server in between.
+
+### Connecting
+
+In **⚙ Settings → Sync**:
+
+1. **Make a private repo** on GitHub, and tick "Add a README" (the
+   repo needs a first commit).
+2. **Make a fine-grained token** with access to only that repo, and
+   the permission *Contents: read and write*.
+3. **Paste the token** and click **Connect**. If the token can reach
+   several repos, pick the one to sync through.
+
+**Disconnect** forgets the repo on this device only; the repo and its
+sessions stay.
+
+### What syncs, and when
+
+- A session is pushed a few seconds after it changes here, and every
+  session is checked against the repo when the studio opens and when
+  you come back to it.
+- Sessions you've used sync. A brand-new, untouched session stays
+  local until its first message, and delegates' work stays with the
+  session that asked for it.
+- An app's saved data syncs beside its session. If an app is open
+  when newer data arrives from another device, the preview offers
+  **Reload the app** rather than changing it under you. If two devices
+  both wrote, the later write wins.
+
+In the session list, **↑** means a sync is queued, **↻** that it's
+running, and **⚠** that a session needs you.
+
+### When a session changed on two devices
+
+Sync never merges silently. If a session changed on both devices
+before they synced, its row says so, with two choices:
+
+- **Use the synced version**: this device's version is kept as a
+  session of its own, named "… (this device)".
+- **Keep this device's**: your version is written on top of the
+  synced one; the other device's work stays in the history.
+
+### Sessions in the repo, and the trash
+
+- **In the sync repo** lists sessions there that aren't on this
+  device, each with **Download**.
+- **Trash** lists sessions deleted everywhere: **Restore** brings one
+  back; **Empty the trash…** deletes them for good, on every device.
+- A session moved to the trash on another device leaves this one
+  too, unless it has changed here since; then its row asks: **Sync it
+  again** or **Delete here too**.

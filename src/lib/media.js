@@ -1,411 +1,483 @@
 /**
- * Generative-media helpers backing the TS-side `createImage` agent.fn
- * (and, later, `createMusic` / `createSpeech`).
+ * `media`, a host object: images, speech and music through OpenRouter.
  *
- * All route through OpenRouter with the user's `apiKey` — same key, same
- * egress as `search` (see search.js). Image and music use the chat-
- * completions endpoint; speech uses the dedicated `/audio/speech` endpoint.
- * Each generator follows one shape:
+ * Each call writes its file into the session's workspace and returns
+ * plain facts about it (its path, size, length and cost), read from the
+ * file written. The write goes through the calling workspace's
+ * filesystem, so it lands in the code's own commit.
  *
- *   run<Media>({ ...inputs, settings, fetchImpl }) -> Promise<Uint8Array>
- *
- * — build a request body, POST it through `_postChat`, decode the response
- * to media bytes. Adding a modality = add one parallel `run<Media>` + its
- * response decoder. `fetchImpl` is injected so tests stub HTTP without the
- * network or the global.
+ * It is the agent's, not an app's: an app's code runs in the preview,
+ * which has no host objects.
  */
 
-import { getSettings } from "./settings.js";
-import { bytesToBase64, base64ToBytes } from "./bytes.js";
+import { hostFactory, typedHost, withCall } from "@agex-ts/world";
+import { z } from "zod";
+import { base64ToBytes, bytesToBase64 } from "./bytes.js";
+import { costOf, routerJson, routerPost } from "./openrouter-api.js";
+import { canEncodeOpus, encodeOpus } from "./ogg-opus.js";
+import { inWorkspace, writeFile } from "./ws-paths.js";
 
-/** OpenRouter's OpenAI-compatible chat-completions endpoint. Hardcoded —
- *  the media models the generators target are OpenRouter-routed. */
-const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+/** Real transparency (an alpha channel, not a painted checkerboard) is
+ *  an OpenAI image-model feature on OpenRouter. A low-quality 1024x1024
+ *  takes about 11s, for $0.006. */
+export const IMAGE_MODEL = "openai/gpt-image-2.5-sunburst";
+const IMAGE_ASPECTS = /** @type {const} */ (["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"]);
+const IMAGE_QUALITIES = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
+const MAX_REFERENCES = 16;
 
-/** OpenRouter's dedicated text-to-speech endpoint — returns raw audio
- *  bytes (not JSON / not SSE), unlike the chat-completions generators. */
-const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
+/** Gemini's speech model reads its input as a verbatim transcript: a
+ *  direction written into the text ("[whispers]", "Say cheerfully:") is
+ *  spoken. Delivery goes in `style`, passed to Google AI Studio as a
+ *  provider option; only momentary sounds in angle brackets (`<laugh>`,
+ *  `<sigh>`, `<short pause>`) stay inline. */
+const SPEECH_MODEL = "google/gemini-3.8-flash-tts";
+const SPEECH_PROVIDER = "google-ai-studio";
+/** Gemini's prebuilt voices, with the tone each is described by. The
+ *  provider answers an unknown name with a bare 400, so names are
+ *  checked here, where the error can list them. */
+const VOICES = /** @type {const} */ ({
+    Achernar: "soft",
+    Achird: "friendly",
+    Algenib: "gravelly",
+    Algieba: "smooth",
+    Alnilam: "firm",
+    Aoede: "breezy",
+    Autonoe: "bright",
+    Callirrhoe: "easy-going",
+    Charon: "informative",
+    Despina: "smooth",
+    Enceladus: "breathy",
+    Erinome: "clear",
+    Fenrir: "excitable",
+    Gacrux: "mature",
+    Iapetus: "clear",
+    Kore: "firm",
+    Laomedeia: "upbeat",
+    Leda: "youthful",
+    Orus: "firm",
+    Puck: "upbeat",
+    Pulcherrima: "forward",
+    Rasalgethi: "informative",
+    Sadachbia: "lively",
+    Sadaltager: "knowledgeable",
+    Schedar: "even",
+    Sulafat: "warm",
+    Umbriel: "easy-going",
+    Vindemiatrix: "gentle",
+    Zephyr: "bright",
+    Zubenelgenubi: "casual",
+});
+const VOICE_NAMES = /** @type {[keyof typeof VOICES, ...(keyof typeof VOICES)[]]} */ (Object.keys(VOICES));
 
-/** Image models. `quality: 'high'` escalates to Nano Banana Pro for
- *  slower/better output (mirrors search's shallow/deep). */
-const IMAGE_MODELS = {
-    standard: "google/gemini-3.1-flash-image",
-    high: "google/gemini-3-pro-image-preview",
-};
+/** Lyria 3: a clip is about 30s for $0.04; a song follows the length
+ *  its prompt asks for, roughly, for $0.08. Both answer with a 44.1kHz
+ *  stereo MP3, in about 10s and 25s. */
+export const MUSIC_MODELS = { clip: "google/lyria-3-clip-preview", song: "google/lyria-3-pro-preview" };
+/** Audio first: asked for ["text", "audio"], Lyria answers with its
+ *  text alone, and an empty stop. */
+const MUSIC_MODALITIES = ["audio", "text"];
 
-/** Music models (Lyria). `length: 'clip'` = a 30s clip; `'full'` = a
- *  longer structured song (slower, costlier). Both stream MP3. */
-const MUSIC_MODELS = {
-    clip: "google/lyria-3-clip-preview",
-    full: "google/lyria-3-pro-preview",
-};
+// Gemini speech arrives as raw 16-bit PCM; the response's content type
+// names the rate and channels, and these are what it said when measured.
+const PCM_RATE = 24_000;
+const PCM_CHANNELS = 1;
 
-/** Speech model — Gemini Flash TTS: prompt-steerable (inline emotion tags
- *  in the text), ~30 prebuilt voices. */
-const SPEECH_MODEL = "google/gemini-3.1-flash-tts-preview";
+const IMAGE_TIMEOUT = 150;
+const SPEECH_TIMEOUT = 120;
+const MUSIC_TIMEOUT = 150;
+
+/** @typedef {import("@agex-ts/world").Workspace} Workspace */
+/** @typedef {import("@agex-ts/world").HostCall} HostCall */
 
 /**
- * POST a chat-completions body to OpenRouter and return the parsed JSON.
- * The shared auth + error-surfacing boilerplate for every generator (the
- * search.js pattern, factored). `label` namespaces thrown errors per
- * modality so the agent's next-turn observation says which call failed.
+ * Generate images, speech and music into one session's workspace.
+ * Each method takes its arguments by name, as one object.
  */
-async function _post({ label, url = OPENROUTER_CHAT_URL, body, settings, fetchImpl = fetch }) {
-    if (!settings?.apiKey) {
-        throw new Error(
-            `${label}: no API key configured — set one in the settings drawer`,
-        );
+export class Media {
+    /**
+     * @param {Workspace} ws
+     * @param {{ fetchImpl?: typeof fetch, opus?: { can: typeof canEncodeOpus, encode: typeof encodeOpus } }} [opts]
+     *   `opus`: the Opus encoder (the browser's by default)
+     */
+    constructor(ws, { fetchImpl, opus = { can: canEncodeOpus, encode: encodeOpus } } = {}) {
+        this._ws = ws;
+        this._fetch = fetchImpl;
+        this._opus = opus;
     }
-    let response;
-    try {
-        response = await fetchImpl(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${settings.apiKey}`,
-                // OpenRouter app attribution — same as the LLM client sends
-                // (see _buildLlmClient), so media calls show as "Agex Studio"
-                // in the dashboard instead of "unknown".
-                "HTTP-Referer": "https://agex.studio",
-                "X-Title": "Agex Studio",
-            },
-            body: JSON.stringify(body),
-        });
-    } catch (e) {
-        throw new Error(`${label}: network error — ${e?.message || String(e)}`);
-    }
-    if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error(
-                `${label}: HTTP 401 — this uses OpenRouter; the configured API key ` +
-                    "isn't valid for OpenRouter. Switch the provider to OpenRouter or use an OpenRouter key.",
-            );
-        }
-        let detail = "";
-        try {
-            detail = await response.text();
-        } catch {
-            // ignore — surface just the status
-        }
-        const trimmed = detail.length > 500 ? detail.slice(0, 500) + "…" : detail;
-        throw new Error(
-            `${label}: HTTP ${response.status} ${response.statusText}` +
-                (trimmed ? ` — ${trimmed}` : ""),
-        );
-    }
-    // On success the body is unread, so the caller decodes it however it
-    // needs — `.json()` (image), an SSE stream (music), or `.arrayBuffer()`
-    // (speech, future).
-    return response;
-}
 
-/** `_post` + JSON decode — the non-streaming path (image). */
-async function _postChat(args) {
-    const response = await _post(args);
-    try {
-        return await response.json();
-    } catch (e) {
-        throw new Error(
-            `${args.label}: response was not valid JSON — ${e?.message || String(e)}`,
-        );
-    }
-}
-
-/** Sniff an image MIME from magic bytes (for labelling input/reference
- *  images on edit). Defaults to png — most models accept the declaration
- *  loosely, but matching is safer. */
-function _imageMime(b) {
-    if (b instanceof Uint8Array && b.length >= 4) {
-        if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-        if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
-        if (
-            b.length >= 12 &&
-            b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
-            b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
-        ) {
-            return "image/webp";
-        }
-    }
-    return "image/png";
-}
-
-/** User-message content: the text prompt plus any input images (edit /
- *  compose mode), each as a base64 data: URL. */
-function _imageContent(prompt, images) {
-    /** Heterogeneous by design — OpenAI-shape content mixes `text` and
-     *  `image_url` parts in one array.
-     *  @type {Array<Record<string, unknown>>} */
-    const content = [{ type: "text", text: prompt }];
-    for (const bytes of images) {
-        content.push({
-            type: "image_url",
-            image_url: {
-                url: `data:${_imageMime(bytes)};base64,${bytesToBase64(bytes)}`,
-            },
-        });
-    }
-    return content;
-}
-
-/** Pull generated image bytes from a chat-completions response. OpenRouter
- *  returns them on `message.images[].image_url.url` as a data: URL; fall
- *  back to an `image_url` content part. Handles base64 data URLs and
- *  (defensively) a hosted http(s) URL. */
-async function _extractImageBytes(data, fetchImpl) {
-    const msg = data?.choices?.[0]?.message;
-    const url =
-        msg?.images?.[0]?.image_url?.url ??
-        (Array.isArray(msg?.content)
-            ? msg.content.find((p) => p?.type === "image_url")?.image_url?.url
-            : undefined);
-    if (typeof url !== "string" || !url) {
-        throw new Error(
-            `createImage: no image in response (got: ${JSON.stringify(data).slice(0, 200)})`,
-        );
-    }
-    if (url.startsWith("data:")) {
-        return base64ToBytes(url.slice(url.indexOf(",") + 1));
-    }
-    const r = await (fetchImpl || fetch)(url);
-    if (!r.ok) {
-        throw new Error(`createImage: failed to fetch image url (HTTP ${r.status})`);
-    }
-    return new Uint8Array(await r.arrayBuffer());
-}
-
-/**
- * Generate (or edit) an image. With `image` set, the input(s) are sent as
- * reference images and the prompt edits / composes them (multiple images
- * compose). Returns the generated image bytes (PNG).
- *
- * @param {{
- *   prompt: string,
- *   image?: Uint8Array | Uint8Array[],
- *   quality?: 'standard' | 'high',
- *   settings: { apiKey: string },
- *   fetchImpl?: typeof fetch,
- * }} opts
- * @returns {Promise<Uint8Array>}
- */
-export async function runCreateImage(opts) {
-    const { prompt, image, quality = "standard", settings, fetchImpl = fetch } = opts;
-    if (!prompt || typeof prompt !== "string") {
-        throw new Error("createImage: prompt must be a non-empty string");
-    }
-    const images = image == null ? [] : Array.isArray(image) ? image : [image];
-    const model = quality === "high" ? IMAGE_MODELS.high : IMAGE_MODELS.standard;
-    const data = await _postChat({
-        label: "createImage",
-        body: {
-            model,
-            messages: [{ role: "user", content: _imageContent(prompt, images) }],
-            modalities: ["image", "text"],
+    /**
+     * Generate a PNG from `prompt` and write it to `path`. `transparent`
+     * gives a real alpha channel; `references` are workspace images to
+     * work from (a character or style to keep, or an image to edit).
+     */
+    image = withCall(
+        /**
+         * @param {HostCall | undefined} call
+         * @param {{ prompt: string, path: string, transparent?: boolean, aspect?: string, quality?: string, references?: string[] }} spec
+         */
+        async (call, spec) => {
+            const fs = this._fs(call);
+            const prompt = spec.prompt.trim();
+            if (prompt === "") throw new Error("media.image: the prompt is empty");
+            const dest = this._dest("media.image", spec.path, ".png");
+            /** @type {Record<string, unknown>} */
+            const body = {
+                model: IMAGE_MODEL,
+                prompt,
+                aspect_ratio: spec.aspect ?? "1:1",
+                quality: spec.quality ?? "low",
+                background: spec.transparent ? "transparent" : "opaque",
+                output_format: "png",
+            };
+            const refs = spec.references ?? [];
+            if (refs.length > 0) {
+                body.input_references = await Promise.all(refs.map((r) => this._reference(fs, r)));
+            }
+            const data = await routerJson({ label: "media.image", path: "/images", body, timeout: IMAGE_TIMEOUT, fetchImpl: this._fetch });
+            const b64 = data?.data?.[0]?.b64_json;
+            if (typeof b64 !== "string") throw new Error("media.image: the response held no image");
+            const png = base64ToBytes(b64);
+            await writeFile(fs, dest, png);
+            return { path: dest, ...pngFacts(png), cost: costOf(data?.usage) };
         },
-        settings,
-        fetchImpl,
-    });
-    return _extractImageBytes(data, fetchImpl);
+    );
+
+    /**
+     * Speak `text` in `voice` and write it to `path`: Opus in an Ogg
+     * file for `*.ogg`, a tenth the size of the WAV a `*.wav` gets. The
+     * text is spoken word for word; `style` says how, in plain words.
+     * A browser that can't encode Opus writes a WAV beside the name
+     * asked for (`*.wav`), and returns that path.
+     */
+    speech = withCall(
+        /**
+         * @param {HostCall | undefined} call
+         * @param {{ text: string, path: string, voice?: string, style?: string }} spec
+         */
+        async (call, spec) => {
+            const fs = this._fs(call);
+            const text = spec.text.trim();
+            if (text === "") throw new Error("media.speech: the text is empty");
+            let dest = this._dest("media.speech", spec.path, ".ogg", ".wav");
+            /** @type {Record<string, unknown>} */
+            const body = { model: SPEECH_MODEL, input: text, voice: spec.voice ?? "Kore", response_format: "pcm" };
+            const style = spec.style?.trim();
+            if (style) body.provider = { options: { [SPEECH_PROVIDER]: { speech_metadata: { style } } } };
+            const r = await routerPost({ label: "media.speech", path: "/audio/speech", body, timeout: SPEECH_TIMEOUT, fetchImpl: this._fetch });
+            const pcm = new Uint8Array(await r.arrayBuffer());
+            if (pcm.length === 0) throw new Error("media.speech: the response held no audio");
+            const { rate, channels } = pcmFormat(r.headers.get("content-type") ?? "");
+            /** @type {Uint8Array} */
+            let audio;
+            if (dest.toLowerCase().endsWith(".ogg") && (await this._opus.can(rate, channels))) {
+                audio = await this._opus.encode(pcm, rate, channels);
+            } else {
+                dest = dest.replace(/\.ogg$/i, ".wav");
+                audio = wav(pcm, rate, channels);
+            }
+            await writeFile(fs, dest, audio);
+            return { path: dest, seconds: round2(pcm.length / (2 * rate * channels)) };
+        },
+    );
+
+    /**
+     * Compose music from `prompt` and write an MP3 to `path`: a clip of
+     * about 30s, or a song of about the length the prompt asks for.
+     */
+    music = withCall(
+        /**
+         * @param {HostCall | undefined} call
+         * @param {{ prompt: string, path: string, length?: "clip" | "song" }} spec
+         */
+        async (call, spec) => {
+            const fs = this._fs(call);
+            const prompt = spec.prompt.trim();
+            if (prompt === "") throw new Error("media.music: the prompt is empty");
+            const dest = this._dest("media.music", spec.path, ".mp3");
+            const r = await routerPost({
+                label: "media.music",
+                path: "/chat/completions",
+                body: {
+                    model: MUSIC_MODELS[spec.length ?? "clip"],
+                    messages: [{ role: "user", content: prompt }],
+                    modalities: MUSIC_MODALITIES,
+                    stream: true,
+                },
+                timeout: MUSIC_TIMEOUT,
+                fetchImpl: this._fetch,
+            });
+            const { audio, text, usage } = await gatherStream("media.music", r);
+            if (audio.length === 0) {
+                throw new Error("media.music: the model answered without music; reword the prompt and try again");
+            }
+            await writeFile(fs, dest, audio);
+            return { path: dest, seconds: mp3Seconds(audio), lyrics: lyricsOf(text), cost: costOf(usage) };
+        },
+    );
+
+    /** The calling workspace's filesystem: part of the code's call. A
+     *  call straight from the host (no `call`) uses the session's own.
+     *  @param {HostCall | undefined} call */
+    _fs(call) {
+        return (call?.ws ?? this._ws).files.fs;
+    }
+
+    /** @param {string} label @param {string} path @param {...string} exts the names it may have, the first the one to use */
+    _dest(label, path, ...exts) {
+        const dest = inWorkspace(label, this._ws.root, path);
+        if (!exts.some((ext) => dest.toLowerCase().endsWith(ext))) {
+            const ext = /** @type {string} */ (exts[0]);
+            const or = exts.slice(1).map((e) => ` (or *${e})`).join("");
+            throw new Error(`${label}: the file is ${ext.slice(1).toUpperCase()}, so name it *${ext}${or}`);
+        }
+        return dest;
+    }
+
+    /** A workspace image as an image reference.
+     *  @param {Workspace["files"]["fs"]} fs @param {string} path */
+    async _reference(fs, path) {
+        const src = inWorkspace("media.image", this._ws.root, path);
+        /** @type {Uint8Array} */
+        let data;
+        try {
+            data = await fs.read(src);
+        } catch {
+            throw new Error(`media.image: no reference image at ${src}`);
+        }
+        const ext = src.slice(src.lastIndexOf(".") + 1).toLowerCase();
+        const kind = { jpg: "jpeg", jpeg: "jpeg", webp: "webp", gif: "gif" }[ext] ?? "png";
+        return { type: "image_url", image_url: { url: `data:image/${kind};base64,${bytesToBase64(data)}` } };
+    }
 }
+
+/** @param {number} n */
+const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
- * Convenience wrapper for the `agent.fn` registration — pulls settings from
- * the store and uses global `fetch`. Tests exercise `runCreateImage`
- * directly with stubs.
+ * A streamed chat completion, gathered: its audio, its text and its
+ * usage. Audio output is only offered streamed.
  *
- * @param {string} prompt
- * @param {{ image?: Uint8Array | Uint8Array[], quality?: 'standard' | 'high' }} [opts]
- * @returns {Promise<Uint8Array>}
+ * @param {string} label @param {Response} r
  */
-export function createImage(prompt, opts = {}) {
-    return runCreateImage({ prompt, ...opts, settings: getSettings() });
-}
-
-// ---------------------------------------------------------------------------
-// Music (Lyria) — streaming
-// ---------------------------------------------------------------------------
-//
-// Unlike image, Lyria REQUIRES `stream: true` ("Audio output requires stream:
-// true"). The generated audio arrives as base64 on `choices[].delta.audio.data`
-// — a single chunk for clips, but we concatenate across chunks defensively
-// for longer songs. We accumulate the base64 string and decode once (the
-// chunks form one continuous base64 stream).
-
-/** Read an OpenRouter SSE stream and concatenate the audio deltas into one
- *  base64 string. Throws on an error event or an audio-less stream. */
-async function _collectAudioStream(response, label) {
-    if (!response.body || typeof response.body.getReader !== "function") {
-        throw new Error(`${label}: streaming response has no readable body`);
-    }
-    const reader = response.body.getReader();
+export async function gatherStream(label, r) {
+    /** @type {string[]} */
+    const audio = [];
+    let text = "";
+    /** @type {any} */
+    let usage = null;
+    /** @param {string} line */
+    const take = (line) => {
+        if (!line.startsWith("data: ") || line === "data: [DONE]") return;
+        /** @type {any} */
+        let event;
+        try {
+            event = JSON.parse(line.slice(6));
+        } catch {
+            return; // a keepalive, or a partial line
+        }
+        if (event?.error) {
+            throw new Error(`${label}: ${typeof event.error === "object" ? (event.error.message ?? JSON.stringify(event.error)) : event.error}`);
+        }
+        usage = event?.usage ?? usage;
+        for (const choice of event?.choices ?? []) {
+            const delta = choice?.delta ?? {};
+            if (typeof delta.content === "string") text += delta.content;
+            if (typeof delta.audio?.data === "string") audio.push(delta.audio.data);
+        }
+    };
+    const reader = /** @type {ReadableStream<Uint8Array>} */ (r.body).getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let audio = "";
-    let streamErr = null;
-    const handleLine = (line) => {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) return;
-        const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") return;
-        let json;
-        try {
-            json = JSON.parse(data);
-        } catch {
-            return; // keepalive / partial — ignore
-        }
-        if (json?.error) {
-            streamErr = json.error?.message || JSON.stringify(json.error);
-            return;
-        }
-        const part = json?.choices?.[0]?.delta?.audio?.data;
-        if (typeof part === "string") audio += part;
-    };
     for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-            handleLine(buffer.slice(0, nl));
+        let nl = buffer.indexOf("\n");
+        while (nl >= 0) {
+            take(buffer.slice(0, nl).trimEnd());
             buffer = buffer.slice(nl + 1);
+            nl = buffer.indexOf("\n");
         }
     }
-    if (buffer) handleLine(buffer); // trailing line without a newline
-    if (streamErr) throw new Error(`${label}: ${streamErr}`);
-    if (!audio) throw new Error(`${label}: response contained no audio`);
-    return audio;
-}
-
-/**
- * Generate music from a text prompt (Lyria). `length: 'clip'` (default) is a
- * 30-second clip; `'full'` is a longer structured song. All musical control
- * — genre, tempo, key, structure — lives in the prompt; there's no duration
- * or seed parameter. Returns MP3 bytes.
- *
- * @param {{
- *   prompt: string,
- *   length?: 'clip' | 'full',
- *   settings: { apiKey: string },
- *   fetchImpl?: typeof fetch,
- * }} opts
- * @returns {Promise<Uint8Array>}
- */
-export async function runCreateMusic(opts) {
-    const { prompt, length = "clip", settings, fetchImpl = fetch } = opts;
-    if (!prompt || typeof prompt !== "string") {
-        throw new Error("createMusic: prompt must be a non-empty string");
+    take(buffer.trimEnd());
+    let bytes;
+    try {
+        bytes = base64ToBytes(audio.join(""));
+    } catch {
+        throw new Error(`${label}: the audio could not be decoded`);
     }
-    const model = length === "full" ? MUSIC_MODELS.full : MUSIC_MODELS.clip;
-    const response = await _post({
-        label: "createMusic",
-        body: {
-            model,
-            messages: [{ role: "user", content: prompt }],
-            modalities: ["text", "audio"],
-            stream: true,
-        },
-        settings,
-        fetchImpl,
-    });
-    const b64 = await _collectAudioStream(response, "createMusic");
-    return base64ToBytes(b64);
+    return { audio: bytes, text, usage };
 }
 
-/**
- * Convenience wrapper for the `agent.fn` registration — pulls settings from
- * the store and uses global `fetch`. Tests exercise `runCreateMusic` directly.
- *
- * @param {string} prompt
- * @param {{ length?: 'clip' | 'full' }} [opts]
- * @returns {Promise<Uint8Array>}
- */
-export function createMusic(prompt, opts = {}) {
-    return runCreateMusic({ prompt, ...opts, settings: getSettings() });
+/** Width, height and whether it has an alpha channel, from a PNG's IHDR
+ *  chunk (colour types 4 and 6 carry alpha); nulls for what isn't one.
+ *  @param {Uint8Array} png */
+export function pngFacts(png) {
+    const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    if (png.length < 26 || SIG.some((b, i) => png[i] !== b)) return { width: null, height: null, alpha: null };
+    const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20), alpha: png[25] === 4 || png[25] === 6 };
 }
 
-// ---------------------------------------------------------------------------
-// Speech (Gemini Flash TTS) — dedicated /audio/speech endpoint
-// ---------------------------------------------------------------------------
-//
-// Unlike image/music, TTS uses OpenRouter's `/audio/speech` endpoint and
-// returns RAW audio bytes (not JSON, not SSE). Emotion / delivery is authored
-// INLINE in the text via Gemini's tags ("[whispers] ... [angry] ..."); `voice`
-// picks one of ~30 prebuilt voices. Gemini TTS only emits headerless PCM
-// (24 kHz / 16-bit / mono), so we wrap it in a WAV container — the returned
-// bytes are a playable .wav.
+/** The rate and channel count an `audio/pcm;rate=…;channels=…` content
+ *  type names, defaulting to what was measured. @param {string} type */
+export function pcmFormat(type) {
+    let rate = PCM_RATE;
+    let channels = PCM_CHANNELS;
+    for (const part of type.split(";").slice(1)) {
+        const [key, value] = part.trim().split("=");
+        if (key === "rate" && /^\d+$/.test(value ?? "")) rate = Number(value);
+        if (key === "channels" && /^\d+$/.test(value ?? "")) channels = Number(value);
+    }
+    return { rate, channels };
+}
 
-/** Wrap raw little-endian 16-bit PCM in a 44-byte WAV header so the bytes are
- *  a self-contained, playable file. Defaults match Gemini TTS's PCM output
- *  (24 kHz / 16-bit / mono). */
-function _pcmToWav(pcm, { sampleRate = 24000, channels = 1, bitDepth = 16 } = {}) {
-    const blockAlign = (channels * bitDepth) / 8;
-    const header = new DataView(new ArrayBuffer(44));
-    const ascii = (off, s) => {
-        for (let i = 0; i < s.length; i++) header.setUint8(off + i, s.charCodeAt(i));
+/** 16-bit PCM in a WAV container, which a browser plays.
+ *  @param {Uint8Array} pcm @param {number} rate @param {number} channels */
+export function wav(pcm, rate, channels) {
+    const block = channels * 2;
+    const head = new DataView(new ArrayBuffer(44));
+    const ascii = (/** @type {number} */ at, /** @type {string} */ s) => {
+        for (let i = 0; i < s.length; i++) head.setUint8(at + i, s.charCodeAt(i));
     };
     ascii(0, "RIFF");
-    header.setUint32(4, 36 + pcm.length, true);
-    ascii(8, "WAVE");
-    ascii(12, "fmt ");
-    header.setUint32(16, 16, true); // fmt chunk size
-    header.setUint16(20, 1, true); // PCM
-    header.setUint16(22, channels, true);
-    header.setUint32(24, sampleRate, true);
-    header.setUint32(28, sampleRate * blockAlign, true); // byte rate
-    header.setUint16(32, blockAlign, true);
-    header.setUint16(34, bitDepth, true);
+    head.setUint32(4, 36 + pcm.length, true);
+    ascii(8, "WAVEfmt ");
+    head.setUint32(16, 16, true);
+    head.setUint16(20, 1, true);
+    head.setUint16(22, channels, true);
+    head.setUint32(24, rate, true);
+    head.setUint32(28, rate * block, true);
+    head.setUint16(32, block, true);
+    head.setUint16(34, 16, true);
     ascii(36, "data");
-    header.setUint32(40, pcm.length, true);
+    head.setUint32(40, pcm.length, true);
     const out = new Uint8Array(44 + pcm.length);
-    out.set(new Uint8Array(header.buffer), 0);
+    out.set(new Uint8Array(head.buffer), 0);
     out.set(pcm, 44);
     return out;
 }
 
+// MPEG audio, by version bits: Layer III bitrates (kbps) by index, and
+// sample rates by index.
+/** @type {Record<number, number[]>} */
+const MP3_BITRATES = {
+    3: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+    2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+};
+/** @type {Record<number, number[]>} */
+const MP3_RATES = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+
 /**
- * Generate spoken audio from text (Gemini Flash TTS). `voice` is one of the
- * prebuilt voices (default Kore); direct emotion/pacing with inline tags in
- * the text. Returns WAV bytes (24 kHz mono — Gemini emits PCM, wrapped here).
+ * An MP3's length in seconds, from walking its Layer III frames: each
+ * holds 1152 samples (576 below MPEG-1). A leading ID3v2 tag is skipped,
+ * and so is an encoder's Xing or Info frame, which holds no sound. Null
+ * when no frame is found.
  *
- * @param {{
- *   text: string,
- *   voice?: string,
- *   settings: { apiKey: string },
- *   fetchImpl?: typeof fetch,
- * }} opts
- * @returns {Promise<Uint8Array>}
+ * @param {Uint8Array} mp3
  */
-export async function runCreateSpeech(opts) {
-    const { text, voice = "Kore", settings, fetchImpl = fetch } = opts;
-    if (!text || typeof text !== "string") {
-        throw new Error("createSpeech: text must be a non-empty string");
+export function mp3Seconds(mp3) {
+    let pos = 0;
+    if (mp3.length >= 10 && mp3[0] === 0x49 && mp3[1] === 0x44 && mp3[2] === 0x33) {
+        let size = 0;
+        for (let i = 6; i < 10; i++) size = (size << 7) | ((mp3[i] ?? 0) & 0x7f); // syncsafe
+        pos = 10 + size;
     }
-    const response = await _post({
-        label: "createSpeech",
-        url: OPENROUTER_SPEECH_URL,
-        body: {
-            model: SPEECH_MODEL,
-            input: text,
-            voice,
-            response_format: "pcm", // Gemini TTS only supports pcm
-        },
-        settings,
-        fetchImpl,
-    });
-    const pcm = new Uint8Array(await response.arrayBuffer());
-    if (pcm.length === 0) {
-        throw new Error("createSpeech: response contained no audio");
+    let samples = 0;
+    /** @type {number | null} */
+    let rate = null;
+    let first = true;
+    while (pos + 4 <= mp3.length) {
+        const h = (((mp3[pos] ?? 0) << 24) | ((mp3[pos + 1] ?? 0) << 16) | ((mp3[pos + 2] ?? 0) << 8) | (mp3[pos + 3] ?? 0)) >>> 0;
+        const version = (h >>> 19) & 3;
+        const layer = (h >>> 17) & 3;
+        const bitrateIndex = (h >>> 12) & 0xf;
+        const rateIndex = (h >>> 10) & 3;
+        if (h >>> 21 !== 0x7ff || version === 1 || layer !== 1) {
+            if (samples > 0) break; // the sound ends here: a trailing tag or padding
+            pos += 1; // not a frame yet: look for the first one
+            continue;
+        }
+        if (bitrateIndex === 0 || bitrateIndex === 15 || rateIndex === 3) break;
+        const kbps = /** @type {number} */ (MP3_BITRATES[version === 3 ? 3 : 2]?.[bitrateIndex]);
+        rate = /** @type {number} */ (MP3_RATES[version]?.[rateIndex]);
+        const perFrame = version === 3 ? 1152 : 576;
+        const size = Math.floor((Math.floor(perFrame / 8) * kbps * 1000) / rate) + ((h >>> 9) & 1);
+        const head = new TextDecoder("latin1").decode(mp3.subarray(pos, pos + Math.min(size, 64)));
+        if (!(first && (head.includes("Xing") || head.includes("Info")))) samples += perFrame;
+        first = false;
+        pos += size;
     }
-    return _pcmToWav(pcm);
+    return samples === 0 || rate === null ? null : round2(samples / rate);
 }
 
 /**
- * Convenience wrapper for the `agent.fn` registration — pulls settings from
- * the store and uses global `fetch`. Tests exercise `runCreateSpeech` directly.
+ * The sung lines in Lyria's text, as `{at, line}`: a line reads `[12.5:]
+ * words` when the model timed it and `[:] words` when it did not (`at`
+ * is null). An instrumental's text holds no such lines.
  *
  * @param {string} text
- * @param {{ voice?: string }} [opts]
- * @returns {Promise<Uint8Array>}
  */
-export function createSpeech(text, opts = {}) {
-    return runCreateSpeech({ text, ...opts, settings: getSettings() });
+export function lyricsOf(text) {
+    return [...text.matchAll(/^\[(\d+(?:\.\d+)?)?:\][ \t]*(.*\S)/gm)].map((m) => ({
+        at: m[1] === undefined ? null : Number(m[1]),
+        line: /** @type {string} */ (m[2]),
+    }));
+}
+
+const nullableNumber = z.number().nullable();
+
+/** `media` as the profile grants it: one per session, its arguments
+ *  checked. @param {{ fetchImpl?: typeof fetch }} [opts] */
+export function mediaHost(opts) {
+    return typedHost(
+        hostFactory((ws) => new Media(ws, opts)),
+        {
+            image: {
+                args: {
+                    spec: z.strictObject({
+                        prompt: z.string(),
+                        path: z.string(),
+                        transparent: z.boolean().optional(),
+                        aspect: z.enum(IMAGE_ASPECTS).optional(),
+                        quality: z.enum(IMAGE_QUALITIES).optional(),
+                        references: z.array(z.string()).max(MAX_REFERENCES).optional(),
+                    }),
+                },
+                returns: z.object({
+                    path: z.string(),
+                    width: nullableNumber,
+                    height: nullableNumber,
+                    alpha: z.boolean().nullable(),
+                    cost: nullableNumber,
+                }),
+            },
+            speech: {
+                args: {
+                    spec: z.strictObject({
+                        text: z.string(),
+                        path: z.string(),
+                        voice: z.enum(VOICE_NAMES).optional(),
+                        style: z.string().optional(),
+                    }),
+                },
+                returns: z.object({ path: z.string(), seconds: z.number() }),
+            },
+            music: {
+                args: {
+                    spec: z.strictObject({
+                        prompt: z.string(),
+                        path: z.string(),
+                        length: z.enum(["clip", "song"]).optional(),
+                    }),
+                },
+                returns: z.object({
+                    path: z.string(),
+                    seconds: nullableNumber,
+                    lyrics: z.array(z.object({ at: nullableNumber, line: z.string() })),
+                    cost: nullableNumber,
+                }),
+            },
+        },
+    );
 }

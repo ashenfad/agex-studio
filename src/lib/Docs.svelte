@@ -1,33 +1,23 @@
 <script>
     /**
-     * Docs — sectioned help pages at `/docs/`.
-     *
-     * Hash-routed multi-page so individual sections are linkable:
-     *   /docs/                 → defaults to first section
-     *   /docs/#getting-started → loads getting-started.md
-     *
-     * Section markdown lives in `public/docs/<slug>.md` and renders
-     * through the same `renderMarkdown` helper the chat / chapter
-     * modals use. Adding a section = drop a new .md file + add an
-     * entry to the SECTIONS array below.
-     *
-     * Stays a separate route from `/gallery/` because the intents
-     * differ: gallery is "look at things people built," docs is
-     * "learn how the studio works." Mixing them muddies both.
+     * The help pages at `/docs/`, a section per page, each linkable by
+     * its hash (`/docs/#sessions`; none means the first). A section is
+     * `public/docs/<slug>.md`, rendered as the chat renders Markdown;
+     * adding one is a file and an entry in SECTIONS.
      */
     import { onMount } from 'svelte'
+    import { errorText } from './errors.js'
     import { renderMarkdown } from './markdown.js'
+    import { renderMermaidBlocks } from './mermaid.js'
 
-    /** Section registry. Order = sidebar order = default-section
-     *  fallback. `slug` matches the `.md` filename and the URL hash;
-     *  `title` is the sidebar label and the rendered page heading.
-     *  The colophon/legal sections (about, privacy, terms) sit at the
-     *  bottom by convention. */
+    /** The sections, in the sidebar's order (the first is the default):
+     *  `slug` names the `.md` file and the hash, `title` the sidebar's
+     *  label. The colophon and the legal pages go last. */
     const SECTIONS = [
         { slug: 'getting-started', title: 'Getting started' },
         { slug: 'the-agent', title: 'The agent' },
-        { slug: 'sessions', title: 'Sessions & workspace' },
-        { slug: 'sharing', title: 'Sharing & gallery' },
+        { slug: 'sessions', title: 'Sessions & files' },
+        { slug: 'sharing', title: 'Sharing' },
         { slug: 'about', title: 'About' },
         { slug: 'privacy', title: 'Privacy' },
         { slug: 'terms', title: 'Terms' },
@@ -38,6 +28,14 @@
     /** @type {string | null} */
     let content = $state(null)
     let loadError = $state('')
+    /** The rendered section, once there is one. @type {HTMLElement | undefined} */
+    let article = $state()
+
+    // a section's ```mermaid blocks drawn once it's on the page
+    $effect(() => {
+        void content
+        if (article != null) void renderMermaidBlocks(article)
+    })
     /** Mobile sidebar visibility. Sidebar is always-shown on
      *  wide viewports; on narrow viewports it toggles via a
      *  button so the docs body gets the full width. */
@@ -50,6 +48,7 @@
         return SECTIONS[0].slug
     }
 
+    /** @param {string} slug */
     async function loadSection(slug) {
         activeSlug = slug
         content = null
@@ -65,12 +64,12 @@
             if (activeSlug === slug) content = text
         } catch (err) {
             if (activeSlug !== slug) return
-            console.error(`Failed to load docs/${slug}.md:`, err)
-            loadError = err.message || String(err)
+            loadError = errorText(err)
             content = ''
         }
     }
 
+    /** @param {string} slug */
     function selectSection(slug) {
         // Update the hash so the section is bookmarkable, then load.
         // pushState (not assign-to-hash) so we don't trigger the
@@ -89,21 +88,17 @@
         return () => window.removeEventListener('hashchange', onHashChange)
     })
 
-    function openEditor() {
+    function openStudio() {
         window.location.href = '/'
     }
 </script>
 
 <div class="docs-page">
     <header class="docs-header">
-        <!-- Title group: brand + separator + section label share one
-             baseline-aligned flex line so the typography reads as one
-             phrase ("agex.studio · docs") rather than three sized
-             differently and center-aligned (which floats the smaller
-             chrome above the brand's x-height). -->
+        <!-- one baseline, so the brand and the section read as one phrase -->
         <div class="header-title">
-            <button class="brand" onclick={openEditor} title="Open the editor">
-                <span class="brand-name">agex</span><span class="brand-suffix">.studio</span>
+            <button class="brand" onclick={openStudio} title="Open the studio">
+                agex studio
             </button>
             <span class="header-sep">·</span>
             <span class="header-section">docs</span>
@@ -121,9 +116,7 @@
                 <line x1="3" y1="18" x2="21" y2="18"></line>
             </svg>
         </button>
-        <button class="enter-editor" onclick={openEditor}>
-            Open editor →
-        </button>
+        <button class="enter-editor" onclick={openStudio}>Open the studio →</button>
     </header>
 
     <div class="docs-body">
@@ -152,7 +145,7 @@
                     <p>Couldn't load section: {loadError}</p>
                 </div>
             {:else}
-                <article class="markdown markdown-body">
+                <article class="markdown markdown-body" bind:this={article}>
                     {@html renderMarkdown(content, { breaks: false })}
                 </article>
             {/if}
@@ -215,11 +208,6 @@
         align-items: baseline;
     }
 
-    .brand-suffix {
-        color: var(--text-muted);
-        font-weight: 400;
-        font-size: 1.05rem;
-    }
 
     .header-sep {
         color: var(--text-muted);

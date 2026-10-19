@@ -1,107 +1,94 @@
 /**
- * Favicon status badge — a small colored dot overlaid on the tab icon to
- * mirror the session drawer's status dots, but in the browser tab where
- * it's visible after the user has tabbed away.
+ * The tab's icon, badged with the studio's status (see `status.js`): a
+ * dot in its corner, colored as the session list's dots are, so a person
+ * in another tab sees a turn running, one gone wrong, or one finished.
+ * With nothing to say, the icon is the shipped one, its link's href put
+ * back exactly.
  *
- *   'working' → red dot   (var(--accent),  #e94560 — a turn is in flight)
- *   'unseen'  → green dot (var(--success), #4caf50 — finished, not viewed)
- *   null      → plain icon (restores the shipped /favicon.svg)
- *
- * The base art is fetched from the real `/favicon.svg` (once, cached) so
- * the badge stays in sync with the shipped icon; we just splice a couple
- * of `<circle>`s in before `</svg>` and set the `<link>` to the resulting
- * data URL. Idle restores the original href, so the un-badged tab is
- * always pixel-identical to the asset.
- *
- * SVG data-URL favicons work in Chrome/Firefox/Edge. Safari ignores them
- * and keeps the default icon — acceptable degradation (no badge, no
- * breakage).
+ * The badged icon is the shipped SVG, fetched once, with a circle
+ * spliced in before `</svg>`, set as a data URL. Browsers that ignore
+ * SVG favicons (Safari) keep the plain icon.
  */
 
-/** Dot colors — kept in sync with --accent / --success in app.css. */
-const STATUS_COLORS = {
+/** @typedef {import("./status.js").Status} Status */
+
+/** The dots' colors: app.css's --accent, --caution and --success. */
+export const STATUS_COLORS = /** @type {const} */ ({
     working: "#e94560",
+    attention: "#d9a441",
     unseen: "#4caf50",
-};
+});
 
-/** @type {Promise<string | null> | null} */
-let _baseSvgPromise = null;
-/** @type {string | null} */
-let _originalHref = null;
-/** Last status written, to skip redundant DOM/data-URL work. */
-let _current = "__init__";
+/** The shipped icon's markup, fetched once; a failed fetch is tried
+ *  again on the next badge. @type {Promise<string | null> | null} */
+let baseSvg = null;
+/** The icon link's href as the page shipped it. @type {string | null} */
+let originalHref = null;
+/** The status last set, so setting it again does nothing.
+ *  @type {Status | null | undefined} */
+let shown = undefined;
 
-function _loadBaseSvg(url) {
-    if (!_baseSvgPromise) {
-        // Use the actual link href (works under subpath hosting), falling
-        // back to the root path. Null out the cached promise on any
-        // failure so a transient fetch error doesn't permanently disable
-        // badging — the next call retries.
-        _baseSvgPromise = fetch(url || "/favicon.svg")
-            .then((r) => {
-                if (r.ok) return r.text();
-                _baseSvgPromise = null;
-                return null;
-            })
-            .catch(() => {
-                _baseSvgPromise = null;
-                return null;
-            });
-    }
-    return _baseSvgPromise;
+/** @param {string} url */
+function loadBase(url) {
+    baseSvg ??= fetch(url)
+        .then((r) => (r.ok ? r.text() : null))
+        .catch(() => null)
+        .then((text) => {
+            if (text === null) baseSvg = null;
+            return text;
+        });
+    return baseSvg;
 }
 
-/** Find (or create) the `<link rel="icon">` we badge, remembering its
- *  original href on first sight so idle can restore it verbatim.
- *  Null outside the browser (no document to query).
- *  @returns {HTMLLinkElement | null} */
-function _ensureLink() {
+/** The page's icon link, made if it has none; its href as shipped is
+ *  remembered the first time. */
+function iconLink() {
     if (typeof document === "undefined") return null;
-    let link = /** @type {HTMLLinkElement | null} */ (
-        document.querySelector('link[rel~="icon"]')
-    );
-    if (!link) {
+    let link = /** @type {HTMLLinkElement | null} */ (document.querySelector('link[rel~="icon"]'));
+    if (link === null) {
         link = document.createElement("link");
         link.rel = "icon";
         document.head.appendChild(link);
     }
-    if (_originalHref === null) _originalHref = link.getAttribute("href") || "";
+    originalHref ??= link.getAttribute("href") ?? "";
     return link;
 }
 
-/** Bottom-right badge: the status-colored dot with a thin, translucent
- *  white outline — just enough to lift it off the glyph without a heavy
- *  halo. Coordinates are in the icon's 24×24 viewBox. */
-function _dotMarkup(status) {
-    const color = STATUS_COLORS[status];
-    return (
-        `<circle cx="17" cy="17" r="5" fill="${color}" ` +
-        `stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.2"/>`
-    );
+/**
+ * The shipped icon's markup with a status dot in its bottom-right
+ * corner, in its 24×24 viewBox; a thin translucent white edge lifts it
+ * off the glyph.
+ *
+ * @param {string} svg @param {Status} status
+ */
+export function badged(svg, status) {
+    const dot = `<circle cx="17" cy="17" r="5" fill="${STATUS_COLORS[status]}" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1.2"/>`;
+    return svg.replace("</svg>", `${dot}</svg>`);
 }
 
 /**
- * Set (or clear) the favicon status badge. Idempotent — repeated calls
- * with the same status are no-ops. Safe to call before the base SVG has
- * loaded (it awaits internally) and races are guarded.
+ * Badge the tab's icon with `status`, or, with null, put the shipped
+ * icon back. Setting the status already shown does nothing; a status
+ * set while the icon is still being fetched wins over an earlier one.
  *
- * @param {'working' | 'unseen' | null} status
+ * @param {Status | null} status
  */
 export async function setFaviconStatus(status) {
-    const next = status || null;
-    if (next === _current) return;
-    _current = next;
-    const link = _ensureLink();
-    if (!link) return;
-    if (!next) {
-        // Idle — restore the shipped icon exactly.
-        link.setAttribute("href", _originalHref || "/favicon.svg");
+    if (status === shown) return;
+    shown = status;
+    const link = iconLink();
+    if (link === null) return;
+    if (status === null) {
+        link.setAttribute("href", originalHref || "/favicon.svg");
         return;
     }
-    const base = await _loadBaseSvg(_originalHref);
-    // Bail if the fetch failed, or the status changed while we awaited.
-    if (!base || _current !== next) return;
-    const badged = base.replace("</svg>", `${_dotMarkup(next)}</svg>`);
+    const svg = await loadBase(originalHref || "/favicon.svg");
+    if (shown !== status) return;
+    // the icon stays plain; setting this status again tries again
+    if (svg === null) {
+        shown = undefined;
+        return;
+    }
     link.setAttribute("type", "image/svg+xml");
-    link.setAttribute("href", `data:image/svg+xml,${encodeURIComponent(badged)}`);
+    link.setAttribute("href", `data:image/svg+xml,${encodeURIComponent(badged(svg, status))}`);
 }

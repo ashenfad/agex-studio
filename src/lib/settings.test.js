@@ -1,281 +1,63 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// localStorage stub
-const store = {};
-vi.stubGlobal("localStorage", {
-    getItem: (k) => store[k] ?? null,
-    setItem: (k, v) => {
-        store[k] = v;
-    },
-    removeItem: (k) => {
-        delete store[k];
-    },
-});
-
+// an in-memory localStorage: Node's own global (Node 22+) has none of
+// the methods without a backing file
 beforeEach(() => {
-    for (const k of Object.keys(store)) delete store[k];
-    vi.resetModules();
-});
+    const items = new Map()
+    vi.stubGlobal('localStorage', {
+        getItem: (k) => items.get(k) ?? null,
+        setItem: (k, v) => items.set(k, String(v)),
+        clear: () => items.clear(),
+    })
+    vi.resetModules()
+})
 
-async function loadSettings() {
-    return await import("./settings.js");
-}
+describe('settings', () => {
+    it('start from the defaults, persist an update, and tell subscribers', async () => {
+        const { getSettings, settingsStore, updateSettings, STORAGE_KEY } = await import('./settings.js')
+        expect(getSettings().accessMode).toBe('openrouter')
+        const seen = []
+        const stop = settingsStore.subscribe((s) => seen.push(s.routerModel))
+        updateSettings({ routerModel: 'meta/muse-spark-1.3-contributor' })
+        stop()
+        expect(seen).toEqual(['google/gemini-3.8-flash', 'meta/muse-spark-1.3-contributor'])
+        expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).routerModel).toBe('meta/muse-spark-1.3-contributor')
+    })
 
-describe("settingsStore", () => {
-    it("emits defaults when no saved settings", async () => {
-        const { settingsStore } = await loadSettings();
-        let received;
-        const unsub = settingsStore.subscribe((s) => {
-            received = s;
-        });
-        expect(received).toEqual({
-            apiKey: "",
-            model: "google/gemini-3.8-flash",
-            accessMode: "openrouter",
-            provider: "openai",
-            baseUrl: "",
-            chapteringTrigger: 150000,
-            toolUseWireFormat: true,
-            reasoningEffort: "medium",
-            providerPins: {},
-            githubPat: "",
-            syncRepo: "",
-            syncPat: "",
-            syncRepoIsPrivate: true,
-            syncAppState: true,
-            keepAwake: false,
-            notifyOnFinish: false,
-            publishShape: "full",
-        });
-        unsub();
-    });
+    it('say when a model can be reached', async () => {
+        const { DEFAULTS, isConfigured } = await import('./settings.js')
+        expect(isConfigured(DEFAULTS)).toBe(false)
+        expect(isConfigured({ ...DEFAULTS, routerKey: 'k' })).toBe(true)
+        expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456' })).toBe(false)
+        expect(isConfigured({ ...DEFAULTS, accessMode: 'custom', baseUrl: 'http://localhost:3456', endpointModel: 'local' })).toBe(true)
+        expect(isConfigured({ ...DEFAULTS, accessMode: 'scripted' })).toBe(true)
+    })
 
-    it("loads saved settings from localStorage", async () => {
-        store["agex-settings"] = JSON.stringify({
-            apiKey: "sk-test",
-            model: "openai/gpt-5.4",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => {
-            received = s;
-        });
-        expect(received.apiKey).toBe("sk-test");
-        expect(received.model).toBe("openai/gpt-5.4");
-    });
+    it('move a saved apiKey to the key for its service, an OpenRouter one never to an endpoint', async () => {
+        const { DEFAULTS, migrate } = await import('./settings.js')
+        const saved = (over) => ({ ...DEFAULTS, ...over })
+        expect(migrate(saved({ accessMode: 'openrouter', apiKey: 'sk-or-v1-abc' }))).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
+        // left behind when the service changed: an OpenRouter key stays OpenRouter's
+        expect(migrate(saved({ accessMode: 'custom', apiKey: 'sk-or-v1-abc' }))).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
+        expect(migrate(saved({ accessMode: 'custom', apiKey: 'local-secret' }))).toMatchObject({ routerKey: '', endpointKey: 'local-secret' })
+        expect(migrate(saved({ accessMode: 'openrouter', apiKey: 'old', routerKey: 'new' })).routerKey).toBe('new')
+        expect(migrate(saved({ apiKey: 'x' }))).not.toHaveProperty('apiKey')
+    })
 
-    it("merges partial saved settings with defaults", async () => {
-        store["agex-settings"] = JSON.stringify({ apiKey: "sk-partial" });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => {
-            received = s;
-        });
-        expect(received.apiKey).toBe("sk-partial");
-        expect(received.model).toBe("google/gemini-3.8-flash");
-    });
+    it('read saved settings with one apiKey as two keys', async () => {
+        localStorage.setItem('agex-studio-settings', JSON.stringify({ accessMode: 'custom', baseUrl: 'http://localhost:3456', apiKey: 'sk-or-v1-abc', model: 'm' }))
+        const { getSettings } = await import('./settings.js')
+        expect(getSettings()).toMatchObject({ routerKey: 'sk-or-v1-abc', endpointKey: '' })
+    })
 
-    it("handles corrupt localStorage gracefully", async () => {
-        store["agex-settings"] = "not json!!!";
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => {
-            received = s;
-        });
-        expect(received.apiKey).toBe("");
-    });
+    it('move a saved model to the model of its service', async () => {
+        const { DEFAULTS, migrate } = await import('./settings.js')
+        const saved = (over) => ({ ...DEFAULTS, ...over })
+        expect(migrate(saved({ accessMode: 'openrouter', model: 'anthropic/claude-sonnet-5' }))).toMatchObject({ routerModel: 'anthropic/claude-sonnet-5', endpointModel: '' })
+        expect(migrate(saved({ accessMode: 'custom', model: 'claude-local' }))).toMatchObject({ routerModel: DEFAULTS.routerModel, endpointModel: 'claude-local' })
+        expect(migrate(saved({ model: 'x' }))).not.toHaveProperty('model')
+        // cleared on purpose: still cleared, not the default, so nothing runs on a model never chosen
+        expect(migrate(saved({ accessMode: 'openrouter', model: '' })).routerModel).toBe('')
+    })
+})
 
-    it.each([
-        ["google/gemini-3.5-flash"],
-        ["google/gemini-3.6-flash"],
-    ])("migrates the superseded default %s", async (stale) => {
-        store["agex-settings"] = JSON.stringify({
-            model: stale,
-            accessMode: "openrouter",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        expect(received.model).toBe("google/gemini-3.8-flash");
-    });
-
-    it("leaves an actively-chosen model alone, even one dropped from the presets", async () => {
-        store["agex-settings"] = JSON.stringify({
-            model: "z-ai/glm-5.2", // no longer a preset, but never a default
-            accessMode: "openrouter",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        expect(received.model).toBe("z-ai/glm-5.2");
-    });
-
-    /** Migration: pre-accessMode settings that were already going through
-     * OpenRouter (the only flow we shipped before direct providers were
-     * an option) should land on accessMode="openrouter" — not get bumped
-     * to "custom" with no URL set, which would be unusable. */
-    it("infers accessMode='openrouter' for legacy settings with empty baseUrl", async () => {
-        store["agex-settings"] = JSON.stringify({
-            apiKey: "sk-or-legacy",
-            model: "openai/gpt-5.4",
-            provider: "openai",
-            baseUrl: "",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        expect(received.accessMode).toBe("openrouter");
-    });
-
-    it("infers accessMode='custom' from a legacy provider='anthropic'", async () => {
-        store["agex-settings"] = JSON.stringify({
-            apiKey: "sk-ant-legacy",
-            provider: "anthropic",
-            baseUrl: "",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        // Anthropic-direct users land on "custom" so the URL field is
-        // surfaced (Anthropic-direct needs an explicit URL even though
-        // it's still browser-friendly).
-        expect(received.accessMode).toBe("custom");
-        expect(received.provider).toBe("anthropic");
-    });
-
-    it("infers accessMode='openrouter' from a legacy openrouter baseUrl", async () => {
-        store["agex-settings"] = JSON.stringify({
-            apiKey: "sk-or-legacy",
-            provider: "openai",
-            baseUrl: "https://openrouter.ai/api/v1",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        expect(received.accessMode).toBe("openrouter");
-    });
-
-    it("collapses the brief-iteration accessMode='openai'/'anthropic' into 'custom'", async () => {
-        store["agex-settings"] = JSON.stringify({
-            apiKey: "sk-test",
-            accessMode: "anthropic",
-            provider: "anthropic",
-            baseUrl: "",
-        });
-        const { settingsStore } = await loadSettings();
-        let received;
-        settingsStore.subscribe((s) => { received = s });
-        expect(received.accessMode).toBe("custom");
-        expect(received.provider).toBe("anthropic");
-    });
-});
-
-describe("updateSettings", () => {
-    it("notifies subscribers and persists to localStorage", async () => {
-        const { settingsStore, updateSettings } = await loadSettings();
-        const values = [];
-        settingsStore.subscribe((s) => values.push({ ...s }));
-
-        updateSettings({ apiKey: "sk-new" });
-
-        expect(values).toHaveLength(2);
-        expect(values[1].apiKey).toBe("sk-new");
-        expect(values[1].model).toBe("google/gemini-3.8-flash");
-
-        const saved = JSON.parse(store["agex-settings"]);
-        expect(saved.apiKey).toBe("sk-new");
-    });
-
-    it("unsubscribe stops notifications", async () => {
-        const { settingsStore, updateSettings } = await loadSettings();
-        const values = [];
-        const unsub = settingsStore.subscribe((s) => values.push({ ...s }));
-        unsub();
-
-        updateSettings({ apiKey: "sk-ignored" });
-        expect(values).toHaveLength(1);
-    });
-});
-
-describe("resolveProvider", () => {
-    it("auto-detects anthropic in OpenRouter mode for anthropic/* models", async () => {
-        const { resolveProvider } = await loadSettings();
-        expect(
-            resolveProvider({
-                accessMode: "openrouter",
-                model: "anthropic/claude-sonnet-4.6",
-            }),
-        ).toBe("anthropic");
-        expect(
-            resolveProvider({
-                accessMode: "openrouter",
-                model: "anthropic/claude-haiku-4.5",
-            }),
-        ).toBe("anthropic");
-    });
-
-    it("returns openai in OpenRouter mode for non-anthropic models", async () => {
-        const { resolveProvider } = await loadSettings();
-        for (const model of [
-            "google/gemini-3.8-flash",
-            "openai/gpt-5.4",
-            "meta-llama/llama-4",
-            "mistralai/mistral-large",
-        ]) {
-            expect(
-                resolveProvider({ accessMode: "openrouter", model }),
-            ).toBe("openai");
-        }
-    });
-
-    it("ignores stored provider in OpenRouter mode (model-prefix wins)", async () => {
-        const { resolveProvider } = await loadSettings();
-        expect(
-            resolveProvider({
-                accessMode: "openrouter",
-                provider: "anthropic", // stored, but should be ignored
-                model: "google/gemini-3.8-flash",
-            }),
-        ).toBe("openai");
-        expect(
-            resolveProvider({
-                accessMode: "openrouter",
-                provider: "openai", // stored, but should be ignored
-                model: "anthropic/claude-sonnet-4.6",
-            }),
-        ).toBe("anthropic");
-    });
-
-    it("respects explicit provider in Custom mode", async () => {
-        const { resolveProvider } = await loadSettings();
-        expect(
-            resolveProvider({
-                accessMode: "custom",
-                provider: "anthropic",
-                model: "claude-sonnet-4.6",
-            }),
-        ).toBe("anthropic");
-        expect(
-            resolveProvider({
-                accessMode: "custom",
-                provider: "openai",
-                model: "gpt-5.4",
-            }),
-        ).toBe("openai");
-    });
-
-    it("defaults to openai when neither openrouter nor custom-provider is set", async () => {
-        const { resolveProvider } = await loadSettings();
-        expect(resolveProvider({})).toBe("openai");
-        expect(resolveProvider({ accessMode: "custom" })).toBe("openai");
-        expect(resolveProvider({ accessMode: "openrouter" })).toBe("openai");
-    });
-
-    it("handles empty / missing model gracefully in OpenRouter mode", async () => {
-        const { resolveProvider } = await loadSettings();
-        expect(
-            resolveProvider({ accessMode: "openrouter", model: "" }),
-        ).toBe("openai");
-        expect(resolveProvider({ accessMode: "openrouter" })).toBe("openai");
-    });
-});

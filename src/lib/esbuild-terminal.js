@@ -1,9 +1,8 @@
 /**
- * `esbuild` terminal command — TS-side counterpart of the py-side
- * `_register_esbuild` in `public/python/agent_modules.py`. Wraps
- * `esbuild-bridge.js` (shared with the py kernel) as a @agex-ts/termish
- * command so agents can `esbuild app/index.jsx --outfile=app/index.js`
- * to bundle JSX/TSX sources into runnable JS for the app preview.
+ * `esbuild` terminal command: wraps `esbuild-bridge.js` as a
+ * @agex-ts/termish command so agents can
+ * `esbuild app/index.jsx --outfile=app/index.js` to bundle JSX/TSX
+ * sources into runnable JS for the app preview.
  *
  * Exports are split into pure helpers + a single orchestrator for
  * testability. The actual `runEsbuild` import is injected into the
@@ -14,16 +13,13 @@
  * failures. agex-ts's task.ts catches the throw, surfaces the
  * message as an error OutputPart, and the agent sees it on the next
  * turn — same UX shape as @agex-ts/termish builtins that throw
- * `TerminalError`. We don't import `TerminalError` because @agex-ts/termish
- * isn't a direct dep; the only difference is the absence of
- * `partialOutput`, which we'd never populate anyway (esbuild is a
- * single atomic call, no incremental stdout).
+ * `TerminalError`, less its `partialOutput`, which esbuild would never
+ * fill (a build is a single atomic call, with no incremental stdout).
  */
 
 import { bytesToBase64 } from "./bytes.js";
 
-/** Source extensions esbuild understands as text. Kept in sync with
- *  the py-side `SOURCE_EXTS` in `_collect_app_sources`. */
+/** Source extensions esbuild understands as text. */
 const SOURCE_EXTS = [".jsx", ".tsx", ".ts", ".js", ".css", ".json", ".svg"];
 
 /** Image extensions esbuild inlines via its `dataurl` loader during

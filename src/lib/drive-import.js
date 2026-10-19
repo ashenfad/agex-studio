@@ -1,163 +1,75 @@
 /**
- * Drive import — on-demand OAuth + picker + download into VFS.
+ * Files from Google Drive: an access token asked for at the click, the
+ * Picker, and each picked file's bytes.
  *
- * Replaces the live /drive/ virtual mount. Users pick files via the
- * Google Picker; we fetch each file's bytes (with the access token in
- * main-thread scope only) and post them to the worker to write into
- * the agent's VFS under /downloads/.
- *
- * Token lifecycle: obtained at click time, used during downloads,
- * dropped immediately after. Never enters the Pyodide worker's Python
- * scope.
+ * The token lives only in this call: it is used for the downloads and
+ * dropped (Google expires it within the hour), and it never reaches the
+ * workspace or the agent. A Google-native file is exported to a format
+ * code can read (a Doc as text, a Sheet as .xlsx, Slides as PDF).
  */
 
-import { requestAccessToken, isGoogleAvailable } from "./google-auth.js";
-import { openPicker, isPickerAvailable } from "./google-picker.js";
-import { getActiveAdapter } from "./active-adapter.js";
+import { errorText } from "./errors.js";
+import { isGoogleAvailable, requestAccessToken } from "./google-auth.js";
+import { isPickerAvailable, openPicker } from "./google-picker.js";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
 
-/**
- * Export mappings for Google-native formats.
- * @type {Record<string, {mime: string, ext: string}>}
- */
-const EXPORT_MAP = {
-    "application/vnd.google-apps.document": {
-        mime: "text/plain",
-        ext: ".txt",
-    },
+/** @type {Record<string, { mime: string, ext: string }>} */
+const EXPORTS = {
+    "application/vnd.google-apps.document": { mime: "text/plain", ext: ".txt" },
     "application/vnd.google-apps.spreadsheet": {
         mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ext: ".xlsx",
     },
-    "application/vnd.google-apps.presentation": {
-        mime: "application/pdf",
-        ext: ".pdf",
-    },
+    "application/vnd.google-apps.presentation": { mime: "application/pdf", ext: ".pdf" },
 };
 
-/**
- * Whether Drive import is available (both auth + picker configured).
- */
+/** Whether Drive import is configured (a client id and an API key). */
 export function isDriveImportAvailable() {
     return isGoogleAvailable() && isPickerAvailable();
 }
 
-/**
- * Derive a safe filename from a picked file's name + its resolved
- * extension. Avoids double-extensions like "MyDoc.txt.txt" when the
- * user already has the extension in the name, and sanitizes path
- * separators.
- *
- * @param {string} pickedName
- * @param {string} ext - extension including leading dot (e.g. ".xlsx")
- */
-function _resolveFilename(pickedName, ext) {
-    const safe = pickedName.replace(/[/\\]/g, "_");
-    if (ext && safe.toLowerCase().endsWith(ext.toLowerCase())) return safe;
-    return `${safe}${ext}`;
+/** A picked file's name with `ext`, unless it has it already; no path
+ *  separators. @param {string} name @param {string} ext */
+function fileName(name, ext) {
+    const safe = name.replace(/[/\\]/g, "_");
+    return ext && !safe.toLowerCase().endsWith(ext.toLowerCase()) ? `${safe}${ext}` : safe;
+}
+
+/** @param {{ id: string, name: string, mimeType: string }} file @param {string} token */
+async function download(file, token) {
+    const exported = EXPORTS[file.mimeType];
+    const url = exported
+        ? `${DRIVE_API}/${file.id}/export?${new URLSearchParams({ mimeType: exported.mime })}`
+        : `${DRIVE_API}/${file.id}?alt=media`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+        const body = await r.json().catch(() => null);
+        throw new Error(`${file.name}: ${body?.error?.message ?? `HTTP ${r.status}`}`);
+    }
+    return { name: fileName(file.name, exported?.ext ?? ""), bytes: new Uint8Array(await r.arrayBuffer()) };
 }
 
 /**
- * Fetch a single picked file's bytes from Drive.
+ * Ask for a token, open the Picker, and download what was picked: the
+ * files, and an error for each that failed. Empty when the person
+ * cancels at either step.
  *
- * @param {{id: string, name: string, mimeType: string}} file
- * @param {string} token
- * @returns {Promise<{filename: string, bytes: Uint8Array}>}
+ * @returns {Promise<{ files: { name: string, bytes: Uint8Array }[], errors: string[] }>}
  */
-async function _fetchFile(file, token) {
-    const exportInfo = EXPORT_MAP[file.mimeType];
-    let url;
-    let filename;
-
-    if (exportInfo) {
-        // Google-native format: use export endpoint
-        const params = new URLSearchParams({ mimeType: exportInfo.mime });
-        url = `${DRIVE_API}/${file.id}/export?${params}`;
-        filename = _resolveFilename(file.name, exportInfo.ext);
-    } else {
-        // Regular file: fetch bytes directly
-        url = `${DRIVE_API}/${file.id}?alt=media`;
-        filename = file.name;
-    }
-
-    const resp = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!resp.ok) {
-        let msg;
-        try {
-            const body = await resp.json();
-            msg = body?.error?.message || JSON.stringify(body);
-        } catch {
-            msg = `HTTP ${resp.status}`;
-        }
-        throw new Error(`Drive download failed for "${file.name}": ${msg}`);
-    }
-
-    const buffer = await resp.arrayBuffer();
-    return { filename, bytes: new Uint8Array(buffer) };
-}
-
-/**
- * Run the full import flow: request token → open picker → download
- * selected files → write to VFS.
- *
- * @returns {Promise<string[]>} List of filenames written to VFS
- *   (relative to the VFS root, e.g. "downloads/foo.xlsx"). Empty if
- *   the user cancelled at any step.
- */
-export async function importFromDrive() {
-    if (!isDriveImportAvailable()) {
-        throw new Error("Drive import is not available (Google client not configured)");
-    }
-
-    // 1. Get a fresh access token (popup usually silent after first consent)
+export async function pickFromDrive() {
+    if (!isDriveImportAvailable()) throw new Error("Drive import isn't configured");
     const token = await requestAccessToken();
-    if (!token) return [];  // user cancelled
-
-    try {
-        // 2. Open the Drive picker
-        const picked = await openPicker(token);
-        if (picked.length === 0) return [];
-
-        // 3. Fetch each file in parallel; collect successes and surface
-        //    per-file errors. allSettled (not all) so one bad fetch
-        //    doesn't drop the whole batch.
-        const results = await Promise.allSettled(
-            picked.map(async (file) => {
-                const { filename, bytes } = await _fetchFile(file, token);
-                return { path: `downloads/${filename}`, bytes };
-            }),
-        );
-
-        /** @type {Record<string, Uint8Array>} */
-        const writeBatch = {};
-        const errors = [];
-        for (let i = 0; i < results.length; i++) {
-            const r = results[i];
-            if (r.status === "fulfilled") {
-                writeBatch[r.value.path] = r.value.bytes;
-            } else {
-                errors.push(`${picked[i].name}: ${r.reason?.message || r.reason}`);
-            }
-        }
-        if (errors.length > 0) {
-            console.warn("[drive-import] Some files failed:", errors);
-        }
-
-        // 4. One adapter write commits all the downloads atomically —
-        //    one kvgit commit instead of one per file.
-        const written = Object.keys(writeBatch);
-        if (written.length > 0) {
-            const { adapter, branch } = await getActiveAdapter();
-            await adapter.writeFiles(branch, writeBatch);
-        }
-        return written;
-    } finally {
-        // Token falls out of scope — main thread drops its reference.
-        // Google's server-side lifetime (~1 hour) is the outer bound;
-        // we don't actively revoke.
+    if (!token) return { files: [], errors: [] };
+    const picked = await openPicker(token);
+    const settled = await Promise.allSettled(picked.map((f) => download(f, token)));
+    /** @type {{ name: string, bytes: Uint8Array }[]} */
+    const files = [];
+    /** @type {string[]} */
+    const errors = [];
+    for (const s of settled) {
+        if (s.status === "fulfilled") files.push(s.value);
+        else errors.push(errorText(s.reason));
     }
+    return { files, errors };
 }

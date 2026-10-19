@@ -1,205 +1,140 @@
 /**
- * Settings store — API key and model config, persisted to localStorage.
+ * Settings: the model the studio talks to, and how, persisted to
+ * localStorage on this device (each key never leaves it except to the
+ * service it is for).
  */
 
-export const STORAGE_KEY = "agex-settings";
+import { readLocalJson, writeLocalJson } from "./local.js";
 
-const DEFAULT_OPENROUTER_MODEL = "google/gemini-3.8-flash";
-// Prior OpenRouter defaults. Someone sitting on one of these almost
-// certainly never touched the setting, so carry them to the current
-// default rather than stranding them on a model the picker no longer
-// lists — SettingsDrawer drops an unlisted id into its free-text custom
-// input, which reads as breakage for a value the user never chose. Every
-// bump so far has been same-family and same-price, so the move is free.
-// Deliberately narrow: ex-defaults only, never a model actively picked.
-const SUPERSEDED_OPENROUTER_MODELS = new Set([
-    "google/gemini-3.5-flash",
-    "google/gemini-3.6-flash",
-]);
+export const STORAGE_KEY = "agex-studio-settings";
 
-const DEFAULTS = {
-    apiKey: "",
-    model: DEFAULT_OPENROUTER_MODEL,
-    // ``accessMode`` is the user-facing primary control: which service
-    // we're talking to.  Two modes:
-    //   "openrouter" — managed: fixed base URL, key + model is enough.
-    //   "custom"     — bring-your-own endpoint: user-supplied URL plus
-    //                  a wire-format choice (OpenAI / Anthropic shape).
-    //                  Covers Anthropic direct (browser-friendly with
-    //                  the dangerous-direct-browser-access header),
-    //                  self-hosted vLLM / Ollama / LiteLLM proxies,
-    //                  any OpenAI-compatible third-party endpoint.
-    //                  OpenAI's own direct API has no browser CORS
-    //                  support, so it is not a viable mode here.
+/**
+ * How OpenRouter picks among the providers serving one model.
+ *
+ * @typedef {Object} RouterRoute
+ * @property {string | null} provider — the endpoint asked first, by its
+ *     routing tag (`google-vertex/global`, `deepinfra/turbo`); null
+ *     leaves the choice to OpenRouter.
+ * @property {boolean} only — with a provider: that one or none, the
+ *     request failing rather than falling back to another.
+ * @property {"price" | "throughput" | "latency" | null} sort — with no
+ *     provider: the endpoints tried cheapest, fastest or quickest to
+ *     answer first; null keeps OpenRouter's own balance.
+ */
+
+/**
+ * @typedef {Object} Settings
+ * @property {string} routerKey — an OpenRouter key: the model's, on
+ *     OpenRouter; and `web` and `media`'s whatever the model, which run
+ *     on OpenRouter.
+ * @property {string} endpointKey — a custom endpoint's own key, if it
+ *     needs one; it goes only to that endpoint.
+ * @property {"openrouter" | "custom" | "scripted"} accessMode — which
+ *     service: OpenRouter, an endpoint of the user's own (`baseUrl`, in
+ *     the `wire` shape: a direct provider, a local Meridian, a
+ *     self-hosted proxy), or, in dev builds only, a scripted model.
+ * @property {string} routerModel — the model on OpenRouter
+ *     (`google/gemini-3.8-flash`), picked from its catalog or typed.
+ * @property {string} endpointModel — the model a custom endpoint is
+ *     asked for, by its own name.
+ * @property {Record<string, RouterRoute>} routerRouting — the route on
+ *     OpenRouter for each model it's set for, by model id (each model
+ *     has its own providers); a model without one is left to OpenRouter.
+ * @property {boolean} routerDenyTraining — on OpenRouter, only providers
+ *     that don't store prompts or train on them (`data_collection:
+ *     "deny"`), whatever the model.
+ * @property {boolean} routerZdr — on OpenRouter, only endpoints with a
+ *     zero data retention policy (`zdr`), whatever the model.
+ * @property {"anthropic" | "openai"} wire — a custom endpoint's shape.
+ * @property {string} baseUrl — a custom endpoint's URL.
+ * @property {"off" | "low" | "medium" | "high"} thinking — how hard the
+ *     model thinks per turn, which each provider maps for its model.
+ * @property {number} foldBudget — the request size, in tokens, past
+ *     which earlier turns are folded into a summary; 0 never folds.
+ * @property {boolean} vision — whether a custom endpoint's model takes
+ *     images: a screenshot `test_app` takes, or an image `view_image`
+ *     reads, is sent to it only then. On OpenRouter its catalog says,
+ *     and this stands only for a model it doesn't list.
+ * @property {string} syncRepo — the GitHub repo sessions sync through
+ *     (`owner/name`); empty when sync is off.
+ * @property {string} syncToken — a token for that repo (fine-grained,
+ *     Contents read and write).
+ * @property {string} syncApi — the GitHub API's root URL sync uses;
+ *     empty for GitHub's own. For testing against a stand-in (kvgit's
+ *     fake GitHub, `pnpm -F @agex-ts/kvgit fake-github` in agex-ts);
+ *     the settings dialog has no field for it.
+ * @property {string} publishToken — a token that can write gists, to
+ *     publish sessions; the sync token is tried when empty.
+ * @property {boolean} notifyOnFinish — a desktop notification when a
+ *     turn ends while the person isn't looking (see `notify.js`).
+ */
+
+/** @type {Settings} */
+export const DEFAULTS = {
+    routerKey: "",
+    endpointKey: "",
     accessMode: "openrouter",
-    provider: "openai",
+    routerModel: "google/gemini-3.8-flash",
+    endpointModel: "",
+    routerRouting: {},
+    routerDenyTraining: false,
+    routerZdr: false,
+    wire: "anthropic",
     baseUrl: "",
-    chapteringTrigger: 150000,
-    toolUseWireFormat: true,
-    reasoningEffort: "medium",
-    // OpenRouter provider pins, keyed by model id ("author/slug"). When
-    // set, the user has chosen a specific upstream provider for that model;
-    // `_buildLlmClient` hard-pins it (`provider.order` + no fallbacks). A
-    // model absent from the map (or in custom mode) routes normally.
-    providerPins: {},
-    githubPat: "",
-    // Session sync (cross-device, via a dedicated GitHub repo). Both
-    // empty = not connected. `syncPat` is a fine-grained token scoped
-    // to ONLY `syncRepo` with Contents read/write — deliberately a
-    // separate credential from `githubPat` (classic, gist scope):
-    // different trust levels, independently revocable. Set by the
-    // connect wizard in SettingsDrawer via sync-settings.js.
+    thinking: "medium",
+    foldBudget: 150000,
+    vision: true,
     syncRepo: "",
-    syncPat: "",
-    // Whether syncRepo is private, captured at connect time. False
-    // drives a persistent world-readable warning in the drawer; null
-    // (unknown — privacy lookup failed) is treated as private rather
-    // than crying wolf. Reset to true on disconnect.
-    syncRepoIsPrivate: true,
-    // Sync app save data (the iframe localStorage bag) alongside the
-    // session. Default on — repo growth is handled structurally by
-    // the engine's orphan-squash of app-state history.
-    syncAppState: true,
-    // Hold a screen wake lock while any session has a turn in flight, so
-    // the display doesn't dim during long agent turns. Surfaced in the
-    // session drawer; auto-released when the tab is hidden (the browser
-    // does this) and re-acquired on return.
-    keepAwake: false,
-    // Fire a desktop notification when a session finishes a turn while
-    // its result isn't on screen (different session foreground, or tab
-    // hidden). Surfaced in the session drawer; gated on the browser
-    // notification permission grant in addition to this flag.
+    syncToken: "",
+    syncApi: "",
+    publishToken: "",
     notifyOnFinish: false,
-    // Last-used publish shape ('full' | 'flat' | 'flat-downsample' |
-    // 'flat-strip') — remembered across publishes so an image-heavy
-    // workflow isn't re-choosing every time.
-    publishShape: "full",
 };
 
 /** @type {((s: Settings) => void)[]} */
 let subscribers = [];
 
-/**
- * @typedef {Object} Settings
- * @property {string} apiKey
- * @property {string} model
- * @property {"openrouter" | "custom"} accessMode — which service we're
- *     talking to.  ``openrouter`` is the managed default; ``custom``
- *     means a user-supplied URL with a chosen wire format (covers
- *     Anthropic direct, self-hosted vLLM / Ollama / LiteLLM, and any
- *     OpenAI-compatible third-party endpoint).  Drives placeholders,
- *     model presets, and which fields the drawer surfaces.
- * @property {"openai" | "anthropic"} provider — wire format / Python
- *     LLM client (PyfetchOpenAI vs PyfetchAnthropic).  In Custom mode
- *     this is the user's explicit shape choice.  In OpenRouter mode
- *     it defaults to ``openai`` and can be overridden in Advanced
- *     for routes that prefer Anthropic's format.
- * @property {string} baseUrl
- * @property {number} chapteringTrigger
- * @property {boolean} toolUseWireFormat — when true (default), the
- *     agex LLM client uses native model reasoning (Claude extended
- *     thinking, Gemini thought parts, OpenAI Responses, OpenRouter
- *     reasoning_details).  Set false for non-reasoning models / routes
- *     to fall back to narration-in-schema thinking.
- * @property {"low" | "medium" | "high"} reasoningEffort — how hard the
- *     model should think per turn when native reasoning is on.  Maps to
- *     OpenRouter's ``reasoning.effort`` and to an Anthropic
- *     ``budget_tokens`` (1024 / 2048 / 4096).  Ignored when
- *     toolUseWireFormat is false.
- * @property {Record<string, string>} providerPins — OpenRouter provider
- *     pins keyed by model id (``author/slug``).  A present entry means the
- *     user chose a specific upstream for that model, and the client hard-
- *     pins it (``provider.order`` with fallbacks off).  Models absent from
- *     the map — and every model in custom mode — route normally.
- * @property {string} githubPat — GitHub Personal Access Token with
- *     ``gist`` scope.  Used to publish artifact bundles as secret
- *     gists.  Stored locally; never sent anywhere except api.github.com.
- *     Empty string when the user hasn't connected GitHub yet.
- * @property {string} syncRepo — ``owner/name`` of the dedicated session
- *     sync repo, or empty when sync isn't connected.  Set by the
- *     connect wizard after discovery + validation (sync-settings.js).
- * @property {string} syncPat — fine-grained PAT scoped to ONLY
- *     ``syncRepo`` with Contents read/write.  Deliberately separate
- *     from ``githubPat`` (different trust level, independently
- *     revocable).  Stored locally; sent only to api.github.com.
- * @property {boolean} syncRepoIsPrivate — privacy of ``syncRepo`` as
- *     observed at connect time.  False renders a persistent
- *     world-readable warning next to the connected state.
- * @property {boolean} syncAppState — replicate app save data across
- *     devices as an app-state sidecar.  Toggle in the Sync section.
- * @property {boolean} keepAwake — hold a screen wake lock while a session
- *     has a turn in flight (display won't dim during long turns).
- * @property {boolean} notifyOnFinish — fire a desktop notification when a
- *     session finishes a turn while its result isn't on screen. Also
- *     gated on the browser notification permission.
- * @property {'full' | 'flat' | 'flat-downsample' | 'flat-strip'} publishShape
- *     — the shape chosen on the last gist publish (full history vs tip
- *     snapshot, and how images are treated), pre-selected the next time
- *     the options stage opens so an image-heavy workflow isn't re-choosing
- *     every publish.  Only consulted for ts sessions; py always bundles
- *     ``full``.
- */
-
 /** @type {Settings} */
 let settings = load();
 
+/** @returns {Settings} */
 function load() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-            const stored = JSON.parse(raw);
-            const merged = { ...DEFAULTS, ...stored };
-            // Migrate pre-accessMode settings: infer the mode from the
-            // stored ``provider`` + ``baseUrl`` so existing users don't
-            // get bumped to the OpenRouter default with the wrong key.
-            // Anything that isn't clearly OpenRouter lands on "custom"
-            // (preserving the stored provider + baseUrl as the
-            // configured shape / endpoint).
-            if (stored.accessMode === undefined) {
-                if (merged.provider === "anthropic" || merged.baseUrl) {
-                    merged.accessMode = /openrouter/i.test(merged.baseUrl || "")
-                        ? "openrouter"
-                        : "custom";
-                } else {
-                    // No baseUrl + provider=openai pre-migration almost
-                    // always meant OpenRouter (the only flow we shipped
-                    // before direct providers were on the table).
-                    merged.accessMode = "openrouter";
-                }
-            } else if (
-                stored.accessMode === "openai" ||
-                stored.accessMode === "anthropic"
-            ) {
-                // Earlier brief 3-mode iteration ("openrouter" /
-                // "openai" / "anthropic") collapsed into 2.  Both
-                // direct-provider modes fold into "custom"; preserve
-                // the wire format via ``provider``.
-                merged.accessMode = "custom";
-            }
-            // Move existing OpenRouter users off a superseded default.
-            // Custom model IDs remain user-controlled, so only migrate the
-            // exact ids we once shipped as the default.
-            if (
-                merged.accessMode === "openrouter" &&
-                SUPERSEDED_OPENROUTER_MODELS.has(merged.model)
-            ) {
-                merged.model = DEFAULT_OPENROUTER_MODEL;
-            }
-            return merged;
-        }
-    } catch {}
-    return { ...DEFAULTS };
+    // with nothing kept, or nothing readable, the defaults
+    const kept = readLocalJson(STORAGE_KEY);
+    return kept ? migrate({ ...DEFAULTS, ...kept }) : { ...DEFAULTS };
 }
 
-function save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+/**
+ * Settings saved with one key and one model for every service, as each
+ * service's own.
+ *
+ * - `apiKey`: an OpenRouter key goes to `routerKey` (on OpenRouter, or
+ *   one that looks like OpenRouter's left behind on a custom endpoint,
+ *   which is never sent to that endpoint again); a custom endpoint's
+ *   own, to `endpointKey`.
+ * - `model`: to the model of the service it was saved with.
+ *
+ * @param {Settings & { apiKey?: unknown, model?: unknown }} s
+ * @returns {Settings}
+ */
+export function migrate(s) {
+    const { apiKey, model, ...rest } = s;
+    /** @type {Settings} */
+    let out = rest;
+    // a saved model, even a blank one the person cleared, overrides the default
+    if (typeof model === "string") {
+        if (rest.accessMode === "custom") out = { ...out, endpointModel: rest.endpointModel || model };
+        else out = { ...out, routerModel: model };
+    }
+    if (typeof apiKey !== "string" || apiKey.trim() === "") return out;
+    const forRouter = rest.accessMode === "openrouter" || apiKey.trim().startsWith("sk-or-");
+    if (forRouter) return { ...out, routerKey: out.routerKey || apiKey };
+    return { ...out, endpointKey: out.endpointKey || apiKey };
 }
 
-function notify() {
-    for (const fn of subscribers) fn(settings);
-}
-
+/** Settings as a Svelte store. */
 export const settingsStore = {
+    /** @param {(s: Settings) => void} fn */
     subscribe(fn) {
         subscribers.push(fn);
         fn(settings);
@@ -212,73 +147,20 @@ export const settingsStore = {
 /** @param {Partial<Settings>} patch */
 export function updateSettings(patch) {
     settings = { ...settings, ...patch };
-    save();
-    notify();
+    writeLocalJson(STORAGE_KEY, settings);
+    for (const fn of subscribers) fn(settings);
 }
 
-/** Return a snapshot of the current settings object.
- *
- *  Use over the Svelte-store `subscribe` contract when you need a
- *  one-shot read inside a non-reactive code path (e.g. an `agent.fn`
- *  handler that runs each time the agent calls it). The returned
- *  reference is the live module-level object — callers must not
- *  mutate it. `updateSettings` always assigns a fresh object, so the
- *  snapshot is safe to retain locally for the duration of one call.
- *
- *  @returns {Settings}
- */
+/** The settings now: a snapshot, replaced (never changed) by updates.
+ *  @returns {Settings} */
 export function getSettings() {
     return settings;
 }
 
-/** Resolve the effective LLM base URL from a settings object.
- *
- *  Custom mode: the user's explicit `baseUrl` wins.
- *  OpenRouter mode: maps to OpenRouter's OpenAI-compatible endpoint.
- *  Anything else (no mode + no URL): empty string, which signals
- *  "use the underlying client's default" to the kernel adapter.
- *
- *  Centralizing here means both kernels see the same URL — the
- *  resolution doesn't depend on which client library happens to
- *  have which default (agex-py's `PyfetchOpenAI` defaults to
- *  OpenRouter; agex-ts's `OpenAI` defaults to api.openai.com).
- *
- *  @param {{ baseUrl?: string, accessMode?: string }} s
- *  @returns {string}
- */
-export function resolveBaseUrl(s) {
-    if (s.baseUrl) return s.baseUrl;
-    if (s.accessMode === "openrouter") return "https://openrouter.ai/api/v1";
-    return "";
-}
-
-/** Resolve the effective LLM wire-format provider from a settings object.
- *
- *  Custom mode: the user's explicit `provider` choice wins.
- *  OpenRouter mode: pick wire shape from the model ID. Anthropic models
- *    (`anthropic/claude-…`) route to OpenRouter's Anthropic-shape
- *    endpoint (`/v1/messages`) so `cache_control` markers flow
- *    through — the OpenAI-shape endpoint silently drops them.
- *    Everything else (OpenAI, Gemini, Meta, Mistral, …) uses the
- *    OpenAI shape; Gemini's implicit caching still works there.
- *
- *  Caller must omit `@agex-ts/anthropic`'s default `anthropic-version`
- *  header when targeting OpenRouter (their CORS allow-list rejects
- *  it). See `_buildLlmClient` in `ts-agent.js` / `_llmConfig` in
- *  `agent.js` for the per-target header overrides.
- *
- *  The `<provider>/<model>` ID convention is enforced consistently
- *  on OpenRouter, so prefix-matching `anthropic/` is reliable.
- *
- *  @param {{ provider?: string, accessMode?: string, model?: string }} s
- *  @returns {"openai" | "anthropic"}
- */
-export function resolveProvider(s) {
-    if (s.accessMode === "openrouter") {
-        if (s.model && s.model.startsWith("anthropic/")) {
-            return "anthropic";
-        }
-        return "openai";
-    }
-    return s.provider === "anthropic" ? "anthropic" : "openai";
+/** Whether the settings can reach a model.
+ *  @param {Settings} s */
+export function isConfigured(s) {
+    if (s.accessMode === "scripted") return true;
+    if (s.accessMode === "custom") return s.endpointModel.trim() !== "" && s.baseUrl.trim() !== "";
+    return s.routerModel.trim() !== "" && s.routerKey.trim() !== "";
 }

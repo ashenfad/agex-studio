@@ -1,139 +1,162 @@
 # Agex Studio
 
-**[agex.studio](https://agex.studio)** — AI agents in the browser. No
-server, no backend. Your workspace lives in your browser, not on our
-servers.
+**[agex.studio](https://agex.studio)**: a person and an agent working
+together in the browser. No server, no backend: your sessions live in
+your browser, and the agent runs on your own model key.
 
-A browser-based AI assistant that pairs a chat interface with a live app
-preview, persistent versioned workspaces, and a tight code sandbox. Bring
-your own API key ([OpenRouter](https://openrouter.ai/) by default, or a
-direct / OpenAI-compatible endpoint); computation runs client-side. Agent
-turns send context to your LLM, and a few features reach other origins on
-demand (see [What leaves your browser](#what-leaves-your-browser)).
+Each session is a workspace of its own: files under `/workspace`, a
+shell, and TypeScript the agent runs in a sandboxed worker. Everything
+in it is versioned, so any turn can be undone, and any point forked.
+Bring a key for [OpenRouter](https://openrouter.ai/) (the default), a
+direct provider, or an endpoint of your own (a local proxy, say).
 
-## What's different
+## What it does
 
-- **Versioned workspaces.** Each session is a kvgit branch — files,
-  chat history, and agent state move together. Fork at any point, undo
-  across turns, export a session as a self-contained bundle. Other
-  browser-based AI sandboxes don't have this.
-- **No agex backend.** Computation runs in the browser and your
-  workspace persists locally in IndexedDB — no server of ours stores
-  your files, code, or conversations.
-- **Live app preview.** Agents build interactive dashboards, tools, and
-  games in a sandboxed iframe alongside the chat — JSX bundled in-browser
-  via `esbuild`, or no-build HTM + Preact for a lighter path. The agent
-  can `testApp` and `liveApp` to verify and interact with what it built.
-- **Isolated code execution.** The primary [TypeScript
-  kernel](https://github.com/ashenfad/agex-ts) runs agent code in a Web
-  Worker realm — no DOM, no main-thread state, no `eval`. Registered
-  capabilities arrive as injected parameters; type annotations are
-  stripped and it's compiled with `new AsyncFunction`. The boundary
-  isolates the page, not the network: agent code can still reach
-  worker-scope globals like `fetch`, so this is isolation for
-  cooperative code, not a jail for hostile code. Bare npm imports
-  resolve through esm.sh on demand.
-
-## What it can do
-
-- **Interactive apps** — dashboards, games, tools, data explorers in a
-  live preview pane.
-- **Tabular data** — Arrow + Arquero on the TS kernel; pandas / NumPy /
-  SciPy on the Python kernel. Plotly charts on both.
-- **PDFs** — page rendering + page count as image observations the agent
-  can reason over.
-- **Web search** — Perplexity Sonar models, with parallel `Promise.all`
-  across several searches for multi-topic research.
-- **Sub-agent fan-out** — the agent can `spawn` parallel LLM sub-tasks,
-  and apps it builds can call the LLM on a user action (an NPC's reply,
-  an opponent's move). Runs on your same provider — no extra egress.
-- **Google Drive import** — pick files via the Google Picker; their bytes
-  download into the workspace under `/downloads/`. The access token stays
-  on the main thread and is dropped right after the download.
-- **Session bundles** — export and import full sessions, including
-  history, files, and app state.
-
-### Note on the Python kernel
-
-Python sessions are marked **experimental**. The
-[agex-py](https://github.com/ashenfad/agex) sandbox
-([sandtrap](https://github.com/ashenfad/sandtrap)) runs real Python in
-the Pyodide WebAssembly runtime, filtering API access at the language
-level (AST rewriting plus runtime gates). The TypeScript kernel takes a
-different tack — agent code runs in a separate Web Worker realm and only
-receives the capabilities you inject, so it can't reach host globals at
-all. Both are designed for cooperative code, not adversarial input. New
-work is recommended on TypeScript sessions: faster to boot, more actively
-developed.
+- **Apps in a live preview.** Ask for a tool, a dashboard or a game and
+  the agent builds it under `/workspace/app`; it renders beside the
+  chat as its files change, in a separate origin. The agent checks what
+  it built with `test_app`, in a hidden page of its own, clicking,
+  reading and taking screenshots. JSX bundles in the browser with
+  `esbuild`.
+- **Rich replies.** The agent puts what it wants shown in `ui` (a Plotly
+  chart, a table, a row of cards, an image) and embeds it in its reply.
+  Each artifact is a file, so it is versioned with the rest.
+- **Tools for the agent's code:** `web` (search and page reading),
+  `media` (images, speech, music, written into the workspace) and `pdf`
+  (text and pages as images). `web` and `media` run on an OpenRouter
+  key.
+- **Sessions that fork, undo and sync.** Fork with the conversation,
+  with only the files, or as the session is now without its history.
+  Undo a turn and everything after it, and redo it. With a private
+  GitHub repo of your own, sessions sync between devices, an app's
+  saved data with them.
+- **Delegation.** The agent hands separable work to delegates, forks of
+  itself that run in the page beside it; their answers wake it, and it
+  merges their work with `ws-git`, its own git.
+- **Apps that call agents.** An app defines its own agent tasks
+  (`agex.task`) and calls them; they run on the viewer's model, within a
+  per-visit budget, and an app from someone else asks before its first
+  call.
+- **Sharing.** Export a session as a bundle (`.agex`), or publish it as
+  a secret gist: the link opens it in anyone's browser, the app alone
+  with `&play=1`, and publishing again updates it in place.
+- **Google Drive import**, and uploads from the device, into
+  `/workspace/uploads`.
 
 ## What leaves your browser
 
-"Client-side" doesn't mean "airgapped." A few things reach the network,
-all to endpoints you control or opt into:
+Nothing is stored on a server of ours. A few features reach other
+origins:
 
-- **Your LLM provider** — every agent turn sends the conversation and
-  task context to [OpenRouter](https://openrouter.ai/) (or whichever
-  endpoint your key targets). Web search rides the same connection
-  (Perplexity Sonar models routed through OpenRouter). This is the one
-  unavoidable egress.
-- **esm.sh** — when agent code imports a bare npm package.
-- **GitHub Gists** — when you publish or open a shared session, plus an
-  occasional lightweight revision check for gist-imported sessions (so
-  the studio can offer updates when the source changes).
-- **`apps.agex.studio`** — the cross-origin iframe that renders live app
-  previews (static bootloader; your app HTML is posted to it locally, not
+- **Your model's endpoint**, for every turn: OpenRouter, or the one you
+  set. `web` and `media` call OpenRouter too.
+- **esm.sh**, when code or an app imports a bare npm package.
+- **`apps.agex.studio`**, the origin the preview's iframe loads from (a
+  static bootloader; the app's HTML is posted to it in the page, not
   uploaded).
-- **Google Drive** — only when you import files via the Drive picker.
-
-Nothing is persisted on a server we run; the items above are per-feature
-network calls, most of them opt-in.
+- **GitHub**, only if you connect sync (your repo) or publish (your
+  gists), and to open a published link (its gist).
+- **Google Drive**, only when you import from it.
 
 ## Getting started
 
-1. Visit **[agex.studio](https://agex.studio)**
-2. Open Settings (gear icon) and enter your OpenRouter API key
-3. Start chatting (import files from Google Drive on demand — no upfront
-   connection needed)
+1. Visit **[agex.studio](https://agex.studio)**.
+2. Open settings (⚙) and enter your OpenRouter key and a model.
+3. Ask for something.
 
-## Local development
+The in-app docs (`public/docs/`) cover sessions, sharing and the agent.
 
-Requires Node.js 20+.
+## Running it locally
+
+The studio is built on [agex-ts](https://github.com/ashenfad/agex-ts)'s
+packages from npm (`agex-ts`, `@agex-ts/world`, `@agex-ts/kvgit`,
+`@agex-ts/kvsql`, `@agex-ts/termish`). Node 22 and pnpm 11.
 
 ```bash
-npm install
-npm run dev          # local dev server on http://localhost:5173
-npm run build        # production build → dist/
-npx vitest run       # full test suite (one-shot)
-npm test             # watch mode
+pnpm install
+pnpm dev                # http://localhost:5173
 ```
 
-The TypeScript kernel boots cold in well under a second. The Python
-kernel (Pyodide + PyPI wheels) takes ~30s on first load; later reloads
-are Service-Worker cached.
+- **Port 5173.** The preview's bootloader (at `apps.agex.studio`) takes
+  its app only from a studio on port 5173 or 4173, so the preview
+  doesn't work on another one.
+- **Settings (⚙):** an OpenRouter key and a model
+  (`meta/muse-spark-1.3-contributor` is cheap and works end to end), or
+  an endpoint of your own: its URL, its shape (Anthropic or
+  OpenAI-compatible) and a key if it needs one. Sync and publishing
+  take tokens of their own, in the same dialog.
+- **Google Drive import** needs `VITE_GOOGLE_CLIENT_ID` and
+  `VITE_GOOGLE_API_KEY` in `.env`; without them, "From Drive" isn't
+  offered.
+- **The preview's origin.** By default the preview loads its bootloader
+  from `https://apps.agex.studio`. To use a local copy of
+  [agex-studio-apps](https://github.com/ashenfad/agex-studio-apps),
+  serve it and point the studio at it:
+  `VITE_APPS_ORIGIN=http://localhost:8090 pnpm dev`.
+- **Against a local agex-ts:** to try an unreleased change, point the
+  packages at a built clone (`pnpm -r build` in it) with
+  `"link:../agex-ts/packages/<dir>"` in `package.json` and a
+  `pnpm install`, and don't commit that change.
+- **The production build:** `pnpm build && pnpm preview`
+  (http://localhost:4173). The build copies the page to
+  `dist/run/index.html`, so a published link's `/run/` path is served
+  by a static host.
 
-## Architecture quick-take
+Your local sessions live in IndexedDB for `localhost:5173`, apart from
+agex.studio's.
 
-Static SPA on GitHub Pages, no backend. Two runtime kernels share a
-`KernelAdapter` contract so the chat shell stays kernel-agnostic: agex-ts
-(TypeScript, primary) and Pyodide-hosted agex-py (Python, experimental).
-Persistent state lives in IndexedDB through
-[kvgit](https://github.com/ashenfad/kvgit), one branch per session.
+### Checks
 
-For implementation detail — kernel comparison, storage internals, the
-app-preview pipeline, error / cancellation flows — see [**docs/**](docs/).
-Forward-looking proposals live in [**roadmap/**](roadmap/).
+```bash
+pnpm vitest run         # the tests
+pnpm typecheck
+```
+
+**Driving the studio** from a terminal: `scripts/drive.mjs` opens it in
+headless Chromium, sends each prompt as a turn through a dev-only hook
+(`window.__studio`), and prints the tool calls, results, reply and
+files. The model comes from the environment, and the key is never
+printed.
+
+```bash
+OPENROUTER_API_KEY=… pnpm drive "Write a haiku about rivers to /workspace/haiku.txt"
+pnpm drive --scripted steps.json "go"            # a scripted model: no model call
+pnpm drive --profile .drive-profile --reload     # keep the browser's data; the record after a reload
+pnpm drive "build a counter" --exec "s.files()" --shot out.png
+```
+
+- `DRIVE_MODE` (`openrouter`, `custom` or `scripted`), `DRIVE_MODEL`,
+  `OPENROUTER_API_KEY`; for a custom endpoint `DRIVE_BASE_URL`,
+  `DRIVE_WIRE`, `DRIVE_API_KEY`.
+- `DRIVE_SYNC_REPO` and `DRIVE_SYNC_TOKEN` connect sync;
+  `DRIVE_PUBLISH_TOKEN` lets it publish.
+- `--url` (a studio already running), `--apps <dir>` (serve a local
+  agex-studio-apps as the preview's origin), `--open <path>` (open a
+  path first, a `/run/?gist=…` link say), `--quiet`, `--requests`.
+- It needs Playwright's Chromium; set `CHROME` to a Chromium binary if
+  that isn't installed.
+
+## Docs
+
+- [**docs/**](docs/): how the studio is built: sessions and storage,
+  the agent's turns, the app preview, sync and sharing, delegation.
+- [docs/operations/deploy.md](docs/operations/deploy.md): how it
+  deploys, and the checklist for a deploy.
+- [roadmap/rebuild.md](roadmap/rebuild.md): the rebuild on agex-ts,
+  step by step, and what is deferred.
 
 ## Part of the agex stack
 
-- [agex-ts](https://github.com/ashenfad/agex-ts) — TypeScript agent
-  orchestration (primary kernel for the studio)
-- [agex](https://github.com/ashenfad/agex) — Python agent orchestration
-- [calgebra](https://github.com/ashenfad/calgebra) — calendar algebra
-- [kvgit](https://github.com/ashenfad/kvgit) — versioned key-value store
-  (Python)
-- [@agex-ts/kvgit](https://github.com/ashenfad/agex-ts) — same, TypeScript
-  (lives in the agex-ts monorepo)
-- [monkeyfs](https://github.com/ashenfad/monkeyfs) — virtual filesystem
-- [sandtrap](https://github.com/ashenfad/sandtrap) — Python code sandbox
-- [termish](https://github.com/ashenfad/termish) — shell emulator
-```
+- [agex-ts](https://github.com/ashenfad/agex-ts): the agent loop
+  (`agex-ts`), the world it works in (`@agex-ts/world`), versioned
+  storage (`@agex-ts/kvgit`) and the shell (`@agex-ts/termish`)
+- [agex](https://github.com/ashenfad/agex): agent orchestration, in Python
+- [nontainer](https://github.com/ashenfad/nontainer): the Python world
+  `@agex-ts/world` follows
+- [kvgit](https://github.com/ashenfad/kvgit): versioned key-value
+  store, in Python
+- [calgebra](https://github.com/ashenfad/calgebra): calendar algebra
+- [monkeyfs](https://github.com/ashenfad/monkeyfs): virtual filesystem
+- [sandtrap](https://github.com/ashenfad/sandtrap): Python code sandbox
+- [termish](https://github.com/ashenfad/termish): shell emulator, in
+  Python

@@ -1,154 +1,186 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// settings.js reads localStorage at import; back it with a fresh object.
-// Re-stubbed each test since afterEach unstubs every global.
-const store = {};
-function stubLocalStorage() {
-    vi.stubGlobal("localStorage", {
-        getItem: (k) => store[k] ?? null,
-        setItem: (k, v) => {
-            store[k] = v;
-        },
-        removeItem: (k) => {
-            delete store[k];
-        },
-    });
-}
-
-// A minimal stand-in for the Notification constructor that records each
-// instance so tests can assert on what was shown.
+/** Each notification shown: its title, body and click handler.
+ *  @type {{ title: string, body: string, onclick: (() => void) | null, closed: boolean }[]} */
 let shown = [];
-function makeNotification(permission) {
-    function Notification(title, options) {
-        this.title = title;
-        this.options = options;
-        this.onclick = null;
-        this.close = () => {};
-        shown.push(this);
-    }
-    Notification.permission = permission;
-    Notification.requestPermission = vi.fn(async () => Notification.permission);
-    return Notification;
+
+/** A Notification stand-in with `permission`, recording what's shown.
+ *  @param {string} permission @param {string} [answer] what a request answers */
+function stubNotification(permission, answer = permission) {
+    const Fake = class {
+        /** @param {string} title @param {{ body: string }} opts */
+        constructor(title, opts) {
+            this.title = title;
+            this.body = opts.body;
+            /** @type {(() => void) | null} */
+            this.onclick = null;
+            this.closed = false;
+            shown.push(this);
+        }
+        close() {
+            this.closed = true;
+        }
+        static permission = permission;
+        static requestPermission = vi.fn(async () => {
+            Fake.permission = answer;
+            return answer;
+        });
+    };
+    vi.stubGlobal("Notification", Fake);
+    return Fake;
 }
 
-function setVisibility(state, focused = true) {
-    vi.stubGlobal("document", {
-        visibilityState: state,
-        hasFocus: () => focused,
-        addEventListener: () => {},
+/** notify.js with `notifyOnFinish` as given, the settings fresh. */
+async function load(notifyOnFinish = true) {
+    const store = /** @type {Record<string, string>} */ ({});
+    vi.stubGlobal("localStorage", {
+        getItem: (/** @type {string} */ k) => store[k] ?? null,
+        setItem: (/** @type {string} */ k, /** @type {string} */ v) => void (store[k] = v),
     });
+    vi.stubGlobal("window", { focus: vi.fn() });
+    const settings = await import("./settings.js");
+    settings.updateSettings({ notifyOnFinish });
+    return import("./notify.js");
 }
+
+const turn = { session: "s-1", title: "Plot the tides", status: "completed", reply: "Here's the chart.", error: null };
 
 beforeEach(() => {
-    for (const k of Object.keys(store)) delete store[k];
     shown = [];
-    stubLocalStorage();
-    vi.stubGlobal("window", {});
-    setVisibility("visible");
     vi.resetModules();
 });
-
 afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-async function load(permission = "granted", { notifyOnFinish = true } = {}) {
-    const Ctor = makeNotification(permission);
-    vi.stubGlobal("Notification", Ctor);
-    // `notificationsSupported` checks `"Notification" in window`, so the
-    // stubbed constructor has to live on the window stub too.
-    vi.stubGlobal("window", { Notification: Ctor, focus: () => {} });
-    const settings = await import("./settings.js");
-    settings.updateSettings({ notifyOnFinish });
-    const notify = await import("./notify.js");
-    return { ...notify, settings };
-}
-
-describe("notificationsSupported", () => {
-    it("is false when the Notification API is absent", async () => {
-        // window has no Notification
-        const notify = await import("./notify.js");
-        expect(notify.notificationsSupported()).toBe(false);
+describe("turnNotice", () => {
+    it("says the session's title and the reply's first line", async () => {
+        const { turnNotice } = await load();
+        expect(turnNotice(turn)).toEqual({ title: "Plot the tides", body: "Here's the chart." });
+        expect(turnNotice({ ...turn, title: "", reply: "" })).toEqual({ title: "agex studio", body: "Finished." });
     });
 
-    it("is true when Notification exists on window", async () => {
-        const { notificationsSupported } = await load();
-        expect(notificationsSupported()).toBe(true);
+    it("says how a turn that went wrong ended", async () => {
+        const { turnNotice } = await load();
+        expect(turnNotice({ ...turn, status: "failed", error: "the turn ended failed: overloaded" }).body).toBe("The turn ended failed: overloaded");
+        expect(turnNotice({ ...turn, status: "interrupted" }).body).toBe("The turn ended interrupted.");
+        expect(turnNotice({ ...turn, status: "cancelled" }).body).toBe("Stopped.");
     });
 });
 
-describe("notifyTurnComplete", () => {
-    it("does nothing when the opt-in flag is off", async () => {
-        const { notifyTurnComplete } = await load("granted", {
-            notifyOnFinish: false,
-        });
-        notifyTurnComplete({ branch: "b1", title: "T", foreground: false });
-        expect(shown).toHaveLength(0);
-    });
-
-    it("does nothing without permission", async () => {
-        const { notifyTurnComplete } = await load("default");
-        notifyTurnComplete({ branch: "b1", title: "T", foreground: false });
-        expect(shown).toHaveLength(0);
-    });
-
-    it("does nothing when on-screen (foreground + visible)", async () => {
-        const { notifyTurnComplete } = await load();
-        notifyTurnComplete({ branch: "b1", title: "T", foreground: true });
-        expect(shown).toHaveLength(0);
-    });
-
-    it("notifies when foreground but the tab is hidden", async () => {
-        setVisibility("hidden");
-        const { notifyTurnComplete } = await load();
-        notifyTurnComplete({ branch: "b1", title: "T", foreground: true });
-        expect(shown).toHaveLength(1);
-        expect(shown[0].options.body).toContain("T");
-    });
-
-    it("notifies when foreground + visible but the window is unfocused", async () => {
-        // The window/app-switch case: the tab stays "visible" but the
-        // studio window doesn't have focus. visibilityState alone misses
-        // it; hasFocus() catches it.
-        setVisibility("visible", false);
-        const { notifyTurnComplete } = await load();
-        notifyTurnComplete({ branch: "b1", title: "T", foreground: true });
-        expect(shown).toHaveLength(1);
-    });
-
-    it("notifies when a background session finishes", async () => {
-        const { notifyTurnComplete } = await load();
-        notifyTurnComplete({ branch: "b2", title: "Side", foreground: false });
-        expect(shown).toHaveLength(1);
-        expect(shown[0].options.body).toContain("Side");
+describe("lastReply", () => {
+    it("is the first line of the agent's last words", async () => {
+        const { lastReply } = await load();
+        const msg = (/** @type {string} */ role, /** @type {string} */ text) => ({ id: "m", role, parts: [{ kind: "text", text }] });
+        const run = /** @type {any} */ ({ messages: [msg("user", "go"), msg("assistant", "\n Done: three files.\nMore."), msg("assistant", "  ")] });
+        expect(lastReply(run)).toBe("Done: three files.");
+        expect(lastReply(undefined)).toBe("");
     });
 });
 
-describe("showAppNotification", () => {
-    it("returns false without permission", async () => {
-        const { showAppNotification } = await load("denied");
-        expect(showAppNotification({ title: "Hi", branch: "b1" })).toBe(false);
+describe("notifyTurnEnded", () => {
+    it("shows nothing unless the person turned it on", async () => {
+        stubNotification("granted");
+        const { notifyTurnEnded } = await load(false);
+        expect(notifyTurnEnded(turn)).toBe(false);
         expect(shown).toHaveLength(0);
     });
 
-    it("shows and returns true when granted, capping long fields", async () => {
-        const { showAppNotification } = await load();
-        const longTitle = "x".repeat(500);
-        expect(
-            showAppNotification({ title: longTitle, body: "go", branch: "b1" }),
-        ).toBe(true);
-        expect(shown).toHaveLength(1);
-        expect(shown[0].title.length).toBeLessThanOrEqual(100);
-        expect(shown[0].options.body).toBe("go");
+    it("shows nothing without the browser's permission, and doesn't ask", async () => {
+        const Fake = stubNotification("default");
+        const { notifyTurnEnded } = await load();
+        expect(notifyTurnEnded(turn)).toBe(false);
+        expect(Fake.requestPermission).not.toHaveBeenCalled();
+        stubNotification("denied");
+        expect(notifyTurnEnded(turn)).toBe(false);
+        expect(shown).toHaveLength(0);
     });
 
-    it("routes a click through the activate handler", async () => {
-        const { showAppNotification, setNotificationActivateHandler } =
-            await load();
-        const activated = [];
-        setNotificationActivateHandler((b) => activated.push(b));
-        showAppNotification({ title: "Hi", branch: "b9" });
-        shown[0].onclick();
-        expect(activated).toEqual(["b9"]);
+    it("shows nothing where there are no notifications", async () => {
+        const { notifyTurnEnded, notificationPermission } = await load();
+        expect(notificationPermission()).toBe("unsupported");
+        expect(notifyTurnEnded(turn)).toBe(false);
+    });
+
+    it("shows the turn's notice; a click focuses the window and opens its session", async () => {
+        stubNotification("granted");
+        const { notifyTurnEnded, onNotificationClick } = await load();
+        const opened = /** @type {string[]} */ ([]);
+        onNotificationClick((name, kind) => opened.push(`${name}:${kind}`));
+        expect(notifyTurnEnded(turn)).toBe(true);
+        expect(shown).toMatchObject([{ title: "Plot the tides", body: "Here's the chart." }]);
+        shown[0]?.onclick?.();
+        expect(/** @type {any} */ (window).focus).toHaveBeenCalled();
+        // a turn's notice opens the chat; the handler tells it from an app's
+        expect(opened).toEqual(["s-1:turn"]);
+        expect(shown[0]?.closed).toBe(true);
+    });
+
+    it("cuts a long title and body short", async () => {
+        stubNotification("granted");
+        const { notifyTurnEnded } = await load();
+        notifyTurnEnded({ ...turn, title: "t".repeat(300), reply: "r".repeat(600) });
+        expect(shown[0]?.title).toHaveLength(100);
+        expect(shown[0]?.body).toHaveLength(250);
+        expect(shown[0]?.body.endsWith("…")).toBe(true);
     });
 });
+
+describe("requestNotificationPermission", () => {
+    it("says what the browser answered", async () => {
+        stubNotification("default", "granted");
+        const { requestNotificationPermission, notificationPermission } = await load();
+        expect(await requestNotificationPermission()).toBe("granted");
+        expect(notificationPermission()).toBe("granted");
+    });
+});
+
+describe("appNotify", () => {
+    const ask = { session: "s-1", title: "Timer", body: "Tea's ready" };
+
+    it("shows only what the browser already allows, and says why not", async () => {
+        const Fake = stubNotification("default");
+        const { appNotify } = await load(false);
+        const out = appNotify(ask);
+        expect(out.shown).toBe(false);
+        expect(out.reason).toMatch(/settings/);
+        expect(Fake.requestPermission).not.toHaveBeenCalled();
+        expect(shown).toHaveLength(0);
+    });
+
+    it("shows with permission, whatever the turn setting", async () => {
+        stubNotification("granted");
+        const { appNotify } = await load(false);
+        expect(appNotify(ask)).toEqual({ shown: true, reason: null });
+        expect(shown).toMatchObject([{ title: "Timer", body: "Tea's ready" }]);
+        expect(appNotify({ ...ask, title: "" }).shown).toBe(true);
+        expect(shown[1]?.title).toBe("agex studio");
+    });
+
+    it("caps each session's app at five a minute", async () => {
+        stubNotification("granted");
+        const { appNotify, APP_NOTIFY_MAX } = await load();
+        const t0 = 1_000_000;
+        for (let i = 0; i < APP_NOTIFY_MAX; i++) expect(appNotify(ask, t0 + i * 1000).shown).toBe(true);
+        const capped = appNotify(ask, t0 + 10_000);
+        expect(capped.shown).toBe(false);
+        expect(capped.reason).toMatch(/a minute/);
+        // another session's app has its own
+        expect(appNotify({ ...ask, session: "s-2" }, t0 + 10_000).shown).toBe(true);
+        // a minute after the first, one more
+        expect(appNotify(ask, t0 + 60_000).shown).toBe(true);
+        expect(appNotify(ask, t0 + 60_500).shown).toBe(false);
+        expect(shown).toHaveLength(APP_NOTIFY_MAX + 2);
+    });
+
+    it("tells an app's notice from a turn's, on a click", async () => {
+        stubNotification("granted");
+        const { appNotify, onNotificationClick } = await load();
+        const opened = /** @type {string[]} */ ([]);
+        onNotificationClick((name, kind) => opened.push(`${name}:${kind}`));
+        expect(appNotify({ session: "s-2", title: "Timer", body: "Done" }).shown).toBe(true);
+        shown.at(-1)?.onclick?.();
+        expect(opened).toEqual(["s-2:app"]);
+    });
+});
+

@@ -1,68 +1,77 @@
 // @vitest-environment happy-dom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const BASE_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#7c6fe0"><path d="M1 1"/></svg>';
+const BASE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#7c6fe0"><path d="M1 1"/></svg>';
 
-function linkHref() {
-    return document.querySelector('link[rel~="icon"]')?.getAttribute("href");
-}
+const href = () => document.querySelector('link[rel~="icon"]')?.getAttribute("href");
 
 beforeEach(() => {
-    // Fresh module state (cached base-svg promise / original href) per test.
+    // the module remembers the shipped href and the fetched icon
     vi.resetModules();
-    document.head.innerHTML =
-        '<link rel="icon" type="image/svg+xml" href="/favicon.svg">';
+    document.head.innerHTML = '<link rel="icon" type="image/svg+xml" href="/favicon.svg">';
     vi.stubGlobal(
         "fetch",
-        vi.fn(() =>
-            Promise.resolve({ ok: true, text: () => Promise.resolve(BASE_SVG) }),
-        ),
+        vi.fn(async () => ({ ok: true, text: async () => BASE })),
     );
 });
 
-async function load() {
-    return await import("./favicon.js");
-}
+const load = () => import("./favicon.js");
+
+describe("badged", () => {
+    it("splices a dot of the status's color in before the end of the icon", async () => {
+        const { badged, STATUS_COLORS } = await load();
+        const out = badged(BASE, "attention");
+        expect(out.startsWith(BASE.slice(0, -"</svg>".length))).toBe(true);
+        expect(out).toMatch(/<circle [^>]*fill="#d9a441"[^>]*\/><\/svg>$/);
+        expect(STATUS_COLORS).toEqual({ working: "#e94560", attention: "#d9a441", unseen: "#4caf50" });
+    });
+});
 
 describe("setFaviconStatus", () => {
-    it("badges the icon with the red working color", async () => {
+    it.each([
+        ["working", "%23e94560"],
+        ["attention", "%23d9a441"],
+        ["unseen", "%234caf50"],
+    ])("badges the icon for %s", async (status, color) => {
         const { setFaviconStatus } = await load();
-        await setFaviconStatus("working");
-        const href = linkHref();
-        expect(href.startsWith("data:image/svg+xml,")).toBe(true);
-        // #e94560 → %23e94560 once URL-encoded.
-        expect(href).toContain("%23e94560");
-        expect(decodeURIComponent(href)).toContain("<circle");
+        await setFaviconStatus(/** @type {any} */ (status));
+        expect(href()?.startsWith("data:image/svg+xml,")).toBe(true);
+        expect(href()).toContain(color);
+        expect(decodeURIComponent(href() ?? "")).toContain('<path d="M1 1"/><circle');
     });
 
-    it("badges the icon with the green unseen color", async () => {
-        const { setFaviconStatus } = await load();
-        await setFaviconStatus("unseen");
-        expect(linkHref()).toContain("%234caf50");
-    });
-
-    it("restores the original href when cleared", async () => {
+    it("puts the shipped href back when there's nothing to say", async () => {
         const { setFaviconStatus } = await load();
         await setFaviconStatus("working");
-        expect(linkHref()).not.toBe("/favicon.svg");
         await setFaviconStatus(null);
-        expect(linkHref()).toBe("/favicon.svg");
+        expect(href()).toBe("/favicon.svg");
     });
 
-    it("is idempotent — repeated same-status calls don't refetch", async () => {
+    it("fetches the icon once, and does nothing for the status already shown", async () => {
         const { setFaviconStatus } = await load();
         await setFaviconStatus("working");
         await setFaviconStatus("working");
+        await setFaviconStatus("unseen");
         expect(fetch).toHaveBeenCalledTimes(1);
+        expect(href()).toContain("%234caf50");
     });
 
-    it("leaves the icon untouched when the base SVG can't be fetched", async () => {
-        vi.stubGlobal("fetch", () => Promise.resolve({ ok: false }));
+    it("lets the latest status win over one still waiting for the icon", async () => {
+        const { setFaviconStatus } = await load();
+        const first = setFaviconStatus("working");
+        await setFaviconStatus(null);
+        await first;
+        expect(href()).toBe("/favicon.svg");
+    });
+
+    it("leaves the icon plain when it can't be fetched, and tries again", async () => {
+        vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false })));
         const { setFaviconStatus } = await load();
         await setFaviconStatus("working");
-        // Fetch failed → no data URL written; the shipped icon stays.
-        expect(linkHref()).toBe("/favicon.svg");
+        expect(href()).toBe("/favicon.svg");
+        vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => BASE })));
+        await setFaviconStatus("working");
+        expect(href()).toContain("%23e94560");
     });
 });

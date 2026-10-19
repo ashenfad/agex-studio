@@ -1,0 +1,5 @@
+allowBuilds:
+  # Disabled: cbor-x's optional native decoder, through @agex-ts/kvgit.
+  # cbor-x falls back to its pure-JS path, the one browsers use.
+  cbor-extract: false
+  esbuild: true

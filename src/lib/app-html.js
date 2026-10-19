@@ -1,17 +1,19 @@
 /**
- * Kernel-agnostic app-preview HTML builder + iframe bootloader.
+ * The app preview's HTML builder.
  *
  * Builds the self-contained HTML document (with console interceptor,
- * asset/import rewriting, storage shim, and plotly preloading) that is
- * injected into the app-preview iframe. Shared by both the Pyodide (py)
- * and TypeScript (ts) kernels — it does not reference any worker-side
- * module state.
+ * asset/import rewriting, storage shim, and Plotly for an app that uses
+ * it) that is posted to the app-preview iframe's bootloader, from the
+ * files under the session's `app/`.
  */
 
 import _iframeBridgeSource from './iframe-bridge.js?raw';
+import { APP_STORAGE_QUOTA } from './app-storage.js';
+import { PLOTLY_URL } from './cdn.js';
 import {
     buildAssetsScript,
-    buildAssetUrlMap,
+    collectAssets,
+    inlineAssets,
     rewriteCssAssetRefs,
     rewriteHtmlAssetRefs,
 } from './app-assets.js';
@@ -26,8 +28,8 @@ const CONSOLE_INTERCEPTOR = `
     // to an arbitrary embedder. Returns whether the message was sent
     // so reply-expecting callers can fail fast instead of hanging.
     // Defined here because the console interceptor is the first
-    // script in every buildAppHtml assembly; later inline scripts
-    // (query bridge, storage shim, control bridge) rely on it.
+    // script in every buildAppPage assembly; later inline scripts
+    // (host bridge, storage shim, control bridge) rely on it.
     window.__agexPost = function(msg) {
         var origin = window.__AGEX_PARENT_ORIGIN;
         if (!origin) return false;
@@ -97,34 +99,22 @@ const CONSOLE_INTERCEPTOR = `
 })();
 <\/script>`;
 
-const QUERY_BRIDGE_SCRIPT = `
-<script>
-window.query = function(opts) {
-    if (typeof opts === 'string') opts = { code: opts };
-    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    return new Promise(function(resolve, reject) {
-        function handler(event) {
-            if (event.data && event.data.type === 'agex-query-result' && event.data.id === id) {
-                window.removeEventListener('message', handler);
-                if (event.data.error) reject(new Error(event.data.error));
-                else resolve(event.data.data);
-            }
-        }
-        window.addEventListener('message', handler);
-        if (!window.__agexPost({
-            type: 'agex-query',
-            id: id,
-            code: opts.code,
-            result: opts.result || null,
-        })) {
-            window.removeEventListener('message', handler);
-            reject(new Error('agex parent origin not configured'));
-        }
-    });
-};
+/** The page an app with `app/main.js` and no `app/index.html` gets. */
+const MAIN_JS_PAGE = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
+</style>
+</head><body>
+<div id="app"></div>
+<script type="module" src="./main.js"><\/script>
+</body></html>`;
 
+const HOST_BRIDGE_SCRIPT = `
+<script>
 // getCacheValue(key) — read a value the agent stashed via cache.set(key, value).
-// Lighter-weight than query(): no code execution, just a cache lookup.
 // The agent must have called cache.set on the key before the app reads it.
 window.getCacheValue = function(key) {
     var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -148,63 +138,86 @@ window.getCacheValue = function(key) {
     });
 };
 
-// spawn(spec, opts?) — run an LLM sub-task on the host: an ephemeral
-// clone of the agent fulfils the spec (a SpawnSpec: task, input?,
-// output?, primer?, ...) and returns its result. The spec lives inline
-// here in your app code — there's no pre-registration. The full LLM
-// round-trip happens host-side; this is just the transport. ALWAYS wrap
-// in try/catch — a sub-task that fails or is cancelled rejects here, and
-// an unhandled rejection means the user clicks a button and nothing
-// visibly happens. Pass an opts.signal (AbortSignal) for user-driven
-// cancel (e.g. a "Stop thinking" button); aborting posts a cancel to
-// the host and rejects with an AbortError.
+// agex.task({ name, instructions, params, returns }) — an agent task the
+// app calls: params maps each input's name to its JSON Schema, returns is
+// the value's JSON Schema. The studio runs it on the viewer's model and
+// resolves with the value; it rejects with what went wrong (no model
+// chosen, the viewer didn't allow it, the visit's calls used up, the task
+// failed). const summarize = agex.task({...}); await summarize({ text }).
 // NOTE: this whole block is inside a template literal — no backticks.
-window.spawn = function(spec, opts) {
-    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    var signal = opts && opts.signal;
-    return new Promise(function(resolve, reject) {
-        function cleanup() {
-            window.removeEventListener('message', handler);
-            if (signal) signal.removeEventListener('abort', onAbort);
-        }
-        function handler(event) {
-            if (!event.data || event.data.id !== id) return;
-            if (event.data.type === 'agex-spawn-result') {
-                cleanup();
-                resolve(event.data.data);
-            } else if (event.data.type === 'agex-spawn-error') {
-                cleanup();
-                reject(new Error(event.data.error || 'spawn failed'));
-            }
-        }
-        function onAbort() {
-            cleanup();
-            window.__agexPost({ type: 'agex-cancel-spawn', id: id });
-            reject(new DOMException('Aborted', 'AbortError'));
-        }
-        if (signal && signal.aborted) { onAbort(); return; }
-        window.addEventListener('message', handler);
-        if (signal) signal.addEventListener('abort', onAbort);
-        if (!window.__agexPost({
-            type: 'agex-spawn',
-            id: id,
-            spec: spec === undefined ? null : spec,
-        })) {
-            cleanup();
-            reject(new Error('agex parent origin not configured'));
-        }
-    });
+window.agex = {
+    task: function(spec) {
+        var fn = function(inputs) {
+            var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+            return new Promise(function(resolve, reject) {
+                function handler(event) {
+                    if (!event.data || event.data.type !== 'agex-task-result' || event.data.id !== id) return;
+                    window.removeEventListener('message', handler);
+                    if (event.data.error) reject(new Error(event.data.error));
+                    else resolve(event.data.value);
+                }
+                window.addEventListener('message', handler);
+                if (!window.__agexPost({ type: 'agex-task', id: id, spec: spec, inputs: inputs || {} })) {
+                    window.removeEventListener('message', handler);
+                    reject(new Error('agex parent origin not configured'));
+                }
+            });
+        };
+        fn.spec = spec;
+        return fn;
+    },
 };
 
+// agex.db — the session's SQLite database, kept by the studio (forks
+// share it; an undo doesn't rewind it). query(sql, params?) runs one
+// statement as a transaction and resolves with { rows, changes,
+// lastInsertRowid }; transaction([[sql, params?] or sql, ...]) runs
+// several as one, all or none, and resolves with each one's result.
+// A failure rejects with SQLite's message (or what was refused and
+// what to do instead); in a transaction, err.index names the statement.
+// NOTE: this whole block is inside a template literal — no backticks.
+(function() {
+    function call(op, args) {
+        var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        return new Promise(function(resolve, reject) {
+            function handler(event) {
+                if (!event.data || event.data.type !== 'agex-db-result' || event.data.id !== id) return;
+                window.removeEventListener('message', handler);
+                var e = event.data.error;
+                if (!e) { resolve(event.data.value); return; }
+                var err = new Error(e.message);
+                err.name = e.name || 'Error';
+                if (typeof e.index === 'number') err.index = e.index;
+                reject(err);
+            }
+            window.addEventListener('message', handler);
+            if (!window.__agexPost({ type: 'agex-db', id: id, op: op, args: args })) {
+                window.removeEventListener('message', handler);
+                reject(new Error('agex parent origin not configured'));
+            }
+        });
+    }
+    window.agex.db = {
+        query: function(sql, params) {
+            if (typeof sql !== 'string') return Promise.reject(new TypeError('agex.db.query(sql, params?): sql must be a string'));
+            return call('query', [sql, params == null ? null : params]);
+        },
+        transaction: function(statements) {
+            if (!Array.isArray(statements)) return Promise.reject(new TypeError('agex.db.transaction(statements): a list of [sql, params?] (or sql strings)'));
+            return call('transaction', [statements.map(function(st) { return typeof st === 'string' ? [st] : st; })]);
+        },
+    };
+})();
+
 // notify(title, body?) — show a desktop notification via the host.
-// The sandbox can't construct Notifications (or prompt for permission)
-// itself, so the studio does it on your behalf, behind a permission
-// prompt (first use) and a per-session rate cap. Resolves to true when
-// a notification was shown, false otherwise (permission not granted,
-// rate-limited, unsupported) — it NEVER rejects, so a denied permission
-// won't throw; check the boolean and fall back to in-page UI. Accepts
-// either notify('Title', 'Body') or notify({ title, body }). Clicking
-// the notification focuses the studio tab and switches to this session.
+// The sandbox can't construct Notifications (or ask for permission)
+// itself, so the studio shows it: only once the person has allowed
+// notifications in the studio's settings, and at most 5 a minute per
+// session. Resolves to true when a notification was shown, false
+// otherwise (not allowed, over the cap, unsupported); it never rejects,
+// so check the boolean and fall back to in-page UI. Accepts either
+// notify('Title', 'Body') or notify({ title, body }). Clicking the
+// notification focuses the studio's tab and switches to this session.
 // NOTE: this whole block is inside a template literal — no backticks.
 window.notify = function(title, body) {
     var opts = (title && typeof title === 'object') ? title : { title: title, body: body };
@@ -213,6 +226,8 @@ window.notify = function(title, body) {
         function handler(event) {
             if (!event.data || event.data.type !== 'agex-notify-result' || event.data.id !== id) return;
             window.removeEventListener('message', handler);
+            // why not, for whoever reads the console
+            if (!event.data.shown && event.data.error) console.info('notify: not shown: ' + event.data.error);
             resolve(!!event.data.shown);
         }
         window.addEventListener('message', handler);
@@ -239,33 +254,52 @@ window.notify = function(title, body) {
  * `writeable=true` makes the shim post `agex-app-storage` messages on
  * every mutation; the parent debounces and persists them. Pass
  * `false` for ephemeral iframes (e.g. test_app) that shouldn't write
- * back to the session.
+ * back to the session. A test's page passes `report: true` too: each
+ * change to either store posts `agex-test-storage` with both bags, a
+ * message only the test listens for, so its `{reload: true}` can seed
+ * the next page with what this one wrote (`sessionSeed` seeds
+ * `sessionStorage`, which a reload keeps in a browser's tab).
  *
- * @param {{ seed?: Record<string,string>, writeable?: boolean }} [opts]
+ * @param {{ seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> }} [opts]
  * @returns {string}
  */
-// Exported so pyodide.test.js can verify the shim's seed encoding,
-// quota, and writeable=false read-only path. Otherwise internal —
-// callers should go through buildAppHtml.
-export function buildAppStorageShim(opts = {}) {
+function buildAppStorageShim(opts = {}) {
     const seed = opts.seed || {};
     const writeable = opts.writeable !== false;
-    // JSON.stringify is safe inside a script tag as long as we escape
-    // the "</" sequence that would otherwise close the element.
-    const seedJson = JSON.stringify(seed).replace(/<\/script/gi, '<\\/script');
+    const report = !writeable && opts.report === true;
+    // Every `<` escaped (a JS string escape, so the values read back
+    // the same): a stored `</script>` or `<!--` can't end or upset the
+    // script element the seed sits in.
+    const json = (/** @type {Record<string,string>} */ bag) => JSON.stringify(bag).replace(/</g, '\\u003c');
     return `
 <script>
 (function() {
-    var __seed = ${seedJson};
+    var __seed = ${json(seed)};
+    var __sessionSeed = ${json(opts.sessionSeed || {})};
     var __writeable = ${writeable};
-    var QUOTA = 5 * 1024 * 1024;
+    var __report = ${report};
+    var QUOTA = ${APP_STORAGE_QUOTA};
+    // each store's contents, kept off the store the app sees
+    var snapshots = {};
 
-    function buildStore(persist, seed) {
+    function reportBags() {
+        try {
+            window.__agexPost({
+                type: 'agex-test-storage',
+                local: snapshots.local(),
+                session: snapshots.session(),
+            });
+        } catch (e) { /* parent gone — swallow */ }
+    }
+
+    function buildStore(name, persist, seed) {
         var data = Object.assign({}, seed || {});
+        snapshots[name] = function() { return Object.assign({}, data); };
         function size() {
             try { return JSON.stringify(data).length; } catch (e) { return 0; }
         }
         function notify() {
+            if (__report) return reportBags();
             if (!persist || !__writeable) return;
             try {
                 window.__agexPost({
@@ -322,14 +356,14 @@ export function buildAppStorageShim(opts = {}) {
         }
     }
 
-    install('localStorage', buildStore(true, __seed));
-    install('sessionStorage', buildStore(false, {}));
+    install('localStorage', buildStore('local', true, __seed));
+    install('sessionStorage', buildStore('session', false, __sessionSeed));
 
     // IndexedDB is not supported inside agex artifacts. Stub every
     // access with a clear error so agents see the contract violation
     // immediately rather than debugging a silent no-op.
     var idbErr = function() {
-        throw new Error('IndexedDB is not supported in agex artifacts — use localStorage instead');
+        throw new Error('IndexedDB is not supported in agex apps: use agex.db (SQLite: agex.db.query, agex.db.transaction) for data, or localStorage for small settings');
     };
     var idbStub = new Proxy(function() { idbErr(); }, {
         get: function() { return idbErr; },
@@ -343,23 +377,27 @@ export function buildAppStorageShim(opts = {}) {
 
 // Agent control bridge — receives postMessage action commands from the
 // parent (click/type/read/eval/screenshot/get-logs) and dispatches them
-// against the iframe's own DOM. Required so executeActions/collectResults
-// work when the iframe has an opaque origin (sandbox without
-// allow-same-origin). The dispatch logic lives in ./iframe-bridge.js;
-// this is just the inline-module shim that imports it by text and wires
-// to the iframe's window.
+// against the iframe's own DOM. The app runs at the apps origin, a
+// different origin from the studio's, so the studio can't reach into
+// its document and drives it through this bridge instead. The dispatch
+// logic lives in ./iframe-bridge.js; this is just the inline-module
+// shim that carries it as text and wires it to the iframe's window.
 const AGENT_CONTROL_BRIDGE_SCRIPT = `
 <script type="module">
 ${_iframeBridgeSource}
 installControlBridge(window);
 // Signal the parent that the iframe is past document parse and the
-// control bridge is installed. Used by app-control.js's runTestApp
-// as the post-render readiness signal — the 'load' event on the
-// iframe element doesn't fire after the bootloader's document.write
-// replaces the document, so we need an in-doc signal instead. Module
-// scripts run after the document parses, so by the time this runs
-// the app's other scripts have also had a chance to start.
+// control bridge is installed, so it can take actions. Module scripts
+// run in order once the document parses, and this one has no imports,
+// so it runs first: the app's own modules may still be fetching theirs.
 window.__agexPost({ type: 'agex-bridge-ready' });
+// And once the document's load event fires: after the app's module
+// scripts ran, their static imports fetched (from esm.sh, a cold one
+// can take seconds), and its images and styles loaded. test_app waits
+// for it before the first action. Only the event says so: a page
+// written in by document.open() reads readyState 'complete' throughout,
+// and this module runs before the document's load.
+window.addEventListener('load', () => window.__agexPost({ type: 'agex-page-loaded' }), { once: true });
 <\/script>`;
 
 const CDN_IMPORTS = {
@@ -367,9 +405,13 @@ const CDN_IMPORTS = {
     "preact/": "https://esm.sh/preact@10.25.4/",
     // htm: JSX-like template literals without a build step. Tiny
     // (~3KB) and the standard "JSX without esbuild" companion to
-    // preact. Used by the TS-side interactive-app skill since esbuild
-    // isn't yet wired on that kernel.
+    // preact. Its subpaths (`htm/preact`) come with their own
+    // dependencies left as bare imports (esm.sh's `*` prefix), so
+    // `preact` and `htm` resolve through this map to the pinned
+    // copies: one Preact on the page, whose hooks work with
+    // `htm/preact`'s `render`.
     "htm": "https://esm.sh/htm@3.1.1",
+    "htm/": "https://esm.sh/*htm@3.1.1/",
     // Alias 'react' → preact/compat so agent code that writes
     // idiomatic React (`import { useState } from 'react'`) runs on
     // the lighter Preact runtime.  Most React component libraries
@@ -389,63 +431,52 @@ const CDN_IMPORTS = {
     "dompurify": "https://esm.sh/dompurify@3.3.3",
 };
 
-const PLOTLY_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js";
-const PLOTLY_SCRIPT_FALLBACK = `<script src="${PLOTLY_URL}"><\/script>`;
-
-// Sandboxed iframes have an opaque origin — Chrome's HTTP cache
-// partitions by origin, so every session switch re-downloads Plotly.js
-// from the CDN (3–4s on a slow connection). Fetch it once on the
-// parent origin (which caches normally) and hand each iframe a `data:`
-// URL pointing at the bytes. blob URLs won't work here — opaque-origin
-// iframes can't access parent-origin blobs. data URLs are embedded,
-// so they sidestep both the HTTP cache partitioning *and* the
-// cross-origin blob restriction, and there's no `</script>` escaping
-// hazard (the content is base64-encoded).
-let _plotlyDataUrl = null;
-let _plotlyPreloadPromise = null;
+/**
+ * The option an auto-resolved esm.sh package is asked for with: its own
+ * imports of these left bare, for the import map to resolve to
+ * `CDN_IMPORTS`' pinned Preact (React aliased to it).
+ */
+const SHARED_RUNTIME = 'external=preact,react,react-dom';
 
 /**
- * Kick off a background fetch of Plotly.js. Safe to call multiple times
- * (second call reuses the in-flight promise). Called early from the
- * app shell so the script is ready by the time the first iframe builds.
+ * The esm.sh URL for a bare specifier, with `SHARED_RUNTIME` added to
+ * any options it already carries (`monaco-editor?worker`).
+ *
+ * @param {string} spec
  */
-export function preloadPlotly() {
-    if (_plotlyDataUrl) return Promise.resolve();
-    if (_plotlyPreloadPromise) return _plotlyPreloadPromise;
-    _plotlyPreloadPromise = fetch(PLOTLY_URL)
-        .then((r) => {
-            if (!r.ok) throw new Error(`Plotly fetch ${r.status}`);
-            return r.blob();
-        })
-        .then((blob) => new Promise((resolve, reject) => {
-            // FileReader.readAsDataURL is the fast path — native
-            // base64 encode, no stack overflow on 3MB like
-            // String.fromCharCode(...bytes) would have.
-            const fr = new FileReader();
-            fr.onload = () => {
-                _plotlyDataUrl = /** @type {string} */ (fr.result);
-                resolve();
-            };
-            fr.onerror = () => reject(fr.error);
-            fr.readAsDataURL(blob);
-        }))
-        .catch((e) => {
-            console.warn("[plotly] preload failed; falling back to <script src>", e);
-            _plotlyDataUrl = null;
-            // Drop the cached (failed) promise so a later call retries the
-            // preload instead of re-returning the failed attempt.
-            _plotlyPreloadPromise = null;
-        });
-    return _plotlyPreloadPromise;
+function _sharedUrl(spec) {
+    return `https://esm.sh/${spec}${spec.includes('?') ? '&' : '?'}${SHARED_RUNTIME}`;
 }
 
-/** Serve plotly via a data URL if preload succeeded; otherwise fall
- *  back to the CDN URL directly. */
-function _plotlyScriptTag() {
-    if (_plotlyDataUrl) {
-        return `<script src="${_plotlyDataUrl}"><\/script>`;
-    }
-    return PLOTLY_SCRIPT_FALLBACK;
+/**
+ * The esm.sh prefix for a package's subpaths, with `SHARED_RUNTIME`.
+ * A prefix can't end in a query, so the option goes in the path, which
+ * esm.sh reads only after a version: the package's own, or the latest.
+ *
+ * @param {string} pkg a package root, as `_packageRoot` gives it
+ */
+function _sharedPrefix(pkg) {
+    const name = pkg.startsWith('@') ? pkg.slice(pkg.indexOf('/') + 1) : pkg;
+    const versioned = name.includes('@') ? pkg : `${pkg}@latest`;
+    return `https://esm.sh/${versioned}&${SHARED_RUNTIME}/`;
+}
+
+/**
+ * Does the app use Plotly? It's a global the page loads from a script
+ * (a few MB, render-blocking), so only a page whose own code names it
+ * gets it: `Plotly.newPlot(...)`, `window.Plotly`, `typeof Plotly`, in
+ * the page or any of the app's scripts.
+ *
+ * @param {Record<string, string>} appFiles
+ * @param {string} html - the page the app is built from
+ * @returns {boolean}
+ */
+function _usesPlotly(appFiles, html) {
+    const re = /\bPlotly\b/;
+    if (re.test(html)) return true;
+    return Object.entries(appFiles).some(
+        ([path, content]) => path.endsWith('.js') && !WORKER_FILE_RE.test(path) && re.test(content),
+    );
 }
 
 /** Prefix used for bare specifiers in the import map for local app files. */
@@ -476,11 +507,13 @@ function _isBareSpecifier(spec) {
  *   '@radix-ui/react-dialog'        → '@radix-ui/react-dialog'
  *   '@radix-ui/react-dialog/dist/x' → '@radix-ui/react-dialog'
  *   'recharts@2.10.0'               → 'recharts@2.10.0' (esm.sh accepts versioned URL fragments)
+ *   'monaco-editor?worker'          → 'monaco-editor'
  *
  * @param {string} spec
  * @returns {string}
  */
 function _packageRoot(spec) {
+    spec = spec.split('?')[0];
     if (spec.startsWith('@')) {
         const parts = spec.split('/');
         return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : spec;
@@ -492,8 +525,8 @@ function _packageRoot(spec) {
 /**
  * Scan JS source for bare module specifiers. Catches static
  * `import ... from 'pkg'` / `import 'pkg'` / `export ... from 'pkg'`
- * and dynamic `import('pkg')`. Returns a Set of unique package roots
- * (sub-paths collapsed). Best-effort regex — false positives (e.g.
+ * and dynamic `import('pkg')`. Returns a Set of the unique specifiers,
+ * as written. Best-effort regex — false positives (e.g.
  * `from 'foo'` text inside a string literal or comment) just produce
  * unused import-map entries, which are harmless.
  *
@@ -511,7 +544,7 @@ function _extractBareImports(source) {
         let m;
         while ((m = re.exec(source)) !== null) {
             const spec = m[1];
-            if (_isBareSpecifier(spec)) out.add(_packageRoot(spec));
+            if (_isBareSpecifier(spec)) out.add(spec);
         }
     }
     return out;
@@ -561,7 +594,7 @@ function _resolveRelative(specifier, baseDir) {
  * @param {string} [baseDir=''] - directory of the importing file
  * @returns {string} rewritten code
  */
-export function _rewriteLocalImports(code, knownFiles, baseDir = '') {
+function _rewriteLocalImports(code, knownFiles, baseDir = '') {
     // Helper: try to resolve a specifier and return the knownFiles key, or null
     function resolve(specifier) {
         // Relative paths (./foo.js, ../foo.js, ../../foo.js) — resolved
@@ -654,7 +687,7 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
             `<link[^>]*href=["'](?:\\./)?${_escapeRegex(name)}["'][^>]*/?>`,
             'g',
         );
-        html = html.replace(pattern, `<style>${rewritten}</style>`);
+        html = html.replace(pattern, () => `<style>${rewritten}</style>`);
     }
 
     // Build import map entries for JS files
@@ -703,8 +736,16 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
     // plus every inline `<script type="module">` block for bare
     // imports (e.g. `import { Bar } from 'recharts'`,
     // `import * as Dialog from '@radix-ui/react-dialog'`). For each
-    // package root not already covered by CDN_IMPORTS, add both the
-    // bare and trailing-slash forms pointing at esm.sh.
+    // package not already covered by CDN_IMPORTS, map the specifier as
+    // written and its package's bare and trailing-slash forms to esm.sh.
+    //
+    // Every form is asked for with `SHARED_RUNTIME`: esm.sh leaves the
+    // package's own imports of Preact and React bare, so they come
+    // through this map to the one pinned Preact. Asked for plainly,
+    // esm.sh resolves them itself: a Preact library brings a second
+    // Preact (hooks and context don't reach across the two), and a
+    // React one brings React. The trailing-slash form is reached by a
+    // subpath built at run time, which the scan doesn't see.
     //
     // Means agents can use any npm package transparently — no studio-
     // side import-map config per library, no direct-URL imports
@@ -719,10 +760,12 @@ function _resolveAppModules(appFiles, html, assetUrls = {}) {
         moduleScripts.push(match[1]);
     }
     const bareSpecs = _extractBareImports(moduleScripts.join('\n'));
-    for (const pkg of bareSpecs) {
+    for (const spec of bareSpecs) {
+        const pkg = _packageRoot(spec);
         if (pkg in CDN_IMPORTS) continue;
-        appImports[pkg] = `https://esm.sh/${pkg}`;
-        appImports[pkg + '/'] = `https://esm.sh/${pkg}/`;
+        appImports[spec] = _sharedUrl(spec);
+        appImports[pkg] ??= _sharedUrl(pkg);
+        appImports[pkg + '/'] = _sharedPrefix(pkg);
     }
 
     // Binary-asset rewrites — applied last so they see the final
@@ -821,9 +864,12 @@ function _workerRegistryScript(workerSources) {
 }
 
 /**
- * Build the full HTML string for an app preview or test iframe.
- * Injects console interceptor, query bridge, CDN scripts, and resolves
- * multi-file app projects (JS via import map with data URIs, CSS inlined).
+ * Build the page for an app preview or test iframe: its HTML, with the
+ * console interceptor, host bridge and CDN scripts injected, and
+ * multi-file app projects resolved (JS via import map with data URIs,
+ * CSS inlined); and its assets, each once, which the HTML refers to by
+ * token (see `app-assets.js`: `hostInit` sends the two to the
+ * bootloader, `inlineAssets` makes a page that stands alone).
  *
  * Async because any `*.worker.js` files are bundled (esbuild) into
  * self-contained module sources and exposed via `window.appWorker`.
@@ -833,73 +879,90 @@ function _workerRegistryScript(workerSources) {
  * @param {Record<string, string>} appFiles - map of filename → content
  * @param {{
  *   appBinaries?: Record<string, Uint8Array>,
- *   appStorage?: { seed?: Record<string,string>, writeable?: boolean },
+ *   appStorage?: { seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> },
  *   workerSources?: Record<string, string>,
  * }} [opts]
- * @returns {Promise<string>} complete HTML document
+ * @returns {Promise<AppPage>}
  */
-export async function buildAppHtml(appFiles, opts = {}) {
+export async function buildAppPage(appFiles, opts = {}) {
     const storageShim = buildAppStorageShim(opts.appStorage || {});
     const workerSources = opts.workerSources ?? (await bundleAppWorkers(appFiles));
     const workerScript = _workerRegistryScript(workerSources);
-    // Build the binary-asset URL map up-front so it can flow into
-    // both the module resolver (which rewrites HTML / inlined CSS
-    // refs) and the injected script that exposes
-    // `window.appAssets` + the fetch monkey-patch.
-    const assetUrls = buildAssetUrlMap(opts.appBinaries || {});
+    // Collect the assets up-front so their tokens can flow into both
+    // the module resolver (which rewrites HTML / inlined CSS refs) and
+    // the injected script that exposes `window.appAssets` + the fetch
+    // monkey-patch.
+    const { urls: assetUrls, assets } = collectAssets(opts.appBinaries || {}, appFiles);
     const assetsScript = buildAssetsScript(assetUrls);
-    let html = appFiles['app/index.html'] || appFiles['index.html'];
-    if (html) {
-        // Resolve multi-file references (JS import map, CSS inlining,
-        // binary asset rewrites).
-        const resolved = _resolveAppModules(appFiles, html, assetUrls);
-        html = resolved.html;
-        const importMapTag = _buildImportMapTag(resolved.importMap);
-        const cdnScripts = importMapTag + '\n' + _plotlyScriptTag();
+    // An app with a main script and no page gets a page that loads it,
+    // built as any other: its imports resolve the same way.
+    let html = appFiles['app/index.html'] || appFiles['index.html'] || MAIN_JS_PAGE;
+    // Resolve multi-file references (JS import map, CSS inlining,
+    // binary asset rewrites).
+    const resolved = _resolveAppModules(appFiles, html, assetUrls);
+    html = resolved.html;
+    const importMapTag = _buildImportMapTag(resolved.importMap);
+    const plotlyTag = _usesPlotly(appFiles, html) ? `\n<script src="${PLOTLY_URL}"><\/script>` : '';
+    const cdnScripts = importMapTag + plotlyTag;
 
-        if (!html.includes('agex-query')) {
-            // Storage shim must run before app code (including the CDN
-            // scripts below — a CDN library might poke localStorage on
-            // import) and before the query bridge (which the shim could
-            // one day use). Keep it right after the console interceptor.
-            // `assetsScript` goes early too so the fetch monkey-patch
-            // is in place before any agent JS runs.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + QUERY_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
-            html = html.replace('<head>', '<head>' + injected);
-            if (!html.includes('<head>')) {
-                html = injected + html;
-            }
-        } else {
-            // HTML already includes the query bridge (pre-built bundle);
-            // still inject the console interceptor, storage shim, and
-            // control bridge so test_app / live_app work.
-            const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + AGENT_CONTROL_BRIDGE_SCRIPT;
-            html = html.replace('<head>', '<head>' + injected);
-            if (!html.includes('<head>')) {
-                html = injected + html;
-            }
-        }
-    } else {
-        const mainJs = appFiles['app/main.js'] || appFiles['main.js'] || '';
-        const importMapTag = _buildImportMapTag({});
-        html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-${CONSOLE_INTERCEPTOR}
-${storageShim}
-${assetsScript}
-${workerScript}
-${QUERY_BRIDGE_SCRIPT}
-${AGENT_CONTROL_BRIDGE_SCRIPT}
-${importMapTag}
-${_plotlyScriptTag()}
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 1rem; }
-</style>
-</head><body>
-<div id="app"></div>
-<script type="module">${mainJs}<\/script>
-</body></html>`;
-    }
-    return html;
+    // The storage shim runs before app code (and before the CDN
+    // scripts below: a library might poke localStorage on import),
+    // and the assets script early, so its fetch patch is in place
+    // before any app JS runs.
+    const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+    return { html: _injectHead(html, injected), assets, storageShim };
+}
+
+/**
+ * A built page: its HTML, its assets (which the HTML names by token),
+ * and the storage shim as it appears in the HTML, for `reseedAppPage`.
+ *
+ * @typedef {{ html: string, assets: import('./app-assets.js').AppAsset[], storageShim: string }} AppPage
+ */
+
+/**
+ * `page` with its storage shim seeded from `storage` instead: for a
+ * page sent again after the app reloaded itself, which should start
+ * from what the app saved since the page was built.
+ *
+ * @param {AppPage} page
+ * @param {{ seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> }} storage
+ * @returns {AppPage}
+ */
+export function reseedAppPage(page, storage) {
+    const storageShim = buildAppStorageShim(storage);
+    return { ...page, html: page.html.replace(page.storageShim, () => storageShim), storageShim };
+}
+
+/**
+ * `html` with `injected` at the start of its head: just inside its
+ * `<head>` tag (any case, any attributes), or with no head tag, where
+ * the parser starts one: after the `<html>` tag, else after the
+ * doctype. Never ahead of the doctype, which would put the page in
+ * quirks mode.
+ *
+ * @param {string} html
+ * @param {string} injected
+ * @returns {string}
+ */
+function _injectHead(html, injected) {
+    const at =
+        /<head(?=[\s/>])[^>]*>/i.exec(html) ??
+        /<html(?=[\s/>])[^>]*>/i.exec(html) ??
+        /^(?:\s|<!--[\s\S]*?-->)*<!doctype\b[^>]*>/i.exec(html);
+    if (at === null) return injected + html;
+    const end = at.index + at[0].length;
+    return html.slice(0, end) + injected + html.slice(end);
+}
+
+/**
+ * The page as one HTML string that stands on its own, its assets
+ * written in as `data:` URLs.
+ *
+ * @param {Record<string, string>} appFiles
+ * @param {Parameters<typeof buildAppPage>[1]} [opts]
+ * @returns {Promise<string>}
+ */
+export async function buildAppHtml(appFiles, opts = {}) {
+    return inlineAssets(await buildAppPage(appFiles, opts));
 }
