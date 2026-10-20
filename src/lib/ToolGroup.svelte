@@ -7,7 +7,7 @@
      * as a sentence until someone asks for more. A run of one call is
      * that call's own line, with no sentence over it.
      */
-    import { groupPhrases } from './activity.js'
+    import { groupPhrases, outcome } from './activity.js'
     import ThinkingBlock from './ThinkingBlock.svelte'
     import ToolStep from './ToolStep.svelte'
 
@@ -19,7 +19,9 @@
         /** @type {import('./activity.js').ToolItem[]} */ (entries.filter((e) => e.kind === 'tool')),
     )
     const running = $derived(live && tools.some((t) => t.result === null))
-    const failed = $derived(tools.filter((t) => t.isError).length)
+    /** Calls that failed; a command that only exited non-zero shows on
+     *  its own line, not here. */
+    const failed = $derived(tools.filter((t) => outcome(t).kind === 'failed').length)
     const phrases = $derived(groupPhrases(tools))
 </script>
 

@@ -86,6 +86,83 @@ export function stepLine(tool) {
     }
 }
 
+/** A line that marks a part of a tool's result, as the world renders
+ *  results: `[exit code 2]`, `[stderr]`, `[error]`, `[returned]`,
+ *  `[hint: …]`, `[output truncated]`, `[ui …]`. */
+const MARK = /^\[(?:exit code (\d+)|stderr|error|returned|output truncated|hint: .*|ui [a-z]+: .*)\]$/;
+
+/**
+ * A result's lines, each with the part it belongs to: `out` before any
+ * mark, the mark lines themselves (`exit` carries its code), and the
+ * lines under a `[stderr]`, `[error]` or `[returned]` mark.
+ *
+ * @param {string} text
+ * @returns {{ text: string, part: "out" | "mark" | "exit" | "stderr" | "error" | "returned", code?: number }[]}
+ */
+function resultParts(text) {
+    /** @type {"out" | "stderr" | "error" | "returned"} */
+    let part = "out";
+    return text.split("\n").map((line) => {
+        const m = MARK.exec(line);
+        if (m === null) return { text: line, part };
+        if (m[1] !== undefined) return { text: line, part: "exit", code: Number(m[1]) };
+        part = line === "[stderr]" ? "stderr" : line === "[error]" ? "error" : line === "[returned]" ? "returned" : part;
+        return { text: line, part: "mark" };
+    });
+}
+
+/**
+ * How a tool call ended. `exit`: a command that ran and exited
+ * non-zero, as grep does finding nothing, or ls of a path not there
+ * yet: news more often than a failure. `failed`: what didn't work: a
+ * script that didn't parse or named no command, code that threw, a
+ * call refused.
+ *
+ * @param {ToolItem} tool
+ * @returns {{ kind: "ok" } | { kind: "exit", code: number } | { kind: "failed" }}
+ */
+export function outcome(tool) {
+    if (!tool.isError) return { kind: "ok" };
+    if (tool.name === "terminal" && tool.result !== null) {
+        const parts = resultParts(tool.result);
+        const exit = parts.find((p) => p.part === "exit");
+        const parse = parts.some((p) => p.part === "stderr" && p.text.startsWith("parse error:"));
+        // 126 and 127: a command that couldn't run, or isn't there
+        if (exit?.code !== undefined && !parse && exit.code !== 126 && exit.code !== 127) return { kind: "exit", code: exit.code };
+    }
+    return { kind: "failed" };
+}
+
+/**
+ * A result's lines, each with its tone: `plain` output, a `mark` line,
+ * `warn` for stderr and the exit code of a command that exited
+ * non-zero, `bad` for what failed. Only the parts that say something
+ * went wrong are coloured, so the output around them reads as it is.
+ *
+ * @param {ToolItem} tool
+ * @returns {{ text: string, tone: "plain" | "mark" | "warn" | "bad" }[]}
+ */
+export function resultLines(tool) {
+    const failed = outcome(tool).kind === "failed";
+    const trouble = failed ? "bad" : "warn";
+    const parts = resultParts(tool.result ?? "");
+    // a failure the result doesn't mark (a call refused) is all its text
+    const unmarked = failed && parts.every((p) => p.part === "out");
+    return parts.map(({ text, part }) => {
+        switch (part) {
+            case "mark":
+                return { text, tone: "mark" };
+            case "exit":
+            case "stderr":
+                return { text, tone: trouble };
+            case "error":
+                return { text, tone: "bad" };
+            default:
+                return { text, tone: unmarked ? "bad" : "plain" };
+        }
+    });
+}
+
 /**
  * What a run of tools did, as phrases in the order the kinds first
  * appear: `[{ verb: "Ran", rest: "code 2 times" }, { verb: "edited",
