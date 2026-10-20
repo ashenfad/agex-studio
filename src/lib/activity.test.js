@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupPhrases, groupWork, stepLine } from "./activity.js";
+import { groupPhrases, groupWork, outcome, resultLines, stepLine } from "./activity.js";
 
 /** @param {string} name @param {Record<string, unknown>} args */
 const tool = (name, args) => /** @type {const} */ ({ kind: "tool", name, args, result: "", isError: false, images: [] });
@@ -49,5 +49,41 @@ describe("grouping a turn", () => {
         const items = [tool("run_ts", {}), think("now")];
         expect(groupWork(items).length).toBe(1);
         expect(groupWork(items, { streaming: true }).map((g) => g.kind)).toEqual(["work", "thinking"]);
+    });
+});
+
+describe("how a call ended", () => {
+    /** @param {string} name @param {string} result @param {boolean} isError */
+    const ended = (name, result, isError) => ({ ...tool(name, {}), result, isError });
+    const mixed = "name: media\n----\nls: cannot access '/workspace/app'\n[exit code 2]";
+
+    it("tells a command that exited non-zero from one that failed", () => {
+        expect(outcome(ended("terminal", "hi", false))).toEqual({ kind: "ok" });
+        expect(outcome(ended("terminal", mixed, true))).toEqual({ kind: "exit", code: 2 });
+        expect(outcome(ended("terminal", "[exit code 1]", true))).toEqual({ kind: "exit", code: 1 });
+        expect(outcome(ended("terminal", "[exit code 2]\n[stderr]\nparse error: line 1: '&' runs in the background", true))).toEqual({ kind: "failed" });
+        expect(outcome(ended("terminal", "[exit code 127]\n[stderr]\nnope: command not found", true))).toEqual({ kind: "failed" });
+        expect(outcome(ended("terminal", "terminal: invalid arguments: command", true))).toEqual({ kind: "failed" });
+        expect(outcome(ended("run_ts", "[error]\nTypeError: x", true))).toEqual({ kind: "failed" });
+    });
+
+    it("colours only the lines that say something went wrong", () => {
+        expect(resultLines(ended("terminal", `${mixed}\n[stderr]\nls: cannot access '/workspace/app'`, true))).toEqual([
+            { text: "name: media", tone: "plain" },
+            { text: "----", tone: "plain" },
+            { text: "ls: cannot access '/workspace/app'", tone: "plain" },
+            { text: "[exit code 2]", tone: "warn" },
+            { text: "[stderr]", tone: "mark" },
+            { text: "ls: cannot access '/workspace/app'", tone: "warn" },
+        ]);
+        expect(resultLines(ended("run_ts", "started\n[error]\nTypeError: x\n[hint: check x]", true)).map((l) => l.tone)).toEqual([
+            "plain",
+            "mark",
+            "bad",
+            "mark",
+        ]);
+        expect(resultLines(ended("run_ts", "[returned]\n42", false)).map((l) => l.tone)).toEqual(["mark", "plain"]);
+        // a failure with no marks is wholly the failure
+        expect(resultLines(ended("file_edit", "edit failed: no match", true))).toEqual([{ text: "edit failed: no match", tone: "bad" }]);
     });
 });

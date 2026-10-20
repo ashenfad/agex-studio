@@ -4,9 +4,10 @@
      * `const rows = …`", "Edited app/main.js", "Tested the app · 6
      * steps"), opening to what it was asked and what came back: code
      * highlighted, a command as a prompt, an edit as the lines it took
-     * out and put in, and the result with any images.
+     * out and put in, and the result with any images. A command that
+     * exited non-zero says so quietly; only what failed is red.
      */
-    import { stepLine } from './activity.js'
+    import { outcome, resultLines, stepLine } from './activity.js'
     import { highlightCode } from './highlight.js'
 
     /** @type {{ tool: import('./activity.js').ToolItem, live?: boolean }} */
@@ -14,6 +15,7 @@
 
     let open = $state(false)
     const line = $derived(stepLine(tool))
+    const ended = $derived(outcome(tool))
     /** A call without a result is running while the turn is, and was
      *  cut off in a turn that ended. */
     const running = $derived(live && tool.result === null)
@@ -50,7 +52,8 @@
         <span class="act-verb">{line.verb}</span>
         {#if line.subject}<span class="act-rest" class:code={line.code}>{line.subject}</span>{/if}
         {#if pictures}<span class="act-rest">{pictures}</span>{/if}
-        {#if tool.isError}<span class="act-rest failed">· failed</span>{/if}
+        {#if ended.kind === 'exit'}<span class="act-rest exited">· exit {ended.code}</span>{/if}
+        {#if ended.kind === 'failed'}<span class="act-rest failed">· failed</span>{/if}
         {#if cutOff}<span class="act-rest">· no result</span>{/if}
         <span class="act-chev">⌄</span>
     </button>
@@ -66,7 +69,7 @@
                 <pre class="block"><code>{@html highlightCode(shown.code, shown.path)}</code></pre>
             {/if}
             {#if tool.result !== null && tool.result !== ''}
-                <pre class="block result" class:fail={tool.isError}>{tool.result}</pre>
+                <pre class="block result">{#each resultLines(tool) as l, i (i)}{#if i > 0}{'\n'}{/if}<span class={l.tone}>{l.text}</span>{/each}</pre>
             {/if}
             {#each tool.images as image, i (i)}
                 <img class="shot" src={`data:${image.mediaType};base64,${image.data}`} alt={`${tool.name} image ${i + 1}`} />
@@ -105,7 +108,19 @@
     .result {
         color: var(--text-muted);
     }
-    .result.fail,
+    .mark {
+        opacity: 0.6;
+    }
+    /* how it ended stays whole; the subject is what shortens */
+    .exited,
+    .failed {
+        flex-shrink: 0;
+    }
+    .warn,
+    .exited {
+        color: var(--caution);
+    }
+    .bad,
     .failed {
         color: var(--error);
     }
