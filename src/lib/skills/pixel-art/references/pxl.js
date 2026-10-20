@@ -104,9 +104,14 @@ export function gif(frames) {
     return new Uint8Array(encodeGif(frames));
 }
 
-/** Evenly spaced, at most `n`. */
-const sample = (items, n) =>
-    items.length <= n ? items : Array.from({ length: n }, (_, i) => items[Math.round((i * (items.length - 1)) / (n - 1))]);
+/** Evenly spaced, at most `n` (at least one): the first and the last
+ *  among them, or the first alone. */
+function sample(items, n) {
+    const k = Math.max(1, Math.floor(n));
+    if (items.length <= k) return items;
+    if (k === 1) return [items[0]];
+    return Array.from({ length: k }, (_, i) => items[Math.round((i * (items.length - 1)) / (k - 1))]);
+}
 
 /**
  * Build an art file's exported assets and sheets (or `only` these) into
