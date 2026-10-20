@@ -86,28 +86,53 @@ export function stepLine(tool) {
     }
 }
 
-/** A line that marks a part of a tool's result, as the world renders
- *  results: `[exit code 2]`, `[stderr]`, `[error]`, `[returned]`,
- *  `[hint: …]`, `[output truncated]`, `[ui …]`. */
-const MARK = /^\[(?:exit code (\d+)|stderr|error|returned|output truncated|hint: .*|ui [a-z]+: .*)\]$/;
+/** A line that marks a part of a code result, as the world renders
+ *  them: `[returned]`, `[error]`, `[hint: …]`, `[stderr]`,
+ *  `[output truncated]`, `[ui …]`. */
+const MARK = /^\[(?:stderr|error|returned|output truncated|hint: .*|ui [a-z]+: .*)\]$/;
+const EXIT = /^\[exit code (\d+)\]$/;
+
+/** @typedef {{ text: string, part: "out" | "mark" | "exit" | "stderr" | "error" | "returned", code?: number }} Part */
 
 /**
  * A result's lines, each with the part it belongs to: `out` before any
  * mark, the mark lines themselves (`exit` carries its code), and the
  * lines under a `[stderr]`, `[error]` or `[returned]` mark.
  *
- * @param {string} text
- * @returns {{ text: string, part: "out" | "mark" | "exit" | "stderr" | "error" | "returned", code?: number }[]}
+ * A terminal result is read by its shape, since its output can print
+ * anything: the output, then the world's `[exit code N]` (only when the
+ * call errored), `[stderr]` and its lines, and `[output truncated]`
+ * last. Its exit mark is the last one followed by nothing or by
+ * `[stderr]`; one the command printed is followed by more output.
+ *
+ * @param {ToolItem} tool
+ * @returns {Part[]}
  */
-function resultParts(text) {
-    /** @type {"out" | "stderr" | "error" | "returned"} */
-    let part = "out";
-    return text.split("\n").map((line) => {
-        const m = MARK.exec(line);
-        if (m === null) return { text: line, part };
-        if (m[1] !== undefined) return { text: line, part: "exit", code: Number(m[1]) };
-        part = line === "[stderr]" ? "stderr" : line === "[error]" ? "error" : line === "[returned]" ? "returned" : part;
-        return { text: line, part: "mark" };
+function resultParts(tool) {
+    const lines = (tool.result ?? "").split("\n");
+    if (tool.name !== "terminal") {
+        /** @type {"out" | "stderr" | "error" | "returned"} */
+        let part = "out";
+        return lines.map((line) => {
+            if (!MARK.test(line)) return { text: line, part };
+            part = line === "[stderr]" ? "stderr" : line === "[error]" ? "error" : line === "[returned]" ? "returned" : part;
+            return { text: line, part: "mark" };
+        });
+    }
+    let end = lines.length;
+    const truncated = lines[end - 1] === "[output truncated]";
+    if (truncated) end--;
+    let exit = -1;
+    if (tool.isError) {
+        for (let i = end - 1; i >= 0 && exit < 0; i--) if (EXIT.test(lines[i]) && (i === end - 1 || lines[i + 1] === "[stderr]")) exit = i;
+    }
+    const stderr = exit >= 0 ? (lines[exit + 1] === "[stderr]" ? exit + 1 : -1) : lines.lastIndexOf("[stderr]", end - 1);
+    const outEnd = exit >= 0 ? exit : stderr >= 0 ? stderr : end;
+    return lines.map((text, i) => {
+        if (i < outEnd) return { text, part: "out" };
+        if (i === exit) return { text, part: "exit", code: Number(EXIT.exec(text)?.[1]) };
+        if (i === stderr || i >= end) return { text, part: "mark" };
+        return { text, part: stderr >= 0 && i > stderr ? "stderr" : "out" };
     });
 }
 
@@ -124,9 +149,9 @@ function resultParts(text) {
 export function outcome(tool) {
     if (!tool.isError) return { kind: "ok" };
     if (tool.name === "terminal" && tool.result !== null) {
-        const parts = resultParts(tool.result);
+        const parts = resultParts(tool);
         const exit = parts.find((p) => p.part === "exit");
-        const parse = parts.some((p) => p.part === "stderr" && p.text.startsWith("parse error:"));
+        const parse = parts.find((p) => p.part === "stderr")?.text.startsWith("parse error:") ?? false;
         // 126 and 127: a command that couldn't run, or isn't there
         if (exit?.code !== undefined && !parse && exit.code !== 126 && exit.code !== 127) return { kind: "exit", code: exit.code };
     }
@@ -145,7 +170,7 @@ export function outcome(tool) {
 export function resultLines(tool) {
     const failed = outcome(tool).kind === "failed";
     const trouble = failed ? "bad" : "warn";
-    const parts = resultParts(tool.result ?? "");
+    const parts = resultParts(tool);
     // a failure the result doesn't mark (a call refused) is all its text
     const unmarked = failed && parts.every((p) => p.part === "out");
     return parts.map(({ text, part }) => {
