@@ -147,6 +147,16 @@ agent reads when the skill points to them.
   or webm-muxer where H.264 or AAC can't be encoded, all in the
   viewer's browser), a narrated scene module, and two HyperFrames
   guides (Apache-2.0, with their license).
+- **pixel-art**: sprites, scenes, animations and sheets as code with
+  [pxl](https://github.com/crsolver/claude-pxl) (MIT): its DSL, the
+  workflow (build only what changed, look at the upscaled preview, fix
+  by palette keys with `ascii`), using the files in an app, and pxl's
+  habits for clean pixel art. References: `pxl.js`, which does what
+  pxl's Node CLI does from `run_ts` (pxl's engine imported from esm.sh
+  at a pinned commit, art files run at their own line numbers so
+  errors point into them, PNGs from OffscreenCanvas, GIFs with pxl's
+  encoder), and pxl's API reference and lighting guide, with its
+  license.
 - **media**: the `media` calls, their options, voices, costs, and
   how an app uses the files.
 
