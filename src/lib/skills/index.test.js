@@ -15,7 +15,7 @@ describe("the studio's skills", () => {
     });
 
     it("are found in this directory, each with its SKILL.md", () => {
-        expect(SKILLS.map((s) => s.name)).toEqual(["agex-ecosystem", "interactive-app", "making-videos", "media"]);
+        expect(SKILLS.map((s) => s.name)).toEqual(["agex-ecosystem", "interactive-app", "making-videos", "media", "pixel-art"]);
         for (const skill of SKILLS) expect(skill.files["SKILL.md"]).toMatch(new RegExp(`^---\\nname: ${skill.name}\\n`));
     });
 
