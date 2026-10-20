@@ -83,7 +83,22 @@ describe("how a call ended", () => {
             "mark",
         ]);
         expect(resultLines(ended("run_ts", "[returned]\n42", false)).map((l) => l.tone)).toEqual(["mark", "plain"]);
+        expect(resultLines(ended("terminal", "lots\n[exit code 1]\n[stderr]\noops\n[output truncated]", true)).map((l) => l.tone)).toEqual([
+            "plain",
+            "warn",
+            "mark",
+            "warn",
+            "mark",
+        ]);
         // a failure with no marks is wholly the failure
         expect(resultLines(ended("file_edit", "edit failed: no match", true))).toEqual([{ text: "edit failed: no match", tone: "bad" }]);
+    });
+
+    it("reads the world's exit mark, not one the command printed", () => {
+        const printed = "[exit code 0]\n[exit code 127]\nmore\n[exit code 1]\n[stderr]\nfalse: exited with code 1";
+        expect(outcome(ended("terminal", printed, true))).toEqual({ kind: "exit", code: 1 });
+        expect(resultLines(ended("terminal", printed, true)).map((l) => l.tone)).toEqual(["plain", "plain", "plain", "warn", "mark", "warn"]);
+        // the world marks an exit only when the call errored
+        expect(resultLines(ended("terminal", "[exit code 3]", false))).toEqual([{ text: "[exit code 3]", tone: "plain" }]);
     });
 });
