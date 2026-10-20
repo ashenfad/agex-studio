@@ -85,24 +85,33 @@
     }
 
     /** What's at the top of the view, noted as the person scrolls and
-     *  as the content changes size, and brought back there when the list
+     *  as its rows change size, and brought back there when the list
      *  changes width (the divider moved, the window resized) and its
      *  text rewraps.
      *  @type {import('./reading.js').Reading | null} */
     let reading = null
     /** The list's width, and when it last changed: the scrolls that
-     *  follow a change are the list keeping the place, not the reader
-     *  moving, so they don't move what's noted. */
+     *  follow a change are mostly the list keeping the place, so what's
+     *  noted waits until it settles, then is looked at again (the reader
+     *  may have scrolled meanwhile). */
     let width = 0
     let reflowedAt = -Infinity
     const reflowing = () => list != null && (list.clientWidth !== width || performance.now() - reflowedAt < 250)
     let noting = 0
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let settled
 
     function noteReading() {
         if (noting !== 0) return
         noting = requestAnimationFrame(() => {
             noting = 0
-            if (list != null && !reflowing()) reading = readingAt(list)
+            if (list == null) return
+            if (!reflowing()) {
+                reading = readingAt(list)
+                return
+            }
+            clearTimeout(settled)
+            settled = setTimeout(noteReading, Math.max(0, 250 - (performance.now() - reflowedAt)) + 20)
         })
     }
 
@@ -144,13 +153,29 @@
             const box = node.getBoundingClientRect()
             // its bottom before it changed
             if (box.top + box.height - delta <= el.getBoundingClientRect().top) el.scrollTop += delta
-            // what's at the top may have moved without a scroll
-            noteReading()
         })
         nearby = n
         return () => {
             n.disconnect()
             nearby = null
+        }
+    })
+
+    // what's at the top can move without a scroll: a row above drawn
+    // late, a reply streaming, a font arriving and rewrapping
+    $effect(() => {
+        const el = list
+        if (el == null) return
+        const rows = new ResizeObserver(() => noteReading())
+        const watch = () => {
+            for (const row of el.children) rows.observe(row)
+        }
+        watch()
+        const added = new MutationObserver(watch)
+        added.observe(el, { childList: true })
+        return () => {
+            rows.disconnect()
+            added.disconnect()
         }
     })
 
@@ -172,6 +197,7 @@
             observer.disconnect()
             cancelAnimationFrame(noting)
             noting = 0
+            clearTimeout(settled)
         }
     })
 
@@ -181,7 +207,6 @@
         if (el == null) return
         const observer = new MutationObserver(() => {
             if (following && !revealing) el.scrollTop = el.scrollHeight
-            noteReading()
         })
         observer.observe(el, { childList: true, subtree: true, characterData: true })
         el.scrollTop = el.scrollHeight
