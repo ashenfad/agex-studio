@@ -15,11 +15,11 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       '@agex-ts/termish':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.3.1
+        version: 0.3.1
       '@agex-ts/world':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@ai-sdk/anthropic':
         specifier: 4.0.79
         version: 4.0.79(zod@4.6.5)
@@ -86,12 +86,12 @@ packages:
     resolution: {integrity: sha512-E/Go9ThwmptpWmSYwXO0V3PhlNx6BLaKETm9W3sRVc+FMesJhHTWlEdNHUwaB2L28atXs3e62h/ckLbAuJXUdw==}
     engines: {node: '>=22'}
 
-  '@agex-ts/termish@0.3.0':
-    resolution: {integrity: sha512-cpVLeDpCkEx2WvK7Crd/OTWQfqv8jUahIIs3ShdnBOm7b0/PJUGHR6kFRK+dnE4hTHDjM2pbDsTFexGPct9g+Q==}
+  '@agex-ts/termish@0.3.1':
+    resolution: {integrity: sha512-3C3Z5PpFeeWqI0wvCBQfs+2Y/fFlqn3p8xqB3xvrdBSwR9lgGHppnYtAw9VirXfeOruwRCM5ftWb46gOp0tdlA==}
     engines: {node: '>=22'}
 
-  '@agex-ts/world@0.1.0':
-    resolution: {integrity: sha512-nTRkeVhoVVFpmg62YACjKpoWkTBi2081BIWMgkwbM1s4ouDPVoSgIYkuXrzKth/us1gDZjk8pHTE5uS9M6HuJQ==}
+  '@agex-ts/world@0.1.1':
+    resolution: {integrity: sha512-u/Aaic4mOGZBiMEeoH1FpDmnqcVev4AyYsblWXddYnsibzLOzS3NWW64HY/MkvVBvBtN4318rQj+hzIEaTvFkA==}
     engines: {node: '>=22'}
 
   '@ai-sdk/anthropic@4.0.79':
@@ -1189,15 +1189,15 @@ snapshots:
       '@agex-ts/kvgit': 0.2.0
       '@sqlite.org/sqlite-wasm': 3.53.4-build1
 
-  '@agex-ts/termish@0.3.0':
+  '@agex-ts/termish@0.3.1':
     dependencies:
       fflate: 0.8.3
       superjson: 2.2.6
 
-  '@agex-ts/world@0.1.0':
+  '@agex-ts/world@0.1.1':
     dependencies:
       '@agex-ts/kvgit': 0.2.0
-      '@agex-ts/termish': 0.3.0
+      '@agex-ts/termish': 0.3.1
       '@standard-schema/spec': 1.1.0
       ts-blank-space: 0.6.2
 
@@ -1609,7 +1609,7 @@ snapshots:
   agex-ts@0.6.0:
     dependencies:
       '@agex-ts/kvgit': 0.2.0
-      '@agex-ts/world': 0.1.0
+      '@agex-ts/world': 0.1.1
       '@ai-sdk/provider': 4.0.27
       '@standard-schema/spec': 1.1.0
 

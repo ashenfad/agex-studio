@@ -13,8 +13,7 @@ auto-outline, palette-swap variants, reusable parts, primitives,
 brushes and tilemaps.
 
 pxl's own CLI needs Node; here its engine runs in `run_ts`, through
-`references/pxl.js`. Import it **statically**, at the top of the code
-(a dynamic `import()` of a workspace path doesn't resolve):
+`references/pxl.js`:
 
 ```ts
 import { build, ascii, list } from '/workspace/skills/pixel-art/references/pxl.js'
