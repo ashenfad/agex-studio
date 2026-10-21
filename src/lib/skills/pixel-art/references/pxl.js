@@ -14,9 +14,6 @@
  * shows at most `previewFrames` (8) of its frames, evenly spaced; its
  * _preview GIF has them all. Each asset fails on its own: its error is in
  * `errors`, as `file:line:col: asset > op: what`, and the rest build.
- *
- * Import it statically, as above: a dynamic import() of a session path
- * doesn't resolve.
  */
 
 import { Project, PxError, ascii as keys, didYouMean, normalImage, packSheet, preview, previewScale, sheetJson, wrap } from "https://esm.sh/gh/crsolver/claude-pxl@21fee41/src/core/index.ts";
