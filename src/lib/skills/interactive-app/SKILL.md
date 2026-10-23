@@ -331,8 +331,9 @@ Before the first action it waits for the page to load (its scripts and
 their static imports: a first import from esm.sh can take seconds), then
 for the app to settle, so there's no need to wait or poll for a "ready"
 element first. A dynamic `import()`, a `fetch` or a timer the app starts
-isn't waited for: `{wait: N}`, then read. If the page still hasn't
-loaded after 30s, the actions run anyway and the result says so.
+isn't waited for: `{waitFor: "#sel"}` or `{waitUntil: "expr"}`, then
+read. If the page still hasn't loaded after 30s, the actions run anyway
+and the result says so.
 
 ```json
 {"actions": [
@@ -344,18 +345,19 @@ loaded after 30s, the actions run anyway and the result says so.
 ]}
 ```
 
-- `{click: "#sel"}`, `{type: "#sel", value: "text"}`, `{select: "#sel", value: "opt"}`, `{wait: 500}`
-- `{read: "#sel"}` or `{read: "#sel", prop: "value"}`: `textContent`, or a property
-- `{eval: "expr"}`: a JS expression in the app's page; a Promise is awaited, so async work fits in one action
-- `{assert: "expr", message: "..."}`: silent when it holds; a failing one ends the call with an error naming it
+- `{click: "#sel"}`, `{type: "#sel", value: "text"}`, `{select: "#sel", value: "an option's value"}`: each waits up to 1s for its target (`timeout: ms` to change that); a target that never appears, or is disabled, ends the call with an error naming it. A click is real pointer and mouse events, so an SVG element (a `<g>`, a `<circle>`) takes it like a button
+- `{waitFor: "#sel"}` (until the selector matches) or `{waitUntil: "expr"}` (until the expression is true; a throw counts as not yet): up to 5s, `timeout: ms` to change it; running out ends the call with an error. `{wait: 500}` sleeps, for when there's nothing to wait for
+- `{read: "#sel"}` or `{read: "#sel", prop: "value"}`: its `innerText` (the text as shown), or a property (`prop: "textContent"` for the raw text)
+- `{eval: "expr", label: "setup"}`: a JS expression in the app's page; a Promise is awaited, so async work fits in one action. The optional `label` names it in the result in place of its code
+- `{assert: "expr", message: "..."}`: silent when it holds; a failing one ends the call with an error naming it. With `soft: true` a failure is reported and the actions go on; the call then ends as an error saying how many soft asserts failed
 - `{screenshot: true}` or `{screenshot: "#sel"}`: a PNG of the page (or an element), **attached to this result**: you see it on your next step, in the same turn
-- `{screenshot: true | "#sel", grid: "name", label: "after save"}`: held, and at the end of the call every frame of that grid comes back tiled into **one** image, each frame numbered and captioned with its label (up to 12 a grid; it comes back when an assert fails too)
+- `{screenshot: true | "#sel", grid: "name", label: "after save"}`: held, and at the end of the call every frame of that grid comes back tiled into **one** image, each frame numbered and captioned with its label (up to 12 a grid; it comes back when an action fails too)
 - `{viewport: "mobile" | "tablet" | "desktop" | {width, height}}`: resize between actions
 - `{reload: true}`: reload the page (rebuilt from the same files), keeping what this test wrote to `localStorage`, `sessionStorage` and its `agex.db`, and wait for it to load again: checks that what the app saves comes back. The person's storage and database are never written
 
 Actions are plain JSON objects, not a Playwright API: there's no `page`,
 and functions can't be passed (use `eval` for in-page JS). Keep reads
-narrow (`textContent`, an attribute); a DOM node comes back as a
+narrow (one element's text, an attribute); a DOM node comes back as a
 description, not something you can click later.
 
 Options beside `actions`:
@@ -372,15 +374,37 @@ Options beside `actions`:
 
 Use `assert` for a known condition, `eval` when you need the value to
 decide what to do, and a screenshot for layout and look; text checks are
-cheaper and their failures more precise.
+cheaper and their failures more precise. An action that fails ends the
+call there, with the results before it (and its grid); an `eval` that
+throws is reported and the actions go on.
+
+**Timing:**
+
+- **Wait for the render, not a guess:** after an `eval` or a click that
+  changes state, the DOM updates a moment later. `{waitFor: "#tab-dark"}`
+  (or `{waitUntil: "!document.querySelector('#buy').disabled"}`) before
+  reading or clicking what it renders; a fixed `{wait: 200}` passes alone
+  and fails in a long run.
+- **The app's clock keeps running between actions:** a value driven by
+  a timer moves while the test reads it. Assert with a tolerance
+  (`Math.abs(heat() - 5) < 0.5`), or expose a hook to pause or step it
+  (`window.engine.tick(dt)`) and test with that.
+- **The studio's window has to be at least partly visible:** in a
+  background tab (or a window covered entirely) the browser stops
+  `requestAnimationFrame` and slows timers to about one a second, so a
+  rAF loop doesn't run and timings stretch. The result says when this
+  happened: don't trust its timing, and ask the person to keep the
+  studio window showing while you test again.
+- **Many checks in one call:** `soft: true` on the asserts reports every
+  failure rather than stopping at the first.
 
 **Checks that mean something:**
 
 - **Assert on what carries data:** a count that isn't `0`, a chart
   container with children, a table with rows. Static text renders even
   when every fetch failed, so a check of a heading proves nothing.
-- **Exercise the flow:** click the filter, wait, and assert that the
-  result changed, not only that the page loaded.
+- **Exercise the flow:** click the filter, wait for the result
+  (`waitFor`), and assert that it changed, not only that the page loaded.
 - **Check that saved data survives a reload:** change something,
   `{reload: true}`, then read it back.
 - **Check a phone too:** `{viewport: "mobile"}` and a screenshot (a grid
