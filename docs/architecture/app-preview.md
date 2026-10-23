@@ -241,11 +241,32 @@ a module fetch it didn't declare, and a long-lived fetch would hold
 every action up. The live preview's page is waited for the same way
 when it is still loading.
 
-Actions run in order: `click`, `type`, `select`, `wait`, `read`
-(text or a property), `eval`, `assert` (a failure ends the call with
-an error), `screenshot` (a PNG in the result, seen by a model that
-takes images), `viewport`, `reload`. The result lists the app's
-console output, then each action's result.
+Actions run in order: `click`, `type`, `select`, `waitFor`,
+`waitUntil`, `wait`, `read` (`innerText` or a property), `eval`,
+`assert`, `screenshot` (a PNG in the result, seen by a model that takes
+images), `viewport`, `reload`. The result lists the app's console
+output, then each action's result.
+
+An action that can't do what it asks fails loudly. `click`, `type` and
+`select` poll for their target (1s, or the action's `timeout`) and
+throw an `ActionError` when it never appears or is disabled (a
+`select` value no option has, too); `waitFor` (a selector) and
+`waitUntil` (an expression) throw one when their wait (5s) runs out.
+`executeActions` ends the call at any error an action throws (an
+`ActionError`, a failed `assert`, an unknown action), carrying the
+results before it (`e.results`, a grid's frames among them), and the
+tool returns them with the error. An `eval` that throws, a screenshot
+that can't be drawn and a `soft` assert that fails come back as
+results instead, and the run goes on; failed soft asserts are counted
+at the end and make the result an error. A click is dispatched
+pointer and mouse events at the element's center rather than
+`el.click()`, so SVG elements take it, and a dispatched click keeps a
+click's default actions (a submit, a checkbox, a label, a link).
+
+The test iframe follows the studio's page: in a background tab the
+browser pauses its animation frames and slows its timers. The tool
+watches the studio's `visibilityState` through the call
+(`watchHidden`) and adds a note to the result when it was hidden.
 
 `{reload: true}` (not live) rebuilds the page from the same files in
 the same iframe and waits for its first load again. A test page's

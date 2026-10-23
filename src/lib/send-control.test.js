@@ -282,21 +282,23 @@ describe("sendControl + installControlBridge round-trip", () => {
 
     it("completes a click action end-to-end (null result payload)", async () => {
         document.body.innerHTML = '<button id="b">b</button>';
-        const clickSpy = vi.spyOn(document.getElementById("b"), "click");
+        const clicked = vi.fn();
+        document.getElementById("b").addEventListener("click", clicked);
         const iframe = bridgedFrame(window.location.origin);
         expect(await sendControl(iframe, { click: "#b" })).toBeNull();
-        expect(clickSpy).toHaveBeenCalledOnce();
+        expect(clicked).toHaveBeenCalledOnce();
     });
 
     it("gets no answer from a page that doesn't know its parent's origin", async () => {
         vi.useFakeTimers();
         document.body.innerHTML = '<button id="b">b</button>';
-        const clickSpy = vi.spyOn(document.getElementById("b"), "click");
+        const clicked = vi.fn();
+        document.getElementById("b").addEventListener("click", clicked);
         const iframe = bridgedFrame(undefined);
         const p = sendControl(iframe, { click: "#b" }, { timeoutMs: 1000 });
         const settled = expect(p).rejects.toThrow(/^TimeoutError:/);
         await vi.advanceTimersByTimeAsync(1000);
         await settled;
-        expect(clickSpy).not.toHaveBeenCalled();
+        expect(clicked).not.toHaveBeenCalled();
     });
 });

@@ -170,13 +170,140 @@ async function captureScreenshot(doc, selector) {
     return match[1].replace(/\s/g, "");
 }
 
+/** How long `click`, `type` and `select` wait for their target to
+ *  appear, by default: long enough for the render after an earlier
+ *  action, short enough that a wrong selector fails fast. */
+const TARGET_WAIT_MS = 1000;
+
+/** How long `waitFor` and `waitUntil` wait, by default. */
+const WAIT_FOR_MS = 5000;
+
+/** The longest any action may be told to wait (`timeout`). */
+const MAX_WAIT_MS = 60_000;
+
+/** How often a wait checks again. */
+const POLL_MS = 50;
+
+/** Marker prefix on the errors of actions that couldn't do what they
+ *  were asked (no target, a disabled one, a wait that ran out). Like
+ *  `AssertionError:`, it survives postMessage, which drops the class. */
+const ACTION_ERROR = 'ActionError:';
+
+/**
+ * How long `action` may wait in the page, in ms: its `timeout`, or the
+ * default for its kind (0 for an action that doesn't wait). The studio
+ * gives the bridge that much longer to answer.
+ *
+ * @param {object} action
+ * @returns {number}
+ */
+export function actionWaitMs(action) {
+    const fallback = action.waitFor !== undefined || action.waitUntil !== undefined
+        ? WAIT_FOR_MS
+        : action.click !== undefined || action.type !== undefined || action.select !== undefined
+            ? TARGET_WAIT_MS
+            : 0;
+    if (fallback === 0) return 0;
+    const t = Number(action.timeout);
+    return Number.isFinite(t) && t >= 0 ? Math.min(t, MAX_WAIT_MS) : fallback;
+}
+
+/** Call `check` until it gives something truthy (returned) or `ms`
+ *  have passed (null). It runs at least once. */
+async function _poll(ms, check) {
+    const start = Date.now();
+    for (;;) {
+        const found = await check();
+        if (found) return found;
+        if (Date.now() - start >= ms) return null;
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+}
+
+/** Whether a click or an edit on `el` would do nothing because it's
+ *  disabled: its own `disabled`, or a disabled fieldset around it. */
+function _isDisabled(el) {
+    if (el.disabled === true) return true;
+    try {
+        return el.matches(':disabled');
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The element `selector` names for `verb`, waited for up to the
+ * action's timeout. One that never appears, or that is disabled,
+ * throws an `ActionError`: an action that would do nothing fails
+ * rather than pass.
+ *
+ * @param {Document} doc
+ * @param {string} verb
+ * @param {string} selector
+ * @param {object} action
+ */
+async function _target(doc, verb, selector, action) {
+    const ms = actionWaitMs(action);
+    const el = await _poll(ms, () => doc.querySelector(selector));
+    if (!el) {
+        throw new Error(`${ACTION_ERROR} ${verb} ${JSON.stringify(selector)}: nothing matches it (waited ${ms}ms)`);
+    }
+    if (_isDisabled(el)) {
+        throw new Error(`${ACTION_ERROR} ${verb} ${JSON.stringify(selector)}: the element is disabled, so ${verb} does nothing on it`);
+    }
+    return el;
+}
+
+/**
+ * Click `el` as a mouse does: pointerdown, mousedown, pointerup,
+ * mouseup and click, at the element's center, bubbling and
+ * cancelable. Dispatched events work on any element, an SVG `<g>`
+ * included (which has no `click()`), and a dispatched click still does
+ * what a click does (a button submits its form, a checkbox toggles, a
+ * label clicks its control, a link follows). A cancelled pointerdown
+ * holds back the mouse events after it, as in a browser; the click
+ * still fires.
+ *
+ * @param {Element} el
+ * @param {Document} doc
+ */
+function _click(el, doc) {
+    const win = /** @type {any} */ (doc.defaultView || globalThis);
+    const box = el.getBoundingClientRect();
+    const at = {
+        bubbles: true, cancelable: true, composed: true, button: 0,
+        clientX: box.left + box.width / 2, clientY: box.top + box.height / 2,
+    };
+    const Mouse = win.MouseEvent;
+    const Pointer = win.PointerEvent || Mouse;
+    const pointer = { pointerId: 1, pointerType: 'mouse', isPrimary: true };
+    const mouse = el.dispatchEvent(new Pointer('pointerdown', { ...at, ...pointer, buttons: 1 }));
+    if (mouse) el.dispatchEvent(new Mouse('mousedown', { ...at, buttons: 1 }));
+    el.dispatchEvent(new Pointer('pointerup', { ...at, ...pointer, buttons: 0 }));
+    if (mouse) el.dispatchEvent(new Mouse('mouseup', { ...at, buttons: 0 }));
+    el.dispatchEvent(new Mouse('click', { ...at, buttons: 0, detail: 1 }));
+}
+
+/** Evaluate `expr` in `scope`, awaiting a Promise it gives. */
+async function _evalAwaited(scope, expr) {
+    let val = scope.eval(expr);
+    if (val && typeof val.then === 'function') val = await val;
+    return val;
+}
+
 /**
  * Dispatch a single action against the document.
  *
  * Return-value contract matches the pre-refactor `executeActions`
  * output shape: `null` for actions that produce no result entry
- * (click/type/select), an object with a `type` field for actions that
- * do (read/eval/screenshot/get-logs).
+ * (click/type/select, waitFor/waitUntil, a passing assert), an object
+ * with a `type` field for actions that do (read/eval/screenshot/
+ * get-logs, a failed soft assert).
+ *
+ * `click`, `type` and `select` wait for their target (`TARGET_WAIT_MS`,
+ * or the action's `timeout`) and throw an `ActionError:` when it never
+ * appears or is disabled; `waitFor` (a selector) and `waitUntil` (an
+ * expression) throw one when their wait runs out.
  *
  * @param {Document} doc
  * @param {object} action
@@ -187,31 +314,62 @@ async function captureScreenshot(doc, selector) {
 export async function dispatchAction(doc, action, global) {
     const scope = global || globalThis;
 
-    if (action.click) {
-        const el = doc.querySelector(action.click);
-        if (el) el.click();
+    if (action.click !== undefined) {
+        _click(await _target(doc, 'click', action.click, action), doc);
         return null;
     }
-    if (action.type) {
-        const el = doc.querySelector(action.type);
-        if (el) {
-            el.value = action.value || '';
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (action.type !== undefined) {
+        const el = await _target(doc, 'type', action.type, action);
+        el.value = action.value || '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return null;
+    }
+    if (action.select !== undefined) {
+        const el = await _target(doc, 'select', action.select, action);
+        const want = String(action.value ?? '');
+        el.value = want;
+        // a <select> takes only a value one of its options has: another
+        // leaves it on no option, which the app would read as a choice
+        if (el.tagName === 'SELECT' && el.value !== want) {
+            const values = Array.from(el.options, (o) => JSON.stringify(o.value)).join(', ');
+            throw new Error(`${ACTION_ERROR} select ${JSON.stringify(action.select)}: no option has the value ${JSON.stringify(want)} (its values: ${values})`);
+        }
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return null;
+    }
+    if (action.waitFor !== undefined) {
+        const ms = actionWaitMs(action);
+        if (!(await _poll(ms, () => doc.querySelector(action.waitFor)))) {
+            throw new Error(`${ACTION_ERROR} waitFor ${JSON.stringify(action.waitFor)}: still nothing matches it after ${ms}ms`);
         }
         return null;
     }
-    if (action.select) {
-        const el = doc.querySelector(action.select);
-        if (el) {
-            el.value = action.value || '';
-            el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (action.waitUntil !== undefined) {
+        const ms = actionWaitMs(action);
+        // an expression that throws (what it reads isn't there yet) counts as not yet
+        /** @type {any} */
+        let threw = null;
+        const held = await _poll(ms, async () => {
+            try {
+                const val = await _evalAwaited(scope, action.waitUntil);
+                threw = null;
+                return Boolean(val);
+            } catch (e) {
+                threw = e;
+                return false;
+            }
+        });
+        if (!held) {
+            const last = threw ? `; it last threw ${threw.name || 'Error'}: ${threw.message}` : '';
+            throw new Error(`${ACTION_ERROR} waitUntil ${action.waitUntil}: still not true after ${ms}ms${last}`);
         }
         return null;
     }
     if (action.read) {
         const el = doc.querySelector(action.read);
-        const prop = action.prop || 'textContent';
+        // innerText: the text as shown, a line between blocks (textContent runs them together)
+        const prop = action.prop || 'innerText';
         const raw = el ? String(el[prop] ?? '') : null;
         return {
             type: 'read',
@@ -220,9 +378,10 @@ export async function dispatchAction(doc, action, global) {
         };
     }
     if (action.eval) {
+        // a label names the eval in its result in place of its code
+        const label = typeof action.label === 'string' && action.label !== '' ? { label: action.label } : {};
         try {
             // Indirect eval runs in global scope, seeing app-level bindings.
-            let val = scope.eval(action.eval);
             // Auto-await Promise / thenable results. Without this,
             // expressions like `Plotly.toImage(...)` or `fetch(url).
             // then(r => r.json())` resolve to an opaque Promise that
@@ -233,12 +392,11 @@ export async function dispatchAction(doc, action, global) {
             // takes as long as the Promise takes, and the result is
             // the resolved value. Multi-call parallel works the same
             // way via `Promise.all([..., ..., ...])`.
-            if (val && typeof val.then === 'function') {
-                val = await val;
-            }
+            const val = await _evalAwaited(scope, action.eval);
             return {
                 type: 'eval',
                 expr: action.eval,
+                ...label,
                 // JSON-encode the value (always, even primitives) so
                 // every result reads the same way and its size can be
                 // capped.  Replacer handles common
@@ -263,8 +421,9 @@ export async function dispatchAction(doc, action, global) {
             return {
                 type: 'eval',
                 expr,
+                ...label,
                 value: null,
-                error: `${name}: ${e.message} (in: ${expr})`,
+                error: `${name}: ${e.message} (in: ${label.label ?? expr})`,
             };
         }
     }
@@ -284,19 +443,21 @@ export async function dispatchAction(doc, action, global) {
         //     postMessage doesn't preserve Error subclass identity,
         //     so we use a message prefix instead of an `instanceof
         //     AssertionError` check.
+        //   - A `soft` one fails without ending the call: the failure
+        //     comes back as a result entry and the actions go on.
         const tag = action.message ? `${action.message} — ` : '';
+        const fail = (/** @type {string} */ message) => {
+            if (action.soft === true) return { type: 'assert', soft: true, message };
+            throw new Error(message);
+        };
         let val;
         try {
             val = scope.eval(action.assert);
         } catch (e) {
-            throw new Error(
-                `AssertionError: ${tag}${action.assert} threw — ${e.message}`,
-            );
+            return fail(`AssertionError: ${tag}${action.assert} threw — ${e.message}`);
         }
         if (val) return null; // pass — silent
-        throw new Error(
-            `AssertionError: ${tag}${action.assert} (got ${_jsonifyEvalResult(val)})`,
-        );
+        return fail(`AssertionError: ${tag}${action.assert} (got ${_jsonifyEvalResult(val)})`);
     }
     if (action.screenshot !== undefined) {
         const selector = typeof action.screenshot === 'string' ? action.screenshot : null;

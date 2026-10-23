@@ -27,17 +27,48 @@ const TEST_APP_DESCRIPTION = `Check the app under /workspace/app by acting on it
 By default it runs in a fresh hidden iframe built from the app's files as they are now (its storage seeded from the person's, writes discarded; agex.db is a copy of the person's database as it is now, kept across the test's reloads and discarded after: the person's is never written). Before the first action it waits for the page to load (its scripts and their imports, which can take seconds from esm.sh), then for the app to settle; if it still hasn't loaded after ${LOAD_TIMEOUT_MS / 1000}s, the actions run anyway and the result says so. With live: true it acts on the preview the person is looking at instead, with the person's own storage and agex.db: what it writes there stays.
 
 actions: a list of plain objects, run in order:
-- {click: "#sel"} · {type: "#sel", value: "text"} · {select: "#sel", value: "opt"} · {wait: 500}
-- {read: "#sel"} or {read: "#sel", prop: "value"}: textContent, or a property
-- {eval: "expr"}: a JS expression in the app's page; a Promise is awaited
-- {assert: "expr", message: "..."}: a failing assertion ends the call with an error
+- {click: "#sel"} · {type: "#sel", value: "text"} · {select: "#sel", value: "an option's value"}: each waits up to 1s for its target to appear (timeout: ms to change that). A target that never appears, or is disabled, ends the call with an error. A click is real pointer and mouse events at the element's center, so SVG elements take it too
+- {waitFor: "#sel"}: wait until the selector matches · {waitUntil: "expr"}: wait until a JS expression is true (a throw counts as not yet). Up to 5s (timeout: ms); running out ends the call with an error. After an eval or a click that changes state, wait for what it renders before reading or clicking it, rather than guessing a {wait: ms}
+- {wait: 500}: sleep, in ms
+- {read: "#sel"} or {read: "#sel", prop: "value"}: innerText (the text as shown), or a property (prop: "textContent" for the raw text)
+- {eval: "expr", label: "name"}: a JS expression in the app's page; a Promise is awaited. The optional label names it in the result in place of its code
+- {assert: "expr", message: "..."}: a failing assertion ends the call with an error. With soft: true a failure is reported and the actions go on; the call then ends as an error saying how many soft asserts failed
 - {screenshot: true} or {screenshot: "#sel"}: a PNG, attached to this result
-- {screenshot: true | "#sel", grid: "name", label: "1.5s title"}: held, and every frame of a grid comes back tiled into ONE captioned image at the end (also when an assert fails); up to ${GRID_MAX} frames a grid. Use it to check several states (scenes, steps) for the cost of one image
+- {screenshot: true | "#sel", grid: "name", label: "1.5s title"}: held, and every frame of a grid comes back tiled into ONE captioned image at the end (also when an action fails); up to ${GRID_MAX} frames a grid. Use it to check several states (scenes, steps) for the cost of one image
 - {viewport: "mobile" | "tablet" | "desktop" | {width, height}}: resize (not live)
 - {reload: true}: reload the page (rebuilt from the same files), keeping what this test wrote to localStorage, sessionStorage and agex.db, and wait for it to load again: checks what survives a reload. The person's storage and database are never written (not live)
 
+An action that fails ends the call with an error, after the results that came before it; an eval that throws is reported and the actions go on.
 viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage and an empty agex.db.
-The result lists the app's console output, then each action's result.`;
+The result lists the app's console output, then each action's result. The app's own timers keep running between actions, so compare time-driven values with a tolerance, or give the app a hook to pause or step it. While the studio's tab is in the background, the browser pauses animation frames and slows timers: the result says so when that happened.`;
+
+/** The line a result gets when the studio's page was hidden during the call. */
+export const HIDDEN_NOTE = "Note: the studio's tab was in the background during this test: animation frames were paused and timers slowed, so timing-based results may be wrong. Keep the studio window at least partly visible while testing.";
+
+/**
+ * Watch whether `doc` (the studio's page, which every app frame in it
+ * follows) is hidden at any point until the function returned is
+ * called, which stops watching and says whether it was. A hidden page
+ * gets no animation frames, and its timers are slowed to about one a
+ * second, so a test's timing then means little.
+ *
+ * @param {Document | undefined} [doc]
+ * @returns {() => boolean}
+ */
+export function watchHidden(doc = globalThis.document) {
+    if (doc === undefined) return () => false;
+    let hidden = false;
+    const look = () => {
+        if (doc.visibilityState === "hidden") hidden = true;
+    };
+    look();
+    doc.addEventListener("visibilitychange", look);
+    return () => {
+        look();
+        doc.removeEventListener("visibilitychange", look);
+        return hidden;
+    };
+}
 
 /**
  * The tool, over `session`: a chat session, or a delegate's workspace
@@ -67,71 +98,88 @@ export function testAppTool(session) {
             },
         },
         async call(args) {
-            const ws = session.ws;
-            if (ws === null) return { text: "the session isn't open", images: [], isError: true };
-            const actions = Array.isArray(args.actions) ? args.actions : [];
-            /** @type {any[]} */
-            let results;
-            try {
-                if (args.live === true && session.delegate) {
-                    return { text: "live: true acts on the preview the person is looking at, which shows the session that asked you, not your app: test without live", images: [], isError: true };
-                }
-                if (args.live === true) {
-                    // files just written: the preview rebuilds from them first
-                    await whenLiveSettled();
-                    const iframe = getLiveIframe();
-                    if (iframe === null) {
-                        return { text: "the preview isn't open: the person has to show it for live: true; test without live instead", images: [], isError: true };
-                    }
-                    results = await runLiveApp({ iframe, actions });
-                } else {
-                    const app = await readApp(ws);
-                    if (!hasApp(app)) {
-                        return { text: "there is no app yet: write /workspace/app/index.html (or app/main.js) first", images: [], isError: true };
-                    }
-                    /** The test's copy of the database, made on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
-                    let testDb = null;
-                    try {
-                        results = await runTestApp({
-                            appFiles: app.files,
-                            appBinaries: app.binaries,
-                            actions,
-                            appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
-                            buildAppPage,
-                            reseedAppPage,
-                            cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
-                            // the app's agent tasks run for real, counted in its session's budget
-                            taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
-                                // an app from elsewhere runs here only once the person allowed it in the preview
-                                const { studio } = await import("./studio.svelte.js");
-                                const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
-                                return appAgent.call(session.name, call, { ask: imported, prompt: false });
-                            },
-                            dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
-                            viewport: /** @type {any} */ (args.viewport) ?? null,
-                        });
-                    } finally {
-                        // gone with the test: deleting removes its file
-                        void testDb?.then((db) => db.delete()).catch((e) => console.warn("agex.db: deleting a test's copy failed:", e));
-                    }
-                }
-            } catch (e) {
-                // a failing assertion ends the call, with what came before it
-                const message = errorText(e);
-                const before = /** @type {any} */ (e)?.results;
-                if (!Array.isArray(before)) return { text: message, images: [], isError: true };
-                const out = await formatResults(before);
-                return { text: `${out.text}\n${message}`, images: out.images, isError: true };
-            }
-            return formatResults(results);
+            // a page hidden at any point makes the test's timing suspect: said with the result
+            const wasHidden = watchHidden();
+            const out = await runTest(session, args);
+            return wasHidden() ? { ...out, text: `${out.text}\n${HIDDEN_NOTE}` } : out;
         },
     };
 }
 
 /**
+ * Run a call's actions, in a test iframe or (`live`) the preview, and
+ * say what came of them.
+ *
+ * @param {{ ws: import("@agex-ts/world").Workspace | null, name: string, delegate?: boolean }} session
+ * @param {Record<string, unknown>} args
+ * @returns {Promise<import("@agex-ts/world").ToolOutput>}
+ */
+async function runTest(session, args) {
+    const ws = session.ws;
+    if (ws === null) return { text: "the session isn't open", images: [], isError: true };
+    const actions = Array.isArray(args.actions) ? args.actions : [];
+    /** @type {any[]} */
+    let results;
+    try {
+        if (args.live === true && session.delegate) {
+            return { text: "live: true acts on the preview the person is looking at, which shows the session that asked you, not your app: test without live", images: [], isError: true };
+        }
+        if (args.live === true) {
+            // files just written: the preview rebuilds from them first
+            await whenLiveSettled();
+            const iframe = getLiveIframe();
+            if (iframe === null) {
+                return { text: "the preview isn't open: the person has to show it for live: true; test without live instead", images: [], isError: true };
+            }
+            results = await runLiveApp({ iframe, actions });
+        } else {
+            const app = await readApp(ws);
+            if (!hasApp(app)) {
+                return { text: "there is no app yet: write /workspace/app/index.html (or app/main.js) first", images: [], isError: true };
+            }
+            /** The test's copy of the database, made on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
+            let testDb = null;
+            try {
+                results = await runTestApp({
+                    appFiles: app.files,
+                    appBinaries: app.binaries,
+                    actions,
+                    appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
+                    buildAppPage,
+                    reseedAppPage,
+                    cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
+                    // the app's agent tasks run for real, counted in its session's budget
+                    taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
+                        // an app from elsewhere runs here only once the person allowed it in the preview
+                        const { studio } = await import("./studio.svelte.js");
+                        const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
+                        return appAgent.call(session.name, call, { ask: imported, prompt: false });
+                    },
+                    dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
+                    viewport: /** @type {any} */ (args.viewport) ?? null,
+                });
+            } finally {
+                // gone with the test: deleting removes its file
+                void testDb?.then((db) => db.delete()).catch((e) => console.warn("agex.db: deleting a test's copy failed:", e));
+            }
+        }
+    } catch (e) {
+        // a failed action ends the call, with what came before it
+        const message = errorText(e);
+        const before = /** @type {any} */ (e)?.results;
+        if (!Array.isArray(before) || before.length === 0) return { text: message, images: [], isError: true };
+        const out = await formatResults(before);
+        return { text: `${out.text}\n${message}`, images: out.images, isError: true };
+    }
+    return formatResults(results);
+}
+
+/**
  * The results as the model reads them, screenshots attached as images:
  * each on its own, or a grid's frames tiled into one image at the end
- * (by `tile`; frames past `GRID_MAX` are left out, and said so).
+ * (by `tile`; frames past `GRID_MAX` are left out, and said so). Soft
+ * asserts that failed are counted at the end, and make the result an
+ * error. An eval with a label shows the label in place of its code.
  *
  * @param {any[]} results
  * @param {{ tile?: (frames: { data: string, label: string }[]) => Promise<string> }} [opts]
@@ -145,13 +193,18 @@ export async function formatResults(results, { tile = tileGrid } = {}) {
     /** The grids' frames, by name, in the order each grid began. */
     /** @type {Map<string, { data: string, label: string }[]>} */
     const grids = new Map();
+    let softFailed = 0;
     for (const r of results) {
+        const named = r?.type === "eval" && typeof r.label === "string" ? `[${r.label}]` : null;
         if (r?.type === "log") {
             lines.push(`[${r.level}] ${shown(r.message)}`);
         } else if (r?.type === "eval" && r.error) {
-            lines.push(`eval ${shown(r.expr, 200)} threw: ${shown(r.error)}`);
+            lines.push(`eval ${named ?? shown(r.expr, 200)} threw: ${shown(r.error)}`);
         } else if (r?.type === "eval") {
-            lines.push(`eval ${shown(r.expr, 200)} → ${shown(r.value)}`);
+            lines.push(`eval ${named ?? shown(r.expr, 200)} → ${shown(r.value)}`);
+        } else if (r?.type === "assert" && r.soft === true) {
+            softFailed += 1;
+            lines.push(`soft assert failed: ${shown(r.message)}`);
         } else if (r?.type === "reload") {
             lines.push(String(r.message));
         } else if (r?.type === "read") {
@@ -186,9 +239,12 @@ export async function formatResults(results, { tile = tileGrid } = {}) {
             lines.push(`grid ${name}: couldn't be tiled (${errorText(e)}): its ${frames.length} frames attached one by one`);
         }
     }
+    if (softFailed > 0) {
+        lines.push(`${softFailed} soft assert${softFailed === 1 ? "" : "s"} failed`);
+    }
     return {
         text: lines.length === 0 ? "(no console output, and no action gave a result)" : lines.join("\n"),
         images,
-        isError: false,
+        isError: softFailed > 0,
     };
 }

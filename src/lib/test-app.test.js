@@ -3,7 +3,7 @@ import { Store } from '@agex-ts/world'
 import { describe, expect, it } from 'vitest'
 import { appDigest, hasApp, readApp } from './app-files.js'
 import { GRID_MAX, gridLayout } from './grid.js'
-import { formatResults } from './test-app.js'
+import { HIDDEN_NOTE, formatResults, watchHidden } from './test-app.js'
 
 describe('the app’s files', () => {
     it('are read by app/ path, text apart from binary, with a fingerprint that follows them', async () => {
@@ -44,6 +44,30 @@ describe('test_app’s result', () => {
     it('says when an eval threw', async () => {
         const out = await formatResults([{ type: 'eval', expr: 'boom()', value: null, error: 'ReferenceError: boom is not defined (in: boom())' }])
         expect(out.text).toBe('eval boom() threw: ReferenceError: boom is not defined (in: boom())')
+    })
+
+    it('names a labelled eval by its label, in place of its code', async () => {
+        const out = await formatResults([
+            { type: 'eval', expr: 'buyPerks(3)', label: 'buy perks', value: '3' },
+            { type: 'eval', expr: 'boom()', label: 'setup', value: null, error: 'ReferenceError: boom is not defined (in: setup)' },
+        ])
+        expect(out.text).toBe('eval [buy perks] → 3\neval [setup] threw: ReferenceError: boom is not defined (in: setup)')
+    })
+
+    it('counts the soft asserts that failed, at the end, and is then an error', async () => {
+        const out = await formatResults([
+            { type: 'assert', soft: true, message: 'AssertionError: heat — heat() === 5 (got false)' },
+            { type: 'read', selector: '#n', value: '4' },
+            { type: 'assert', soft: true, message: 'AssertionError: stokes — n === 5 (got false)' },
+        ])
+        expect(out.text).toBe(
+            'soft assert failed: AssertionError: heat — heat() === 5 (got false)\n' +
+                'read #n → 4\n' +
+                'soft assert failed: AssertionError: stokes — n === 5 (got false)\n' +
+                '2 soft asserts failed',
+        )
+        expect(out.isError).toBe(true)
+        expect((await formatResults([{ type: 'read', selector: '#n', value: '4' }])).isError).toBe(false)
     })
 
     it('tiles a grid’s frames into one image at the end, in order, labelled', async () => {
@@ -117,5 +141,43 @@ describe('a grid’s layout', () => {
         const out = gridLayout([{ width: 1920, height: 1080 }, { width: 390, height: 844 }])
         expect(out.cells[0]?.captionY).toBe(out.cells[1]?.captionY)
         expect(out.cells[1]?.height).toBeGreaterThan(/** @type {any} */ (out.cells[0]).height)
+    })
+})
+
+describe('a test while the studio’s page is hidden', () => {
+    /** A page whose visibility a test sets, telling its listeners as a browser does. */
+    const page = (/** @type {DocumentVisibilityState} */ state) => {
+        const doc = /** @type {any} */ (new EventTarget())
+        doc.visibilityState = state
+        doc.become = (/** @type {DocumentVisibilityState} */ next) => {
+            doc.visibilityState = next
+            doc.dispatchEvent(new Event('visibilitychange'))
+        }
+        return doc
+    }
+
+    it('is seen hidden at the start, the end, or between', () => {
+        expect(watchHidden(page('visible'))()).toBe(false)
+        expect(watchHidden(page('hidden'))()).toBe(true)
+        const between = page('visible')
+        const stop = watchHidden(between)
+        between.become('hidden')
+        between.become('visible')
+        expect(stop()).toBe(true)
+        const atEnd = page('visible')
+        const stopAtEnd = watchHidden(atEnd)
+        atEnd.visibilityState = 'hidden'
+        expect(stopAtEnd()).toBe(true)
+    })
+
+    it('is watched no longer once stopped, and says why timing may be off', () => {
+        const doc = page('visible')
+        const stop = watchHidden(doc)
+        expect(stop()).toBe(false)
+        doc.become('hidden')
+        doc.become('visible')
+        expect(stop()).toBe(false)
+        expect(watchHidden(undefined)()).toBe(false)
+        expect(HIDDEN_NOTE).toMatch(/background.*animation frames were paused and timers slowed/)
     })
 })
