@@ -138,9 +138,23 @@ describe('a grid’s layout', () => {
     })
 
     it('makes a row as tall as its tallest frame', () => {
-        const out = gridLayout([{ width: 1920, height: 1080 }, { width: 390, height: 844 }])
+        const out = gridLayout([{ width: 1280, height: 600 }, { width: 390, height: 844 }])
         expect(out.cells[0]?.captionY).toBe(out.cells[1]?.captionY)
         expect(out.cells[1]?.height).toBeGreaterThan(/** @type {any} */ (out.cells[0]).height)
+    })
+
+    it('scales every frame alike, so a phone beside a desktop keeps its size against it', () => {
+        const out = gridLayout([{ width: 1280, height: 800 }, { width: 390, height: 844 }])
+        expect(out.cells[0]).toMatchObject({ width: 640, height: 400 })
+        expect(out.cells[1]).toMatchObject({ width: 195, height: 422 })
+        // the caption takes the column, not the narrower frame
+        expect(out.cells[1]?.captionWidth).toBe(640)
+    })
+
+    it('never scales a frame up', () => {
+        const out = gridLayout([{ width: 300, height: 200 }, { width: 150, height: 100 }])
+        expect(out.cells.map((c) => [c.width, c.height])).toEqual([[300, 200], [150, 100]])
+        expect(out.width).toBe(8 + 2 * (300 + 8))
     })
 })
 
