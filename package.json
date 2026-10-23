@@ -26,8 +26,8 @@
   "dependencies": {
     "@agex-ts/kvgit": "^0.2.0",
     "@agex-ts/kvsql": "^0.1.0",
-    "@agex-ts/termish": "^0.3.1",
-    "@agex-ts/world": "^0.1.1",
+    "@agex-ts/termish": "^0.3.2",
+    "@agex-ts/world": "^0.1.2",
     "@ai-sdk/anthropic": "4.0.79",
     "@ai-sdk/openai-compatible": "3.0.68",
     "@openrouter/ai-sdk-provider": "3.1.0",
