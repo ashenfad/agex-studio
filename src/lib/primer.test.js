@@ -16,6 +16,10 @@ describe("primer", () => {
         expect(primer(DEFAULTS)).toContain("[the plan](/workspace/notes/plan.md)");
     });
 
+    it("points the agent at the delegation skill before it splits work", () => {
+        expect(primer(DEFAULTS)).toContain("read the delegation skill");
+    });
+
     it("tells the agent it can draw a diagram in a mermaid block", () => {
         expect(primer(DEFAULTS)).toContain("```mermaid block in your reply");
     });
