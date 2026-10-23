@@ -155,7 +155,6 @@ pnpm drive "build a counter" --exec "s.files()" --shot out.png
   `@agex-ts/world` follows
 - [kvgit](https://github.com/ashenfad/kvgit): versioned key-value
   store, in Python
-- [calgebra](https://github.com/ashenfad/calgebra): calendar algebra
 - [monkeyfs](https://github.com/ashenfad/monkeyfs): virtual filesystem
 - [sandtrap](https://github.com/ashenfad/sandtrap): Python code sandbox
 - [termish](https://github.com/ashenfad/termish): shell emulator, in
