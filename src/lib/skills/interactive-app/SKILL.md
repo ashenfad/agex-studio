@@ -435,7 +435,17 @@ than one per state). Responsive layouts, in one call:
 
 Steps of a flow, or the scenes of an animation, the same way: act,
 screenshot into the grid, act again. A grid's frames are scaled down to
-fit together; for a detail, take a plain screenshot of that element.
+fit together, all by the same factor, so a phone beside a desktop keeps
+its size against it; for a detail, take a plain screenshot of that
+element.
+
+**What a screenshot is:** the page's DOM drawn again into an image (an
+SVG `foreignObject`), not a capture of the screen. It is close, not
+exact: text can wrap a little differently (emoji, inline chips, tight
+buttons), and a `position: fixed` element is drawn against the page,
+not pinned to the visible screen. When a screenshot looks wrong in a
+way like that, measure before changing the app: `read` the text, or
+`eval` an element's `getBoundingClientRect()`.
 
 Each resize fires a real `resize`; an app that reads `innerWidth` only at
 startup won't relayout, so for those pass `viewport` to start at a size.

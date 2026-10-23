@@ -298,8 +298,9 @@ one.
 
 A screenshot with a `grid` name (and a `label`) is held: at the end of
 the call, `formatResults` tiles each grid's frames, in order, into one
-captioned PNG (`grid.js`: 1 to 4 columns by count, frames scaled to
-fit within 1,600px wide, at most 12 a grid), so several states cost
+captioned PNG (`grid.js`: 1 to 4 columns by count, every frame scaled
+by one factor so the widest fits its column and none grows, within
+1,600px wide, at most 12 a grid), so several states cost
 the model one image. A failing assert carries the results before it
 (`e.results`, with the console's output and under the same bounds as
 a passing call's), so its grids, and its other screenshots, still

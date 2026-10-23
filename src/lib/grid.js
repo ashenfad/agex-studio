@@ -19,25 +19,34 @@ const GAP = 8;
 
 /**
  * Where each frame goes: columns by count (1, 2 up to 4 frames, 3 up to
- * 9, else 4), each frame scaled to the cell width, rows as tall as
- * their tallest frame, a caption band under each.
+ * 9, else 4), every frame scaled by one factor, the one that fits the
+ * widest to a column (and never up), so frames keep their sizes against
+ * each other: a phone beside a desktop is the narrower. Rows are as tall
+ * as their tallest frame, with a caption band under each, as wide as
+ * its column.
  *
  * @param {readonly { width: number, height: number }[]} sizes
- * @returns {{ width: number, height: number, cells: { x: number, y: number, width: number, height: number, captionY: number }[] }}
+ * @returns {{ width: number, height: number, cells: { x: number, y: number, width: number, height: number, captionY: number, captionWidth: number }[] }}
  */
 export function gridLayout(sizes) {
     const n = sizes.length;
     const columns = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
-    const cell = Math.min(CELL, Math.floor((MAX_WIDTH - GAP * (columns + 1)) / columns));
-    const scaled = sizes.map((s) => ({ width: cell, height: Math.round((s.height / Math.max(1, s.width)) * cell) }));
-    /** @type {{ x: number, y: number, width: number, height: number, captionY: number }[]} */
+    const room = Math.min(CELL, Math.floor((MAX_WIDTH - GAP * (columns + 1)) / columns));
+    const widest = Math.max(1, ...sizes.map((s) => s.width));
+    const scale = Math.min(1, room / widest);
+    const cell = Math.max(1, Math.round(widest * scale));
+    const scaled = sizes.map((s) => ({
+        width: Math.max(1, Math.round(s.width * scale)),
+        height: Math.max(1, Math.round(s.height * scale)),
+    }));
+    /** @type {{ x: number, y: number, width: number, height: number, captionY: number, captionWidth: number }[]} */
     const cells = [];
     let y = GAP;
     for (let row = 0; row * columns < n; row++) {
         const inRow = scaled.slice(row * columns, row * columns + columns);
         const tallest = Math.max(...inRow.map((s) => s.height));
         inRow.forEach((s, i) => {
-            cells.push({ x: GAP + i * (cell + GAP), y, width: s.width, height: s.height, captionY: y + tallest });
+            cells.push({ x: GAP + i * (cell + GAP), y, width: s.width, height: s.height, captionY: y + tallest, captionWidth: cell });
         });
         y += tallest + CAPTION + GAP;
     }
@@ -69,7 +78,7 @@ export async function tileGrid(frames) {
         bitmap.close();
         const label = `${i + 1}${frames[i]?.label ? `  ${frames[i]?.label}` : ""}`;
         g.fillStyle = "#e8e8ee";
-        g.fillText(fit(g, label, cell.width - 8), cell.x + 4, cell.captionY + CAPTION / 2);
+        g.fillText(fit(g, label, cell.captionWidth - 8), cell.x + 4, cell.captionY + CAPTION / 2);
     });
     const blob = await canvas.convertToBlob({ type: "image/png" });
     return bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
