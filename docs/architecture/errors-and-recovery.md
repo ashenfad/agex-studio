@@ -51,7 +51,9 @@ it is itself undoable (**Redo**).
   30 seconds gets its actions anyway, with a note; a page that goes
   mid-call ends it with a `NavigationError` saying whether the app or
   the studio replaced it; a failing `assert` ends it with the
-  assertion; `live: true` with no preview showing, or from a delegate,
+  assertion, and an action that can't act (its target never appeared
+  or is disabled, a `waitFor` that ran out) with an `ActionError`,
+  both after the results before them; `live: true` with no preview showing, or from a delegate,
   is refused with the reason. Oversized values are cut and say so
   (see [app-preview.md](app-preview.md)).
 - **An app's agent task** rejects with a message the app can show: no

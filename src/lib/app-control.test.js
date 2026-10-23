@@ -30,6 +30,7 @@ import { APPS_ORIGIN } from "./apps-origin.js";
 import { hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 
 vi.mock("./send-control.js", () => ({
+    CONTROL_TIMEOUT_MS: 30_000,
     sendControl: vi.fn(),
     pageGone: vi.fn(),
     pageUp: vi.fn(),
@@ -265,6 +266,63 @@ describe("an assertion failure", () => {
         expect(failure.results[0].message).toMatch(/^\[truncated: dropped 2 /);
         expect(failure.results.slice(1).every((r) => r.type === "read")).toBe(true);
         expect(failure.results).toHaveLength(6);
+    });
+});
+
+describe("an action that fails", () => {
+    it("ends the call with an error, carrying what came before it (a grid's frames among it)", async () => {
+        const sent = [];
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+            sent.push(action);
+            if (action.screenshot) return { type: "screenshot", data: "PNG" };
+            if (action.click === "#gone") throw new Error('ActionError: click "#gone": nothing matches it (waited 1000ms)');
+            return null;
+        });
+        const failure = await executeActions(/** @type {any} */ ({}), [
+            { screenshot: true, grid: "steps", label: "before" },
+            { click: "#gone" },
+            { read: "#after" },
+        ]).catch((e) => e);
+        expect(failure.message).toBe('ActionError: click "#gone": nothing matches it (waited 1000ms)');
+        expect(failure.results).toEqual([{ type: "screenshot", data: "PNG", grid: "steps", label: "before" }]);
+        // nothing after it runs on a page that isn't as the actions expect
+        expect(sent.map((a) => Object.keys(a)[0])).toEqual(["screenshot", "click"]);
+    });
+
+    it("ends it too for anything else the bridge throws, an unknown action among it", async () => {
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+            if (action.clik) throw new Error('Unknown action: {"clik":"#a"}');
+            return { type: "read", selector: action.read, value: "x" };
+        });
+        const failure = await executeActions(/** @type {any} */ ({}), [{ read: "#a" }, { clik: "#a" }, { read: "#b" }]).catch((e) => e);
+        expect(failure.message).toBe('Action failed: Unknown action: {"clik":"#a"}');
+        expect(failure.results).toEqual([{ type: "read", selector: "#a", value: "x" }]);
+    });
+
+    it("comes back from the live preview with the console, as an assertion's does", async () => {
+        vi.mocked(sendControl).mockImplementation(async (_iframe, action) => {
+            if (action["get-logs"]) return { logs: [{ level: "log", message: "booted" }] };
+            if (action.waitFor) throw new Error('ActionError: waitFor "#x": still nothing matches it after 5000ms');
+            return null;
+        });
+        const iframe = /** @type {any} */ ({ contentWindow: {}, style: {} });
+        const failure = await runLiveApp({ iframe, actions: [{ waitFor: "#x" }] }).catch((e) => e);
+        expect(failure.message).toMatch(/^ActionError: waitFor "#x"/);
+        expect(failure.results).toEqual([{ type: "log", level: "log", message: "booted" }]);
+    });
+});
+
+describe("a waiting action", () => {
+    it("gives the page its wait on top of the usual time to answer", async () => {
+        vi.mocked(sendControl).mockResolvedValue(null);
+        await executeActions(/** @type {any} */ ({}), [{ waitFor: "#a", timeout: 8000 }, { read: "#a" }]);
+        expect(vi.mocked(sendControl).mock.calls.slice(-2).map((c) => c[2])).toEqual([{ timeoutMs: 38_000 }, { timeoutMs: 30_000 }]);
+    });
+
+    it("{wait: 0} waits for nothing, and isn't sent to the page", async () => {
+        vi.mocked(sendControl).mockClear();
+        expect(await executeActions(/** @type {any} */ ({}), [{ wait: 0 }])).toEqual([]);
+        expect(sendControl).not.toHaveBeenCalled();
     });
 });
 

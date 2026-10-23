@@ -8,7 +8,8 @@
  * the session's cache.
  */
 
-import { hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
+import { CONTROL_TIMEOUT_MS, hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
+import { actionWaitMs } from "./iframe-bridge.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 import { answerDb } from "./app-db-bridge.js";
@@ -217,18 +218,26 @@ export function resolveViewport(viewport) {
  *  `waitForIdle` for these to keep test_app turn-time bounded by
  *  actual work, not a settling cushion that's only needed when an
  *  action might trigger app-side queries / fetches. */
-const SYNC_ACTION_KEYS = ["read", "eval", "assert", "screenshot", "get-logs"];
+const SYNC_ACTION_KEYS = ["read", "eval", "assert", "screenshot", "get-logs", "waitFor", "waitUntil"];
 
 function _isSyncAction(action) {
     return SYNC_ACTION_KEYS.some((k) => action[k] !== undefined);
 }
 
-/** Marker prefix the iframe bridge stamps on assertion-failure
- *  errors. We use the prefix (not `instanceof AssertionError`)
- *  because postMessage doesn't preserve Error subclass identity. */
-function _isAssertionError(e) {
+/** Marker prefixes the iframe bridge stamps on the errors of a
+ *  failed assertion and of an action that couldn't do what it was asked
+ *  (no target, a disabled one, a wait that ran out). We use the prefix
+ *  (not `instanceof`) because postMessage doesn't preserve Error
+ *  subclass identity. */
+function _isNamedFailure(e) {
     return typeof e?.message === "string" &&
-        e.message.startsWith("AssertionError:");
+        (e.message.startsWith("AssertionError:") || e.message.startsWith("ActionError:"));
+}
+
+/** A failure that ends the call with an error: `executeActions` gives
+ *  it the results that came before it (`e.results`). */
+function _endsTheCall(e) {
+    return Array.isArray(e?.results);
 }
 
 /** Marker prefixes `sendControl` stamps when the iframe navigated /
@@ -264,12 +273,18 @@ function _endsTheRun(e) {
  *  rebuilds the hidden test iframe and says what came of it); without
  *  it (the live preview) it's a no-op and a note, too.
  *
- *  Error handling: most action-dispatch failures are caught and
- *  surfaced as `error`-level log entries so a single bad selector
- *  doesn't terminate the test. Assertion failures are the
- *  exception — they propagate (carrying the results so far as
- *  `e.results`), so the agent's call ends in an error and it sees the
- *  failure, and what came before it, to self-correct.
+ *  Error handling: an action that fails ends the call with an error:
+ *  a failed assertion, a click / type / select whose target never
+ *  appeared or is disabled, a `waitFor` / `waitUntil` that ran out, an
+ *  unknown action, or anything else the bridge threw. The error
+ *  propagates carrying the results so far as `e.results`, so the agent
+ *  sees the failure, and what came before it (a grid's frames among
+ *  it), to self-correct, rather than the actions after it running on a
+ *  page that isn't in the state they expect. Errors the bridge reports
+ *  in a result (an eval that threw, a screenshot that couldn't be
+ *  drawn, a failed soft assert) don't end it. A page that went away or
+ *  stopped answering ends the run too, with the cause as its last
+ *  result.
  *
  *  A screenshot action with a `grid` name (and a `label`) comes back
  *  with them on its result, for the frames to be tiled together.
@@ -282,7 +297,7 @@ export async function executeActions(iframe, actions, opts = {}) {
     const { allowViewport = false, reload = null } = opts;
     const results = [];
     for (const action of actions) {
-        if (action.wait) {
+        if (action.wait !== undefined) {
             await new Promise((r) => setTimeout(r, action.wait));
             continue;
         }
@@ -332,7 +347,8 @@ export async function executeActions(iframe, actions, opts = {}) {
             continue;
         }
         try {
-            const data = await sendControl(iframe, action);
+            // a waiting action gets its wait on top of the usual time to answer
+            const data = await sendControl(iframe, action, { timeoutMs: CONTROL_TIMEOUT_MS + actionWaitMs(action) });
             // a screenshot for a grid keeps its grid and label, to be tiled with the rest
             if (data?.type === "screenshot" && typeof action.grid === "string" && action.grid !== "") {
                 data.grid = action.grid;
@@ -340,11 +356,6 @@ export async function executeActions(iframe, actions, opts = {}) {
             }
             if (data != null) results.push(data);
         } catch (e) {
-            if (_isAssertionError(e)) {
-                // what came before the failure still comes back (a grid's frames among it)
-                e.results = results;
-                throw e;
-            }
             if (_endsTheRun(e)) {
                 // The app tore itself down or stopped answering: every
                 // remaining action would fail the same way. Record the
@@ -352,11 +363,10 @@ export async function executeActions(iframe, actions, opts = {}) {
                 results.push({ type: "log", level: "error", message: e.message });
                 break;
             }
-            results.push({
-                type: "log",
-                level: "error",
-                message: `Action failed: ${e.message}`,
-            });
+            const failure = _isNamedFailure(e) ? e : new Error(`Action failed: ${e?.message ?? String(e)}`);
+            // what came before the failure still comes back (a grid's frames among it)
+            failure.results = results;
+            throw failure;
         }
         if (!_isSyncAction(action)) {
             await waitForIdle(iframe, 10000);
@@ -881,14 +891,13 @@ export async function runTestApp(opts) {
 
         return await collectResults(frame, actionResults, leading);
     } catch (e) {
-        // Assertion failures escape: agent's emission errors out
+        // A failed action escapes: agent's emission errors out
         // (per agex-ts's recoverable-error path), agent sees the
         // failure on the next turn and self-corrects. Other failures
-        // (test_app infrastructure / harness errors, malformed
-        // actions, iframe load failures) get wrapped as a result
-        // entry so the agent sees the failure but the chat loop
-        // continues normally.
-        if (_isAssertionError(e)) {
+        // (test_app infrastructure / harness errors, iframe load
+        // failures) get wrapped as a result entry so the agent sees
+        // the failure but the chat loop continues normally.
+        if (_endsTheCall(e)) {
             // with the console's output, under the same bounds as a passing call's
             e.results = await collectResults(iframe, e.results ?? [], leading);
             throw e;
@@ -949,8 +958,8 @@ export async function runLiveApp(opts) {
         const actionResults = await executeActions(iframe, actions);
         return await collectResults(iframe, actionResults, leading);
     } catch (e) {
-        // Same assertion-escape rule as `runTestApp`.
-        if (_isAssertionError(e)) {
+        // Same failed-action rule as `runTestApp`.
+        if (_endsTheCall(e)) {
             e.results = await collectResults(iframe, e.results ?? [], leading);
             throw e;
         }

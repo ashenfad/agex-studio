@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+    actionWaitMs,
     dispatchAction,
     handleControlMessage,
     installControlBridge,
@@ -17,17 +18,82 @@ beforeEach(() => {
 });
 
 describe("dispatchAction — click", () => {
-    it("invokes click() on the matching element", async () => {
+    it("dispatches a mouse's events at the element's center, ending in one click", async () => {
         document.body.innerHTML = '<button id="go">Go</button>';
-        const spy = vi.spyOn(document.getElementById("go"), "click");
+        const el = document.getElementById("go");
+        el.getBoundingClientRect = () => /** @type {any} */ ({ left: 10, top: 20, width: 100, height: 40 });
+        const seen = [];
+        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+            el.addEventListener(type, (e) => seen.push([e.type, e.clientX, e.clientY, e.bubbles, e.cancelable]));
+        }
         const result = await dispatchAction(document, { click: "#go" });
-        expect(spy).toHaveBeenCalledOnce();
         expect(result).toBeNull();
+        expect(seen).toEqual([
+            ["pointerdown", 60, 40, true, true],
+            ["mousedown", 60, 40, true, true],
+            ["pointerup", 60, 40, true, true],
+            ["mouseup", 60, 40, true, true],
+            ["click", 60, 40, true, true],
+        ]);
     });
 
-    it("is a no-op when no element matches", async () => {
-        const result = await dispatchAction(document, { click: "#nope" });
-        expect(result).toBeNull();
+    it("clicks an SVG element, which has no click() of its own", async () => {
+        document.body.innerHTML = '<svg><g id="perk"><rect width="10" height="10"/></g></svg>';
+        const clicked = vi.fn();
+        document.body.addEventListener("click", (e) => clicked(/** @type {Element} */ (e.target).id));
+        await dispatchAction(document, { click: "#perk" });
+        expect(clicked).toHaveBeenCalledWith("perk");
+    });
+
+    it("holds back the mouse events after a cancelled pointerdown, and still clicks", async () => {
+        document.body.innerHTML = '<div id="d"></div>';
+        const el = document.getElementById("d");
+        const seen = [];
+        el.addEventListener("pointerdown", (e) => e.preventDefault());
+        for (const type of ["mousedown", "mouseup", "click"]) el.addEventListener(type, (e) => seen.push(e.type));
+        await dispatchAction(document, { click: "#d" });
+        expect(seen).toEqual(["click"]);
+    });
+
+    it("waits for a target that appears after the action starts", async () => {
+        const clicked = vi.fn();
+        setTimeout(() => {
+            document.body.innerHTML = '<button id="later">x</button>';
+            document.getElementById("later").addEventListener("click", clicked);
+        }, 120);
+        await dispatchAction(document, { click: "#later" });
+        expect(clicked).toHaveBeenCalledOnce();
+    });
+
+    it("fails with an ActionError when nothing matches within its timeout", async () => {
+        const start = Date.now();
+        await expect(dispatchAction(document, { click: "#nope", timeout: 100 })).rejects.toThrow(
+            /^ActionError: click "#nope": nothing matches it \(waited 100ms\)/,
+        );
+        expect(Date.now() - start).toBeGreaterThanOrEqual(100);
+    });
+
+    it("fails, without clicking, on a disabled element", async () => {
+        document.body.innerHTML = '<button id="b" disabled>x</button>';
+        const clicked = vi.fn();
+        document.getElementById("b").addEventListener("click", clicked);
+        await expect(dispatchAction(document, { click: "#b" })).rejects.toThrow(
+            /^ActionError: click "#b": the element is disabled/,
+        );
+        expect(clicked).not.toHaveBeenCalled();
+    });
+});
+
+describe("dispatchAction — how long an action waits", () => {
+    it("is a second for a target, five for waitFor and waitUntil, the action's own timeout, capped", () => {
+        expect(actionWaitMs({ click: "#a" })).toBe(1000);
+        expect(actionWaitMs({ type: "#a" })).toBe(1000);
+        expect(actionWaitMs({ select: "#a", timeout: 0 })).toBe(0);
+        expect(actionWaitMs({ waitFor: "#a" })).toBe(5000);
+        expect(actionWaitMs({ waitUntil: "x", timeout: 250 })).toBe(250);
+        expect(actionWaitMs({ waitFor: "#a", timeout: 10_000_000 })).toBe(60_000);
+        expect(actionWaitMs({ waitFor: "#a", timeout: "soon" })).toBe(5000);
+        expect(actionWaitMs({ read: "#a", timeout: 9000 })).toBe(0);
     });
 });
 
@@ -49,6 +115,15 @@ describe("dispatchAction — type", () => {
         await dispatchAction(document, { type: "#x" });
         expect(document.getElementById("x").value).toBe("");
     });
+
+    it("fails on a missing or disabled input", async () => {
+        await expect(dispatchAction(document, { type: "#x", value: "a", timeout: 0 })).rejects.toThrow(
+            /^ActionError: type "#x": nothing matches it/,
+        );
+        document.body.innerHTML = '<input id="x" disabled />';
+        await expect(dispatchAction(document, { type: "#x", value: "a" })).rejects.toThrow(/disabled/);
+        expect(document.getElementById("x").value).toBe("");
+    });
 });
 
 describe("dispatchAction — select", () => {
@@ -65,17 +140,64 @@ describe("dispatchAction — select", () => {
         expect(el.value).toBe("b");
         expect(events).toEqual(["change"]);
     });
+
+    it("fails on a value none of its options has, naming the values it has", async () => {
+        document.body.innerHTML = '<select id="s"><option value="a">A</option><option value="b">B</option></select>';
+        const events = [];
+        document.getElementById("s").addEventListener("change", (e) => events.push(e.type));
+        await expect(dispatchAction(document, { select: "#s", value: "B" })).rejects.toThrow(
+            /^ActionError: select "#s": no option has the value "B" \(its values: "a", "b"\)/,
+        );
+        expect(events).toEqual([]);
+    });
+});
+
+describe("dispatchAction — waitFor and waitUntil", () => {
+    it("waitFor settles once the selector matches", async () => {
+        setTimeout(() => (document.body.innerHTML = '<p id="done">ok</p>'), 120);
+        expect(await dispatchAction(document, { waitFor: "#done" })).toBeNull();
+    });
+
+    it("waitFor fails, naming what it waited for, when it runs out", async () => {
+        await expect(dispatchAction(document, { waitFor: "#never", timeout: 100 })).rejects.toThrow(
+            /^ActionError: waitFor "#never": still nothing matches it after 100ms/,
+        );
+    });
+
+    it("waitUntil settles once the expression is true, a throw counting as not yet, a Promise awaited", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        const g = /** @type {any} */ (globalThis);
+        setTimeout(() => (g.__later = { n: 3 }), 120);
+        try {
+            // reads a property of something that isn't there yet: throws until it is
+            expect(await dispatchAction(document, { waitUntil: "Promise.resolve(__later.n === 3)" }, scope)).toBeNull();
+        } finally {
+            delete g.__later;
+        }
+    });
+
+    it("waitUntil fails when it runs out, with what it last threw", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        await expect(dispatchAction(document, { waitUntil: "false", timeout: 60 }, scope)).rejects.toThrow(
+            /^ActionError: waitUntil false: still not true after 60ms$/,
+        );
+        await expect(dispatchAction(document, { waitUntil: "notYet.ready", timeout: 60 }, scope)).rejects.toThrow(
+            /still not true after 60ms; it last threw ReferenceError: notYet is not defined/,
+        );
+    });
 });
 
 describe("dispatchAction — read", () => {
-    it("returns textContent by default", async () => {
-        document.body.innerHTML = '<span id="out">hello</span>';
+    it("returns innerText by default, a line between blocks", async () => {
+        document.body.innerHTML = '<div id="out"><p>into the dark</p><p>3 idle settlers</p></div>';
         const result = await dispatchAction(document, { read: "#out" });
         expect(result).toEqual({
             type: "read",
             selector: "#out",
-            value: "hello",
+            value: "into the dark\n3 idle settlers",
         });
+        const raw = await dispatchAction(document, { read: "#out", prop: "textContent" });
+        expect(raw.value).toBe("into the dark3 idle settlers");
     });
 
     it("returns the specified property", async () => {
@@ -127,6 +249,15 @@ describe("dispatchAction — eval", () => {
             expr: "2 + 3",
             value: "5",
         });
+    });
+
+    it("carries a label, which names it in an error in place of its code", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        expect(await dispatchAction(document, { eval: "1 + 1", label: "sum" }, scope)).toEqual({
+            type: "eval", expr: "1 + 1", label: "sum", value: "2",
+        });
+        const failed = await dispatchAction(document, { eval: "boom()", label: "setup" }, scope);
+        expect(failed.error).toMatch(/^ReferenceError: boom is not defined \(in: setup\)$/);
     });
 
     it("returns null value for null/undefined results", async () => {
@@ -295,6 +426,19 @@ describe("dispatchAction — assert", () => {
         await expect(
             dispatchAction(document, { assert: "0" }, scope),
         ).rejects.toThrow(/got/);
+    });
+
+    it("with soft: true, reports a failure as a result rather than throwing", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        expect(await dispatchAction(document, { assert: "1 > 2", message: "order", soft: true }, scope)).toEqual({
+            type: "assert",
+            soft: true,
+            message: "AssertionError: order — 1 > 2 (got false)",
+        });
+        expect(await dispatchAction(document, { assert: "nope()", soft: true }, scope)).toMatchObject({
+            message: expect.stringMatching(/^AssertionError: nope\(\) threw — /),
+        });
+        expect(await dispatchAction(document, { assert: "true", soft: true }, scope)).toBeNull();
     });
 
     it("throws AssertionError when the assertion expression itself throws", async () => {
