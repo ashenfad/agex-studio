@@ -185,6 +185,17 @@ describe("dispatchAction — waitFor and waitUntil", () => {
             /still not true after 60ms; it last threw ReferenceError: notYet is not defined/,
         );
     });
+
+    it("waitUntil holds a Promise to the timeout: late or never settling, it fails on time", async () => {
+        const scope = { eval: (expr) => eval(expr) };
+        for (const expr of ["new Promise((r) => setTimeout(() => r(true), 400))", "new Promise(() => {})"]) {
+            const start = Date.now();
+            await expect(dispatchAction(document, { waitUntil: expr, timeout: 80 }, scope)).rejects.toThrow(
+                /still not true after 80ms$/,
+            );
+            expect(Date.now() - start).toBeLessThan(300);
+        }
+    });
 });
 
 describe("dispatchAction — read", () => {
@@ -198,6 +209,14 @@ describe("dispatchAction — read", () => {
         });
         const raw = await dispatchAction(document, { read: "#out", prop: "textContent" });
         expect(raw.value).toBe("into the dark3 idle settlers");
+    });
+
+    it("reads an SVG element's text, which has no innerText", async () => {
+        document.body.innerHTML = '<svg><text id="t">42 embers</text></svg>';
+        const t = /** @type {any} */ (document.getElementById("t"));
+        if (t.innerText !== undefined) Object.defineProperty(t, "innerText", { value: undefined });
+        const result = await dispatchAction(document, { read: "#t" });
+        expect(result.value).toBe("42 embers");
     });
 
     it("returns the specified property", async () => {

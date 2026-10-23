@@ -211,11 +211,21 @@ export function actionWaitMs(action) {
 /** Call `check` until it gives something truthy (returned) or `ms`
  *  have passed (null). It runs at least once. */
 async function _poll(ms, check) {
-    const start = Date.now();
+    const deadline = Date.now() + ms;
+    const late = Symbol("late");
     for (;;) {
-        const found = await check();
+        // a check that is a Promise still has only the time left: one
+        // settling after it, or never, doesn't hold the action past it
+        /** @type {ReturnType<typeof setTimeout> | undefined} */
+        let timer;
+        const found = await Promise.race([
+            Promise.resolve(check()),
+            new Promise((resolve) => (timer = setTimeout(() => resolve(late), Math.max(0, deadline - Date.now())))),
+        ]);
+        clearTimeout(timer);
+        if (found === late) return null;
         if (found) return found;
-        if (Date.now() - start >= ms) return null;
+        if (Date.now() >= deadline) return null;
         await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
 }
@@ -369,7 +379,8 @@ export async function dispatchAction(doc, action, global) {
     if (action.read) {
         const el = doc.querySelector(action.read);
         // innerText: the text as shown, a line between blocks (textContent runs them together)
-        const prop = action.prop || 'innerText';
+        // an SVG element has no innerText: its textContent, then
+        const prop = action.prop || (el && el.innerText === undefined ? 'textContent' : 'innerText');
         const raw = el ? String(el[prop] ?? '') : null;
         return {
             type: 'read',
