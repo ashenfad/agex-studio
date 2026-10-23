@@ -164,7 +164,7 @@ export function cancelRunning(helper) {
  * What a runner needs from the studio: the agent a delegate runs on,
  * its tools at a depth, and the chat session open on a delegate.
  *
- * @typedef {{ agent: (opts: { delegate: boolean }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined, toolOptions: () => { vision: boolean, codePrimer: string } }} RunnerHost
+ * @typedef {{ agent: (opts: { delegate: boolean, session: string }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined, toolOptions: () => { vision: boolean, codePrimer: string } }} RunnerHost
  */
 
 /**
@@ -200,7 +200,10 @@ export class StudioRunner {
                 this.host.observe(session)?.opened(openings[session]);
             },
         });
-        const delegate = this.host.agent({ delegate: true }).session(child, {
+        // its own session's model: a full fork's history opens with the
+        // parent's, so under the parent's name its requests would carry
+        // the parent's affinity key with a history that isn't the parent's
+        const delegate = this.host.agent({ delegate: true, session }).session(child, {
             sessions: helper,
             inbox,
             tools: this.host.tools(helper, depth, child),

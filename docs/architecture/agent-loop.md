@@ -114,7 +114,11 @@ agex-ts drives directly:
   `x-session-affinity: agex-studio:<session>:<first tool_use id>`
   (`conversationKey`), so Meridian resumes one backing session per
   conversation and keeps its cache warm. The opening request goes
-  untagged; a fold that rewrites the history starts a fresh key. An
+  untagged; a fold that rewrites the history starts a fresh key. A
+  delegate's `<session>` is its own (`main.scout`), never its parent's:
+  a full fork's history opens with the parent's first tool_use, and
+  under the parent's key Meridian would refuse it ("This session
+  advanced while the request was waiting"). An
   origin whose CORS refuses the header gets requests without it
   until reload (`sessionAffinityFetch`).
 - **A custom endpoint, OpenAI-compatible**: `createOpenAICompatible`.

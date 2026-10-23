@@ -497,12 +497,13 @@ export class ChatSession {
 
     /** The agent for the next turn: a new one each time, since an agent
      *  holds nothing and the settings may have changed. */
-    /** @param {{ delegate?: boolean }} [opts] a delegate's agent caps its
-     *  tool calls per turn */
+    /** @param {{ delegate?: boolean, session?: string }} [opts] a
+     *  delegate's agent caps its tool calls per turn, and its model is
+     *  its own session's (`session`, which names its affinity key) */
     #agent(opts = {}) {
         const s = getSettings();
         return new Agent({
-            model: scriptedNow(s) ?? buildModel(s, { session: this.name }),
+            model: scriptedNow(s) ?? buildModel(s, { session: opts.session ?? this.name }),
             primer: primer(s),
             settings: { thinking: thinkingOf(s), maxTokens: 16000 },
             compaction: foldBudgetOf(s) > 0 ? new Policy(foldBudgetOf(s)) : null,
@@ -511,7 +512,8 @@ export class ChatSession {
     }
 
     /** The agent a delegate of this session runs on: this one's, its
-     *  tool calls capped. @param {{ delegate: boolean }} opts */
+     *  tool calls capped, its model the delegate's own session's.
+     *  @param {{ delegate: boolean, session: string }} opts */
     delegateAgent(opts) {
         return this.#agent(opts);
     }
