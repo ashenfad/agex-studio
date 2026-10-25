@@ -142,7 +142,7 @@ window.getCacheValue = function(key) {
 // app calls: params maps each input's name to its JSON Schema, returns is
 // the value's JSON Schema. The studio runs it on the viewer's model and
 // resolves with the value; it rejects with what went wrong (no model
-// chosen, the viewer didn't allow it, the visit's calls used up, the task
+// chosen, the viewer didn't allow it, the person stopped its calls, the task
 // failed). const summarize = agex.task({...}); await summarize({ text }).
 // NOTE: this whole block is inside a template literal — no backticks.
 window.agex = {
