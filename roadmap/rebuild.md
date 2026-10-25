@@ -6,7 +6,8 @@ agex-ts's [design history](https://github.com/ashenfad/agex-ts/blob/main/docs/de
 holds the foundation's decisions; this is the studio's half.
 
 **Status:** done. agex.studio switched to the rebuild on 2026-10-19, on
-agex-ts 0.6.0; S6 is designed and deferred (below).
+agex-ts 0.6.0; S6 is designed and deferred, its plan now in
+[app-agents.md](app-agents.md).
 
 ## Ground rules
 
@@ -195,81 +196,14 @@ answer, and merges it.
 needed for the switch, and the old studio's parity isn't the bar: the
 world already holds the hard part (variables, secrets that never enter
 it, filled per origin; `curl`; `httpHost`), and what the studio adds is
-additive, since nothing published before it uses it. The shapes are
-below ("Later: variables, secrets and services"), fixed now so nothing
-built meanwhile takes their names or contradicts them.
+additive, since nothing published before it uses it. Its shapes, and
+the names reserved for them, are now in [app-agents.md](app-agents.md)
+(phases 2 to 4), after agents in apps.
 
 **S7. Docs and the switch.** `docs/` rewritten for the new shape; the
 README and the in-app docs; agex-ts released, and the links replaced by
 its versions; agex.studio switched to the new build. Exit: the
 deploy-day checklist passes on agex.studio. *Switched 2026-10-19.*
-
-## Later: variables, secrets and services
-
-What S6 will build, as the APIs it commits to.
-
-**Two kinds of value, kept apart.** A *secret* is something the agent
-uses while building (a GitHub token, a Supabase service key) or an app
-uses on its viewer's behalf (their own Stripe key): it is never in the
-world, a file, a bundle or a gist, and only ever reaches the origins
-it is bound to. A *variable* is configuration an app needs and anyone
-may read (a Supabase URL and its anon key, which row-level security
-guards, not secrecy): it travels with the session.
-
-**Secrets, the agent's.**
-- Device-wide, in settings beside the model key: name, value (hidden
-  once saved), and the origins it may go to, which are required. Not
-  synced, not published.
-- Given to every session's profile as the world's secrets (`{value,
-  origins}`); the agent sees names and origins, never values, and uses
-  them as `$NAME` in `curl` and `secret('NAME')` with the `http` host
-  object.
-- Asked for when needed: a `request_secret` tool (name, origins, why)
-  shows a form in the chat; the value goes to settings, never into the
-  transcript.
-
-**Variables.**
-- Per session, on the studio plane (`variables`), so they sync, fork,
-  bundle and publish with it; set in a session panel, or by the agent.
-- Given to the world as its profile's `variables` (`env` in code,
-  `$NAME` in the shell), and to the built app as `window.env`.
-
-**An app's needs, and its viewer's secrets.**
-- An app declares what it needs in `app/agex.json`:
-  `{ "needs": { "model": true, "secrets": [{ "name", "origins", "in", "why" }] } }`,
-  where `in` is the one place the secret goes, a request header
-  (`"header:Authorization"`).
-- It uses a secret without holding it: `agex.fetch(url, init)`, the
-  studio filling `${NAME}` into the declared header, for a declared
-  origin only; never into a URL, a query or a body, which services echo
-  far more often. A literal echo in a response is replaced with the
-  reference (the world's `httpHost` rules). `agex.task` stays as it is.
-- **What that guarantees, and what it doesn't.** The secret reaches
-  only its origins, in its declared header: an app can't send it
-  anywhere else. It can't keep a service *at* those origins from
-  reflecting it back transformed (a debug echo, an encoding endpoint),
-  so the viewer is trusting the service with the key, not the app's
-  code with it; the panel below says so. The agent's own secrets
-  through `httpHost` carry the same limit, where the agent is the
-  person's own.
-- On a viewer's first use, one panel, "This app needs…": each need met
-  (✓ a model) or not (a key for `api.stripe.com`, with a field), the
-  value kept on the viewer's device, and for a secret what it allows
-  ("this app can use your key with api.stripe.com; a service there that
-  echoes keys could expose it"). Allowing grants this app, per app and
-  by name, those secrets and its agent-call budget; this replaces S5b's
-  consent question. A need the app didn't declare asks the same
-  way when it is first used.
-
-**Skills and stand-ins.** Fetching while building (`curl` with a
-secret); stand-ins for live services, so `test_app` checks an app
-without touching its real backend; `multiplayer` and `supabase-auth`
-brought up to date.
-
-Reserved now: `window.env` and `agex.fetch` in the app's page,
-`app/agex.json`, and the `variables` key on the studio plane; the
-interactive-app skill tells the agent to leave the app-side three
-alone.
 
 ## Needed upstream
 
