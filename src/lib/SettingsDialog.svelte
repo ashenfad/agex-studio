@@ -347,7 +347,7 @@
     {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
-            <p class="hint">Sessions sync through <code>{s.syncRepo}</code>{#if s.syncApi} on a stand-in for GitHub at <code>{s.syncApi}</code>{/if}: each one a few seconds after it changes, and every one when the studio opens or comes back into view.</p>
+            <p class="hint">Sessions sync through <code>{s.syncRepo}</code>{#if s.syncApi} on a stand-in for GitHub at <code>{s.syncApi}</code>{/if}: each one a few seconds after it changes, and every one when the studio opens or comes back into view. Apps' saved data syncs too.</p>
             {#if connectNote}<p class="hint warn">{connectNote}</p>{/if}
             <div class="actions-row">
                 <button class="btn secondary" onclick={disconnect}>Disconnect</button>

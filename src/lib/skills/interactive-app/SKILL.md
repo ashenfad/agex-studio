@@ -127,7 +127,11 @@ reloading the page.
 For data the app keeps (records, entries, scores, history: anything
 that grows, or that you'd filter and sort), use `agex.db`, the
 session's SQLite database, kept by the studio. `localStorage` is for
-small settings (5 MB in all).
+small settings (5 MB in all). Both sync with the session when the
+person has sync on: what the app saves lands in their sync repo. So
+before an app keeps a secret in either (an API key, a token, a
+password), ask the person whether that's all right; `sessionStorage`
+holds one only while the page is open.
 
 ```js
 await agex.db.query(`CREATE TABLE IF NOT EXISTS tasks (
