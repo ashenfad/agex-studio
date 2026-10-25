@@ -283,7 +283,9 @@ button.onclick = async () => {
   (with `web` when their key is OpenRouter's), and takes seconds: show
   that something is happening, and keep the button from being pressed
   again meanwhile.
-- **Calls are budgeted:** 20 a visit to begin with. Someone opening a
+- **Calls are metered, and a loop is paused:** the person sees what
+  the app's calls use, and more than 10 calls inside a minute pauses
+  them until the person says to go on. Someone opening a
   shared app is asked first whether it may use their model; they can
   refuse, and anyone may have no model chosen. A call that can't run
   rejects saying why: catch it and show it, and leave the rest of the
@@ -294,8 +296,10 @@ button.onclick = async () => {
   (`{type: 'string', enum: ['bug', 'feature', 'question']}`), not a
   string and a comment: the answer is checked against it, so the app
   never sees a value outside the choices.
-- `test_app` runs tasks for real, on the same budget: wait for the
-  value (`{wait: 15000}`, then `{read: …}`) rather than assuming it.
+- `test_app` runs tasks for real, on the person's meter: wait for the
+  value (`{wait: 15000}`, then `{read: …}`) rather than assuming it. A
+  test has nobody to ask, so past 10 calls in a minute its calls are
+  refused rather than paused.
 
 Designing one:
 
@@ -308,7 +312,7 @@ Designing one:
   guessing; put everything it needs in them.
 - **Call it from a person's action** (a button, a form), never on load
   or from code that re-runs (a render, an effect): the page would wait
-  on it, and every reload would spend the budget again.
+  on it, and every reload would spend the person's key again.
 - **Keep what you got.** Store answers in `localStorage`, and answer a
   repeat from there before calling. Key each by the task's definition
   as well as its input (`` `triage:${JSON.stringify(spec)}:${input}` ``,

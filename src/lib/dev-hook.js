@@ -217,16 +217,31 @@ export function installDevHook(studio, sync) {
             if (iframe === null) throw new Error("the preview isn't showing an app");
             return runLiveApp({ iframe, actions });
         },
-        /** This page's budgets for apps' agent calls, and an app asking. */
+        /** The current session's app agent: its meter, whether the
+         *  limiter holds it (paused, stopped), and an app asking. */
         async appAgent() {
             const { appAgent } = await import("./app-tasks.svelte.js");
-            return { budgets: { ...appAgent.budgets }, asking: Object.fromEntries(Object.entries(appAgent.asking).map(([k, v]) => [k, v.task])) };
+            const name = session().name;
+            return {
+                meter: appAgent.meterOf(name),
+                paused: appAgent.paused[name]?.calls ?? null,
+                stopped: appAgent.stopped[name] === true,
+                asking: Object.fromEntries(Object.entries(appAgent.asking).map(([k, v]) => [k, v.task])),
+            };
         },
         /** Answer the current session's app's request to use the
          *  model. @param {boolean} yes */
         async consent(yes) {
             const { appAgent } = await import("./app-tasks.svelte.js");
             appAgent.asking[session().name]?.answer(yes);
+            return this.appAgent();
+        },
+        /** Answer the limiter's pause: go on, or stop the app's calls.
+         *  @param {boolean} go */
+        async goOn(go) {
+            const { appAgent } = await import("./app-tasks.svelte.js");
+            if (go) appAgent.goOn(session().name);
+            else appAgent.paused[session().name]?.answer(false);
             return this.appAgent();
         },
         /** The current session's head. */

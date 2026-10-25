@@ -2,11 +2,12 @@
     /**
      * What sits beside the chat: the app the session builds, and its
      * files, as two tabs under one bar. The bar carries what the tab
-     * shown can do: rebuilding the app, its agent calls, full screen; or
+     * shown can do: rebuilding the app, its agent meter, full screen; or
      * adding files. The app stays loaded while the files are shown.
      */
+    import AgentMeter from './AgentMeter.svelte'
     import AppPreview from './AppPreview.svelte'
-    import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
+    import { appAgent } from './app-tasks.svelte.js'
     import { isDriveImportAvailable } from './drive-import.js'
     import FilesPanel from './FilesPanel.svelte'
 
@@ -35,8 +36,11 @@
     /** The files listed, folders aside. */
     const fileCount = $derived(session.files.filter((f) => !session.files.some((o) => o.startsWith(`${f}/`))).length)
 
-    /** This page's budget for the app's agent calls, once it has one. */
-    const budget = $derived(appAgent.budgets[session.name] ?? null)
+    /** The app's agent meter, once its app has called its agent. */
+    const meter = $derived(appAgent.meterOf(session.name))
+    /** Whether the limiter holds the app's calls: paused, or stopped. */
+    const held = $derived(appAgent.paused[session.name] !== undefined || appAgent.stopped[session.name] === true)
+    let meterOpen = $state(false)
 </script>
 
 <div class="bench">
@@ -50,11 +54,17 @@
         <span class="gap"></span>
         {#if tab === 'app' || fullscreen}
             {#if loading}<span class="muted">loading…</span>{/if}
-            {#if budget}
-                <span class="muted" title="The app's calls to an agent this visit, on your model">agent {budget.used}/{budget.limit}</span>
-                {#if budget.used >= budget.limit}
-                    <button class="more" onclick={() => appAgent.allowMore(session.name)}>Allow {APP_CALLS} more</button>
-                {/if}
+            {#if meter || held}
+                <button
+                    class="act meter"
+                    class:held
+                    onclick={() => (meterOpen = true)}
+                    title={held ? "The app's agent calls are paused" : "The app's agent calls, on your model"}
+                    aria-label="App agent meter: {meter?.calls ?? 0} calls{held ? ', paused' : ''}"
+                >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="12" rx="2"></rect><path d="M12 8V4M9 13h.01M15 13h.01M9 17h6"></path></svg>
+                    <span class="calls">{held ? 'paused' : (meter?.calls ?? 0)}</span>
+                </button>
             {/if}
             <button class="act" onclick={() => preview?.rebuild()} disabled={empty} title="Rebuild the app from its files" aria-label="Rebuild the app">↻</button>
             <button
@@ -83,6 +93,9 @@
         <FilesPanel bind:this={files} {session} />
     {/if}
 </div>
+{#if meterOpen}
+    <AgentMeter name={session.name} onClose={() => (meterOpen = false)} />
+{/if}
 
 <style>
     .bench {
@@ -153,7 +166,16 @@
         opacity: 0.4;
         cursor: default;
     }
-    .more,
+    .meter {
+        gap: 0.25rem;
+        font-size: 0.78rem;
+    }
+    .meter.held {
+        color: var(--warning);
+    }
+    .calls {
+        font-variant-numeric: tabular-nums;
+    }
     .add {
         background: var(--surface);
         border: 1px solid var(--border);

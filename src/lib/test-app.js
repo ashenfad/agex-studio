@@ -148,7 +148,7 @@ async function runTest(session, args) {
                     buildAppPage,
                     reseedAppPage,
                     cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
-                    // the app's agent tasks run for real, counted in its session's budget
+                    // the app's agent tasks run for real, on its session's meter
                     taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
                         // an app from elsewhere runs here only once the person allowed it in the preview
                         const { studio } = await import("./studio.svelte.js");
