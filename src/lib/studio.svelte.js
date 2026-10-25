@@ -6,6 +6,7 @@
 
 import { SvelteMap } from "svelte/reactivity";
 import { appDbs } from "./app-db-clients.js";
+import { removeMeter } from "./app-meter.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { readLocal, writeLocal } from "./local.js";
 import { PROFILE } from "./profile.js";
@@ -294,6 +295,7 @@ export class Studio {
         const store = await openStore();
         await store.delete(name);
         removeAppStorage(name);
+        removeMeter(name);
         // its app data's branch (see app-data.js) goes with it
         const appData = `appdata/${name}`;
         if (await store.repo.branches.has(appData)) await store.repo.branches.delete(appData);

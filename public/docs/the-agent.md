@@ -76,10 +76,17 @@ one to go to the app's session.
 
 An app can ask an agent to do something for it: summarize, rewrite,
 classify, look something up. Each call runs on **the model of
-whoever is using the app**, on their key. The preview's bar shows how
-many calls the app has made this visit (**agent 3/20**). An app gets
-20 calls a visit to begin with; **Allow 20 more** gives it another
-20.
+whoever is using the app**, on their key. Once the app has made one,
+the preview's bar shows a meter with its count of calls. Click it for
+what they've used since you last reset it: calls, model calls, input
+and output tokens, and the last few calls. It's kept on this device,
+and **Reset** counts from zero again.
+
+An app that makes more than 10 calls in a minute is paused there,
+since that's usually a loop (a call from code that keeps re-running):
+**Keep going** lets it carry on, and **Stop its calls** refuses them
+until you let them go on. The meter has a switch to turn the pause off
+for an app.
 
 An app made in someone else's session (one you imported, or opened
 from a published link) asks first: *"This app asks to use your

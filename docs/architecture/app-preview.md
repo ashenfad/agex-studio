@@ -127,15 +127,30 @@ with the spec and the inputs. `app-tasks.svelte.js` (`appAgent`):
   calls (`TASK_STEPS`), in a world of its own (the worker, esm.sh,
   and `web` on an OpenRouter key), and returns the value, checked
   against `returns`;
-- counts calls per session for the page's life (`budgets`): 20 at once
-  (`APP_CALLS`) for the person's own session; a session opened from
+- runs the person's own session's calls at once; a session opened from
   elsewhere (one with a `source`: a bundle or a published link) asks
   first, in the preview ("This app asks to use your model…"), each
-  session's question its own (`asking[session]`).
+  session's question its own (`asking[session]`), for the page's life
+  (`allowed`);
+- meters each call (`app-meter.js`): the task's model is wrapped
+  (`metered`) so each reply's usage adds in as it arrives, and the call
+  is listed once it ends. The meter is per session, in the studio's own
+  `localStorage` (`agex-studio-meter:<name>`), not the session's store,
+  where an undo would rewind it; deleting the session deletes it;
+- limits the rate, not the count: with the session's limiter on (the
+  default), a call when `RATE.calls` (10) have started in the last
+  minute waits (`paused[session]`) for the person: Keep going counts
+  the minute afresh, and Stop refuses the app's calls (`stopped`) until
+  they let them go on. A hidden test (`prompt: false`) is refused at
+  once instead.
 
-The preview's bar shows the count ("agent 2/20") and, once spent,
-"Allow 20 more". A call that can't run (no model, refused, budget
-spent, the task failed) rejects with a message the app can show.
+The preview's bar shows a meter button once the app has called (its
+calls, or "paused"); it opens `AgentMeter.svelte`: the totals since the
+last reset (calls, model calls, input, cached and output tokens), the
+last ten calls, the limiter's switch, and Reset (count from zero, and
+let a held app go on). The pause also shows in the preview, as the
+consent question does. A call that can't run (no model, refused,
+stopped, the task failed) rejects with a message the app can show.
 
 ### The app's database
 
@@ -213,7 +228,7 @@ forward), and a turn that ends before an answer takes it as a no.
   viewport (`desktop`, `tablet`, `mobile`, or a size). Each call has
   its own iframe and checks every message's source, so concurrent
   calls, a delegate's included, don't meet. An app's agent tasks run
-  for real, on the same budget; the iframe stays until every call,
+  for real, on the same meter; the iframe stays until every call,
   including one a result set off, has settled. Its `agex.db` is the
   test's own copy of the session's database (`appDbs.testDb`), made on
   the app's first call: a detached copy (kvsql's `copy`), which records

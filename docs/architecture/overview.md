@@ -120,7 +120,7 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   edge hides the chat; on a narrow screen one pane shows at a time, a
   round button switching them.
 - **Workbench**: beside the chat, two tabs under one bar. App: the
-  preview, rebuilt on request, its agent calls, and full screen (Esc
+  preview, rebuilt on request, its agent meter, and full screen (Esc
   back). Files: the session's files as a tree, each opening in a modal
   to read, download or delete; upload from the device or Google Drive
   into `uploads/`.

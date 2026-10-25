@@ -5,8 +5,8 @@
      * origin, so the app can't reach the studio's storage or DOM). The
      * studio posts the built HTML to the origin's bootloader, and
      * answers the app's calls to it: `getCacheValue`, its storage,
-     * `notify`, its agent tasks (`agex.task`, run on the viewer's model
-     * within this page's budget) and its database (`agex.db`, the
+     * `notify`, its agent tasks (`agex.task`, run on the viewer's model,
+     * counted on its meter) and its database (`agex.db`, the
      * session's). The preview rebuilds when the app's files change.
      *
      * It is the iframe `test_app` acts on with `live: true`. Its bar is
@@ -25,7 +25,8 @@
     import { hostInit } from './app-assets.js'
     import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { pageGone, pageLoaded, pageUp } from './send-control.js'
-    import { APP_CALLS, appAgent } from './app-tasks.svelte.js'
+    import { appAgent } from './app-tasks.svelte.js'
+    import { RATE } from './app-meter.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
     import { sync } from './sync.svelte.js'
@@ -197,7 +198,7 @@
     /** A restore of the app's database the agent asks about, waiting on the person. */
     const restoring = $derived(dbId === null ? null : (dbRestores.asking[dbId] ?? null))
     $effect(() => {
-        asking = restoring !== null || appAgent.asking[session.name] !== undefined
+        asking = restoring !== null || appAgent.asking[session.name] !== undefined || appAgent.paused[session.name] !== undefined
     })
 
     /** The app's storage, the last bag it posted, and its session's name. */
@@ -350,9 +351,17 @@
     {#if appAgent.asking[session.name]}
         {@const asking = appAgent.asking[session.name]}
         <div class="consent">
-            <p>This app asks to use your model for an agent task (“{asking.task}”). Each call runs on your key; it may make up to {APP_CALLS} this visit.</p>
+            <p>This app asks to use your model for an agent task (“{asking.task}”). Each call runs on your key; the agent meter above the app shows what it has used.</p>
             <button onclick={() => asking.answer(true)}>Allow</button>
             <button class="secondary" onclick={() => asking.answer(false)}>Don't allow</button>
+        </div>
+    {/if}
+    {#if appAgent.paused[session.name]}
+        {@const paused = appAgent.paused[session.name]}
+        <div class="consent">
+            <p>This app made {paused.calls} agent calls in the last minute, on your key, so its calls are paused: more than {RATE.calls} a minute can be a loop. Let it go on?</p>
+            <button onclick={() => appAgent.goOn(session.name)}>Keep going</button>
+            <button class="secondary" onclick={() => paused.answer(false)}>Stop its calls</button>
         </div>
     {/if}
     {#if failed}
