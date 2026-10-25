@@ -11,3 +11,7 @@ done.
 - [app-db.md](app-db.md): `agex.db`, a SQLite database for apps, kept
   in an OPFS file with a changeset log in kvgit for checkpoints and
   sync between devices.
+- [app-agents.md](app-agents.md): agents in apps (agex-ts in the
+  page, on the viewer's model through `agex.model`), then an app's
+  needs and secrets, the agent's secrets and variables (the rebuild's
+  S6).
