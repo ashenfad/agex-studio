@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RATE, loadMeter } from "./app-meter.js";
+import { RATE, emptyMeter, loadMeter, saveMeter } from "./app-meter.js";
 import { appAgent, checkSpec } from "./app-tasks.svelte.js";
 
 describe("an app's task spec", () => {
@@ -19,10 +19,12 @@ describe("an app's task spec", () => {
     });
 });
 
-const { usage, FakeAgent } = vi.hoisted(() => {
+const { usage, FakeAgent, gate } = vi.hoisted(() => {
+    /** What a task given `hold` waits on before its model call. */
+    const gate = { open: () => {}, wait: Promise.resolve() };
     const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 60, cacheWriteTokens: 0 };
     /** An agent whose task makes one model call, then answers (or
-     *  fails, given `fail`). */
+     *  fails, given `fail`); given `hold`, it waits on `gate` first. */
     class FakeAgent {
         /** @param {{ model: any }} opts */
         constructor(opts) {
@@ -30,13 +32,14 @@ const { usage, FakeAgent } = vi.hoisted(() => {
         }
         task() {
             return async (/** @type {any} */ inputs) => {
+                if (inputs.hold) await gate.wait;
                 for await (const _ of this.model.stream([], [], {})) void _;
                 if (inputs.fail) throw new Error("the task failed: boom");
                 return "done";
             };
         }
     }
-    return { usage, FakeAgent };
+    return { usage, FakeAgent, gate };
 });
 
 vi.mock("agex-ts", async (importOriginal) => ({ ...(await importOriginal()), Agent: FakeAgent }));
@@ -149,5 +152,32 @@ describe("an app's agent calls", () => {
         await expect(first).rejects.toThrow("didn't allow");
         await expect(call("a1", {}, { ask: true })).rejects.toThrow("didn't allow");
         await expect(call("a2", {}, { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");
+    });
+
+    it("add to what another tab on the session counted, rather than writing over it", async () => {
+        await call("t1");
+        saveMeter("t1", { ...emptyMeter(now), calls: 5, steps: 7, inputTokens: 1000 });
+        await call("t1");
+        expect(appAgent.meterOf("t1")).toMatchObject({ calls: 6, steps: 8, inputTokens: 1100 });
+    });
+
+    it("leave nothing of a session that is deleted: its meter, a paused call, one running", async () => {
+        await calls("g1", RATE.calls);
+        const held = call("g1");
+        await settle();
+        appAgent.forget("g1");
+        await expect(held).rejects.toThrow("session was deleted");
+        expect(appAgent.meterOf("g1")).toBeNull();
+        expect(appAgent.stopped.g1).toBeUndefined();
+        expect(appAgent.paused.g1).toBeUndefined();
+
+        gate.wait = new Promise((r) => (gate.open = () => r(undefined)));
+        const running = call("g2", { hold: true });
+        await settle();
+        appAgent.forget("g2");
+        gate.open();
+        await expect(running).resolves.toBe("done");
+        expect(appAgent.meterOf("g2")).toBeNull();
+        expect(loadMeter("g2")).toBeNull();
     });
 });

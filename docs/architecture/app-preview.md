@@ -136,7 +136,11 @@ with the spec and the inputs. `app-tasks.svelte.js` (`appAgent`):
   (`metered`) so each reply's usage adds in as it arrives, and the call
   is listed once it ends. The meter is per session, in the studio's own
   `localStorage` (`agex-studio-meter:<name>`), not the session's store,
-  where an undo would rewind it; deleting the session deletes it;
+  where an undo would rewind it. Each change starts from what is
+  stored, so tabs open on one session count together (a `storage`
+  event refreshes the others). Deleting the session forgets it
+  (`appAgent.forget`): its meter, and the page's say on its app; a call
+  that began before writes nothing after;
 - limits the rate, not the count: with the session's limiter on (the
   default), a call when `RATE.calls` (10) have started in the last
   minute waits (`paused[session]`) for the person: Keep going counts

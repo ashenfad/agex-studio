@@ -19,7 +19,7 @@
 
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { Agent, aiSdk, fromJsonSchema, isLanguageModel } from "agex-ts";
-import { RATE, addCall, addReply, emptyMeter, loadMeter, metered, overRate, saveMeter } from "./app-meter.js";
+import { RATE, addCall, addReply, emptyMeter, loadMeter, meterSession, metered, overRate, removeMeter, saveMeter } from "./app-meter.js";
 import { buildModel, thinkingOf } from "./model.js";
 import { hasRouterKey } from "./openrouter-api.js";
 import { scriptedNow } from "./scripted.js";
@@ -71,6 +71,7 @@ export function checkSpec(spec) {
 }
 
 const STOPPED = "the person stopped this app's agent calls after it called often; they can let it go on from the preview's agent meter";
+const GONE = "this app's session was deleted";
 const HIDDEN_PAUSE = `this app made ${RATE.calls} agent calls inside a minute, which pauses its calls until the person says to go on, and a test with nobody watching can't: space the calls out, or the person can turn the limiter off in the preview's agent meter`;
 
 class AppAgent {
@@ -94,6 +95,15 @@ class AppAgent {
     /** When each session's recent calls started, for the rate.
      *  @type {Map<string, number[]>} */
     #starts = new Map();
+    /** How many times each session was forgotten: a call that began
+     *  before writes nothing of it after. @type {Map<string, number>} */
+    #generations = new Map();
+
+    /** Whether session `name` was forgotten since `generation`.
+     *  @param {string} name @param {number} generation */
+    #gone(name, generation) {
+        return (this.#generations.get(name) ?? 0) !== generation;
+    }
 
     /** Session `name`'s meter, or null when its app has made no call
      *  here. @param {string} name */
@@ -101,11 +111,41 @@ class AppAgent {
         return this.meters[name] ?? loadMeter(name);
     }
 
-    /** @param {string} name @param {(m: import("./app-meter.js").Meter) => import("./app-meter.js").Meter} change */
+    constructor() {
+        // another tab on the same session counts on the same meter: show
+        // what it wrote
+        if (typeof window !== "undefined") {
+            window.addEventListener("storage", (e) => {
+                const name = meterSession(e.key);
+                if (name === null) return;
+                const m = loadMeter(name);
+                if (m === null) delete this.meters[name];
+                else this.meters[name] = m;
+            });
+        }
+    }
+
+    /** Change session `name`'s meter, from what is stored (another
+     *  tab's calls included), or this page's if none can be read.
+     *  @param {string} name @param {(m: import("./app-meter.js").Meter) => import("./app-meter.js").Meter} change */
     #update(name, change) {
-        const m = change(this.meterOf(name) ?? emptyMeter(Date.now()));
+        const m = change(loadMeter(name) ?? this.meters[name] ?? emptyMeter(Date.now()));
         this.meters[name] = m;
         saveMeter(name, m);
+    }
+
+    /** Session `name` is gone: its meter, and this page's say on its
+     *  app (allowed, paused, stopped), go with it; a call paused is
+     *  refused. @param {string} name */
+    forget(name) {
+        this.#generations.set(name, (this.#generations.get(name) ?? 0) + 1);
+        removeMeter(name);
+        delete this.meters[name];
+        delete this.allowed[name];
+        delete this.stopped[name];
+        this.#starts.delete(name);
+        this.paused[name]?.answer(false);
+        this.asking[name]?.answer(false);
     }
 
     /** Count session `name`'s app from zero again, and the limiter's
@@ -156,9 +196,10 @@ class AppAgent {
 
     /** Hold a call of session `session`'s app while it breaks the rate,
      *  with the limiter on: until the person says to go on, or refused
-     *  if they stop it, or if nobody is looking (`prompt` false).
-     *  @param {string} session @param {boolean} prompt */
-    async #limit(session, prompt) {
+     *  if they stop it, or if nobody is looking (`prompt` false), or if
+     *  the session is forgotten meanwhile.
+     *  @param {string} session @param {boolean} prompt @param {number} generation */
+    async #limit(session, prompt, generation) {
         if (!(this.meterOf(session)?.limiter ?? true)) return;
         if (this.stopped[session]) throw new Error(STOPPED);
         const now = Date.now();
@@ -166,7 +207,9 @@ class AppAgent {
         this.#starts.set(session, starts);
         if (!overRate(starts, now)) return;
         if (!prompt) throw new Error(HIDDEN_PAUSE);
-        if (await this.#pause(session, starts.length)) {
+        const go = await this.#pause(session, starts.length);
+        if (this.#gone(session, generation)) throw new Error(GONE);
+        if (go) {
             this.#starts.delete(session);
             return;
         }
@@ -217,13 +260,20 @@ class AppAgent {
         }
         const s = getSettings();
         if (!isConfigured(s)) throw new Error("the person viewing this app hasn't chosen a model: its agent needs one (settings, ⚙)");
+        const generation = this.#generations.get(session) ?? 0;
         if (this.allowed[session] === undefined) {
             if (ask && !prompt) throw new Error("the person hasn't allowed this app to use their model yet: they can try it in the preview, which asks");
             const yes = !ask || (await this.#consent(session, task.name));
+            if (this.#gone(session, generation)) throw new Error(GONE);
             this.allowed[session] ??= yes;
         }
         if (!this.allowed[session]) throw new Error("the person didn't allow this app to use their model");
-        await this.#limit(session, prompt);
+        await this.#limit(session, prompt, generation);
+        /** A change to the meter, unless the session is gone.
+         *  @param {(m: import("./app-meter.js").Meter) => import("./app-meter.js").Meter} change */
+        const count = (change) => {
+            if (!this.#gone(session, generation)) this.#update(session, change);
+        };
         const at = Date.now();
         this.#starts.set(session, [...(this.#starts.get(session) ?? []), at]);
         const used = { steps: 0, inputTokens: 0, outputTokens: 0 };
@@ -232,7 +282,7 @@ class AppAgent {
             used.steps += 1;
             used.inputTokens += usage.inputTokens;
             used.outputTokens += usage.outputTokens;
-            this.#update(session, (m) => addReply(m, usage));
+            count((m) => addReply(m, usage));
         });
         const agent = new Agent({
             model,
@@ -248,7 +298,7 @@ class AppAgent {
         });
         /** @param {string} [error] */
         const done = (error) =>
-            this.#update(session, (m) => addCall(m, { task: task.name, at, ms: Date.now() - at, ok: error === undefined, ...used, ...(error !== undefined && { error }) }));
+            count((m) => addCall(m, { task: task.name, at, ms: Date.now() - at, ok: error === undefined, ...used, ...(error !== undefined && { error }) }));
         try {
             const value = await run(/** @type {Record<string, unknown>} */ (inputs));
             done();

@@ -68,6 +68,12 @@ export function overRate(starts, now) {
     return starts.filter((t) => now - t < RATE.windowMs).length >= RATE.calls;
 }
 
+/** The session a `localStorage` key holds the meter of, or null for a
+ *  key that isn't a meter's. @param {string | null} key */
+export function meterSession(key) {
+    return key !== null && key.startsWith(PREFIX) ? key.slice(PREFIX.length) : null;
+}
+
 /** Session `name`'s meter, or null when it has none (or it can't be
  *  read). @param {string} name @returns {Meter | null} */
 export function loadMeter(name) {
