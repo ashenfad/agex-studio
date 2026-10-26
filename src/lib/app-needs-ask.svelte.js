@@ -83,14 +83,15 @@ export class NeedsAsk {
 
     /**
      * Answer session `session`'s open question: `grants` (each key's
-     * name to the vault entry chosen for it) to allow, null to not. Allow
-     * keeps each grant and, when the panel asked for it, the model; a key
-     * left without an entry, or everything on Don't allow, is refused for
-     * the rest of the page. Then the calls waiting go on, or are refused.
-     * A grant the vault refuses (`VaultError`) throws, the question still
-     * open.
+     * name to the vault entry chosen for it, or null to take back the
+     * grant it had) to allow, null to not. Allow keeps each grant and,
+     * when the panel asked for it, the model; a key left without an
+     * entry, or everything on Don't allow, is refused for the rest of the
+     * page. Then the calls waiting go on, or are refused, whatever another
+     * tab granted meanwhile. A grant the vault refuses (`VaultError`)
+     * throws, the question still open.
      *
-     * @param {string} session @param {Record<string, string> | null} grants
+     * @param {string} session @param {Record<string, string | null> | null} grants
      */
     answer(session, grants) {
         const q = this.asking[session];
@@ -98,14 +99,16 @@ export class NeedsAsk {
         if (grants !== null) {
             for (const [name, id] of Object.entries(grants)) {
                 const need = q.needs.secrets.find((s) => s.name === name);
-                if (need !== undefined) this.vault.grant(q.appKey, need, id);
+                if (need === undefined) continue;
+                if (id === null) this.vault.revoke(q.appKey, name);
+                else this.vault.grant(q.appKey, need, id);
             }
             if (q.model && !q.own) this.vault.allowModel(q.appKey);
         }
         const d = this.#declinedOf(session);
-        if (q.model && !q.own) d.model = !this.vault.modelAllowed(q.appKey);
+        if (q.model && !q.own) d.model = grants === null || !this.vault.modelAllowed(q.appKey);
         for (const need of q.needs.secrets) {
-            if (this.vault.valueFor(q.appKey, need) === null) d.secrets.add(need.name);
+            if (grants === null || this.vault.valueFor(q.appKey, need) === null) d.secrets.add(need.name);
             else d.secrets.delete(need.name);
         }
         q.answer(grants !== null);
@@ -130,9 +133,10 @@ export class NeedsAsk {
         if (this.#declined.get(session)?.model) throw new Error(NOT_ALLOWED);
         if (!prompt) throw new Error(HIDDEN);
         const generation = this.#generations.get(session) ?? 0;
-        await this.#ask(session, appKey, needs, true, signal);
+        const yes = await this.#ask(session, appKey, needs, true, signal);
         if ((this.#generations.get(session) ?? 0) !== generation) throw new Error(GONE);
-        if (!this.vault.modelAllowed(appKey)) throw new Error(NOT_ALLOWED);
+        // the person's answer stands, whatever another tab granted meanwhile
+        if (!yes || !this.vault.modelAllowed(appKey)) throw new Error(NOT_ALLOWED);
     }
 
     /**
@@ -155,8 +159,8 @@ export class NeedsAsk {
         if (!prompt || !needs.secrets.some((s) => s.name === need.name)) return null;
         if (this.#declined.get(session)?.secrets.has(need.name)) return null;
         const generation = this.#generations.get(session) ?? 0;
-        await this.#ask(session, appKey, needs, false, signal);
-        if ((this.#generations.get(session) ?? 0) !== generation) return null;
+        const yes = await this.#ask(session, appKey, needs, false, signal);
+        if ((this.#generations.get(session) ?? 0) !== generation || !yes) return null;
         return this.vault.valueFor(appKey, need);
     }
 

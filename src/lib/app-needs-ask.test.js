@@ -192,3 +192,29 @@ describe("asking for a key", () => {
         await expect(key).resolves.toBeNull();
     });
 });
+
+describe("the person's answer", () => {
+    it("stands over a grant another tab makes while the panel is open", async () => {
+        const { ask, vault } = fresh();
+        const model = ask.allowModel("s1", "gist:ann/abc", needs, { ask: true }).catch((e) => e);
+        const key = ask.secretFor("s1", "gist:ann/abc", needs, stripe);
+        await settle();
+        // another tab allows the model and grants the key meanwhile
+        vault.allowModel("gist:ann/abc");
+        vault.grant("gist:ann/abc", stripe, stripeKey(vault));
+        ask.answer("s1", null);
+        expect((await model).message).toBe(NOT_ALLOWED);
+        expect(await key).toBeNull();
+    });
+
+    it("takes back a key's grant when it is changed to no key", async () => {
+        const { ask, vault } = fresh();
+        vault.grant("session:s1", stripe, stripeKey(vault));
+        const asked = ask.secretFor("s1", "session:s1", needs, weather);
+        await settle();
+        ask.answer("s1", { STRIPE_KEY: null });
+        expect(await asked).toBeNull();
+        expect(vault.grantsOf("session:s1")).toEqual({});
+        expect(vault.valueFor("session:s1", stripe)).toBeNull();
+    });
+});

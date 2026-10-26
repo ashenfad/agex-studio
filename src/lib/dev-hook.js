@@ -251,7 +251,7 @@ export function installDevHook(studio, sync) {
         /** Answer the current session's app's "This app needs…" panel, as
          *  its buttons do: Allow, with each key's vault entry (by the
          *  app's name for it), or Don't allow.
-         *  @param {boolean} yes @param {Record<string, string>} [grants] */
+         *  @param {boolean} yes @param {Record<string, string | null>} [grants] */
         async consent(yes, grants = {}) {
             const { needsAsk } = await import("./app-needs-ask.svelte.js");
             needsAsk.answer(session().name, yes ? grants : null);

@@ -28,21 +28,23 @@
     /** The hosts of a need's origins, for its title. @param {SecretNeed} need */
     const hostsOf = (need) => need.origins.map((o) => new URL(o).host).join(', ')
 
-    /** A label for a new key no entry has yet: its service's host, then
-     *  numbered. @param {SecretNeed} need */
-    function freshLabel(need) {
+    /** A label for a new key that neither an entry nor another draft
+     *  has: its service's host, then numbered.
+     *  @param {SecretNeed} need @param {Set<string>} taken lower-cased, and added to */
+    function freshLabel(need, taken) {
         const host = new URL(need.origins[0]).host
-        const taken = new Set(vault.entries.map((e) => e.label.toLowerCase()))
         let label = host
         for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${host} ${n}`
+        taken.add(label.toLowerCase())
         return label
     }
 
     /** Each new key's fields, by the app's name for it, prefilled. */
     let drafts = $state(
-        untrack(() =>
-            Object.fromEntries(question.needs.secrets.map((need) => [need.name, { label: freshLabel(need), value: '', origins: need.origins.join('\n') }])),
-        ),
+        untrack(() => {
+            const taken = new Set(vault.entries.map((e) => e.label.toLowerCase()))
+            return Object.fromEntries(question.needs.secrets.map((need) => [need.name, { label: freshLabel(need, taken), value: '', origins: need.origins.join('\n') }]))
+        }),
     )
     /** The choice made for each key not granted: an entry's id, `new`,
      *  or `none`. @type {Record<string, string>} */
@@ -77,7 +79,7 @@
     function allow() {
         /** @type {Record<string, string[]>} */
         const wrong = {}
-        /** @type {Record<string, string>} */
+        /** @type {Record<string, string | null>} */
         const grants = {}
         /** @type {{ need: SecretNeed, fields: { label: string, value: string, origins: string[] } }[]} */
         const adds = []
@@ -85,7 +87,11 @@
         for (const need of question.needs.secrets) {
             if (grantedFor(need) !== null && !changing[need.name]) continue
             const pick = pickOf(need)
-            if (pick === 'none') continue
+            // no key: the grant it had, if any, goes
+            if (pick === 'none') {
+                grants[need.name] = null
+                continue
+            }
             if (pick !== 'new') {
                 grants[need.name] = pick
                 continue
