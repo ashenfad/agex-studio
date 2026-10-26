@@ -10,11 +10,19 @@
  *
  * After any restore the apps on that database reload, here and in
  * every other tab (a `BroadcastChannel`): what they hold in memory is
- * from before it.
+ * from before it. A sync that brought another device's changes to a
+ * database is announced the same way, as a sync: an app with work in
+ * flight (`agex.busy`) is offered the reload instead (`app-busy.js`).
  */
 
 /** The channel restores are announced on, across the origin's tabs. */
 const CHANNEL = "agex-db-restored";
+
+/**
+ * Why a database changed under its apps: the person (or the agent, with
+ * their say) restored it, or a sync brought another device's changes.
+ * @typedef {"restore" | "sync"} DbChange
+ */
 
 /**
  * A checkpoint as the question names it.
@@ -29,9 +37,10 @@ class DbRestores {
      * @type {Record<string, { checkpoint: AskedCheckpoint, asker: string, answer: (yes: boolean) => void }>}
      */
     asking = $state({});
-    /** The last restore this page heard of: its database's id, and a
-     *  count past which an app built before it reloads. */
-    restored = $state({ count: 0, id: /** @type {string | null} */ (null) });
+    /** The last restore (or sync that changed a database) this page
+     *  heard of: its database's id, why it changed, and a count past
+     *  which an app built before it reloads. */
+    restored = $state({ count: 0, id: /** @type {string | null} */ (null), cause: /** @type {DbChange} */ ("restore") });
     /** @type {BroadcastChannel | null} */
     #channel = null;
 
@@ -41,7 +50,7 @@ class DbRestores {
         // in Node (tests), an open channel would keep the process alive
         /** @type {{ unref?: () => void }} */ (/** @type {unknown} */ (this.#channel)).unref?.();
         this.#channel.onmessage = (e) => {
-            if (typeof e.data?.id === "string") this.#heard(e.data.id);
+            if (typeof e.data?.id === "string") this.#heard(e.data.id, e.data.cause === "sync" ? "sync" : "restore");
         };
     }
 
@@ -75,15 +84,20 @@ class DbRestores {
         for (const open of Object.values(this.asking)) if (open.asker === asker) open.answer(false);
     }
 
-    /** Database `id` was restored here: its apps reload, in every tab. @param {string} id */
-    announce(id) {
-        this.#heard(id);
-        this.#channel?.postMessage({ id });
+    /**
+     * Database `id` was restored here, or a sync here changed it: its
+     * apps reload, in every tab (a busy one, after a sync, is offered
+     * the reload).
+     * @param {string} id @param {DbChange} [cause]
+     */
+    announce(id, cause = "restore") {
+        this.#heard(id, cause);
+        this.#channel?.postMessage({ id, cause });
     }
 
-    /** @param {string} id */
-    #heard(id) {
-        this.restored = { count: this.restored.count + 1, id };
+    /** @param {string} id @param {DbChange} cause */
+    #heard(id, cause) {
+        this.restored = { count: this.restored.count + 1, id, cause };
     }
 }
 

@@ -24,6 +24,12 @@ describe("restores waiting on the person", () => {
     it("counts restores for the apps to reload on", () => {
         const before = dbRestores.restored.count;
         dbRestores.announce("db-1");
-        expect(dbRestores.restored).toEqual({ count: before + 1, id: "db-1" });
+        expect(dbRestores.restored).toEqual({ count: before + 1, id: "db-1", cause: "restore" });
+    });
+
+    it("counts a sync that changed a database too, saying it was a sync", () => {
+        const before = dbRestores.restored.count;
+        dbRestores.announce("db-1", "sync");
+        expect(dbRestores.restored).toEqual({ count: before + 1, id: "db-1", cause: "sync" });
     });
 });

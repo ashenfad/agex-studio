@@ -245,3 +245,45 @@ describe('reseedAppPage', () => {
         expect(again.html.replace(again.storageShim, '')).toBe(page.html.replace(page.storageShim, ''))
     })
 })
+
+/** Run a built page's host bridge against a bare window and return the
+ *  `agex` it installs, with what it posts to the parent. */
+function runHostBridge(html) {
+    const bridge = html.match(/<script>\s*\/\/ getCacheValue[\s\S]*?<\/script>/)?.[0]
+    const posted = []
+    const win = { __agexPost: (msg) => posted.push(msg), addEventListener() {}, removeEventListener() {} }
+    new Function('window', bridge.replace(/^<script>|<\/script>$/g, ''))(win)
+    return { agex: win.agex, posted }
+}
+
+describe('agex.busy', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    it('returns the promise it was given, and posts the work in flight as it changes', async () => {
+        const { agex, posted } = runHostBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        let finish
+        const work = new Promise((resolve) => (finish = resolve))
+        expect(agex.busy(work)).toBe(work)
+        expect(posted).toEqual([{ type: 'agex-busy', busy: 1 }])
+        finish('done')
+        expect(await work).toBe('done')
+        await settle()
+        expect(posted.at(-1)).toEqual({ type: 'agex-busy', busy: 0 })
+    })
+
+    it('counts overlapping work, a rejection settling it as a resolve does', async () => {
+        const { agex, posted } = runHostBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        let fail
+        let finish
+        const failing = agex.busy(new Promise((_, reject) => (fail = reject)))
+        agex.busy(new Promise((resolve) => (finish = resolve)))
+        expect(posted.map((m) => m.busy)).toEqual([1, 2])
+        fail(new Error('turn failed'))
+        await expect(failing).rejects.toThrow('turn failed')
+        await settle()
+        expect(posted.map((m) => m.busy)).toEqual([1, 2, 1])
+        finish()
+        await settle()
+        expect(posted.map((m) => m.busy)).toEqual([1, 2, 1, 0])
+    })
+})

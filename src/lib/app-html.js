@@ -244,6 +244,33 @@ window.notify = function(title, body) {
         }
     });
 };
+
+// agex.busy(promise) — mark work in flight that a reload would cut off
+// (an agent's turn, an import). While any is, a sync that brings another
+// device's changes to agex.db offers the person a reload instead of
+// reloading the app; a restore of the database still reloads it. Returns
+// the promise it was given, so await agex.busy(turn()) reads as
+// await turn(). Calls may overlap; a rejection settles the work as a
+// resolve does, and is still the caller's to catch.
+// NOTE: this whole block is inside a template literal — no backticks.
+(function() {
+    var pending = 0;
+    function report() {
+        try {
+            window.__agexPost({ type: 'agex-busy', busy: pending });
+        } catch (e) { /* parent gone — swallow */ }
+    }
+    function settled() {
+        pending -= 1;
+        report();
+    }
+    window.agex.busy = function(work) {
+        pending += 1;
+        report();
+        Promise.resolve(work).then(settled, settled);
+        return work;
+    };
+})();
 <\/script>`;
 
 /**

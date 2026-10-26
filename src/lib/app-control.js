@@ -555,6 +555,10 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
             return;
         }
 
+        // a test's page has its own copy of the database, which no sync
+        // changes: the work it marks busy changes nothing
+        if (data.type === "agex-busy") return;
+
         if (data.type === "agex-cache-get") {
             const { id, key } = data;
             const done = callStarted(iframe);
