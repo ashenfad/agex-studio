@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY, Vault, VaultError, appKeyOf, checkFields, sessionsOf } from "./vault.svelte.js";
+import { STORAGE_KEY, Vault, VaultError, appKeyOf, checkFields, isOwnApp, sessionsOf } from "./vault.svelte.js";
 
 /** @type {Map<string, string>} */
 let items;
@@ -202,6 +202,21 @@ describe("the vault", () => {
         expect(v.grants).toEqual({});
     });
 
+    it("allows an app the model, kept, copied with its grants, revoked and forgotten", () => {
+        const v = new Vault();
+        expect(v.modelAllowed("gist:ann/abc")).toBe(false);
+        v.allowModel("gist:ann/abc");
+        expect(v.modelAllowed("gist:ann/abc")).toBe(true);
+        expect(new Vault().modelAllowed("gist:ann/abc")).toBe(true);
+        expect(v.toJSON().models).toEqual({ "gist:ann/abc": true });
+        v.copyGrants("gist:ann/abc", "session:fork");
+        expect(v.modelAllowed("session:fork")).toBe(true);
+        v.revokeModel("session:fork");
+        expect(new Vault().models).toEqual({ "gist:ann/abc": true });
+        v.forgetApp("gist:ann/abc");
+        expect(new Vault().models).toEqual({});
+    });
+
     it("is kept under its own key, read back by a fresh vault", () => {
         const { v, id } = withKey();
         v.grant("bundle:abc123", need, id);
@@ -232,11 +247,13 @@ describe("the vault", () => {
                     "junk",
                 ],
                 grants: { "session:s1": { A: "k-1", B: "k-2", C: 3 }, "session:s2": "junk" },
+                models: { "gist:ann/abc": true, "bundle:h1": "yes" },
             }),
         );
         const v = new Vault();
         expect(v.entries.map((e) => e.id)).toEqual(["k-1"]);
         expect(v.grants).toEqual({ "session:s1": { A: "k-1" } });
+        expect(v.models).toEqual({ "gist:ann/abc": true });
     });
 });
 
@@ -247,6 +264,7 @@ describe("an app's key", () => {
         expect(appKeyOf({ name: "s-1", source: { head: "h1", gist } })).toBe("gist:ann/abc123");
         expect(appKeyOf({ name: "s-2", source: { head: "h1" } })).toBe("bundle:h1");
         expect(appKeyOf({ name: "s-3" })).toBe("session:s-3");
+        expect([isOwnApp("session:s-3"), isOwnApp("gist:ann/abc123"), isOwnApp("bundle:h1")]).toEqual([true, false, false]);
     });
 
     it("finds the sessions that are an app", () => {

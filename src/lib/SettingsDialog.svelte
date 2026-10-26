@@ -517,6 +517,21 @@
                 <button class="btn secondary" type="submit">Add key</button>
             </div>
         </form>
+        <h3>Apps allowed your model</h3>
+        <p class="hint">Apps from elsewhere that may run calls on your model and key. Your own apps use it without asking.</p>
+        {#if Object.keys(vault.models).length === 0}
+            <p class="hint">None yet.</p>
+        {:else}
+            <ul class="users">
+                {#each Object.keys(vault.models) as appKey (appKey)}
+                    {@const name = appName(appKey) ?? 'a removed app'}
+                    <li>
+                        <span class="hint">{name}</span>
+                        <button class="btn secondary small" onclick={() => vault.revokeModel(appKey)} aria-label="Revoke {name}'s use of your model">Revoke</button>
+                    </li>
+                {/each}
+            </ul>
+        {/if}
     {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
