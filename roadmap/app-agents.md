@@ -1,6 +1,9 @@
 # Agents in apps, and what apps need
 
-Status: designed (2026-10-25); nothing built. Phase 1 first. This
+Status: phase 1 built (2026-10-26): agex-ts v0.6.3 (agex-ts #155,
+#156, #157), studio #161 (`agex.busy`), #162 (`agex.model`), #163 (the
+import map), #164 (`agex.kvStore`) and the `app-agents` skill, whose
+spike met the exit below. Phases 2 to 4 not started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -191,11 +194,12 @@ tells the agent to leave the app-side three alone. Phase 1 adds
 
 ## Open questions
 
-- What the meter's recent calls list shows for `agex.model`: the
-  studio sees model calls, not the app's turns.
-- The rate's number, once a real chat app has run on it.
-- Whether `agex.kvStore` takes a name, for an app with more than one
-  store.
+- The rate's number (60 model calls a minute), once apps have run on it
+  for longer than a spike's few turns.
+
+Settled in phase 1: the meter lists an app agent's model calls in
+bursts (calls 30 seconds apart or less are one entry, "agex.model"),
+and `agex.kvStore(name?)` takes a name, `default` without one.
 
 ## Later
 
