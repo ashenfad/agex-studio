@@ -82,8 +82,13 @@ what they've used since you last reset it: calls, model calls, input
 and output tokens, and the last few calls. It's kept on this device,
 and **Reset** counts from zero again.
 
-An app that makes more than 10 calls in a minute is paused there,
-since that's usually a loop (a call from code that keeps re-running):
+An app can also run an agent of its own (a chat that remembers, say)
+on your model the same way: its model calls go on the meter, listed in
+bursts of about one turn each.
+
+An app that makes more than 10 calls in a minute (or its own agent
+more than 60 model calls) is paused there, since that's usually a
+loop (a call from code that keeps re-running):
 **Keep going** lets it carry on, and **Stop its calls** refuses them
 until you let them go on. The meter has a switch to turn the pause off
 for an app.

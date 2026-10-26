@@ -585,6 +585,36 @@ describe("a test's database calls", () => {
     });
 });
 
+describe("a test's model calls", () => {
+    it("run on the runner the test gives, stop when the app cancels, and fail without one", async () => {
+        const posted = [];
+        const win = { postMessage: (/** @type {any} */ msg) => posted.push(msg) };
+        const iframe = /** @type {any} */ ({ contentWindow: win });
+        const from = (data) => /** @type {any} */ ({ source: win, origin: APPS_ORIGIN, data });
+        /** @type {AbortSignal | null} */
+        let seen = null;
+        const run = vi.fn(async (/** @type {any} */ _call, /** @type {any} */ { signal, onEvent }) => {
+            seen = signal;
+            onEvent({ kind: "TextDelta", text: "he" });
+            await new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("stopped"))));
+        });
+        const pending = [];
+        const handler = _attachBridges(iframe, null, pending, null, null, null, null, run);
+        handler(from({ type: "agex-model", id: "m1", messages: [], tools: [], settings: {} }));
+        expect(pending).toHaveLength(1);
+        handler(from({ type: "agex-model-cancel", id: "m1" }));
+        await Promise.all(pending);
+        expect(seen?.aborted).toBe(true);
+        expect(posted.map((m) => m.type)).toEqual(["agex-model-event", "agex-model-end"]);
+        expect(posted[1].error).toMatchObject({ message: "stopped" });
+
+        const none = [];
+        _attachBridges(iframe, null, none)(from({ type: "agex-model", id: "m2" }));
+        await Promise.all(none);
+        expect(posted[2]).toMatchObject({ type: "agex-model-end", id: "m2", error: { message: "agex.model isn't available here" } });
+    });
+});
+
 describe("the first load", () => {
     it("waits for the page's document, then the app's idle gap", async () => {
         vi.useFakeTimers();

@@ -246,21 +246,106 @@ describe('reseedAppPage', () => {
     })
 })
 
-/** Run a built page's host bridge against a bare window and return the
- *  `agex` it installs, with what it posts to the parent. */
-function runHostBridge(html) {
-    const bridge = html.match(/<script>\s*\/\/ getCacheValue[\s\S]*?<\/script>/)?.[0]
+/** Run a built page's host bridge against a bare window: the `agex` it
+ *  installs, what it posts to the studio, and a way to answer. */
+function runBridge(html) {
+    const src = html.match(/<script>\s*\/\/ getCacheValue[\s\S]*?<\/script>/)?.[0]
+    const listeners = new Set()
     const posted = []
-    const win = { __agexPost: (msg) => posted.push(msg), addEventListener() {}, removeEventListener() {} }
-    new Function('window', bridge.replace(/^<script>|<\/script>$/g, ''))(win)
-    return { agex: win.agex, posted }
+    const win = {
+        addEventListener: (type, fn) => type === 'message' && listeners.add(fn),
+        removeEventListener: (type, fn) => listeners.delete(fn),
+        __agexPost: (msg) => (posted.push(msg), true),
+    }
+    new Function('window', src.replace(/^<script>|<\/script>$/g, ''))(win)
+    const send = (data) => {
+        for (const fn of [...listeners]) fn({ data })
+    }
+    return { agex: win.agex, posted, send, listeners }
 }
+
+describe('agex.model() in the app', () => {
+    const blank = { 'app/index.html': '<html><head></head><body></body></html>' }
+    const messages = [{ id: 'm1', role: 'user', parts: [{ kind: 'text', text: 'hi' }] }]
+    const reply = { kind: 'Reply', message: { id: 'r', role: 'assistant', parts: [{ kind: 'text', text: 'hello' }] } }
+    const tick = () => new Promise((r) => setTimeout(r, 0))
+
+    it('streams one model call through the studio, its events as they come', async () => {
+        const { agex, posted, send, listeners } = runBridge((await buildAppPage(blank, { workerSources: {} })).html)
+        const model = agex.model()
+        expect(model.name).toBe('agex-studio:viewer')
+        const events = []
+        const done = (async () => {
+            for await (const e of model.stream(messages, [], { maxTokens: 100 })) events.push(e)
+        })()
+        await tick()
+        expect(posted).toEqual([{ type: 'agex-model', id: posted[0].id, messages, tools: [], settings: { maxTokens: 100 } }])
+        const id = posted[0].id
+        send({ type: 'agex-model-event', id: 'another', event: { kind: 'TextDelta', text: 'no' } })
+        send({ type: 'agex-model-event', id, event: { kind: 'TextDelta', text: 'he' } })
+        await tick()
+        expect(events).toEqual([{ kind: 'TextDelta', text: 'he' }])
+        send({ type: 'agex-model-event', id, event: reply })
+        send({ type: 'agex-model-end', id, error: null })
+        await done
+        expect(events).toEqual([{ kind: 'TextDelta', text: 'he' }, reply])
+        expect(listeners.size).toBe(0)
+        expect(posted).toHaveLength(1)
+    })
+
+    it('rejects with the failure, which transient and describe read as the viewer’s provider did', async () => {
+        const { agex, posted, send } = runBridge((await buildAppPage(blank, { workerSources: {} })).html)
+        const model = agex.model()
+        const failed = (async () => {
+            for await (const _ of model.stream(messages, [], {})) void _
+        })().catch((e) => e)
+        await tick()
+        send({ type: 'agex-model-end', id: posted[0].id, error: { name: 'Error', message: 'overloaded', transient: true, describe: 'the model provider failed (529): overloaded' } })
+        const e = await failed
+        expect(e.message).toBe('overloaded')
+        expect(model.transient(e)).toBe(true)
+        expect(model.describe(e)).toBe('the model provider failed (529): overloaded')
+        expect(model.transient(new Error('other'))).toBe(false)
+        expect(model.describe(new Error('other'))).toBeNull()
+    })
+
+    it('stops the call in the studio when the signal aborts, or the agent leaves early', async () => {
+        const { agex, posted, send, listeners } = runBridge((await buildAppPage(blank, { workerSources: {} })).html)
+        const model = agex.model()
+        const stop = new AbortController()
+        const stopped = (async () => {
+            for await (const _ of model.stream(messages, [], {}, { signal: stop.signal })) void _
+        })().catch((e) => e)
+        await tick()
+        stop.abort()
+        expect((await stopped).name).toBe('AbortError')
+        expect(posted.at(-1)).toEqual({ type: 'agex-model-cancel', id: posted[0].id })
+        expect(listeners.size).toBe(0)
+
+        const it = model.stream(messages, [], {})[Symbol.asyncIterator]()
+        const first = it.next()
+        await tick()
+        const id = posted.at(-1).id
+        send({ type: 'agex-model-event', id, event: { kind: 'TextDelta', text: 'he' } })
+        expect((await first).value).toEqual({ kind: 'TextDelta', text: 'he' })
+        await it.return()
+        expect(posted.at(-1)).toEqual({ type: 'agex-model-cancel', id })
+
+        // aborted already: nothing is sent
+        const count = posted.length
+        const gone = new AbortController()
+        gone.abort()
+        const e = await model.stream(messages, [], {}, { signal: gone.signal }).next().catch((err) => err)
+        expect(e.name).toBe('AbortError')
+        expect(posted).toHaveLength(count)
+    })
+})
 
 describe('agex.busy', () => {
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
     it('returns the promise it was given, and posts the work in flight as it changes', async () => {
-        const { agex, posted } = runHostBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
         let finish
         const work = new Promise((resolve) => (finish = resolve))
         expect(agex.busy(work)).toBe(work)
@@ -272,7 +357,7 @@ describe('agex.busy', () => {
     })
 
     it('counts overlapping work, a rejection settling it as a resolve does', async () => {
-        const { agex, posted } = runHostBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
         let fail
         let finish
         const failing = agex.busy(new Promise((_, reject) => (fail = reject)))

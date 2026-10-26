@@ -104,6 +104,8 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   the bridge logs. Clicking one switches to the session. A test
   iframe answers false at once.
 - **`agex.task(spec)`**: an agent task the app calls (below).
+- **`agex.model()`**: an agex-ts provider on the viewer's model, for an
+  agent the app runs itself (below).
 - **`agex.db`**: the session's SQLite database (below).
 - **`agex.busy(promise)`**: work in flight that a reload would cut
   off, which a sync then doesn't (below).
@@ -157,6 +159,46 @@ last ten calls, the limiter's switch, and Reset (count from zero, and
 let a held app go on). The pause also shows in the preview, as the
 consent question does. A call that can't run (no model, refused,
 stopped, the task failed) rejects with a message the app can show.
+
+### An app's own agent
+
+`agex.model()` returns an agex-ts `Provider` (`name`
+`agex-studio:viewer`), so an app can run agex-ts in its own page with
+no key: `new Agent({ model: agex.model(), primer })`. Each `stream`
+is one model call, relayed (`app-model.js`):
+
+- the app posts `agex-model` (`id`, `messages`, `tools`, `settings`);
+  the studio posts back `agex-model-event` (`id`, `event`) for each
+  text or thinking delta and the Reply, as they arrive, then
+  `agex-model-end` (`id`, `error`: null, or `{ name, message,
+  transient, describe }`). The app's generator yields the events, and
+  rebuilds a failure as an `Error`, whose `transient` and `describe`
+  the provider's own `transient(error)` and `describe(error)` answer
+  with: they are the viewer's provider's judgments, made in the studio
+  (`AppModelError`).
+- A stop crosses: the app's `signal` aborting, or its agent leaving the
+  stream early, posts `agex-model-cancel`, and the studio aborts the
+  call. A page replaced (`agex-bridge-ready` from the next one, a
+  test's reload) or closed has its calls stopped (`cancelModels`), and
+  so does deleting the session.
+- `appAgent.model` runs it as the settings say now, on a model built
+  for the call with its own session key (`<session>:app`, for the
+  prompt cache), with the studio's thinking. The app's `maxTokens`
+  (capped at 16,000; 8000 if it names none) and `temperature` go
+  through; its provider-specific `extra` doesn't, since that could
+  route the request to a model the viewer didn't choose.
+- It asks as a task call does (the question says "for an agent of its
+  own"), and goes on the same meter: each reply's usage adds in, and
+  the calls are listed in bursts (`addModelCall`), one starting within
+  30 s (`BURST_MS`) of the last one ending joining its entry, as
+  `agex.model` with its model calls and tokens, so an entry is roughly
+  one of the app's turns; each burst counts as one call. The studio
+  sees model calls, not turns, so a burst is the nearest it can list.
+  A stop isn't a failure.
+- The limiter counts model calls on their own rate, `RATE.modelCalls`
+  (60) a minute, beside the task calls' 10, since one turn of a chat
+  makes several; past it, the same pause (its `model` flag says which),
+  or a refusal for a hidden test.
 
 ### The app's database
 
@@ -248,8 +290,9 @@ page posts: nothing syncs its copy of the database.
   the session's (writes discarded; `fresh: true` starts empty), at a
   viewport (`desktop`, `tablet`, `mobile`, or a size). Each call has
   its own iframe and checks every message's source, so concurrent
-  calls, a delegate's included, don't meet. An app's agent tasks run
-  for real, on the same meter; the iframe stays until every call,
+  calls, a delegate's included, don't meet. An app's agent tasks, and
+  its own agent's model calls, run for real, on the same meter; the
+  iframe stays until every call,
   including one a result set off, has settled. Its `agex.db` is the
   test's own copy of the session's database (`appDbs.testDb`), made on
   the app's first call: a detached copy (kvsql's `copy`), which records

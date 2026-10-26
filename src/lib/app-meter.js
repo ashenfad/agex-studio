@@ -6,22 +6,35 @@
  * store, where an undo would rewind it.
  *
  * The limiter is a rate rule, not an allowance: more than `RATE.calls`
- * calls inside `RATE.windowMs` reads as a loop (a call from a render, an
- * effect, a timer), and pauses the app's calls until the person says
- * whether to go on.
+ * task calls, or `RATE.modelCalls` model calls of the app's own agent
+ * (`agex.model`), inside `RATE.windowMs` reads as a loop (a call from a
+ * render, an effect, a timer), and pauses the app's calls until the
+ * person says whether to go on. Model calls have the higher rate since
+ * one turn of a chat makes several.
+ *
+ * The app's own agent's model calls are listed in bursts: one that
+ * starts within `BURST_MS` of the last one ending joins its entry, so
+ * the list shows roughly a turn each, not every model call.
  */
 
-/** Past this many calls inside the window, the limiter pauses. */
-export const RATE = { calls: 10, windowMs: 60_000 };
+/** Past this many calls inside the window, the limiter pauses: task
+ *  calls, and model calls through `agex.model`, each on its own count. */
+export const RATE = { calls: 10, modelCalls: 60, windowMs: 60_000 };
 /** The calls the meter lists, newest first. */
 export const RECENT = 10;
+/** A model call starting this soon after the last one ended is listed
+ *  with it. */
+export const BURST_MS = 30_000;
+/** What the meter lists the app's own agent's model calls as. */
+export const MODEL_TASK = "agex.model";
 
 const PREFIX = "agex-studio-meter:";
 
 /**
- * One call, as the meter lists it.
+ * One call, as the meter lists it: a task call, or (`model`) a burst of
+ * the app's own agent's model calls.
  *
- * @typedef {{ task: string, at: number, ms: number, ok: boolean, steps: number, inputTokens: number, outputTokens: number, error?: string }} MeterCall
+ * @typedef {{ task: string, at: number, ms: number, ok: boolean, steps: number, inputTokens: number, outputTokens: number, error?: string, model?: true }} MeterCall
  */
 
 /**
@@ -62,10 +75,38 @@ export function addCall(m, call) {
     return { ...m, calls: m.calls + 1, failed: m.failed + (call.ok ? 0 : 1), recent: [call, ...m.recent].slice(0, RECENT) };
 }
 
+/**
+ * A model call of the app's own agent that ended, listed: with the burst
+ * it follows (newest in the list, ended less than `BURST_MS` before it
+ * started), or as a new entry, which counts as a call. A burst counts
+ * as failed once, when a call in it first fails.
+ *
+ * @param {Meter} m
+ * @param {Omit<MeterCall, "task" | "model">} call
+ * @returns {Meter}
+ */
+export function addModelCall(m, call) {
+    const last = m.recent[0];
+    if (last?.model !== true || call.at - (last.at + last.ms) >= BURST_MS) return addCall(m, { task: MODEL_TASK, ...call, model: true });
+    const error = call.error ?? last.error;
+    /** @type {MeterCall} */
+    const burst = {
+        ...last,
+        ms: Math.max(last.ms, call.at + call.ms - last.at),
+        ok: last.ok && call.ok,
+        steps: last.steps + call.steps,
+        inputTokens: last.inputTokens + call.inputTokens,
+        outputTokens: last.outputTokens + call.outputTokens,
+        ...(error !== undefined && { error }),
+    };
+    return { ...m, failed: m.failed + (last.ok && !call.ok ? 1 : 0), recent: [burst, ...m.recent.slice(1)] };
+}
+
 /** Whether a call starting at `now` breaks the rate, given when the
- *  calls before it started. @param {number[]} starts @param {number} now */
-export function overRate(starts, now) {
-    return starts.filter((t) => now - t < RATE.windowMs).length >= RATE.calls;
+ *  calls before it started: past `limit` (task calls' by default).
+ *  @param {number[]} starts @param {number} now @param {number} [limit] */
+export function overRate(starts, now, limit = RATE.calls) {
+    return starts.filter((t) => now - t < RATE.windowMs).length >= limit;
 }
 
 /** The session a `localStorage` key holds the meter of, or null for a

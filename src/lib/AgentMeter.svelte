@@ -1,10 +1,12 @@
 <script>
     /**
-     * The app's agent meter: what its agent calls (`agex.task`) have
-     * used on the person's model since the meter was last reset (calls,
-     * model calls, tokens), its last few calls, and the limiter, which
-     * pauses an app calling more than `RATE.calls` times a minute. Reset
-     * counts from zero again.
+     * The app's agent meter: what its agent calls (`agex.task`, and its
+     * own agent's model calls through `agex.model`, listed in bursts)
+     * have used on the person's model since the meter was last reset
+     * (calls, model calls, tokens), its last few calls, and the limiter,
+     * which pauses an app making more than `RATE.calls` task calls or
+     * `RATE.modelCalls` model calls a minute. Reset counts from zero
+     * again.
      */
     import { RATE } from './app-meter.js'
     import { appAgent } from './app-tasks.svelte.js'
@@ -34,7 +36,7 @@
     </p>
     {#if paused}
         <div class="status warn">
-            <span>Paused: {paused.calls} calls in the last minute.</span>
+            <span>Paused: {paused.calls} {paused.model ? 'model calls' : 'calls'} in the last minute.</span>
             <button class="btn" onclick={() => appAgent.goOn(name)}>Keep going</button>
             <button class="btn secondary" onclick={() => paused.answer(false)}>Stop its calls</button>
         </div>
@@ -80,7 +82,7 @@
     {/if}
     <label class="check">
         <input type="checkbox" checked={limiter} onchange={(e) => appAgent.setLimiter(name, e.currentTarget.checked)} />
-        Pause the app when it makes more than {RATE.calls} calls in a minute
+        Pause the app when it makes more than {RATE.calls} task calls, or {RATE.modelCalls} model calls, in a minute
     </label>
     <p class="hint">
         {limiter

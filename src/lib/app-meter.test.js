@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RATE, RECENT, addCall, addReply, emptyMeter, loadMeter, metered, overRate, removeMeter, saveMeter } from "./app-meter.js";
+import { BURST_MS, MODEL_TASK, RATE, RECENT, addCall, addModelCall, addReply, emptyMeter, loadMeter, metered, overRate, removeMeter, saveMeter } from "./app-meter.js";
 
 // an in-memory localStorage: Node's own global (Node 22+) has none of
 // the methods without a backing file
@@ -51,6 +51,27 @@ describe("the app agent's meter", () => {
         expect(overRate(starts.slice(1), now)).toBe(false);
         // the oldest past the window no longer counts
         expect(overRate([...starts.slice(1), now - RATE.windowMs], now)).toBe(false);
+        // model calls break theirs, a higher one
+        expect(overRate(starts, now, RATE.modelCalls)).toBe(false);
+        expect(overRate(Array.from({ length: RATE.modelCalls }, (_, i) => now - i * 100), now, RATE.modelCalls)).toBe(true);
+    });
+
+    it("lists the app's own agent's model calls in bursts, each burst a call", () => {
+        const model = (/** @type {Partial<import("./app-meter.js").MeterCall>} */ over = {}) => ({ at: 0, ms: 1000, ok: true, steps: 1, inputTokens: 100, outputTokens: 10, ...over });
+        let m = addModelCall(emptyMeter(0), model());
+        m = addModelCall(m, model({ at: 1000 + BURST_MS - 1, ok: false, steps: 0, error: "overloaded" }));
+        m = addModelCall(m, model({ at: 2000 + BURST_MS, ms: 500 }));
+        expect(m).toMatchObject({ calls: 1, failed: 1 });
+        expect(m.recent).toEqual([
+            { task: MODEL_TASK, model: true, at: 0, ms: 2500 + BURST_MS, ok: false, steps: 2, inputTokens: 300, outputTokens: 30, error: "overloaded" },
+        ]);
+        // a pause past the burst's gap starts another; a task call in between does too
+        m = addModelCall(m, model({ at: 2500 + 2 * BURST_MS }));
+        m = addCall(m, call({ at: 3600 + 2 * BURST_MS }));
+        m = addModelCall(m, model({ at: 3700 + 2 * BURST_MS }));
+        expect(m.calls).toBe(4);
+        expect(m.failed).toBe(1);
+        expect(m.recent.map((c) => [c.task, c.ok])).toEqual([[MODEL_TASK, true], ["summarize", true], [MODEL_TASK, true], [MODEL_TASK, false]]);
     });
 });
 

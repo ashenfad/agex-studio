@@ -13,6 +13,7 @@ import { actionWaitMs } from "./iframe-bridge.js";
 import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 import { answerDb } from "./app-db-bridge.js";
+import { cancelModel, cancelModels, relayModel } from "./app-model.js";
 import { checkBag } from "./app-storage.js";
 
 // ---------------------------------------------------------------------------
@@ -470,8 +471,9 @@ export function _enforceTotalCap(entries, max) {
  *  ready, `pageLoaded` when its document loaded), and hands the test
  *  page's storage, as the page reports it (`agex-test-storage`), to
  *  `onStorage`, and gives the database the app's `agex.db` calls run
- *  on (`dbHandler`; without one they fail). */
-export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null, dbHandler = null) {
+ *  on (`dbHandler`; without one they fail). Its own agent's model calls
+ *  (`agex.model`) run on `modelHandler`, and fail without one. */
+export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null, dbHandler = null, modelHandler = null) {
     let initPosted = false;
     const nextPage = typeof initPage === "function"
         ? initPage
@@ -535,6 +537,18 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
                 done();
             })();
             pendingHandlers.push(p);
+            return;
+        }
+
+        if (data.type === "agex-model") {
+            const done = callStarted(iframe);
+            const p = relayModel(iframe, data, modelHandler).finally(done);
+            pendingHandlers.push(p);
+            return;
+        }
+
+        if (data.type === "agex-model-cancel") {
+            cancelModel(iframe, data.id);
             return;
         }
 
@@ -731,7 +745,9 @@ const _keys = (bag, store) => {
  * for its first load again.
  *
  * Its `agex.db` calls run on the database `dbHandler` gives (the
- * caller's to choose and to close), and fail without one.
+ * caller's to choose and to close), and fail without one; its own
+ * agent's model calls (`agex.model`) on `modelHandler`, likewise. A
+ * model call still running when its page goes is stopped.
  *
  * @param {{
  *   appFiles: Record<string, string>,
@@ -742,6 +758,7 @@ const _keys = (bag, store) => {
  *   reseedAppPage?: ((page: import("./app-html.js").AppPage, storage: any) => import("./app-html.js").AppPage) | null,
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
+ *   modelHandler?: import("./app-model.js").ModelRunner | null,
  *   dbHandler?: (() => Promise<import("@agex-ts/kvsql/client").DatabaseClient>) | null,
  *   viewport?: string | { width?: number, height?: number },
  * }} opts
@@ -757,6 +774,7 @@ export async function runTestApp(opts) {
         reseedAppPage = null,
         cacheHandler = null,
         taskHandler = null,
+        modelHandler = null,
         dbHandler = null,
         viewport = null,
     } = opts;
@@ -837,6 +855,7 @@ export async function runTestApp(opts) {
                 storage = bags;
             },
             dbHandler,
+            modelHandler,
         );
         window.addEventListener("message", messageHandler);
 
@@ -858,6 +877,7 @@ export async function runTestApp(opts) {
             const next = reseedAppPage(page, { seed: kept.local, writeable: false, report: true, sessionSeed: kept.session });
             pageGone(frame, "studio");
             callsLost(frame);
+            cancelModels(frame);
             due = next;
             await _bootFrame(frame);
             const note = await settleFirstLoad(frame);
@@ -915,6 +935,7 @@ export async function runTestApp(opts) {
         ];
     } finally {
         if (messageHandler) window.removeEventListener("message", messageHandler);
+        if (iframe) cancelModels(iframe);
         if (iframe) iframe.remove();
     }
 }

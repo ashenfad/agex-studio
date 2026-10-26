@@ -226,14 +226,18 @@ export function installDevHook(studio, sync) {
             return liveBusy();
         },
         /** The current session's app agent: its meter, whether the
-         *  limiter holds it (paused, stopped), and an app asking. */
+         *  limiter holds it (paused, and whether by model calls;
+         *  stopped), its own agent's model calls running, and an app
+         *  asking. */
         async appAgent() {
             const { appAgent } = await import("./app-tasks.svelte.js");
             const name = session().name;
             return {
                 meter: appAgent.meterOf(name),
                 paused: appAgent.paused[name]?.calls ?? null,
+                pausedModel: appAgent.paused[name]?.model ?? null,
                 stopped: appAgent.stopped[name] === true,
+                modelCalls: appAgent.modelCalls(name),
                 asking: Object.fromEntries(Object.entries(appAgent.asking).map(([k, v]) => [k, v.task])),
             };
         },

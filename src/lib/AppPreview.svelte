@@ -6,11 +6,12 @@
      * studio posts the built HTML to the origin's bootloader, and
      * answers the app's calls to it: `getCacheValue`, its storage,
      * `notify`, its agent tasks (`agex.task`, run on the viewer's model,
-     * counted on its meter), its database (`agex.db`, the session's) and
-     * the work it marks in flight (`agex.busy`). The preview rebuilds
-     * when the app's files change, and reloads the app when its
-     * database changes under it (a restore, or a sync, which only offers
-     * the reload while the app is busy).
+     * counted on its meter), its own agent's model calls (`agex.model`,
+     * likewise), its database (`agex.db`, the session's) and the work it
+     * marks in flight (`agex.busy`). The preview rebuilds when the app's
+     * files change, and reloads the app when its database changes under
+     * it (a restore, or a sync, which only offers the reload while the
+     * app is busy).
      *
      * It is the iframe `test_app` acts on with `live: true`. Its bar is
      * the workbench's: it says whether it is loading and whether there is
@@ -30,6 +31,7 @@
     import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { pageGone, pageLoaded, pageUp } from './send-control.js'
     import { appAgent } from './app-tasks.svelte.js'
+    import { cancelModel, cancelModels, relayModel } from './app-model.js'
     import { RATE } from './app-meter.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
@@ -288,6 +290,7 @@
             // calls a page before it made will reach no one
             pageUp(iframe)
             callsLost(iframe)
+            cancelModels(iframe)
             return
         }
         if (data.type === 'agex-page-loaded') {
@@ -334,6 +337,23 @@
             }
             return
         }
+        if (data.type === 'agex-model') {
+            // one model call of the app's own agent, its events streamed back
+            const frame = iframe
+            const name = session.name
+            const done = callStarted(frame)
+            const ask = (studio.sessions.find((x) => x.name === name)?.source ?? null) !== null
+            try {
+                await relayModel(frame, data, (call, opts) => appAgent.model(name, call, { ask, ...opts }))
+            } finally {
+                done()
+            }
+            return
+        }
+        if (data.type === 'agex-model-cancel') {
+            cancelModel(iframe, data.id)
+            return
+        }
         if (data.type === 'agex-db') {
             // the database of the session this preview shows, never one
             // the message names
@@ -370,6 +390,7 @@
         building = 0
         settleCheck()
         flushStorage()
+        if (iframe !== null) cancelModels(iframe)
     })
 </script>
 
@@ -400,7 +421,7 @@
     {#if appAgent.asking[session.name]}
         {@const asking = appAgent.asking[session.name]}
         <div class="consent">
-            <p>This app asks to use your model for an agent task (“{asking.task}”). Each call runs on your key; the agent meter above the app shows what it has used.</p>
+            <p>This app asks to use your model {asking.task === null ? 'for an agent of its own' : `for an agent task (“${asking.task}”)`}. Each call runs on your key; the agent meter above the app shows what it has used.</p>
             <button onclick={() => asking.answer(true)}>Allow</button>
             <button class="secondary" onclick={() => asking.answer(false)}>Don't allow</button>
         </div>
@@ -408,7 +429,7 @@
     {#if appAgent.paused[session.name]}
         {@const paused = appAgent.paused[session.name]}
         <div class="consent">
-            <p>This app made {paused.calls} agent calls in the last minute, on your key, so its calls are paused: more than {RATE.calls} a minute can be a loop. Let it go on?</p>
+            <p>This app made {paused.calls} {paused.model ? 'model' : 'agent'} calls in the last minute, on your key, so its calls are paused: more than {paused.model ? RATE.modelCalls : RATE.calls} a minute can be a loop. Let it go on?</p>
             <button onclick={() => appAgent.goOn(session.name)}>Keep going</button>
             <button class="secondary" onclick={() => paused.answer(false)}>Stop its calls</button>
         </div>
