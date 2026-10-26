@@ -320,6 +320,40 @@ describe("an app's own agent's model call", () => {
         expect(appAgent.meterOf("x5")).toBeNull();
     });
 
+    it("stop waiting on the person when the app aborts, the question taken back once no call waits", async () => {
+        script.provider = provider();
+        const one = new AbortController();
+        const two = new AbortController();
+        const first = model("x7", { ask: true, signal: one.signal });
+        const second = model("x7", { ask: true, signal: two.signal });
+        await settle();
+        one.abort(new Error("gone one"));
+        await expect(first).rejects.toThrow("gone one");
+        expect(appAgent.asking.x7?.task).toBeNull();
+        two.abort(new Error("gone two"));
+        await expect(second).rejects.toThrow("gone two");
+        expect(appAgent.asking.x7).toBeUndefined();
+        expect(appAgent.allowed.x7).toBeUndefined();
+        // the next call asks afresh
+        const third = model("x7", { ask: true });
+        await settle();
+        appAgent.asking.x7?.answer(true);
+        await expect(third).resolves.toHaveLength(2);
+
+        for (let i = 0; i < RATE.modelCalls; i++) {
+            await model("x8");
+            now += 100;
+        }
+        const paused = new AbortController();
+        const waiting = model("x8", { signal: paused.signal });
+        await settle();
+        expect(appAgent.paused.x8).toBeDefined();
+        paused.abort(new Error("closed"));
+        await expect(waiting).rejects.toThrow("closed");
+        expect(appAgent.paused.x8).toBeUndefined();
+        expect(appAgent.stopped.x8).toBeUndefined();
+    });
+
     it("are stopped when the session is deleted, writing nothing after", async () => {
         script.provider = provider({ hold: true });
         const running = model("x6");

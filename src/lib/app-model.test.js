@@ -66,6 +66,19 @@ describe("an app's model call, relayed", () => {
         ]);
     });
 
+    it("stops a call whose id the app uses again, so no call runs that can't be cancelled", async () => {
+        const { iframe, posted } = frame();
+        const one = held();
+        const two = held();
+        const first = relayModel(iframe, { id: "d" }, one.run);
+        const second = relayModel(iframe, { id: "d" }, two.run);
+        await first;
+        expect(posted.filter((m) => m.type === "agex-model-end").map((m) => m.error?.name)).toEqual(["AbortError"]);
+        cancelModel(iframe, "d");
+        await second;
+        expect(posted.filter((m) => m.type === "agex-model-end").map((m) => m.error?.name)).toEqual(["AbortError", "AbortError"]);
+    });
+
     it("ends with the failure as data, the provider's judgment with it, or says there is no model here", async () => {
         const { iframe, posted } = frame();
         const failure = Object.assign(new Error("overloaded"), { transient: true, description: "the model provider failed (529): overloaded" });

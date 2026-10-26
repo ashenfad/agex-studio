@@ -474,6 +474,23 @@ describe("a test's app that reloads itself", () => {
         expect(posted).toHaveLength(1);
         expect(pageGone).toHaveBeenCalledWith(iframe, "app");
     });
+
+    it("stops the gone page's model calls", async () => {
+        const posted = [];
+        const win = { postMessage: (/** @type {any} */ msg) => posted.push(msg) };
+        const iframe = /** @type {any} */ ({ contentWindow: win });
+        const pending = [];
+        /** @type {import("./app-model.js").ModelRunner} */
+        const run = (_call, { signal }) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("stopped"))));
+        const handler = _attachBridges(iframe, null, pending, { html: "<p>app</p>", assets: [] }, null, null, null, run);
+        const message = (/** @type {any} */ data) => handler(/** @type {any} */ ({ source: win, origin: APPS_ORIGIN, data }));
+
+        message({ type: "agex-host-ready", assets: 1 });
+        message({ type: "agex-model", id: "m", messages: [], tools: [], settings: {} });
+        message({ type: "agex-host-ready", assets: 1 });
+        await Promise.all(pending);
+        expect(posted.at(-1)).toMatchObject({ type: "agex-model-end", id: "m", error: { message: "stopped" } });
+    });
 });
 
 describe("a test's app that never comes up", () => {
