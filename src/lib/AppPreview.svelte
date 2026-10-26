@@ -192,14 +192,19 @@
     // holding data from before: it reloads, unless a sync finds it busy,
     // which offers the reload instead.
     let seenRestores = untrack(() => dbRestores.restored.count)
+    /** Offers decided whose database lookup hasn't come back yet. */
+    let offering = 0
     $effect(() => {
         const { count, id, cause } = dbRestores.restored
         if (count === seenRestores) return
         seenRestores = count
         const name = session.name
-        // decided now: the work may settle while the lookup runs
-        const after = afterDbChange(cause, busy, dbOffered)
+        // decided now, an offer still being looked up counting as made:
+        // the work may settle, and another sync come, while it runs
+        const after = afterDbChange(cause, busy, untrack(() => dbOffered) || offering > 0)
+        if (after === 'offer') offering += 1
         void appDbs.idOf(name).then((mine) => {
+            if (after === 'offer') offering -= 1
             if (mine === null || mine !== id || session.name !== name) return
             if (after === 'offer') dbOffered = true
             else void load(true)
