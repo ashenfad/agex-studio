@@ -1,12 +1,14 @@
 /**
- * The vault: the person's keys for apps, and each app's grants to them.
+ * The vault: the person's keys for apps, each app's grants to them, and
+ * the apps allowed the person's model.
  *
  * An entry is a key the person saved (a label, the value, and the
  * origins it may go to); a grant links one secret an app declares (in
  * `app/agex.json`, see `app-needs.js`) to one entry, by reference, so a
  * key replaced in the vault is replaced for every app that uses it. An
  * entry serves a need only while its origins cover the need's: apps and
- * keys meet by origin, not by name.
+ * keys meet by origin, not by name. An app allowed the model (`models`)
+ * may run its calls on the person's model and key until that is revoked.
  *
  * It is kept in this device's `localStorage`, under a key of its own,
  * and nowhere else: not synced, not bundled, not published, and not in
@@ -32,6 +34,8 @@ export const LABEL_MAX = 80;
  * @typedef {{ name: string, origins: string[] }} Need
  * @typedef {Record<string, Record<string, string>>} Grants app key, then
  *   secret name, to entry id
+ * @typedef {Record<string, true>} ModelGrants the apps allowed the
+ *   model, by app key
  */
 
 /** A change the vault refused: each thing wrong, in `errors`. */
@@ -60,6 +64,12 @@ export function appKeyOf(info) {
     if (gist !== undefined) return `gist:${gist.owner}/${gist.id}`;
     if (info.source !== undefined) return `bundle:${info.source.head}`;
     return `session:${info.name}`;
+}
+
+/** Whether app `appKey` is the person's own (see `appKeyOf`).
+ *  @param {string} appKey */
+export function isOwnApp(appKey) {
+    return appKey.startsWith("session:");
 }
 
 /**
@@ -121,6 +131,8 @@ export class Vault {
     entries = $state([]);
     /** Each app's grants. @type {Grants} */
     grants = $state({});
+    /** The apps allowed the person's model. @type {ModelGrants} */
+    models = $state({});
     /** Each entry's value, by id. @type {Map<string, string>} */
     #values = new Map();
 
@@ -135,7 +147,8 @@ export class Vault {
     }
 
     /** Read what is kept, dropping what doesn't hold together (an entry
-     *  without a value or origins, a grant to no entry). With nothing
+     *  without a value or origins, a grant to no entry, a model grant
+     *  that isn't `true`). With nothing
      *  readable, what this page holds stays. */
     #load() {
         const kept = readLocalJson(STORAGE_KEY);
@@ -162,14 +175,19 @@ export class Vault {
                 if (typeof id === "string" && values.has(id)) (grants[app] ??= {})[name] = id;
             }
         }
+        /** @type {ModelGrants} */
+        const models = {};
+        const allowed = typeof kept.models === "object" && kept.models !== null ? kept.models : {};
+        for (const [app, yes] of Object.entries(allowed)) if (yes === true) models[app] = true;
         this.entries = entries;
         this.grants = grants;
+        this.models = models;
         this.#values = values;
     }
 
     #save() {
         const entries = this.entries.map((e) => ({ id: e.id, label: e.label, value: this.#values.get(e.id), origins: [...e.origins] }));
-        writeLocalJson(STORAGE_KEY, { entries, grants: $state.snapshot(this.grants) });
+        writeLocalJson(STORAGE_KEY, { entries, grants: $state.snapshot(this.grants), models: $state.snapshot(this.models) });
     }
 
     /** Make a change to the vault as it is kept now (another tab's
@@ -311,24 +329,48 @@ export class Vault {
         return this.#values.get(entry.id) ?? null;
     }
 
-    /** Give app `toKey` app `fromKey`'s grants (a fork its parent's),
-     *  beside any of its own. @param {string} fromKey @param {string} toKey */
+    /** Allow app `appKey` the person's model. @param {string} appKey */
+    allowModel(appKey) {
+        this.#change(() => {
+            this.models[appKey] = true;
+        });
+    }
+
+    /** Whether app `appKey` is allowed the person's model.
+     *  @param {string} appKey */
+    modelAllowed(appKey) {
+        return this.models[appKey] === true;
+    }
+
+    /** Take back app `appKey`'s use of the model. @param {string} appKey */
+    revokeModel(appKey) {
+        this.#change(() => {
+            delete this.models[appKey];
+        });
+    }
+
+    /** Give app `toKey` app `fromKey`'s grants and its model grant (a
+     *  fork its parent's), beside any of its own.
+     *  @param {string} fromKey @param {string} toKey */
     copyGrants(fromKey, toKey) {
         if (fromKey === toKey) return;
         this.#change(() => {
             const from = this.grants[fromKey];
             if (from !== undefined) this.grants[toKey] = { ...this.grants[toKey], ...from };
+            if (this.models[fromKey]) this.models[toKey] = true;
         });
     }
 
-    /** App `appKey` is gone: its grants go. @param {string} appKey */
+    /** App `appKey` is gone: its grants go, and its model grant.
+     *  @param {string} appKey */
     forgetApp(appKey) {
         this.revoke(appKey);
+        this.revokeModel(appKey);
     }
 
     /** The vault as it may be shown: entries without values. */
     toJSON() {
-        return { entries: $state.snapshot(this.entries), grants: $state.snapshot(this.grants) };
+        return { entries: $state.snapshot(this.entries), grants: $state.snapshot(this.grants), models: $state.snapshot(this.models) };
     }
 
     toString() {
