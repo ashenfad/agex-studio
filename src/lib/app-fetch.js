@@ -73,21 +73,23 @@ class FetchRefused extends Error {
 }
 
 /**
- * The references in `text` that count, each by name and where it is:
- * every `${NAME}`, and a bare `$NAME` when NAME is a declared secret
- * (the world's `request` would fill it as it does `${NAME}`).
+ * The references in `text` that count, each by name, where it is, and
+ * whether it is bare: every `${NAME}`, and a bare `$NAME` when NAME is a
+ * declared secret. A reference is written `${NAME}` (the page sends only
+ * those here); a bare one is refused, since the world's `request` would
+ * fill it all the same.
  *
  * @param {string} text @param {Set<string>} declared
- * @returns {{ name: string, at: number }[]}
+ * @returns {{ name: string, at: number, bare: boolean }[]}
  */
 function referencesIn(text, declared) {
-    /** @type {{ name: string, at: number }[]} */
+    /** @type {{ name: string, at: number, bare: boolean }[]} */
     const found = [];
     for (const m of text.matchAll(REF)) {
         const braced = m[1];
         const bare = m[2];
-        if (braced !== undefined) found.push({ name: braced, at: m.index });
-        else if (bare !== undefined && declared.has(bare)) found.push({ name: bare, at: m.index });
+        if (braced !== undefined) found.push({ name: braced, at: m.index, bare: false });
+        else if (bare !== undefined && declared.has(bare)) found.push({ name: bare, at: m.index, bare: true });
     }
     return found;
 }
@@ -197,7 +199,8 @@ export async function answerFetch(data, ctx) {
         /** @type {Map<string, import("./app-needs.js").SecretNeed>} */
         const used = new Map();
         for (const [name, value] of req.headers) {
-            for (const { name: secret } of referencesIn(value, declared)) {
+            for (const { name: secret, bare } of referencesIn(value, declared)) {
+                if (bare) throw new FetchRefused(`$${secret} in the ${name} header: write it as ${ref(secret)}`);
                 const need = byName.get(secret);
                 if (need === undefined) {
                     throw new FetchRefused(`${ref(secret)} isn't a secret ${NEEDS_PATH} declares; declare it under needs.secrets, with its origins and the header it goes in`);
