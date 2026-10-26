@@ -10,6 +10,7 @@
 import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { APP_STORAGE_QUOTA } from './app-storage.js';
 import { PLOTLY_URL } from './cdn.js';
+import { NEEDS_PATH, parseNeeds } from './app-needs.js';
 import ecosystem from 'virtual:ecosystem-packages';
 import {
     buildAssetsScript,
@@ -1040,7 +1041,9 @@ function _workerRegistryScript(workerSources) {
  * multi-file app projects resolved (JS via import map with data URIs,
  * CSS inlined); and its assets, each once, which the HTML refers to by
  * token (see `app-assets.js`: `hostInit` sends the two to the
- * bootloader, `inlineAssets` makes a page that stands alone).
+ * bootloader, `inlineAssets` makes a page that stands alone). The app's
+ * needs come from `app/agex.json` (`parseNeeds`), which isn't part of
+ * the page; a mistake in it throws, the message naming each one.
  *
  * Async because any `*.worker.js` files are bundled (esbuild) into
  * self-contained module sources and exposed via `window.appWorker`.
@@ -1056,6 +1059,12 @@ function _workerRegistryScript(workerSources) {
  * @returns {Promise<AppPage>}
  */
 export async function buildAppPage(appFiles, opts = {}) {
+    // The app's needs are the studio's to read, not the page's: a
+    // mistake in them fails the build, and the file is left out of the
+    // page and its assets.
+    const { needs, errors } = parseNeeds(appFiles[NEEDS_PATH] ?? null);
+    if (errors.length > 0) throw new Error(errors.join('\n'));
+    appFiles = Object.fromEntries(Object.entries(appFiles).filter(([path]) => path !== NEEDS_PATH));
     const storageShim = buildAppStorageShim(opts.appStorage || {});
     const workerSources = opts.workerSources ?? (await bundleAppWorkers(appFiles));
     const workerScript = _workerRegistryScript(workerSources);
@@ -1081,14 +1090,15 @@ export async function buildAppPage(appFiles, opts = {}) {
     // and the assets script early, so its fetch patch is in place
     // before any app JS runs.
     const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
-    return { html: _injectHead(html, injected), assets, storageShim };
+    return { html: _injectHead(html, injected), assets, storageShim, needs };
 }
 
 /**
  * A built page: its HTML, its assets (which the HTML names by token),
- * and the storage shim as it appears in the HTML, for `reseedAppPage`.
+ * the storage shim as it appears in the HTML, for `reseedAppPage`, and
+ * the app's needs, as `app/agex.json` declares them.
  *
- * @typedef {{ html: string, assets: import('./app-assets.js').AppAsset[], storageShim: string }} AppPage
+ * @typedef {{ html: string, assets: import('./app-assets.js').AppAsset[], storageShim: string, needs: import('./app-needs.js').AppNeeds }} AppPage
  */
 
 /**

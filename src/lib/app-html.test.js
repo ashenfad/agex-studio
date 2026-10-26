@@ -454,3 +454,37 @@ describe('agex.busy', () => {
         expect(posted.map((m) => m.busy)).toEqual([1, 2, 1, 0])
     })
 })
+
+describe('an app’s needs', () => {
+    const page = '<html><head></head><body></body></html>'
+    const manifest = JSON.stringify({ needs: { model: true, secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], in: 'header:Authorization', why: 'to look up prices' }] } })
+
+    it('are kept on the page, and app/agex.json is no part of it', async () => {
+        const built = await buildAppPage({ 'app/index.html': page, 'app/agex.json': manifest, 'app/data.json': '[1]' }, { workerSources: {} })
+        expect(built.needs).toEqual({
+            model: true,
+            secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], header: 'Authorization', why: 'to look up prices' }],
+        })
+        // the data file is an asset, the declaration isn't
+        expect(built.assets.map((a) => a.type)).toEqual(['application/json'])
+        expect(built.html).toContain(`"data.json":"${assetToken(0)}"`)
+        expect(built.html).not.toContain('agex.json')
+        expect(built.html).not.toContain('STRIPE_KEY')
+        // and the needs stay with a page seeded again
+        expect(reseedAppPage(built, { seed: {} }).needs).toEqual(built.needs)
+    })
+
+    it('are none without app/agex.json', async () => {
+        const built = await buildAppPage({ 'app/index.html': page }, { workerSources: {} })
+        expect(built.needs).toEqual({ model: false, secrets: [] })
+    })
+
+    it('fail the build when app/agex.json has mistakes, each named', async () => {
+        const broken = JSON.stringify({ needs: { modle: true, secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com/v1'], in: 'header:Authorization', why: 'prices' }] } })
+        await expect(buildAppPage({ 'app/index.html': page, 'app/agex.json': broken }, { workerSources: {} })).rejects.toThrow(
+            'app/agex.json: needs: unknown key "modle" (expected "model", "secrets")\n' +
+                'app/agex.json: needs.secrets[0].origins[0]: "https://api.stripe.com/v1" has a path; give the origin alone ("https://api.stripe.com")',
+        )
+        await expect(buildAppPage({ 'app/index.html': page, 'app/agex.json': '{ needs }' }, { workerSources: {} })).rejects.toThrow(/^app\/agex\.json: invalid JSON: /)
+    })
+})
