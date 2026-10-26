@@ -327,21 +327,24 @@ class AppAgent {
      *  limiter on: until the person says to go on, or refused if they
      *  stop it, or if nobody is looking (`prompt` false), or if the
      *  session is forgotten meanwhile; `signal` aborted stops the wait.
+     *  A call let through is counted in the rate's minute as it is let
+     *  through, so calls started together can't all pass on one count.
      *  @param {string} session @param {boolean} prompt @param {number} generation @param {boolean} [model] @param {AbortSignal} [signal] */
     async #limit(session, prompt, generation, model = false, signal) {
-        if (!(this.meterOf(session)?.limiter ?? true)) return;
-        if (this.stopped[session]) throw new Error(STOPPED);
         const all = model ? this.#modelStarts : this.#starts;
+        const counted = () => void all.set(session, [...(all.get(session) ?? []), Date.now()]);
+        if (!(this.meterOf(session)?.limiter ?? true)) return counted();
+        if (this.stopped[session]) throw new Error(STOPPED);
         const now = Date.now();
         const starts = (all.get(session) ?? []).filter((t) => now - t < RATE.windowMs);
         all.set(session, starts);
-        if (!overRate(starts, now, model ? RATE.modelCalls : RATE.calls)) return;
+        if (!overRate(starts, now, model ? RATE.modelCalls : RATE.calls)) return counted();
         if (!prompt) throw new Error(model ? HIDDEN_MODEL_PAUSE : HIDDEN_PAUSE);
         const go = await this.#pause(session, starts.length, model, signal);
         if (this.#gone(session, generation)) throw new Error(GONE);
         if (go) {
             all.delete(session);
-            return;
+            return counted();
         }
         this.stopped[session] = true;
         throw new Error(STOPPED);
@@ -398,7 +401,6 @@ class AppAgent {
             if (!this.#gone(session, generation)) this.#update(session, change);
         };
         const at = Date.now();
-        this.#starts.set(session, [...(this.#starts.get(session) ?? []), at]);
         const used = { steps: 0, inputTokens: 0, outputTokens: 0 };
         const base = modelFor(s, session);
         const model = metered(isLanguageModel(base) ? aiSdk(base) : base, (usage) => {
@@ -463,7 +465,6 @@ class AppAgent {
             if (!this.#gone(session, generation)) this.#update(session, change);
         };
         const at = Date.now();
-        this.#modelStarts.set(session, [...(this.#modelStarts.get(session) ?? []), at]);
         const stop = new AbortController();
         const onAbort = () => stop.abort(signal?.reason);
         signal?.addEventListener("abort", onAbort);

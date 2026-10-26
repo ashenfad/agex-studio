@@ -309,6 +309,20 @@ describe("an app's own agent's model call", () => {
         await expect(held).resolves.toHaveLength(2);
     });
 
+    it("started together count against the rate one by one", async () => {
+        script.provider = provider();
+        const results = await Promise.allSettled(Array.from({ length: RATE.modelCalls + 2 }, () => model("x9", { prompt: false })));
+        expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(RATE.modelCalls);
+        expect(results.filter((r) => r.status === "rejected").map((r) => /** @type {any} */ (r).reason.message)).toEqual([
+            expect.stringContaining(`made ${RATE.modelCalls} model calls`),
+            expect.stringContaining(`made ${RATE.modelCalls} model calls`),
+        ]);
+        const tasks = await Promise.allSettled(
+            Array.from({ length: RATE.calls + 1 }, () => appAgent.call("x9", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false, prompt: false })),
+        );
+        expect(tasks.filter((r) => r.status === "rejected")).toHaveLength(1);
+    });
+
     it("from elsewhere ask first, for the app's own agent, and are refused if the person says no", async () => {
         script.provider = provider();
         await expect(model("x5", { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");
