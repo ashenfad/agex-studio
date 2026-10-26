@@ -13,14 +13,17 @@
  */
 
 /**
- * What the preview does when its app's database changed under it.
+ * What the preview does when its app's database changed under it. A sync
+ * while a reload is already offered keeps offering it, busy or not: the
+ * offer stands until the person takes it.
  *
  * @param {import("./db-restore.svelte.js").DbChange} cause
  * @param {number} busy the app's work in flight
+ * @param {boolean} [offered] whether a reload is offered already
  * @returns {"reload" | "offer"}
  */
-export function afterDbChange(cause, busy) {
-    return cause === "sync" && busy > 0 ? "offer" : "reload";
+export function afterDbChange(cause, busy, offered = false) {
+    return cause === "sync" && (busy > 0 || offered) ? "offer" : "reload";
 }
 
 /**

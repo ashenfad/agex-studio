@@ -11,6 +11,11 @@ describe("a change to an app's database under it", () => {
         expect(afterDbChange("sync", 2)).toBe("offer");
         expect(afterDbChange("restore", 2)).toBe("reload");
     });
+
+    it("keeps offering the reload after a later sync once the work settles, and reloads after a restore", () => {
+        expect(afterDbChange("sync", 0, true)).toBe("offer");
+        expect(afterDbChange("restore", 0, true)).toBe("reload");
+    });
 });
 
 describe("the count a busy message carries", () => {
