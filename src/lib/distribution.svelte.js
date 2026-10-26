@@ -11,6 +11,7 @@ import { getSettings } from "./settings.js";
 import { snapshotBranch } from "./snapshot.js";
 import { PLANE, metaOf, newName, openStore } from "./store.js";
 import { studio } from "./studio.svelte.js";
+import { appKeyOf, vault } from "./vault.svelte.js";
 
 /** @typedef {import("./store.js").SessionSource} SessionSource */
 
@@ -57,11 +58,19 @@ class Distribution {
     /** Record where session `name` came from.
      *  @param {string} name @param {SessionSource} source */
     async #setSource(name, source) {
+        const before = this.studio.appKey(name);
         await this.studio.withWorkspace(name, async (ws) => {
             ws.plane(PLANE).set("source", source);
             await ws.autoCommit({ tool: "studio.source" });
         });
         await this.studio.refresh();
+        // a new source can make it another app (a bundle's import, opened
+        // from its gist): its grants go with it
+        const after = this.studio.appKey(name);
+        if (after !== before) {
+            vault.copyGrants(before, after);
+            if (!this.studio.sessions.some((s) => appKeyOf(s) === before)) vault.forgetApp(before);
+        }
     }
 
     /**
