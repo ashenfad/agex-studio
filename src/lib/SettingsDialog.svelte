@@ -5,9 +5,10 @@
      *  the rest under Advanced, summed up in a line. Notifications:
      *  whether a turn that ends while they're away notifies them. Sync &
      *  sharing: syncing sessions through a GitHub repo of their own, and
-     *  the token publishing writes gists with. The header and the buttons
-     *  stay put; the tab's content scrolls. */
-    import { untrack } from 'svelte'
+     *  the token publishing writes gists with. App keys: the vault of keys
+     *  the person gives apps, each with the apps it is granted to. The
+     *  header and the buttons stay put; the tab's content scrolls. */
+    import { tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
     import ModelPicker from './ModelPicker.svelte'
@@ -19,8 +20,10 @@
     import { GIST_TOKEN_URL } from './gist.js'
     import { notificationPermission, requestNotificationPermission } from './notify.js'
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
+    import { studio } from './studio.svelte.js'
+    import { VaultError, sessionsOf, vault } from './vault.svelte.js'
 
-    /** @type {{ onClose: () => void, tab?: 'model' | 'notify' | 'sync' }} */
+    /** @type {{ onClose: () => void, tab?: 'model' | 'notify' | 'sync' | 'keys' }} */
     let { onClose, tab: firstTab = 'model' } = $props()
 
     let tab = $state(untrack(() => firstTab))
@@ -157,6 +160,83 @@
         }
     }
 
+    /** What a change to the vault was refused for, a line each.
+     *  @param {unknown} e */
+    const refusal = (e) => (e instanceof VaultError ? e.errors : [errorText(e)])
+    /** Origins as typed, one per line. @param {string} text */
+    const lines = (text) => text.split('\n')
+    /** A refusal's lines, scrolled to once they render.
+     *  @param {() => HTMLElement | undefined} el */
+    const reveal = (el) => void tick().then(() => el()?.scrollIntoView({ block: 'nearest' }))
+
+    /** A key being added. */
+    let draft = $state({ label: '', value: '', origins: '' })
+    /** @type {string[]} */
+    let addErrors = $state([])
+    /** @type {HTMLElement | undefined} */
+    let addErrorsEl = $state()
+    function addKey() {
+        try {
+            vault.add({ label: draft.label, value: draft.value, origins: lines(draft.origins) })
+            draft = { label: '', value: '', origins: '' }
+            addErrors = []
+        } catch (e) {
+            addErrors = refusal(e)
+            reveal(() => addErrorsEl)
+        }
+    }
+
+    /** The key being edited, if one is. @type {string | null} */
+    let editing = $state(null)
+    /** Its fields: `value` a new key, or empty to keep it. */
+    let edited = $state({ label: '', origins: '', value: '' })
+    /** @type {string[]} */
+    let editErrors = $state([])
+    /** @type {HTMLElement | undefined} */
+    let editErrorsEl = $state()
+    /** The key whose delete waits on a yes. @type {string | null} */
+    let confirming = $state(null)
+    /** @param {import('./vault.svelte.js').VaultEntry} entry */
+    function edit(entry) {
+        editing = entry.id
+        edited = { label: entry.label, origins: entry.origins.join('\n'), value: '' }
+        editErrors = []
+        confirming = null
+    }
+    function saveEdit() {
+        if (editing === null) return
+        try {
+            vault.update(editing, { label: edited.label, origins: lines(edited.origins), ...(edited.value.trim() !== '' && { value: edited.value }) })
+            closeEdit()
+        } catch (e) {
+            editErrors = refusal(e)
+            reveal(() => editErrorsEl)
+        }
+    }
+    /** Leave the key being edited, its fields (a new key typed) dropped. */
+    function closeEdit() {
+        editing = null
+        edited = { label: '', origins: '', value: '' }
+        editErrors = []
+    }
+    /** @param {string} id */
+    function removeKey(id) {
+        vault.remove(id)
+        confirming = null
+    }
+
+    /** An app's name, from the sessions it is open in; null when none is
+     *  left. @param {string} appKey */
+    function appName(appKey) {
+        const titles = [...new Set(sessionsOf(appKey, studio.sessions).map((x) => x.title || 'Untitled'))]
+        return titles.length === 0 ? null : titles.join(', ')
+    }
+    /** The apps using entry `id`, named, for a delete's question.
+     *  @param {string} id */
+    function usersOf(id) {
+        return [...new Set(vault.usedBy(id).map((u) => appName(u.appKey) ?? 'a removed app'))]
+    }
+
     function disconnect() {
         s.syncRepo = ''
         s.syncToken = ''
@@ -172,6 +252,7 @@
             <button role="tab" class="tab" class:on={tab === 'model'} aria-selected={tab === 'model'} onclick={() => (tab = 'model')}>Model</button>
             <button role="tab" class="tab" class:on={tab === 'notify'} aria-selected={tab === 'notify'} onclick={() => (tab = 'notify')}>Notifications</button>
             <button role="tab" class="tab" class:on={tab === 'sync'} aria-selected={tab === 'sync'} onclick={() => (tab = 'sync')}>Sync &amp; sharing</button>
+            <button role="tab" class="tab" class:on={tab === 'keys'} aria-selected={tab === 'keys'} onclick={() => (tab = 'keys')}>App keys</button>
         </div>
     {/snippet}
 
@@ -344,6 +425,98 @@
             <p class="hint">This browser doesn't show notifications.</p>
         {/if}
         <p class="hint">Away: in another session, another tab or another app. They come only while the studio's tab is open. Apps can notify you too, once you've allowed it here.</p>
+    {:else if tab === 'keys'}
+        <h3>Keys for apps</h3>
+        <p class="hint">Keys you give apps for other services, like Stripe. They're kept on this device only: not synced, not published, never shown to an app. An app may use one only once you grant it, and only with the origins listed. Changes here are kept at once, without waiting for Save.</p>
+        {#if vault.entries.length === 0}
+            <p class="hint">No keys yet.</p>
+        {:else}
+            <ul class="keys">
+                {#each vault.entries as entry (entry.id)}
+                    {@const users = vault.usedBy(entry.id)}
+                    <li class="key">
+                        {#if editing === entry.id}
+                            <form class="fields" aria-label="Edit {entry.label}" onsubmit={(e) => (e.preventDefault(), saveEdit())}>
+                                <label class="row">
+                                    <span class="name">Label</span>
+                                    <input class="input" bind:value={edited.label} autocomplete="off" />
+                                </label>
+                                <label class="row">
+                                    <span class="name">Origins</span>
+                                    <textarea class="input" rows="2" bind:value={edited.origins} spellcheck="false"></textarea>
+                                </label>
+                                <label class="row">
+                                    <span class="name">Replace key</span>
+                                    <input class="input" type="password" bind:value={edited.value} placeholder="empty keeps the saved key" autocomplete="off" />
+                                </label>
+                                {#if editErrors.length > 0}
+                                    <ul class="hint warn errors" role="alert" bind:this={editErrorsEl}>{#each editErrors as err, i (i)}<li>{err}</li>{/each}</ul>
+                                {/if}
+                                <div class="actions-row">
+                                    <button class="btn secondary" type="submit">Save key</button>
+                                    <button class="btn secondary" type="button" onclick={closeEdit}>Cancel</button>
+                                </div>
+                            </form>
+                        {:else}
+                            <div class="key-head">
+                                <span class="key-label">{entry.label}</span>
+                                <span class="hint">key saved</span>
+                            </div>
+                            <p class="hint">Goes to {#each entry.origins as origin, i (origin)}{i > 0 ? ', ' : ''}<code>{origin}</code>{/each}</p>
+                            {#if users.length === 0}
+                                <p class="hint">No app uses it yet.</p>
+                            {:else}
+                                <p class="hint">Used by</p>
+                                <ul class="users">
+                                    {#each users as u (`${u.appKey} ${u.name}`)}
+                                        {@const name = appName(u.appKey)}
+                                        <li>
+                                            <span class="hint">{#if name === null}a removed app{:else}{name}{/if}, as <code>{u.name}</code></span>
+                                            <button class="btn secondary small" onclick={() => vault.revoke(u.appKey, u.name)} aria-label="Revoke {name ?? 'a removed app'}'s use of {entry.label} as {u.name}">Revoke</button>
+                                        </li>
+                                    {/each}
+                                </ul>
+                            {/if}
+                            {#if confirming === entry.id}
+                                {@const apps = usersOf(entry.id)}
+                                <p class="hint warn">Delete “{entry.label}”?{apps.length > 0 ? ` ${apps.join(', ')} ${apps.length === 1 ? 'uses' : 'use'} it, and will lose it.` : ''}</p>
+                                <div class="actions-row">
+                                    <button class="btn secondary danger" onclick={() => removeKey(entry.id)}>Delete it</button>
+                                    <button class="btn secondary" onclick={() => (confirming = null)}>Keep it</button>
+                                </div>
+                            {:else}
+                                <div class="actions-row">
+                                    <button class="btn secondary small" onclick={() => edit(entry)} aria-label="Edit {entry.label}">Edit</button>
+                                    <button class="btn secondary small" onclick={() => (closeEdit(), (confirming = entry.id))} aria-label="Delete {entry.label}">Delete…</button>
+                                </div>
+                            {/if}
+                        {/if}
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+        <h3>Add a key</h3>
+        <form class="fields" aria-label="Add a key" onsubmit={(e) => (e.preventDefault(), addKey())}>
+            <label class="row">
+                <span class="name">Label</span>
+                <input class="input" bind:value={draft.label} placeholder="Stripe (personal)" autocomplete="off" />
+            </label>
+            <label class="row">
+                <span class="name">Key</span>
+                <input class="input" type="password" bind:value={draft.value} placeholder="the key itself" autocomplete="off" />
+            </label>
+            <label class="row">
+                <span class="name">Origins</span>
+                <textarea class="input" rows="2" bind:value={draft.origins} placeholder="https://api.stripe.com" spellcheck="false"></textarea>
+            </label>
+            <div class="under"><p class="hint">Where the key may go, one per line: https: only, the origin alone.</p></div>
+            {#if addErrors.length > 0}
+                <ul class="hint warn errors" role="alert" bind:this={addErrorsEl}>{#each addErrors as err, i (i)}<li>{err}</li>{/each}</ul>
+            {/if}
+            <div class="actions-row">
+                <button class="btn secondary" type="submit">Add key</button>
+            </div>
+        </form>
     {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
@@ -571,5 +744,74 @@
         display: flex;
         align-items: center;
         gap: 0.6rem;
+    }
+    .btn.small {
+        padding: 0.2rem 0.6rem;
+        font-size: 0.8rem;
+    }
+    .btn.danger {
+        border-color: var(--error);
+        color: var(--error);
+    }
+    .fields {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+    }
+    textarea.input {
+        resize: vertical;
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+    }
+    .keys,
+    .users,
+    .errors {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .keys {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+    .key {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.6rem 0.7rem;
+    }
+    .key-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.6rem;
+    }
+    .key-label {
+        font-size: 0.9rem;
+        color: var(--text);
+        overflow-wrap: anywhere;
+    }
+    .users {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        margin-top: -0.2rem;
+    }
+    .users li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+    }
+    .errors {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+    code {
+        overflow-wrap: anywhere;
     }
 </style>
