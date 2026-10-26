@@ -7,8 +7,9 @@
      * answers the app's calls to it: `getCacheValue`, its storage,
      * `notify`, its agent tasks (`agex.task`, run on the viewer's model,
      * counted on its meter), its own agent's model calls (`agex.model`,
-     * likewise), its database (`agex.db`, the session's) and the work it
-     * marks in flight (`agex.busy`). The preview rebuilds when the app's
+     * likewise), its requests that carry a secret (`agex.fetch`, filled
+     * from the app's grants), its database (`agex.db`, the session's) and
+     * the work it marks in flight (`agex.busy`). The preview rebuilds when the app's
      * files change, and reloads the app when its database changes under
      * it (a restore, or a sync, which only offers the reload while the
      * app is busy).
@@ -32,11 +33,13 @@
     import { pageGone, pageLoaded, pageUp } from './send-control.js'
     import { appAgent } from './app-tasks.svelte.js'
     import { cancelModel, cancelModels, relayModel } from './app-model.js'
+    import { answerFetch, cancelFetch, cancelFetches, relayFetch } from './app-fetch.js'
     import { RATE } from './app-meter.js'
     import { APPS_ORIGIN, isFromAppFrame, replyToApp } from './apps-origin.js'
     import { appNotify } from './notify.js'
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
+    import { vault } from './vault.svelte.js'
 
     /** @type {{ session: import('./session.svelte.js').ChatSession, loading?: boolean, empty?: boolean, asking?: boolean }} */
     let { session, loading = $bindable(false), empty = $bindable(false), asking = $bindable(false) } = $props()
@@ -99,11 +102,12 @@
     }
 
     /** The preview shows a note in the page's place: the page goes, and
-     *  its model calls with it, which would answer no one. */
+     *  its model calls and requests with it, which would answer no one. */
     function dropPage() {
         if (iframe === null) return
         pageGone(iframe, 'studio')
         cancelModels(iframe)
+        cancelFetches(iframe)
     }
 
     async function loadNow(force = false) {
@@ -299,6 +303,7 @@
             pageUp(iframe)
             callsLost(iframe)
             cancelModels(iframe)
+            cancelFetches(iframe)
             return
         }
         if (data.type === 'agex-page-loaded') {
@@ -362,6 +367,25 @@
             cancelModel(iframe, data.id)
             return
         }
+        if (data.type === 'agex-fetch') {
+            // a request with a secret, filled from this session's app's
+            // grants, for the secrets its built page declares
+            const frame = iframe
+            const needs = current?.page.needs ?? null
+            const appKey = studio.appKey(session.name)
+            const done = callStarted(frame)
+            try {
+                await relayFetch(frame, data, needs === null ? null : (call, signal) =>
+                    answerFetch(call, { needs, grantFor: (need) => Promise.resolve(vault.valueFor(appKey, need)), signal }))
+            } finally {
+                done()
+            }
+            return
+        }
+        if (data.type === 'agex-fetch-cancel') {
+            cancelFetch(iframe, data.id)
+            return
+        }
         if (data.type === 'agex-db') {
             // the database of the session this preview shows, never one
             // the message names
@@ -398,7 +422,10 @@
         building = 0
         settleCheck()
         flushStorage()
-        if (iframe !== null) cancelModels(iframe)
+        if (iframe !== null) {
+            cancelModels(iframe)
+            cancelFetches(iframe)
+        }
     })
 </script>
 

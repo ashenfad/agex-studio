@@ -112,6 +112,8 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
 - **`agex.task(spec)`**: an agent task the app calls (below).
 - **`agex.model()`**: an agex-ts provider on the viewer's model, for an
   agent the app runs itself (below).
+- **`agex.fetch(url, init)`**: `fetch`, with the viewer's keys for
+  the secrets the app declares (below).
 - **`agex.db`**: the session's SQLite database (below).
 - **`agex.busy(promise)`**: work in flight that a reload would cut
   off, which a sync then doesn't (below).
@@ -205,6 +207,30 @@ is one model call, relayed (`app-model.js`):
   (60) a minute, beside the task calls' 10, since one turn of a chat
   makes several; past it, the same pause (its `model` flag says which),
   or a refusal for a hidden test.
+
+### Requests with the viewer's keys
+
+`agex.fetch(url, init)` is the app's own `fetch`, run in its frame,
+unless the request names a secret (`${NAME}`, as in `Authorization:
+Bearer ${STRIPE_KEY}`): only then does it go from the studio, whose
+origin a service may trust where it wouldn't the app's. The shim posts
+`agex-fetch` (the URL, method, headers as pairs, and body as a string
+or bytes), and `answerFetch` (`app-fetch.js`) checks it against the
+app's `app/agex.json` (`AppPage.needs`): a secret is filled only into
+the header it declares, sent only to its declared origins, over
+`https:`, never to the studio's or the apps' origins; a reference in
+the URL, the query, the body or another header, one to an undeclared
+secret, and one with no grant (`vault.valueFor`, the app's key from
+`studio.appKey`) are refused before anything is sent. The request is
+the world's `request` (no redirect followed, a 10 MB cap, a key the
+response echoes replaced by its reference), with `credentials:
+'omit'`. The reply (`agex-fetch-result`) becomes a `Response` in the
+page; a refusal or failure rejects with a `TypeError` saying why. An
+aborted signal posts `agex-fetch-cancel`, and a page replaced or
+closed has its requests aborted (`cancelFetches`), as its model calls
+are. A hidden test uses the app's grants too, and fails a request with
+no grant rather than asking. It is unmetered: it spends the viewer's
+key with a service, not their model.
 
 ### The app's database
 
