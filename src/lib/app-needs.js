@@ -237,22 +237,62 @@ function checkOrigins(origins, at, studio, fail) {
 }
 
 /**
+ * How an origin's errors speak of what goes to it: an app's secret, or
+ * a vault entry's key.
+ *
+ * @typedef {{ a: string, the: string, credentials: string }} OriginWords
+ */
+
+/** @type {OriginWords} */
+const SECRET_WORDS = { a: "a secret", the: "the secret", credentials: "the key as the secret" };
+/** @type {OriginWords} */
+const KEY_WORDS = { a: "a key", the: "the key", credentials: "the key in its own field" };
+
+/**
+ * The origins a vault entry's key may go to, checked as a need's are:
+ * each `https://host[:port]` alone, never the studio's or its apps',
+ * normalized, and listed once. A blank line is skipped, as typed one
+ * per line, and each error names the origin by its line ("origin 2:
+ * ..."); with any error, `origins` is empty. An empty list is no error
+ * here: whoever needs one says so.
+ *
+ * @param {unknown[]} list
+ * @param {{ studioOrigins?: Iterable<string> }} [opts] as `parseNeeds`'s
+ * @returns {{ origins: string[], errors: string[] }}
+ */
+export function checkKeyOrigins(list, opts = {}) {
+    const studio = new Set(opts.studioOrigins ?? defaultStudioOrigins());
+    /** @type {string[]} */
+    const errors = [];
+    const fail = (/** @type {string} */ where, /** @type {string} */ message) => errors.push(`${where}: ${message}`);
+    /** @type {string[]} */
+    const origins = [];
+    list.forEach((raw, i) => {
+        if (typeof raw === "string" && raw.trim() === "") return;
+        const origin = checkOrigin(typeof raw === "string" ? raw.trim() : raw, `origin ${i + 1}`, studio, fail, KEY_WORDS);
+        if (origin !== null && !origins.includes(origin)) origins.push(origin);
+    });
+    return errors.length > 0 ? { origins: [], errors } : { origins, errors };
+}
+
+/**
  * One origin, normalized (`https://API.Example.com:443/` is
  * `https://api.example.com`); null when it isn't `https://host[:port]`
  * alone, or is one a secret never goes to.
  *
  * @param {unknown} raw @param {string} at @param {Set<string>} studio
  * @param {(where: string, message: string) => void} fail
+ * @param {OriginWords} [words]
  * @returns {string | null}
  */
-function checkOrigin(raw, at, studio, fail) {
+function checkOrigin(raw, at, studio, fail, words = SECRET_WORDS) {
     if (typeof raw !== "string") {
         fail(at, `must be a string, like "https://api.example.com"; got ${describe(raw)}`);
         return null;
     }
     const shown = JSON.stringify(raw);
     if (raw.includes("*")) {
-        fail(at, `${shown} has a wildcard; list each origin the secret may go to, like "https://api.example.com"`);
+        fail(at, `${shown} has a wildcard; list each origin ${words.the} may go to, like "https://api.example.com"`);
         return null;
     }
     /** @type {URL | null} */
@@ -268,7 +308,7 @@ function checkOrigin(raw, at, studio, fail) {
         return null;
     }
     if (url.protocol === "http:") {
-        fail(at, `${shown} is http:; a secret goes over https: only ("https://${url.host}")`);
+        fail(at, `${shown} is http:; ${words.a} goes over https: only ("https://${url.host}")`);
         return null;
     }
     if (url.protocol !== "https:") {
@@ -277,7 +317,7 @@ function checkOrigin(raw, at, studio, fail) {
     }
     const origin = url.origin;
     if (url.username !== "" || url.password !== "" || /^https:\/\/[^/?#]*@/i.test(raw)) {
-        fail(at, `${shown} has credentials; give the origin alone ("${origin}") and the key as the secret`);
+        fail(at, `${shown} has credentials; give the origin alone ("${origin}") and ${words.credentials}`);
         return null;
     }
     /** @type {string[]} */
@@ -291,7 +331,7 @@ function checkOrigin(raw, at, studio, fail) {
     }
     const host = url.hostname.replace(/\.$/, "");
     if (host === STUDIO_DOMAIN || host.endsWith(`.${STUDIO_DOMAIN}`) || studio.has(origin)) {
-        fail(at, `${shown} is the studio's own; a secret never goes to the studio or its apps`);
+        fail(at, `${shown} is the studio's own; ${words.a} never goes to the studio or its apps`);
         return null;
     }
     return origin;
