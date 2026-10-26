@@ -60,8 +60,12 @@ page's HTML and its assets:
    through the map), marked, dayjs and dompurify. Any other package
    is asked for with `?external=preact,react,react-dom`, so its own
    imports of those come through the map too: one Preact on the page,
-   whatever library the app uses. Plotly loads as a script, only for an
-   app whose page or scripts name `Plotly`.
+   whatever library the app uses. agex-ts and its packages (each, and
+   each subpath its `exports` offer) resolve to the versions the studio
+   is built with, read from `node_modules` at build time
+   (`virtual:ecosystem-packages`), each asked for with the others
+   external, so the page has one copy of each. Plotly loads as a
+   script, only for an app whose page or scripts name `Plotly`.
 4. Bundles `*.worker.js` files with esbuild into module sources,
    started with `appWorker(name)`.
 5. Injects, at the start of the page's head (after the doctype and

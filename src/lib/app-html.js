@@ -10,6 +10,7 @@
 import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { APP_STORAGE_QUOTA } from './app-storage.js';
 import { PLOTLY_URL } from './cdn.js';
+import ecosystem from 'virtual:ecosystem-packages';
 import {
     buildAssetsScript,
     collectAssets,
@@ -541,7 +542,34 @@ const CDN_IMPORTS = {
     "dayjs": "https://esm.sh/dayjs@1.11.20",
     "dayjs/": "https://esm.sh/dayjs@1.11.20/",
     "dompurify": "https://esm.sh/dompurify@3.3.3",
+    ...ecosystemImports(ecosystem),
 };
+
+/**
+ * The import map's entries for agex-ts and its packages, each and each
+ * of its exports' subpaths: the versions the studio is built with, so an
+ * app's agent runs on what the studio does and the agex-ecosystem
+ * skill's READMEs describe. Each is asked of esm.sh with the others
+ * left bare, for this map to resolve, so the page has one copy of each
+ * (a world's store and an agent's session have to share theirs). The
+ * world's code worker comes from beside its module, and imports only
+ * its own chunks.
+ *
+ * @param {Record<string, { version: string, subpaths: string[] }>} packages
+ * @returns {Record<string, string>}
+ */
+export function ecosystemImports(packages) {
+    const names = Object.keys(packages).sort();
+    /** @type {Record<string, string>} */
+    const out = {};
+    for (const name of names) {
+        const { version, subpaths } = packages[name];
+        const external = `external=${names.filter((n) => n !== name).join(',')}`;
+        out[name] = `https://esm.sh/${name}@${version}?${external}`;
+        for (const sub of subpaths) out[`${name}/${sub}`] = `https://esm.sh/${name}@${version}/${sub}?${external}`;
+    }
+    return out;
+}
 
 /**
  * The option an auto-resolved esm.sh package is asked for with: its own

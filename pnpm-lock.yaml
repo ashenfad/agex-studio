@@ -9,17 +9,17 @@ importers:
   .:
     dependencies:
       '@agex-ts/kvgit':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.2.1
+        version: 0.2.1
       '@agex-ts/kvsql':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@agex-ts/termish':
         specifier: ^0.3.2
         version: 0.3.2
       '@agex-ts/world':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.1.3
+        version: 0.1.3
       '@ai-sdk/anthropic':
         specifier: 4.0.79
         version: 4.0.79(zod@4.6.5)
@@ -30,8 +30,8 @@ importers:
         specifier: 3.1.0
         version: 3.1.0(ai@7.0.138(zod@4.6.5))(zod@4.6.5)
       agex-ts:
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.1
+        version: 0.6.1
       dompurify:
         specifier: ^3.4.12
         version: 3.4.17
@@ -78,20 +78,20 @@ importers:
 
 packages:
 
-  '@agex-ts/kvgit@0.2.0':
-    resolution: {integrity: sha512-/zkIyP6VAZ2RHKTNAJvlpJMD9CqOuqsidqDsycWI2TcRoqzAw5vwB7esrnkXZvbtybe/5MoX+TWT1OS4ET1j2g==}
+  '@agex-ts/kvgit@0.2.1':
+    resolution: {integrity: sha512-vwWk9n/HMgP3vXAiALD0KvJvWBgmk9aWghm4SHN8vNraD8KBQhguKTUxyG6bD7dqDlLq5nWRa37Ewt4tq9COqQ==}
     engines: {node: '>=22'}
 
-  '@agex-ts/kvsql@0.1.0':
-    resolution: {integrity: sha512-E/Go9ThwmptpWmSYwXO0V3PhlNx6BLaKETm9W3sRVc+FMesJhHTWlEdNHUwaB2L28atXs3e62h/ckLbAuJXUdw==}
+  '@agex-ts/kvsql@0.1.1':
+    resolution: {integrity: sha512-/9RsObq1aX3o3PkYg/yyEFXaznatLoi8CRnKa61wS/DIZGKoW3bI1rahv9TGhlwWxytBSoBuP6HU3QQvTifmqQ==}
     engines: {node: '>=22'}
 
   '@agex-ts/termish@0.3.2':
     resolution: {integrity: sha512-jZI2Pr8gsswFQreHRhs20mcPo6B6T/htYkT55fzgqfnDupHqvaK5kKJZQBpwVscvORfoNzSHe8kkiuMRM2WKwA==}
     engines: {node: '>=22'}
 
-  '@agex-ts/world@0.1.2':
-    resolution: {integrity: sha512-WprLPXwwg9UwkYfELXokGk9O2yejwNIU7RXNiFRVysDnERKmLsVQSBohM8Oe9Ff64xt3oP4rBON9lPbNTYWydQ==}
+  '@agex-ts/world@0.1.3':
+    resolution: {integrity: sha512-7tKJH523YwLjKfOb0ok9WYazx5VQUuiZSx4YMxap223j2F3sZY+E+bhuTfPsR2yjhGJc9COi7QRQQG+Z3uvJNQ==}
     engines: {node: '>=22'}
 
   '@ai-sdk/anthropic@4.0.79':
@@ -663,8 +663,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  agex-ts@0.6.0:
-    resolution: {integrity: sha512-F6LzFwppsOqZ+CQw0E2OBaN45bJOkF02aodofWeB9QYbPUtAXuug5nJnE9ifOjfMI3xD3zKRNUyvYRil2X6xWA==}
+  agex-ts@0.6.1:
+    resolution: {integrity: sha512-8fWS3X9PeNonOmqaypXVs2014wzdpo+yPIscVCl5RH2p+fLAK2xxK0qOSgLewXJ0Nn7zR/wwh7BlFujmlqkujg==}
     engines: {node: '>=22'}
 
   ai@7.0.138:
@@ -1180,13 +1180,13 @@ packages:
 
 snapshots:
 
-  '@agex-ts/kvgit@0.2.0':
+  '@agex-ts/kvgit@0.2.1':
     dependencies:
       cbor-x: 1.6.7
 
-  '@agex-ts/kvsql@0.1.0':
+  '@agex-ts/kvsql@0.1.1':
     dependencies:
-      '@agex-ts/kvgit': 0.2.0
+      '@agex-ts/kvgit': 0.2.1
       '@sqlite.org/sqlite-wasm': 3.53.4-build1
 
   '@agex-ts/termish@0.3.2':
@@ -1194,9 +1194,9 @@ snapshots:
       fflate: 0.8.3
       superjson: 2.2.6
 
-  '@agex-ts/world@0.1.2':
+  '@agex-ts/world@0.1.3':
     dependencies:
-      '@agex-ts/kvgit': 0.2.0
+      '@agex-ts/kvgit': 0.2.1
       '@agex-ts/termish': 0.3.2
       '@standard-schema/spec': 1.1.0
       ts-blank-space: 0.6.2
@@ -1606,10 +1606,10 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  agex-ts@0.6.0:
+  agex-ts@0.6.1:
     dependencies:
-      '@agex-ts/kvgit': 0.2.0
-      '@agex-ts/world': 0.1.2
+      '@agex-ts/kvgit': 0.2.1
+      '@agex-ts/world': 0.1.3
       '@ai-sdk/provider': 4.0.27
       '@standard-schema/spec': 1.1.0
 

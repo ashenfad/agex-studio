@@ -22,6 +22,13 @@ declare module 'virtual:package-readmes' {
   export default readmes
 }
 
+/** Each ecosystem package's version and its exports' subpaths, read
+ *  at build time (`ecosystemPackages` in `vite.config.js`). */
+declare module 'virtual:ecosystem-packages' {
+  const packages: Record<string, { version: string, subpaths: string[] }>
+  export default packages
+}
+
 /** Build-time constant injected by `define` in `vite.config.js`. */
 declare const __APP_VERSION__: string
 

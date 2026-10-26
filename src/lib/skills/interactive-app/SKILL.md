@@ -28,6 +28,7 @@ so prefer them when they fit:
 | `'marked'` → `{ marked }` | Markdown → HTML. |
 | `'dompurify'` → default `DOMPurify` | HTML sanitization. |
 | `'dayjs'` → default `dayjs` | Dates. |
+| `'agex-ts'`, `'@agex-ts/world'`, `'@agex-ts/kvgit'` and the rest, subpaths too | The versions the studio runs, whose READMEs are in the agex-ecosystem skill: one copy of each on the page. |
 
 Globals, no import needed:
 
