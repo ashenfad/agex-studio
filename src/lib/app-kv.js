@@ -32,7 +32,8 @@ const MAX_CODE_POINT = 0x10ffff;
  * greater and the scan is open above. SQLite compares TEXT as UTF-8
  * bytes, which order as code points do, so it is `prefix` with its last
  * code point bumped by one, carried leftwards past U+10FFFF and stepped
- * over the surrogates; a lone surrogate binds as U+FFFD.
+ * over the surrogates; a lone surrogate binds as U+FFFD, though a
+ * store's keys and prefixes refuse one.
  *
  * @param {string} prefix
  * @returns {string | null}
@@ -55,9 +56,14 @@ function storeName(store, method) {
     return store;
 }
 
+/** An unpaired surrogate, which SQLite would store as U+FFFD. */
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
 /** @param {unknown} key @param {string} method */
 function keyOf(key, method) {
     if (typeof key !== "string") throw new TypeError(`kvStore.${method}: a key must be a string`);
+    // two keys would share a row
+    if (LONE_SURROGATE.test(key)) throw new TypeError(`kvStore.${method}: a key can't hold an unpaired surrogate`);
     return key;
 }
 

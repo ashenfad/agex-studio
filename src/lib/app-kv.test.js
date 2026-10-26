@@ -129,6 +129,11 @@ describe("an app's kv store", () => {
         const kv = kvStore(client, "default");
         await expect(kv.set("a", "text")).rejects.toThrow("a value must be a Uint8Array");
         await expect(kv.get(5)).rejects.toThrow("a key must be a string");
+        // SQLite would store it as U+FFFD, the row of another key
+        for (const key of ["a\ud800", "\udc00b", "\ud800\ud800\udc00"]) await expect(kv.set(key, bytes(1))).rejects.toThrow("unpaired surrogate");
+        await expect(all(kv.keys("p\ud800"))).rejects.toThrow("unpaired surrogate");
+        await kv.set("😀", bytes(1));
+        expect(await kv.get("😀")).toEqual(bytes(1));
         await expect(kvStore(client, "").get("a")).rejects.toThrow("non-empty string");
         expect([...KV_METHODS].sort()).toEqual(["cas", "casMany", "clear", "get", "getMany", "has", "items", "keys", "remove", "removeMany", "set", "setMany"]);
         await db.close();
