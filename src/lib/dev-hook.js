@@ -229,10 +229,12 @@ export function installDevHook(studio, sync) {
         },
         /** The current session's app agent: its meter, whether the
          *  limiter holds it (paused, and whether by model calls;
-         *  stopped), its own agent's model calls running, and an app
-         *  asking. */
+         *  stopped), its own agent's model calls running, whether it is
+         *  allowed the model, and the apps asking (by session: whether
+         *  the panel asks for the model, and the keys it lists). */
         async appAgent() {
             const { appAgent } = await import("./app-tasks.svelte.js");
+            const { needsAsk } = await import("./app-needs-ask.svelte.js");
             const name = session().name;
             return {
                 meter: appAgent.meterOf(name),
@@ -240,14 +242,19 @@ export function installDevHook(studio, sync) {
                 pausedModel: appAgent.paused[name]?.model ?? null,
                 stopped: appAgent.stopped[name] === true,
                 modelCalls: appAgent.modelCalls(name),
-                asking: Object.fromEntries(Object.entries(appAgent.asking).map(([k, v]) => [k, v.task])),
+                modelAllowed: vault.modelAllowed(studio.appKey(name)),
+                asking: Object.fromEntries(
+                    Object.entries(needsAsk.asking).map(([k, v]) => [k, { model: v.model, own: v.own, keys: v.needs.secrets.map((s) => s.name) }]),
+                ),
             };
         },
-        /** Answer the current session's app's request to use the
-         *  model. @param {boolean} yes */
-        async consent(yes) {
-            const { appAgent } = await import("./app-tasks.svelte.js");
-            appAgent.asking[session().name]?.answer(yes);
+        /** Answer the current session's app's "This app needs…" panel, as
+         *  its buttons do: Allow, with each key's vault entry (by the
+         *  app's name for it), or Don't allow.
+         *  @param {boolean} yes @param {Record<string, string>} [grants] */
+        async consent(yes, grants = {}) {
+            const { needsAsk } = await import("./app-needs-ask.svelte.js");
+            needsAsk.answer(session().name, yes ? grants : null);
             return this.appAgent();
         },
         /** Answer the limiter's pause: go on, or stop the app's calls.
@@ -372,6 +379,15 @@ export function installDevHook(studio, sync) {
             /** The current session's app, as grants name it. */
             appKey() {
                 return studio.appKey(session().name);
+            },
+            /** The apps allowed the model, by app key. */
+            models() {
+                return { ...vault.models };
+            },
+            /** @param {string} appKey */
+            revokeModel(appKey) {
+                vault.revokeModel(appKey);
+                return this.models();
             },
         },
         /** Sync, as the session list works it. */

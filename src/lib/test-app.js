@@ -11,6 +11,7 @@ import { buildAppPage, reseedAppPage } from "./app-html.js";
 import { readApp, hasApp } from "./app-files.js";
 import { LOAD_TIMEOUT_MS, getLiveIframe, runLiveApp, runTestApp, whenLiveSettled } from "./app-control.js";
 import { appDbs } from "./app-db-clients.js";
+import { NEEDS_PATH, parseNeeds } from "./app-needs.js";
 import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
 import { errorText } from "./errors.js";
@@ -137,6 +138,12 @@ async function runTest(session, args) {
             if (!hasApp(app)) {
                 return { text: "there is no app yet: write /workspace/app/index.html (or app/main.js) first", images: [], isError: true };
             }
+            /** Who the app is, for asking: in a hidden test, nobody is asked. */
+            const asker = async () => {
+                const { studio } = await import("./studio.svelte.js");
+                const ask = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
+                return { ask, appKey: studio.appKey(session.name), needs: parseNeeds(app.files[NEEDS_PATH] ?? null).needs };
+            };
             /** The test's copy of the database, made on the app's first agex.db call. @type {Promise<import("@agex-ts/kvsql/client").DatabaseClient> | null} */
             let testDb = null;
             try {
@@ -151,15 +158,11 @@ async function runTest(session, args) {
                     // the app's agent tasks run for real, on its session's meter
                     taskHandler: async (/** @type {{ spec: unknown, inputs: unknown }} */ call) => {
                         // an app from elsewhere runs here only once the person allowed it in the preview
-                        const { studio } = await import("./studio.svelte.js");
-                        const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
-                        return appAgent.call(session.name, call, { ask: imported, prompt: false });
+                        return appAgent.call(session.name, call, { ...(await asker()), prompt: false });
                     },
                     // and its own agent's model calls, likewise
                     modelHandler: async (call, opts) => {
-                        const { studio } = await import("./studio.svelte.js");
-                        const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
-                        return appAgent.model(session.name, call, { ask: imported, prompt: false, ...opts });
+                        return appAgent.model(session.name, call, { ...(await asker()), prompt: false, ...opts });
                     },
                     // its requests with a secret use the app's grants; one
                     // with none fails rather than asks

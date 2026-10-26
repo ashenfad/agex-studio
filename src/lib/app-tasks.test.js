@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BURST_MS, MODEL_TASK, RATE, emptyMeter, loadMeter, saveMeter } from "./app-meter.js";
+import { needsAsk } from "./app-needs-ask.svelte.js";
 import { AppModelError, appAgent, checkModelCall, checkSpec, modelSettings } from "./app-tasks.svelte.js";
+import { vault } from "./vault.svelte.js";
+
+/** Who a session's app is: from elsewhere (`ask`), a bundle's; else the
+ *  person's own. @param {string} session @param {boolean} [ask] */
+const appKey = (session, ask = false) => (ask ? `bundle:${session}` : `session:${session}`);
 
 describe("an app's task spec", () => {
     it("takes a name, instructions, and JSON Schemas", () => {
@@ -76,7 +82,7 @@ describe("an app's agent calls", () => {
 
     const spec = { name: "summarize", instructions: "Summarize it." };
     /** @param {string} session @param {object} [inputs] @param {{ ask?: boolean, prompt?: boolean }} [opts] */
-    const call = (session, inputs = {}, opts = {}) => appAgent.call(session, { spec, inputs }, { ask: false, ...opts });
+    const call = (session, inputs = {}, opts = {}) => appAgent.call(session, { spec, inputs }, { ask: false, appKey: appKey(session, opts.ask), ...opts });
     /** Calls `n` times, a second apart. @param {string} session @param {number} n */
     async function calls(session, n) {
         for (let i = 0; i < n; i++) {
@@ -150,8 +156,8 @@ describe("an app's agent calls", () => {
     it("from elsewhere wait for the person's say, and are refused if they say no", async () => {
         const first = call("a1", {}, { ask: true });
         await settle();
-        expect(appAgent.asking.a1?.task).toBe("summarize");
-        appAgent.asking.a1?.answer(false);
+        expect(needsAsk.asking.a1).toMatchObject({ appKey: "bundle:a1", model: true, own: false });
+        needsAsk.answer("a1", null);
         await expect(first).rejects.toThrow("didn't allow");
         await expect(call("a1", {}, { ask: true })).rejects.toThrow("didn't allow");
         await expect(call("a2", {}, { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");
@@ -162,6 +168,23 @@ describe("an app's agent calls", () => {
         saveMeter("t1", { ...emptyMeter(now), calls: 5, steps: 7, inputTokens: 1000 });
         await call("t1");
         expect(appAgent.meterOf("t1")).toMatchObject({ calls: 6, steps: 8, inputTokens: 1100 });
+    });
+
+    it("from elsewhere go on once allowed, and aren't asked again", async () => {
+        const first = call("a3", {}, { ask: true });
+        await settle();
+        needsAsk.answer("a3", {});
+        await expect(first).resolves.toBe("done");
+        expect(vault.modelAllowed("bundle:a3")).toBe(true);
+        await expect(call("a3", {}, { ask: true, prompt: false })).resolves.toBe("done");
+    });
+
+    it("waiting on the person are refused when the session is deleted", async () => {
+        const asking = call("a4", {}, { ask: true });
+        await settle();
+        appAgent.forget("a4");
+        await expect(asking).rejects.toThrow("session was deleted");
+        expect(needsAsk.asking.a4).toBeUndefined();
     });
 
     it("leave nothing of a session that is deleted: its meter, a paused call, one running", async () => {
@@ -250,7 +273,7 @@ describe("an app's own agent's model call", () => {
     async function model(session, opts = {}) {
         /** @type {any[]} */
         const events = [];
-        await appAgent.model(session, { messages, tools: [], settings: { maxTokens: 100 } }, { ask: false, ...opts, onEvent: (e) => events.push(e) });
+        await appAgent.model(session, { messages, tools: [], settings: { maxTokens: 100 } }, { ask: false, appKey: appKey(session, opts.ask), ...opts, onEvent: (e) => events.push(e) });
         return events;
     }
     const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -300,7 +323,7 @@ describe("an app's own agent's model call", () => {
             now += 100;
         }
         // task calls count on their own
-        await expect(appAgent.call("x4", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false })).resolves.toBe("done");
+        await expect(appAgent.call("x4", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false, appKey: appKey("x4") })).resolves.toBe("done");
         await expect(model("x4", { prompt: false })).rejects.toThrow(`made ${RATE.modelCalls} model calls (agex.model) inside a minute`);
         const held = model("x4");
         await settle();
@@ -318,7 +341,7 @@ describe("an app's own agent's model call", () => {
             expect.stringContaining(`made ${RATE.modelCalls} model calls`),
         ]);
         const tasks = await Promise.allSettled(
-            Array.from({ length: RATE.calls + 1 }, () => appAgent.call("x9", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false, prompt: false })),
+            Array.from({ length: RATE.calls + 1 }, () => appAgent.call("x9", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false, appKey: appKey("x9"), prompt: false })),
         );
         expect(tasks.filter((r) => r.status === "rejected")).toHaveLength(1);
     });
@@ -339,8 +362,8 @@ describe("an app's own agent's model call", () => {
         await expect(model("x5", { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");
         const first = model("x5", { ask: true });
         await settle();
-        expect(appAgent.asking.x5?.task).toBeNull();
-        appAgent.asking.x5?.answer(false);
+        expect(needsAsk.asking.x5?.model).toBe(true);
+        needsAsk.answer("x5", null);
         await expect(first).rejects.toThrow("didn't allow");
         expect(appAgent.meterOf("x5")).toBeNull();
     });
@@ -354,15 +377,15 @@ describe("an app's own agent's model call", () => {
         await settle();
         one.abort(new Error("gone one"));
         await expect(first).rejects.toThrow("gone one");
-        expect(appAgent.asking.x7?.task).toBeNull();
+        expect(needsAsk.asking.x7?.model).toBe(true);
         two.abort(new Error("gone two"));
         await expect(second).rejects.toThrow("gone two");
-        expect(appAgent.asking.x7).toBeUndefined();
-        expect(appAgent.allowed.x7).toBeUndefined();
+        expect(needsAsk.asking.x7).toBeUndefined();
+        expect(vault.modelAllowed("bundle:x7")).toBe(false);
         // the next call asks afresh
         const third = model("x7", { ask: true });
         await settle();
-        appAgent.asking.x7?.answer(true);
+        needsAsk.answer("x7", {});
         await expect(third).resolves.toHaveLength(2);
 
         for (let i = 0; i < RATE.modelCalls; i++) {
