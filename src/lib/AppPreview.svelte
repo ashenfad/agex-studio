@@ -197,9 +197,11 @@
         if (count === seenRestores) return
         seenRestores = count
         const name = session.name
+        // decided now: the work may settle while the lookup runs
+        const after = afterDbChange(cause, busy)
         void appDbs.idOf(name).then((mine) => {
             if (mine === null || mine !== id || session.name !== name) return
-            if (afterDbChange(cause, busy) === 'offer') dbOffered = true
+            if (after === 'offer') dbOffered = true
             else void load(true)
         })
     })
