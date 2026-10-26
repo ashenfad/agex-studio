@@ -14,6 +14,7 @@ import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 import { answerDb } from "./app-db-bridge.js";
 import { cancelModel, cancelModels, relayModel } from "./app-model.js";
+import { answerFetch, cancelFetch, cancelFetches, relayFetch } from "./app-fetch.js";
 import { checkBag } from "./app-storage.js";
 
 // ---------------------------------------------------------------------------
@@ -472,8 +473,10 @@ export function _enforceTotalCap(entries, max) {
  *  page's storage, as the page reports it (`agex-test-storage`), to
  *  `onStorage`, and gives the database the app's `agex.db` calls run
  *  on (`dbHandler`; without one they fail). Its own agent's model calls
- *  (`agex.model`) run on `modelHandler`, and fail without one. */
-export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null, dbHandler = null, modelHandler = null) {
+ *  (`agex.model`) run on `modelHandler`, and fail without one; its
+ *  requests that carry a secret (`agex.fetch`) are answered by
+ *  `fetchHandler`, and fail without one. */
+export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage = null, taskHandler = null, onStorage = null, dbHandler = null, modelHandler = null, fetchHandler = null) {
     let initPosted = false;
     const nextPage = typeof initPage === "function"
         ? initPage
@@ -499,8 +502,9 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
             const page = nextPage();
             if (page === null) {
                 pageGone(iframe, "app");
-                // the old page's model calls would answer no one
+                // the old page's model calls and requests would answer no one
                 cancelModels(iframe);
+                cancelFetches(iframe);
                 return;
             }
             replyToApp(iframe, hostInit(page, data));
@@ -551,6 +555,18 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
 
         if (data.type === "agex-model-cancel") {
             cancelModel(iframe, data.id);
+            return;
+        }
+
+        if (data.type === "agex-fetch") {
+            const done = callStarted(iframe);
+            const p = relayFetch(iframe, data, fetchHandler).finally(done);
+            pendingHandlers.push(p);
+            return;
+        }
+
+        if (data.type === "agex-fetch-cancel") {
+            cancelFetch(iframe, data.id);
             return;
         }
 
@@ -748,8 +764,11 @@ const _keys = (bag, store) => {
  *
  * Its `agex.db` calls run on the database `dbHandler` gives (the
  * caller's to choose and to close), and fail without one; its own
- * agent's model calls (`agex.model`) on `modelHandler`, likewise. A
- * model call still running when its page goes is stopped.
+ * agent's model calls (`agex.model`) on `modelHandler`, likewise. Its
+ * requests that carry a secret (`agex.fetch`) are filled from
+ * `grantFor`, for the secrets the built page declares, and fail without
+ * one; a test never asks for a grant. A model call or request still
+ * running when its page goes is stopped.
  *
  * @param {{
  *   appFiles: Record<string, string>,
@@ -761,6 +780,7 @@ const _keys = (bag, store) => {
  *   cacheHandler?: ((key: string) => Promise<unknown>) | null,
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
  *   modelHandler?: import("./app-model.js").ModelRunner | null,
+ *   grantFor?: import("./app-fetch.js").FetchContext["grantFor"] | null,
  *   dbHandler?: (() => Promise<import("@agex-ts/kvsql/client").DatabaseClient>) | null,
  *   viewport?: string | { width?: number, height?: number },
  * }} opts
@@ -777,6 +797,7 @@ export async function runTestApp(opts) {
         cacheHandler = null,
         taskHandler = null,
         modelHandler = null,
+        grantFor = null,
         dbHandler = null,
         viewport = null,
     } = opts;
@@ -858,6 +879,7 @@ export async function runTestApp(opts) {
             },
             dbHandler,
             modelHandler,
+            grantFor === null ? null : (data, signal) => answerFetch(data, { needs: page.needs, grantFor, signal }),
         );
         window.addEventListener("message", messageHandler);
 
@@ -880,6 +902,7 @@ export async function runTestApp(opts) {
             pageGone(frame, "studio");
             callsLost(frame);
             cancelModels(frame);
+            cancelFetches(frame);
             due = next;
             await _bootFrame(frame);
             const note = await settleFirstLoad(frame);
@@ -937,8 +960,11 @@ export async function runTestApp(opts) {
         ];
     } finally {
         if (messageHandler) window.removeEventListener("message", messageHandler);
-        if (iframe) cancelModels(iframe);
-        if (iframe) iframe.remove();
+        if (iframe) {
+            cancelModels(iframe);
+            cancelFetches(iframe);
+            iframe.remove();
+        }
     }
 }
 

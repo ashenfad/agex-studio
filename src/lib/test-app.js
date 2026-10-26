@@ -161,6 +161,12 @@ async function runTest(session, args) {
                         const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
                         return appAgent.model(session.name, call, { ask: imported, prompt: false, ...opts });
                     },
+                    // its requests with a secret use the app's grants; one
+                    // with none fails rather than asks
+                    grantFor: async (need) => {
+                        const [{ studio }, { vault }] = await Promise.all([import("./studio.svelte.js"), import("./vault.svelte.js")]);
+                        return vault.valueFor(studio.appKey(session.name), need);
+                    },
                     dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
                     viewport: /** @type {any} */ (args.viewport) ?? null,
                 });

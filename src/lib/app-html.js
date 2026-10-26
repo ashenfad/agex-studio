@@ -389,6 +389,94 @@ window.notify = function(title, body) {
         return work;
     };
 })();
+
+// agex.fetch(url, init) — fetch, with the viewer's keys. A request that
+// names a secret the app declares, as \${NAME} in the header declared for
+// it (headers: { Authorization: 'Bearer \${API_KEY}' }), goes from the
+// studio: it fills in the key the viewer granted, sends it only to that
+// secret's origins, with no cookies and no redirect followed, and a key
+// the response echoes comes back as \${API_KEY}.
+// A reference anywhere else (the URL, the query, the body, another
+// header), or one the app doesn't declare, is refused. It resolves with
+// a Response as fetch does, and rejects with a TypeError saying what
+// went wrong or was refused. A request with no reference is window.fetch
+// itself, from the app's own origin.
+// NOTE: this whole block is inside a template literal — no backticks.
+(function() {
+    var REF = /\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}/;
+    var NULL_BODY = [101, 103, 204, 205, 304];
+    function abortError(signal) {
+        var reason = signal.reason;
+        if (reason instanceof Error) return reason;
+        var err = new Error(typeof reason === 'string' ? reason : 'the request was cancelled');
+        err.name = 'AbortError';
+        return err;
+    }
+    // a reference as written, or percent-encoded (a URL object's href)
+    function mentions(text) {
+        if (REF.test(text)) return true;
+        try { return REF.test(decodeURIComponent(text)); } catch (e) { return false; }
+    }
+    window.agex.fetch = async function(input, init) {
+        init = init || {};
+        var isRequest = typeof Request !== 'undefined' && input instanceof Request;
+        var url = isRequest ? input.url : String(input);
+        var headers = new Headers(init.headers !== undefined ? init.headers : isRequest ? input.headers : undefined);
+        var pairs = [];
+        headers.forEach(function(value, name) { pairs.push([name, value]); });
+        var named = mentions(url) || pairs.some(function(p) { return REF.test(p[1]); }) ||
+            (typeof init.body === 'string' && REF.test(init.body)) ||
+            (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams && mentions(String(init.body)));
+        if (!named) return window.fetch(input, init);
+
+        var signal = init.signal || (isRequest ? input.signal : null);
+        if (signal && signal.aborted) throw abortError(signal);
+        var method = init.method || (isRequest ? input.method : 'GET');
+        // the body as a string or bytes, and its type when it says one
+        var body = init.body !== undefined ? init.body : null;
+        if (body === null && isRequest && !/^(GET|HEAD)$/i.test(method)) body = new Uint8Array(await input.arrayBuffer());
+        if (body !== null && typeof body !== 'string' && !(body instanceof Uint8Array)) {
+            var wrapped = new Response(body);
+            var type = wrapped.headers.get('content-type');
+            if (type && !headers.has('content-type')) pairs.push(['content-type', type]);
+            body = new Uint8Array(await wrapped.arrayBuffer());
+        }
+        if (signal && signal.aborted) throw abortError(signal);
+
+        var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        return new Promise(function(resolve, reject) {
+            function done() {
+                window.removeEventListener('message', handler);
+                if (signal) signal.removeEventListener('abort', onAbort);
+            }
+            function handler(event) {
+                var d = event.data;
+                if (!d || d.type !== 'agex-fetch-result' || d.id !== id) return;
+                done();
+                if (d.error) { reject(new TypeError(d.error)); return; }
+                try {
+                    var res = new Response(NULL_BODY.indexOf(d.status) >= 0 ? null : d.body, { status: d.status, statusText: d.statusText, headers: d.headers });
+                    if (d.url) Object.defineProperty(res, 'url', { value: d.url });
+                    resolve(res);
+                } catch (e) {
+                    reject(new TypeError('agex.fetch: the response was unreadable: ' + (e && e.message ? e.message : String(e))));
+                }
+            }
+            function onAbort() {
+                done();
+                // the studio aborts its request too
+                window.__agexPost({ type: 'agex-fetch-cancel', id: id });
+                reject(abortError(signal));
+            }
+            window.addEventListener('message', handler);
+            if (signal) signal.addEventListener('abort', onAbort);
+            if (!window.__agexPost({ type: 'agex-fetch', id: id, url: url, method: method, headers: pairs, body: body })) {
+                done();
+                reject(new TypeError('agex parent origin not configured'));
+            }
+        });
+    };
+})();
 <\/script>`;
 
 /**

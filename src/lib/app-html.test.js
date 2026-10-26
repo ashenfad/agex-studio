@@ -455,6 +455,104 @@ describe('agex.busy', () => {
     })
 })
 
+describe('agex.fetch in the app', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+    it('is the app’s own fetch without a secret reference, and posts nothing', async () => {
+        const html = (await buildAppPage(blank(), { workerSources: {} })).html
+        const fetched = []
+        const listeners = new Set()
+        const posted = []
+        const win = {
+            addEventListener: (type, fn) => type === 'message' && listeners.add(fn),
+            removeEventListener: (type, fn) => listeners.delete(fn),
+            __agexPost: (msg) => (posted.push(msg), true),
+            fetch: (input, init) => (fetched.push([input, init]), Promise.resolve(new Response('own'))),
+        }
+        new Function('window', html.match(/<script>\s*\/\/ getCacheValue[\s\S]*?<\/script>/)[0].replace(/^<script>|<\/script>$/g, ''))(win)
+        const init = { headers: { Authorization: 'Bearer $TOKEN' }, body: 'cost: $5', method: 'POST' }
+        const res = await win.agex.fetch('https://api.example.com/x?$top=5', init)
+        expect(await res.text()).toBe('own')
+        expect(fetched).toEqual([['https://api.example.com/x?$top=5', init]])
+        expect(posted).toEqual([])
+    })
+
+    it('posts a request with a reference to the studio, and its reply becomes a Response', async () => {
+        const { agex, posted, send, listeners } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const got = agex.fetch('https://api.stripe.com/v1/prices', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ${STRIPE_KEY}', 'Content-Type': 'application/json' },
+            body: '{"a":1}',
+        })
+        await settle()
+        expect(posted).toEqual([{
+            type: 'agex-fetch',
+            id: posted[0].id,
+            url: 'https://api.stripe.com/v1/prices',
+            method: 'POST',
+            headers: [['authorization', 'Bearer ${STRIPE_KEY}'], ['content-type', 'application/json']],
+            body: '{"a":1}',
+        }])
+        send({ type: 'agex-fetch-result', id: 'another', status: 500, statusText: '', url: '', headers: [], body: new Uint8Array(), error: null })
+        send({
+            type: 'agex-fetch-result',
+            id: posted[0].id,
+            status: 201,
+            statusText: 'Created',
+            url: 'https://api.stripe.com/v1/prices',
+            headers: [['content-type', 'application/json']],
+            body: new TextEncoder().encode('{"id":"p_1"}'),
+            error: null,
+        })
+        const res = await got
+        expect(res).toBeInstanceOf(Response)
+        expect([res.status, res.statusText, res.ok, res.url]).toEqual([201, 'Created', true, 'https://api.stripe.com/v1/prices'])
+        expect(res.headers.get('content-type')).toBe('application/json')
+        expect(await res.json()).toEqual({ id: 'p_1' })
+        expect(listeners.size).toBe(0)
+    })
+
+    it('posts a misplaced reference too, for the studio to refuse, and a body as bytes with its type', async () => {
+        const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        // a URL object's path is percent-encoded: the reference is seen all the same
+        void agex.fetch(new URL('https://api.example.com/${KEY}/x'))
+        await settle()
+        expect(posted.at(-1).url).toBe('https://api.example.com/$%7BKEY%7D/x')
+        void agex.fetch('https://api.example.com/x', { method: 'POST', body: 'k=${KEY}' })
+        await settle()
+        expect(posted.at(-1).body).toBe('k=${KEY}')
+        void agex.fetch('https://api.example.com/x', { method: 'POST', headers: { 'X-Key': '${KEY}' }, body: new URLSearchParams({ q: 'a b' }) })
+        await settle()
+        expect(new TextDecoder().decode(posted.at(-1).body)).toBe('q=a+b')
+        expect(posted.at(-1).headers).toContainEqual(['content-type', 'application/x-www-form-urlencoded;charset=UTF-8'])
+    })
+
+    it('rejects with a TypeError carrying the studio’s message', async () => {
+        const { agex, posted, send } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const failed = agex.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' } }).catch((e) => e)
+        await settle()
+        send({ type: 'agex-fetch-result', id: posted[0].id, error: 'agex.fetch: this app has no key for STRIPE_KEY: the viewer hasn’t granted one' })
+        const e = await failed
+        expect(e).toBeInstanceOf(TypeError)
+        expect(e.message).toBe('agex.fetch: this app has no key for STRIPE_KEY: the viewer hasn’t granted one')
+    })
+
+    it('cancels the studio’s request when its signal aborts', async () => {
+        const { agex, posted, listeners } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const stop = new AbortController()
+        const stopped = agex.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' }, signal: stop.signal }).catch((e) => e)
+        await settle()
+        stop.abort()
+        expect((await stopped).name).toBe('AbortError')
+        expect(posted.at(-1)).toEqual({ type: 'agex-fetch-cancel', id: posted[0].id })
+        expect(listeners.size).toBe(0)
+        // aborted already: nothing is sent
+        const count = posted.length
+        const e = await agex.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' }, signal: stop.signal }).catch((err) => err)
+        expect(e.name).toBe('AbortError')
+        expect(posted).toHaveLength(count)
+    })
+})
+
 describe('an app’s needs', () => {
     const page = '<html><head></head><body></body></html>'
     const manifest = JSON.stringify({ needs: { model: true, secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], in: 'header:Authorization', why: 'to look up prices' }] } })

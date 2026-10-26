@@ -276,6 +276,25 @@ export function checkKeyOrigins(list, opts = {}) {
 }
 
 /**
+ * Why a secret may not go to `origin`, or null when it may: the checks
+ * a declared origin passes (`https:` only, never the studio's or its
+ * apps'), made again at the request.
+ *
+ * @param {string} origin
+ * @param {{ studioOrigins?: Iterable<string> }} [opts] as `parseNeeds`'s
+ * @returns {string | null}
+ */
+export function originRefusal(origin, opts = {}) {
+    const studio = new Set(opts.studioOrigins ?? defaultStudioOrigins());
+    /** @type {string | null} */
+    let why = null;
+    checkOrigin(origin, "", studio, (_, message) => {
+        why ??= message;
+    });
+    return why;
+}
+
+/**
  * One origin, normalized (`https://API.Example.com:443/` is
  * `https://api.example.com`); null when it isn't `https://host[:port]`
  * alone, or is one a secret never goes to.
