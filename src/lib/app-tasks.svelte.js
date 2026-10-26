@@ -168,6 +168,10 @@ class AppAgent {
     /** Apps whose calls the person stopped when paused, until they let
      *  them go on, by session. @type {Record<string, true>} */
     stopped = $state({});
+    /** The calls waiting on each open question, by its table (`asking`
+     *  or `paused`), then session.
+     *  @type {Map<object, Map<string, Set<(yes: boolean) => void>>>} */
+    #waiting = new Map();
     /** When each session's recent task calls started, for the rate.
      *  @type {Map<string, number[]>} */
     #starts = new Map();
@@ -262,39 +266,69 @@ class AppAgent {
         this.paused[name]?.answer(true);
     }
 
-    /** Ask the person whether session `session`'s app goes on, its
-     *  calls paused (`model`: by its model calls); a call while the
-     *  question is open waits on the same answer.
-     *  @param {string} session @param {number} calls @param {boolean} model */
-    #pause(session, calls, model) {
-        return new Promise((resolve) => {
-            const open = this.paused[session];
-            if (open !== undefined) {
-                const answer = open.answer;
-                open.answer = (go) => {
-                    answer(go);
-                    resolve(go);
-                };
+    /** Wait for the person's answer to session `session`'s question in
+     *  `table` (`asking` or `paused`), opening it as `question` if none
+     *  is open; a call while it is open waits on the same answer. A call
+     *  whose `signal` aborts stops waiting at once, and the question is
+     *  taken back once no call waits on it.
+     *  @param {Record<string, any>} table @param {string} session @param {Record<string, unknown>} question @param {AbortSignal} [signal]
+     *  @returns {Promise<boolean>} */
+    #wait(table, session, question, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal?.aborted) {
+                reject(signal.reason);
                 return;
             }
-            this.paused[session] = {
-                calls,
-                model,
-                answer: (go) => {
-                    delete this.paused[session];
-                    resolve(go);
-                },
+            const open = this.#waiting.get(table) ?? new Map();
+            this.#waiting.set(table, open);
+            /** @type {Set<(yes: boolean) => void>} */
+            const waiters = open.get(session) ?? new Set();
+            /** Close the question, if it is still this one. */
+            const close = () => {
+                if (open.get(session) !== waiters) return false;
+                open.delete(session);
+                delete table[session];
+                return true;
             };
+            if (!open.has(session)) {
+                open.set(session, waiters);
+                table[session] = {
+                    ...question,
+                    answer: (/** @type {boolean} */ yes) => {
+                        // answered already, or taken back
+                        if (close()) for (const waiter of waiters) waiter(yes);
+                    },
+                };
+            }
+            const onAbort = () => {
+                waiters.delete(waiter);
+                if (waiters.size === 0) close();
+                reject(signal?.reason);
+            };
+            /** @param {boolean} yes */
+            const waiter = (yes) => {
+                signal?.removeEventListener("abort", onAbort);
+                resolve(yes);
+            };
+            waiters.add(waiter);
+            signal?.addEventListener("abort", onAbort, { once: true });
         });
+    }
+
+    /** Ask the person whether session `session`'s app goes on, its
+     *  calls paused (`model`: by its model calls).
+     *  @param {string} session @param {number} calls @param {boolean} model @param {AbortSignal} [signal] */
+    #pause(session, calls, model, signal) {
+        return this.#wait(this.paused, session, { calls, model }, signal);
     }
 
     /** Hold a call of session `session`'s app while it breaks the rate
      *  (its task calls', or with `model` its model calls'), with the
      *  limiter on: until the person says to go on, or refused if they
      *  stop it, or if nobody is looking (`prompt` false), or if the
-     *  session is forgotten meanwhile.
-     *  @param {string} session @param {boolean} prompt @param {number} generation @param {boolean} [model] */
-    async #limit(session, prompt, generation, model = false) {
+     *  session is forgotten meanwhile; `signal` aborted stops the wait.
+     *  @param {string} session @param {boolean} prompt @param {number} generation @param {boolean} [model] @param {AbortSignal} [signal] */
+    async #limit(session, prompt, generation, model = false, signal) {
         if (!(this.meterOf(session)?.limiter ?? true)) return;
         if (this.stopped[session]) throw new Error(STOPPED);
         const all = model ? this.#modelStarts : this.#starts;
@@ -303,7 +337,7 @@ class AppAgent {
         all.set(session, starts);
         if (!overRate(starts, now, model ? RATE.modelCalls : RATE.calls)) return;
         if (!prompt) throw new Error(model ? HIDDEN_MODEL_PAUSE : HIDDEN_PAUSE);
-        const go = await this.#pause(session, starts.length, model);
+        const go = await this.#pause(session, starts.length, model, signal);
         if (this.#gone(session, generation)) throw new Error(GONE);
         if (go) {
             all.delete(session);
@@ -314,39 +348,22 @@ class AppAgent {
     }
 
     /** Ask whether session `session`'s app may use the model, for task
-     *  `task` (null: for its own agent); a call while its question is
-     *  open waits on the same answer.
-     *  @param {string} session @param {string | null} task */
-    #consent(session, task) {
-        return new Promise((resolve) => {
-            const open = this.asking[session];
-            if (open !== undefined) {
-                const answer = open.answer;
-                open.answer = (yes) => {
-                    answer(yes);
-                    resolve(yes);
-                };
-                return;
-            }
-            this.asking[session] = {
-                task,
-                answer: (yes) => {
-                    delete this.asking[session];
-                    resolve(yes);
-                },
-            };
-        });
+     *  `task` (null: for its own agent).
+     *  @param {string} session @param {string | null} task @param {AbortSignal} [signal] */
+    #consent(session, task, signal) {
+        return this.#wait(this.asking, session, { task }, signal);
     }
 
     /** Whether session `session`'s app may use the model, asking the
      *  person first when `ask` (for task `task`, or null for its own
      *  agent); refused if they say no, if nobody is looking to ask
-     *  (`prompt` false), or if the session is forgotten meanwhile.
-     *  @param {string} session @param {string | null} task @param {boolean} ask @param {boolean} prompt @param {number} generation */
-    async #allow(session, task, ask, prompt, generation) {
+     *  (`prompt` false), or if the session is forgotten meanwhile;
+     *  `signal` aborted stops the wait.
+     *  @param {string} session @param {string | null} task @param {boolean} ask @param {boolean} prompt @param {number} generation @param {AbortSignal} [signal] */
+    async #allow(session, task, ask, prompt, generation, signal) {
         if (this.allowed[session] === undefined) {
             if (ask && !prompt) throw new Error("the person hasn't allowed this app to use their model yet: they can try it in the preview, which asks");
-            const yes = !ask || (await this.#consent(session, task));
+            const yes = !ask || (await this.#consent(session, task, signal));
             if (this.#gone(session, generation)) throw new Error(GONE);
             this.allowed[session] ??= yes;
         }
@@ -437,8 +454,8 @@ class AppAgent {
         const s = getSettings();
         if (!isConfigured(s)) throw new Error(NO_MODEL);
         const generation = this.#generations.get(session) ?? 0;
-        await this.#allow(session, null, ask, prompt, generation);
-        await this.#limit(session, prompt, generation, true);
+        await this.#allow(session, null, ask, prompt, generation, signal);
+        await this.#limit(session, prompt, generation, true, signal);
         signal?.throwIfAborted();
         /** A change to the meter, unless the session is gone.
          *  @param {(m: import("./app-meter.js").Meter) => import("./app-meter.js").Meter} change */

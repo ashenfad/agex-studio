@@ -65,6 +65,9 @@ export async function relayModel(frame, data, run) {
     const stop = new AbortController();
     const calls = running.get(frame) ?? new Map();
     running.set(frame, calls);
+    // an id still running is stopped first: only the newest could be
+    // cancelled by it
+    calls.get(id)?.abort();
     calls.set(id, stop);
     /** @type {ModelFailure | null} */
     let error = null;

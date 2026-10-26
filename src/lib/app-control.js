@@ -499,6 +499,8 @@ export function _attachBridges(iframe, cacheHandler, pendingHandlers, initPage =
             const page = nextPage();
             if (page === null) {
                 pageGone(iframe, "app");
+                // the old page's model calls would answer no one
+                cancelModels(iframe);
                 return;
             }
             replyToApp(iframe, hostInit(page, data));
