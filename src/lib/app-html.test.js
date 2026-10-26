@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { buildAppHtml, buildAppPage, reseedAppPage } from './app-html.js'
+import { buildAppHtml, buildAppPage, ecosystemImports, reseedAppPage } from './app-html.js'
+import ecosystem from 'virtual:ecosystem-packages'
 import { assetToken } from './app-assets.js'
 
 /** The import map's keys, from a built page. */
@@ -190,6 +192,46 @@ describe('the import map', () => {
         }
         expect(imports.preact).toBe('https://esm.sh/preact@10.25.4')
         expect(imports['preact/hooks']).toBeUndefined()
+    })
+
+    it('gives an app agex-ts and its packages at the studio’s versions, one copy of each', async () => {
+        const installed = (name) => JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf-8'))
+        const html = await buildAppHtml(
+            {
+                'app/main.js': [
+                    "import { Agent } from 'agex-ts'",
+                    "import { Store } from '@agex-ts/world'",
+                    "import { Memory } from '@agex-ts/kvgit/backends/memory'",
+                    'console.log(Agent, Store, Memory)',
+                ].join('\n'),
+            },
+            { workerSources: {} },
+        )
+        const imports = JSON.parse(html.match(/<script type="importmap">([\s\S]*?)<\/script>/)[1]).imports
+        const agex = installed('agex-ts').version
+        const world = installed('@agex-ts/world').version
+        const kvgit = installed('@agex-ts/kvgit').version
+        expect(imports['agex-ts']).toBe(`https://esm.sh/agex-ts@${agex}?external=@agex-ts/kvgit,@agex-ts/kvsql,@agex-ts/termish,@agex-ts/world`)
+        expect(imports['@agex-ts/world']).toBe(`https://esm.sh/@agex-ts/world@${world}?external=@agex-ts/kvgit,@agex-ts/kvsql,@agex-ts/termish,agex-ts`)
+        expect(imports['@agex-ts/kvgit/backends/memory']).toBe(
+            `https://esm.sh/@agex-ts/kvgit@${kvgit}/backends/memory?external=@agex-ts/kvsql,@agex-ts/termish,@agex-ts/world,agex-ts`,
+        )
+        // every subpath a package exports, and no esm.sh copy of its own
+        for (const name of ['agex-ts', '@agex-ts/world', '@agex-ts/kvgit', '@agex-ts/termish', '@agex-ts/kvsql']) {
+            const { version, exports } = installed(name)
+            expect(ecosystem[name]).toEqual({ version, subpaths: Object.keys(exports).filter((k) => k !== '.').map((k) => k.slice(2)) })
+            for (const sub of ecosystem[name].subpaths) expect(imports[`${name}/${sub}`]).toContain(`${name}@${version}/${sub}?external=`)
+            expect(imports[`${name}/`]).toBeUndefined()
+        }
+    })
+
+    it('leaves out a package from its own externals, so its chunks stay its own', () => {
+        const imports = ecosystemImports({ a: { version: '1.0.0', subpaths: ['x'] }, b: { version: '2.0.0', subpaths: [] } })
+        expect(imports).toEqual({
+            a: 'https://esm.sh/a@1.0.0?external=b',
+            'a/x': 'https://esm.sh/a@1.0.0/x?external=b',
+            b: 'https://esm.sh/b@2.0.0?external=a',
+        })
     })
 
     it('adds the option to the ones a specifier already asks for', async () => {

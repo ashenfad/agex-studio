@@ -46,6 +46,29 @@ function packageReadmes() {
   }
 }
 
+/** `virtual:ecosystem-packages`: each ecosystem package's version and
+ *  the subpaths its `exports` offer, read from disk when the studio is
+ *  built, for the import map that gives an app these same versions. */
+function ecosystemPackages() {
+  const id = 'virtual:ecosystem-packages'
+  return {
+    name: 'ecosystem-packages',
+    resolveId: (source) => (source === id ? `\0${id}` : null),
+    load(loaded) {
+      if (loaded !== `\0${id}`) return null
+      const out = {}
+      for (const name of ECOSYSTEM) {
+        const { version, exports = {} } = JSON.parse(readFileSync(resolve('node_modules', name, 'package.json'), 'utf-8'))
+        const subpaths = Object.keys(exports)
+          .filter((key) => key !== '.' && key !== './package.json' && !key.includes('*'))
+          .map((key) => key.slice(2))
+        out[name] = { version, subpaths }
+      }
+      return `export default ${JSON.stringify(out)}`
+    },
+  }
+}
+
 /** The directory of the SQLite build kvsql runs, wherever kvsql's own
  *  dependencies are installed (outside this checkout, for a linked one). */
 function sqliteDir() {
@@ -54,7 +77,7 @@ function sqliteDir() {
 }
 
 export default defineConfig({
-  plugins: [svelte(), entryPoints(), packageReadmes()],
+  plugins: [svelte(), entryPoints(), packageReadmes(), ecosystemPackages()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
