@@ -337,6 +337,13 @@ Designing one:
   `${value}`), never through `innerHTML`: a model's text can hold
   markup, and the input it read may have been written to put it there.
 
+**When a task isn't enough:** an app that needs an agent of its own (a
+chat that remembers, an assistant that acts on the app's state through
+its own functions, work of several steps) runs agex-ts in the page, on
+`agex.model()` with its world in `agex.kvStore()`. Read the
+**app-agents** skill for that. A task is the lighter choice whenever
+one answer per call will do.
+
 ## Checking your app: `test_app`
 
 After writing the app, **check it before you say it's done.** `test_app`
