@@ -12,6 +12,7 @@
  *     await __studio.sync.sweep(); __studio.sync.state()   // with sync connected
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  *     await __studio.db.announceSync(); __studio.appBusy()   // agex.busy's offer
+ *     __studio.vault.add({ label, value, origins }); __studio.vault.entries()   // never values
  */
 
 import { appDbs } from "./app-db-clients.js";
@@ -21,6 +22,7 @@ import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { distribution } from "./distribution.svelte.js";
 import { script } from "./scripted.js";
 import { getSettings, updateSettings } from "./settings.js";
+import { vault } from "./vault.svelte.js";
 
 /** @typedef {import("./studio.svelte.js").Studio} Studio */
 
@@ -330,6 +332,46 @@ export function installDevHook(studio, sync) {
             /** Start the database's next epoch. */
             async newEpoch() {
                 return (await appDbs.dbFor(session().name)).newEpoch();
+            },
+        },
+        /** The vault of keys for apps, and its grants. Nothing here
+         *  returns a key's value. */
+        vault: {
+            /** The entries, each without its value. */
+            entries() {
+                return vault.entries.map((e) => ({ id: e.id, label: e.label, origins: [...e.origins], hasValue: true }));
+            },
+            /** Add a key, as settings do; its id.
+             *  @param {{ label: string, value: string, origins: string[] }} fields */
+            add(fields) {
+                return vault.add(fields);
+            },
+            /** @param {string} id */
+            remove(id) {
+                vault.remove(id);
+            },
+            /** Grant app `appKey` the key in entry `entryId` for `need`
+             *  (`{ name, origins }`). @param {string} appKey @param {import("./vault.svelte.js").Need} need @param {string} entryId */
+            grant(appKey, need, entryId) {
+                vault.grant(appKey, need, entryId);
+                return vault.grantsOf(appKey);
+            },
+            /** @param {string} appKey @param {string} [name] */
+            revoke(appKey, name) {
+                vault.revoke(appKey, name);
+                return vault.grantsOf(appKey);
+            },
+            /** @param {string} appKey */
+            grantsOf(appKey) {
+                return vault.grantsOf(appKey);
+            },
+            /** @param {string} id */
+            usedBy(id) {
+                return vault.usedBy(id);
+            },
+            /** The current session's app, as grants name it. */
+            appKey() {
+                return studio.appKey(session().name);
             },
         },
         /** Sync, as the session list works it. */
