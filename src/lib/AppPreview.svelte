@@ -98,6 +98,14 @@
         }
     }
 
+    /** The preview shows a note in the page's place: the page goes, and
+     *  its model calls with it, which would answer no one. */
+    function dropPage() {
+        if (iframe === null) return
+        pageGone(iframe, 'studio')
+        cancelModels(iframe)
+    }
+
     async function loadNow(force = false) {
         const ws = session.ws
         if (ws === null) return
@@ -113,7 +121,7 @@
         failed = null
         if (!hasApp(app)) {
             empty = true
-            if (iframe !== null) pageGone(iframe, 'studio')
+            dropPage()
             appsUrl = null
             return
         }
@@ -134,7 +142,7 @@
         } catch (e) {
             if (ticket !== latest) return
             // the preview shows the error in the page's place
-            if (iframe !== null) pageGone(iframe, 'studio')
+            dropPage()
             failed = errorText(e)
             loading = false
         }
