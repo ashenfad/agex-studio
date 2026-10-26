@@ -192,8 +192,12 @@
     // holding data from before: it reloads, unless a sync finds it busy,
     // which offers the reload instead.
     let seenRestores = untrack(() => dbRestores.restored.count)
-    /** Offers decided whose database lookup hasn't come back yet. */
+    /** Offers decided whose database lookup hasn't come back yet, for
+     *  the page they were decided on. */
     let offering = 0
+    /** The pages the preview has given the app, counted: an offer
+     *  decided on one is dropped once another took its place. */
+    let pages = 0
     $effect(() => {
         const { count, id, cause } = dbRestores.restored
         if (count === seenRestores) return
@@ -203,11 +207,14 @@
         // the work may settle, and another sync come, while it runs
         const after = afterDbChange(cause, busy, untrack(() => dbOffered) || offering > 0)
         if (after === 'offer') offering += 1
+        const page = pages
         void appDbs.idOf(name).then((mine) => {
-            if (after === 'offer') offering -= 1
+            const samePage = page === pages
+            if (after === 'offer' && samePage) offering -= 1
             if (mine === null || mine !== id || session.name !== name) return
-            if (after === 'offer') dbOffered = true
-            else void load(true)
+            if (after === 'reload') void load(true)
+            // a page since holds the database as it is now
+            else if (samePage) dbOffered = true
         })
     })
 
@@ -269,6 +276,8 @@
             // a fresh page: nothing in flight, and the database as it is now
             busy = 0
             dbOffered = false
+            pages += 1
+            offering = 0
             const page = reseedAppPage(current.page, { seed: readAppStorage(current.name), writeable: true })
             replyToApp(iframe, hostInit(page, data))
             loading = false
