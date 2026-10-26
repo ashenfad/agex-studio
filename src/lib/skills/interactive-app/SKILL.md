@@ -203,6 +203,11 @@ await agex.db.transaction([
   When two devices changed the same rows, the person picks a side in
   the session's dialog. They can also export it as a `.sqlite` file
   there.
+- **A kvgit store in it:** `agex.kvStore(name?)` is a kvgit `KVStore`
+  kept in this database (in its table `_agex_kv`: leave that table to
+  it), for an agent the app runs on agex-ts:
+  `await Store.open(agex.kvStore())` from `'@agex-ts/world'` gives the
+  agent a world that syncs, forks and restores with the app's data.
 
 **What it suits, and what it doesn't.** Build to its strengths:
 

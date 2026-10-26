@@ -293,6 +293,37 @@ window.agex = {
             return call('transaction', [statements.map(function(st) { return typeof st === 'string' ? [st] : st; })]);
         },
     };
+    // agex.kvStore(name?) — a kvgit KVStore kept in agex.db (table
+    // _agex_kv), for a store of the app's own: Store.open(await
+    // agex.kvStore()) gives an agent's world that syncs with the rest of
+    // the database. Keys are strings, values Uint8Arrays; each call is
+    // one transaction, so cas and casMany compare and write atomically.
+    // Without a name it is the store 'default'.
+    window.agex.kvStore = function(name) {
+        var store = name == null ? 'default' : name;
+        if (typeof store !== 'string' || store === '') throw new TypeError('agex.kvStore(name?): the name must be a non-empty string');
+        function kv(method, args) {
+            args = args || {};
+            args.store = store;
+            return call('kv', [method, args]);
+        }
+        return {
+            get: function(key) { return kv('get', { key: key }); },
+            has: function(key) { return kv('has', { key: key }); },
+            set: function(key, value) { return kv('set', { key: key, value: value }); },
+            remove: function(key) { return kv('remove', { key: key }); },
+            getMany: function(keys) { return kv('getMany', { keys: Array.from(keys) }).then(function(items) { return new Map(items); }); },
+            setMany: function(items) { return kv('setMany', { items: Array.from(items) }); },
+            removeMany: function(keys) { return kv('removeMany', { keys: Array.from(keys) }); },
+            cas: function(key, value, expected) { return kv('cas', { key: key, value: value, expected: expected }); },
+            casMany: function(expected, writes, removes) {
+                return kv('casMany', { expected: Array.from(expected), writes: Array.from(writes), removes: Array.from(removes || []) });
+            },
+            keys: async function*(prefix) { yield* await kv('keys', { prefix: prefix == null ? null : prefix }); },
+            items: async function*(prefix) { yield* await kv('items', { prefix: prefix == null ? null : prefix }); },
+            clear: function() { return kv('clear'); },
+        };
+    };
 })();
 
 // notify(title, body?) — show a desktop notification via the host.

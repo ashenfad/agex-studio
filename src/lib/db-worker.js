@@ -17,6 +17,10 @@
  * held stays in the store until a sweep: the worker asks for one
  * (`store-sweep.js`) when kvsql deletes either.
  *
+ * It serves the procedures an app's kv stores run on (`app-kv.js`):
+ * every tab's worker the same ones, since whichever holds a database
+ * runs its calls.
+ *
  * A test's copy (`detached: true` in its config) has no log: its file
  * is in OPFS under `agex-db-tests/<id>` (`test-dbs.js`), written by the
  * worker holding the database copied, which may be another tab's, and
@@ -26,6 +30,7 @@
 import { Repo } from "@agex-ts/kvgit";
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import { OpfsDirectory, serve } from "@agex-ts/kvsql";
+import { KV_PROCEDURES } from "./app-kv.js";
 import { STORE_DB } from "./store-name.js";
 import { Sweeper } from "./store-sweep.js";
 import { TEST_DB_ROOT } from "./test-dbs.js";
@@ -80,4 +85,4 @@ serve(async (/** @type {DbConfig} */ config) => {
             if (!detached) sweeper.request();
         },
     };
-});
+}, { procedures: KV_PROCEDURES });

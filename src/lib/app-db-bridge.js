@@ -4,17 +4,22 @@
  * client, answered by an `agex-db-result` carrying its value or its
  * error.
  *
+ * An app's kv store (`agex.kvStore`) comes the same way, as the call
+ * `kv`: its method, then `{ store, ... }`, run as one of the database's
+ * procedures (`app-kv.js`).
+ *
  * Which database answers is the host's to say, from the frame the
  * message came from, never from anything in the message: the preview
  * answers on its session's database, a hidden test on a scratch one.
  */
 
+import { KV_METHODS, KV_WRITES, kvCall } from "./app-kv.js";
 import { errorText } from "./errors.js";
 
 /** @typedef {import("@agex-ts/kvsql/client").DatabaseClient} DatabaseClient */
 
 /** The calls an app may make. */
-const OPS = new Set(["query", "transaction"]);
+const OPS = new Set(["query", "transaction", "kv"]);
 
 /**
  * An error as the app's page rebuilds it: its name, its message, and a
@@ -39,6 +44,8 @@ export function dbError(e) {
  */
 export function mayHaveWritten(data, reply) {
     if (reply.error !== null) return false;
+    // a store's write, unless a comparison failed and it wrote nothing
+    if (data.op === "kv") return KV_WRITES.has(String(Array.isArray(data.args) ? data.args[0] : "")) && reply.value !== false;
     const results = Array.isArray(reply.value) ? reply.value : [reply.value];
     if (results.some((r) => Number(/** @type {{ changes?: unknown } | null} */ (r)?.changes ?? 0) > 0)) return true;
     const args = Array.isArray(data.args) ? data.args : [];
@@ -61,11 +68,16 @@ export async function answerDb(data, db) {
         if (typeof op !== "string" || !OPS.has(op) || !Array.isArray(args)) {
             throw new TypeError(`agex.db has no call ${JSON.stringify(op)}: use agex.db.query or agex.db.transaction`);
         }
+        if (op === "kv" && !(typeof args[0] === "string" && KV_METHODS.has(args[0]) && args[1] !== null && typeof args[1] === "object")) {
+            throw new TypeError(`agex.kvStore has no call ${JSON.stringify(args[0])}`);
+        }
         const client = await db();
         const value =
             op === "query"
                 ? await client.query(/** @type {string} */ (args[0]), /** @type {any} */ (args[1] ?? null))
-                : await client.transaction(/** @type {any} */ (args[0]));
+                : op === "kv"
+                  ? await kvCall(client, /** @type {string} */ (args[0]), /** @type {Record<string, unknown>} */ (args[1]))
+                  : await client.transaction(/** @type {any} */ (args[0]));
         return { type: "agex-db-result", id, value, error: null };
     } catch (e) {
         return { type: "agex-db-result", id, value: null, error: dbError(e) };
