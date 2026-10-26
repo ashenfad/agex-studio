@@ -32,6 +32,9 @@
     import { checkBag, read as readAppStorage, write as writeAppStorage } from './app-storage.js'
     import { pageGone, pageLoaded, pageUp } from './send-control.js'
     import { appAgent } from './app-tasks.svelte.js'
+    import { needsAsk } from './app-needs-ask.svelte.js'
+    import { noNeeds } from './app-needs.js'
+    import AppNeedsPanel from './AppNeedsPanel.svelte'
     import { cancelModel, cancelModels, relayModel } from './app-model.js'
     import { answerFetch, cancelFetch, cancelFetches, relayFetch } from './app-fetch.js'
     import { RATE } from './app-meter.js'
@@ -246,7 +249,7 @@
     /** A restore of the app's database the agent asks about, waiting on the person. */
     const restoring = $derived(dbId === null ? null : (dbRestores.asking[dbId] ?? null))
     $effect(() => {
-        asking = restoring !== null || appAgent.asking[session.name] !== undefined || appAgent.paused[session.name] !== undefined
+        asking = restoring !== null || needsAsk.asking[session.name] !== undefined || appAgent.paused[session.name] !== undefined
     })
 
     /** The app's storage, the last bag it posted, and its session's name. */
@@ -269,6 +272,16 @@
             // the studio's storage is full: the app's saved data stays as it was
             console.warn('[app] storage not saved:', e)
         }
+    }
+
+    /** Who session `name`'s app is, for asking about what it needs:
+     *  whether it is from elsewhere (it has a `source`: a bundle or a
+     *  published link), its key to the vault's grants, and its needs as
+     *  its built page has them. @param {string} name */
+    function asker(name) {
+        const ask = (studio.sessions.find((x) => x.name === name)?.source ?? null) !== null
+        const needs = current?.name === name ? current.page.needs : noNeeds()
+        return { ask, appKey: studio.appKey(name), needs }
     }
 
     /** @param {MessageEvent} event */
@@ -339,9 +352,8 @@
             const frame = iframe
             const done = callStarted(frame)
             // an app opened from elsewhere asks before spending the viewer's key
-            const ask = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null
             try {
-                const value = await appAgent.call(session.name, { spec: data.spec, inputs: data.inputs }, { ask })
+                const value = await appAgent.call(session.name, { spec: data.spec, inputs: data.inputs }, asker(session.name))
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: value === undefined ? null : value, error: null })
             } catch (e) {
                 replyToApp(frame, { type: 'agex-task-result', id: data.id, value: null, error: errorText(e) })
@@ -355,9 +367,9 @@
             const frame = iframe
             const name = session.name
             const done = callStarted(frame)
-            const ask = (studio.sessions.find((x) => x.name === name)?.source ?? null) !== null
+            const who = asker(name)
             try {
-                await relayModel(frame, data, (call, opts) => appAgent.model(name, call, { ask, ...opts }))
+                await relayModel(frame, data, (call, opts) => appAgent.model(name, call, { ...who, ...opts }))
             } finally {
                 done()
             }
@@ -453,12 +465,9 @@
             <button class="secondary" onclick={() => restoring.answer(false)}>Keep it as it is</button>
         </div>
     {/if}
-    {#if appAgent.asking[session.name]}
-        {@const asking = appAgent.asking[session.name]}
-        <div class="consent">
-            <p>This app asks to use your model {asking.task === null ? 'for an agent of its own' : `for an agent task (“${asking.task}”)`}. Each call runs on your key; the agent meter above the app shows what it has used.</p>
-            <button onclick={() => asking.answer(true)}>Allow</button>
-            <button class="secondary" onclick={() => asking.answer(false)}>Don't allow</button>
+    {#if needsAsk.asking[session.name]}
+        <div class="consent needs">
+            <AppNeedsPanel session={session.name} question={needsAsk.asking[session.name]} />
         </div>
     {/if}
     {#if appAgent.paused[session.name]}
@@ -506,7 +515,7 @@
         padding: 0.2rem 0.6rem;
         cursor: pointer;
     }
-    .consent button {
+    .consent :global(button) {
         background: var(--accent);
         color: white;
         border: none;
@@ -529,7 +538,13 @@
         width: 100%;
         margin: 0;
     }
-    .consent .secondary {
+    .consent.needs {
+        display: block;
+        max-height: 60%;
+        overflow-y: auto;
+        padding-bottom: 0;
+    }
+    .consent :global(.secondary) {
         background: transparent;
         border: 1px solid var(--border);
         color: var(--text);

@@ -16,7 +16,7 @@
     import { installDevHook } from './lib/dev-hook.js'
     import SessionList from './lib/SessionList.svelte'
     import SettingsDialog from './lib/SettingsDialog.svelte'
-    import { appAgent } from './lib/app-tasks.svelte.js'
+    import { needsAsk } from './lib/app-needs-ask.svelte.js'
     import { setFaviconStatus } from './lib/favicon.js'
     import { onNotificationClick } from './lib/notify.js'
     import SplitPane from './lib/SplitPane.svelte'
@@ -66,11 +66,11 @@
         store('agex-workbench', showApp)
     }
 
-    // an app asking to use the model waits on the person: on a narrow
+    // an app asking for what it needs waits on the person: on a narrow
     // screen, its pane comes forward so the question can be seen
     $effect(() => {
         const name = studio.current?.name
-        if (name !== undefined && appAgent.asking[name] !== undefined) mobileView = 'app'
+        if (name !== undefined && needsAsk.asking[name] !== undefined) mobileView = 'app'
     })
 
     // the tab's icon carries the sessions' status, for a person in another tab

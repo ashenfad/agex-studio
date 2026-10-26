@@ -11,7 +11,8 @@
  *
  * A session of the person's own calls at once; one opened from
  * elsewhere (a bundle, a published link) asks first, since it is
- * someone else's code spending the viewer's key. What the calls cost
+ * someone else's code spending the viewer's key (`app-needs-ask.svelte.js`,
+ * whose answer the vault keeps). What the calls cost
  * goes on the session's meter (`app-meter.js`), which the preview
  * shows, and its limiter pauses an app that calls too often, until the
  * person says whether to go on.
@@ -25,9 +26,12 @@
 
 import workerUrl from "@agex-ts/world/worker?worker&url";
 import { Agent, aiSdk, fromJsonSchema, isLanguageModel } from "agex-ts";
+import { needsAsk } from "./app-needs-ask.svelte.js";
+import { noNeeds } from "./app-needs.js";
 import { RATE, addCall, addModelCall, addReply, emptyMeter, loadMeter, meterSession, metered, overRate, removeMeter, saveMeter } from "./app-meter.js";
 import { buildModel, thinkingOf } from "./model.js";
 import { hasRouterKey } from "./openrouter-api.js";
+import { Questions } from "./questions.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings, isConfigured } from "./settings.js";
 import { webHost } from "./web.js";
@@ -148,15 +152,18 @@ const HIDDEN_PAUSE = `this app made ${RATE.calls} agent calls inside a minute, w
 const HIDDEN_MODEL_PAUSE = `this app's agent made ${RATE.modelCalls} model calls (agex.model) inside a minute, which pauses its calls until the person says to go on, and a test with nobody watching can't: make fewer turns in the test, or the person can turn the limiter off in the preview's agent meter`;
 const NO_MODEL = "the person viewing this app hasn't chosen a model: its agent needs one (settings, ⚙)";
 
+/**
+ * Who a call's app is, for asking: `ask`, the app needs the person's say
+ * before it uses the model (an app from elsewhere), or is allowed at once
+ * (the person's own); `appKey`, as `appKeyOf` gives it, under which the
+ * say is kept; `needs`, what it declares, which the question lists.
+ * `prompt: false` (a hidden test, nobody looking at it) refuses a call
+ * that would need asking, or a pause, rather than asking.
+ *
+ * @typedef {{ ask: boolean, appKey: string, needs?: import("./app-needs.js").AppNeeds, prompt?: boolean }} AppCallOpts
+ */
+
 class AppAgent {
-    /** Whether each session's app may use the model, this page, by
-     *  session (an app from elsewhere is asked first). @type {Record<string, boolean>} */
-    allowed = {};
-    /** Apps asking to use the model, waiting for the person, by
-     *  session: each its own question, answered for that app alone; for
-     *  a task call, the task's name, or null for the app's own agent.
-     *  @type {Record<string, { task: string | null, answer: (yes: boolean) => void }>} */
-    asking = $state({});
     /** The meters read or written this page, by session.
      *  @type {Record<string, import("./app-meter.js").Meter>} */
     meters = $state({});
@@ -168,10 +175,8 @@ class AppAgent {
     /** Apps whose calls the person stopped when paused, until they let
      *  them go on, by session. @type {Record<string, true>} */
     stopped = $state({});
-    /** The calls waiting on each open question, by its table (`asking`
-     *  or `paused`), then session.
-     *  @type {Map<object, Map<string, Set<(yes: boolean) => void>>>} */
-    #waiting = new Map();
+    /** The pauses' questions. */
+    #pauses = new Questions(this.paused);
     /** When each session's recent task calls started, for the rate.
      *  @type {Map<string, number[]>} */
     #starts = new Map();
@@ -227,20 +232,20 @@ class AppAgent {
     }
 
     /** Session `name` is gone: its meter, and this page's say on its
-     *  app (allowed, paused, stopped), go with it; a call paused is
-     *  refused, and a model call running is stopped. @param {string} name */
+     *  app (asking, paused, stopped), go with it; a call asking or
+     *  paused is refused, and a model call running is stopped.
+     *  @param {string} name */
     forget(name) {
         this.#generations.set(name, (this.#generations.get(name) ?? 0) + 1);
         removeMeter(name);
         delete this.meters[name];
-        delete this.allowed[name];
         delete this.stopped[name];
         this.#starts.delete(name);
         this.#modelStarts.delete(name);
         for (const stop of this.#streaming.get(name) ?? []) stop.abort(new Error(GONE));
         this.#streaming.delete(name);
         this.paused[name]?.answer(false);
-        this.asking[name]?.answer(false);
+        needsAsk.forget(name);
     }
 
     /** Count session `name`'s app from zero again, and the limiter's
@@ -266,60 +271,11 @@ class AppAgent {
         this.paused[name]?.answer(true);
     }
 
-    /** Wait for the person's answer to session `session`'s question in
-     *  `table` (`asking` or `paused`), opening it as `question` if none
-     *  is open; a call while it is open waits on the same answer. A call
-     *  whose `signal` aborts stops waiting at once, and the question is
-     *  taken back once no call waits on it.
-     *  @param {Record<string, any>} table @param {string} session @param {Record<string, unknown>} question @param {AbortSignal} [signal]
-     *  @returns {Promise<boolean>} */
-    #wait(table, session, question, signal) {
-        return new Promise((resolve, reject) => {
-            if (signal?.aborted) {
-                reject(signal.reason);
-                return;
-            }
-            const open = this.#waiting.get(table) ?? new Map();
-            this.#waiting.set(table, open);
-            /** @type {Set<(yes: boolean) => void>} */
-            const waiters = open.get(session) ?? new Set();
-            /** Close the question, if it is still this one. */
-            const close = () => {
-                if (open.get(session) !== waiters) return false;
-                open.delete(session);
-                delete table[session];
-                return true;
-            };
-            if (!open.has(session)) {
-                open.set(session, waiters);
-                table[session] = {
-                    ...question,
-                    answer: (/** @type {boolean} */ yes) => {
-                        // answered already, or taken back
-                        if (close()) for (const waiter of waiters) waiter(yes);
-                    },
-                };
-            }
-            const onAbort = () => {
-                waiters.delete(waiter);
-                if (waiters.size === 0) close();
-                reject(signal?.reason);
-            };
-            /** @param {boolean} yes */
-            const waiter = (yes) => {
-                signal?.removeEventListener("abort", onAbort);
-                resolve(yes);
-            };
-            waiters.add(waiter);
-            signal?.addEventListener("abort", onAbort, { once: true });
-        });
-    }
-
     /** Ask the person whether session `session`'s app goes on, its
      *  calls paused (`model`: by its model calls).
      *  @param {string} session @param {number} calls @param {boolean} model @param {AbortSignal} [signal] */
     #pause(session, calls, model, signal) {
-        return this.#wait(this.paused, session, { calls, model }, signal);
+        return this.#pauses.wait(session, { calls, model }, signal);
     }
 
     /** Hold a call of session `session`'s app while it breaks the rate
@@ -349,27 +305,13 @@ class AppAgent {
         throw new Error(STOPPED);
     }
 
-    /** Ask whether session `session`'s app may use the model, for task
-     *  `task` (null: for its own agent).
-     *  @param {string} session @param {string | null} task @param {AbortSignal} [signal] */
-    #consent(session, task, signal) {
-        return this.#wait(this.asking, session, { task }, signal);
-    }
-
     /** Whether session `session`'s app may use the model, asking the
-     *  person first when `ask` (for task `task`, or null for its own
-     *  agent); refused if they say no, if nobody is looking to ask
-     *  (`prompt` false), or if the session is forgotten meanwhile;
-     *  `signal` aborted stops the wait.
-     *  @param {string} session @param {string | null} task @param {boolean} ask @param {boolean} prompt @param {number} generation @param {AbortSignal} [signal] */
-    async #allow(session, task, ask, prompt, generation, signal) {
-        if (this.allowed[session] === undefined) {
-            if (ask && !prompt) throw new Error("the person hasn't allowed this app to use their model yet: they can try it in the preview, which asks");
-            const yes = !ask || (await this.#consent(session, task, signal));
-            if (this.#gone(session, generation)) throw new Error(GONE);
-            this.allowed[session] ??= yes;
-        }
-        if (!this.allowed[session]) throw new Error("the person didn't allow this app to use their model");
+     *  person first when it is from elsewhere (see `needsAsk.allowModel`);
+     *  refused if the session is forgotten meanwhile.
+     *  @param {string} session @param {AppCallOpts} opts @param {number} generation @param {AbortSignal} [signal] */
+    async #allow(session, { ask, appKey, needs = noNeeds(), prompt = true }, generation, signal) {
+        await needsAsk.allowModel(session, appKey, needs, { ask, prompt, signal });
+        if (this.#gone(session, generation)) throw new Error(GONE);
     }
 
     /**
@@ -378,13 +320,10 @@ class AppAgent {
      *
      * @param {string} session
      * @param {{ spec: unknown, inputs: unknown }} call
-     * @param {{ ask: boolean, prompt?: boolean }} opts `ask`: the app
-     *   needs the person's say before its first call (an app from
-     *   elsewhere), or is allowed at once (the person's own). `prompt:
-     *   false` (a hidden test, nobody looking at it) refuses a call that
-     *   would need asking, or a pause, rather than asking
+     * @param {AppCallOpts} opts
      */
-    async call(session, { spec, inputs }, { ask, prompt = true }) {
+    async call(session, { spec, inputs }, opts) {
+        const prompt = opts.prompt ?? true;
         const task = checkSpec(spec);
         if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
             throw new Error(`agex.task ${task.name}: call it with an object of its inputs`);
@@ -392,7 +331,7 @@ class AppAgent {
         const s = getSettings();
         if (!isConfigured(s)) throw new Error(NO_MODEL);
         const generation = this.#generations.get(session) ?? 0;
-        await this.#allow(session, task.name, ask, prompt, generation);
+        await this.#allow(session, opts, generation);
         await this.#limit(session, prompt, generation);
         /** A change to the meter, unless the session is gone.
          *  @param {(m: import("./app-meter.js").Meter) => import("./app-meter.js").Meter} change */
@@ -443,19 +382,19 @@ class AppAgent {
      *
      * @param {string} session
      * @param {{ messages: unknown, tools: unknown, settings: unknown }} call
-     * @param {{ ask: boolean, prompt?: boolean, signal?: AbortSignal, onEvent: (event: import("agex-ts").ProviderEvent) => void }} opts
-     *   `ask` and `prompt` as for a task call; `signal` aborted stops the
-     *   call
+     * @param {AppCallOpts & { signal?: AbortSignal, onEvent: (event: import("agex-ts").ProviderEvent) => void }} opts
+     *   as for a task call; `signal` aborted stops the call
      * @returns {Promise<void>} rejects with what went wrong; a failed
      *   request as an `AppModelError`, which carries the provider's
      *   judgment of it
      */
-    async model(session, call, { ask, prompt = true, signal, onEvent }) {
+    async model(session, call, opts) {
+        const { prompt = true, signal, onEvent } = opts;
         const { messages, tools, settings } = checkModelCall(call);
         const s = getSettings();
         if (!isConfigured(s)) throw new Error(NO_MODEL);
         const generation = this.#generations.get(session) ?? 0;
-        await this.#allow(session, null, ask, prompt, generation, signal);
+        await this.#allow(session, opts, generation, signal);
         await this.#limit(session, prompt, generation, true, signal);
         signal?.throwIfAborted();
         /** A change to the meter, unless the session is gone.

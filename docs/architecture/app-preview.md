@@ -141,9 +141,7 @@ with the spec and the inputs. `app-tasks.svelte.js` (`appAgent`):
   against `returns`;
 - runs the person's own session's calls at once; a session opened from
   elsewhere (one with a `source`: a bundle or a published link) asks
-  first, in the preview ("This app asks to use your model…"), each
-  session's question its own (`asking[session]`), for the page's life
-  (`allowed`);
+  first, in the "This app needs…" panel (below);
 - meters each call (`app-meter.js`): the task's model is wrapped
   (`metered`) so each reply's usage adds in as it arrives, and the call
   is listed once it ends. The meter is per session, in the studio's own
@@ -165,8 +163,45 @@ calls, or "paused"); it opens `AgentMeter.svelte`: the totals since the
 last reset (calls, model calls, input, cached and output tokens), the
 last ten calls, the limiter's switch, and Reset (count from zero, and
 let a held app go on). The pause also shows in the preview, as the
-consent question does. A call that can't run (no model, refused,
+"This app needs…" panel does. A call that can't run (no model, refused,
 stopped, the task failed) rejects with a message the app can show.
+
+### What an app needs: the panel
+
+An app's model and keys are asked for in one panel in the preview,
+"This app needs…" (`AppNeedsPanel.svelte`), shown the first time a
+call needs something the app hasn't been given. `needsAsk`
+(`app-needs-ask.svelte.js`) opens it and keeps the answer in the vault
+(`vault.svelte.js`), on this device only:
+
+- **The model.** An app from elsewhere is asked before its first task
+  or model call (`allowModel`), whether or not `app/agex.json`
+  declares the model; allowing it is a grant to the app (`vault.models`,
+  by app key), kept across pages, revoked in settings (App keys, "Apps
+  allowed your model"). The person's own app uses the model without
+  asking, its line a ✓.
+- **Each key** the app declares: its name, its `why`, and its origins.
+  One already granted shows the entry it uses ("✓ using …"), with
+  Change. One not granted offers the vault's entries whose origins
+  cover the need's ("Use …"), a new key (a label, the key, and origins
+  that must cover the need's; it goes into the vault and is granted),
+  or none. Each says plainly what allowing it grants: the key goes to
+  those origins only, in the declared header, and a service there that
+  echoes keys back could expose it.
+- **Who sees it.** An app from elsewhere gets everything it declares.
+  The person's own app sees the panel only when a key it declares has
+  no grant (`secretFor`, which gives `agex.fetch` a key's value).
+- **Allow** keeps what is chosen: the model, when the panel asks for
+  it, and each key's entry. **Don't allow** refuses the calls waiting.
+  What is turned down (the model, or a key left without one) is refused
+  for the rest of the page without asking again; a key refused gives
+  its call no value.
+- **One question per session.** Calls that come while it is open wait
+  on the same panel (a model call joining one opened for a key adds the
+  model to it); a call whose app aborts stops waiting, and the panel is
+  taken back once no call waits. A hidden test (`prompt: false`) is
+  never asked: a call that would need it is refused. Deleting the
+  session refuses any call waiting.
 
 ### An app's own agent
 
@@ -195,8 +230,7 @@ is one model call, relayed (`app-model.js`):
   (capped at 16,000; 8000 if it names none) and `temperature` go
   through; its provider-specific `extra` doesn't, since that could
   route the request to a model the viewer didn't choose.
-- It asks as a task call does (the question says "for an agent of its
-  own"), and goes on the same meter: each reply's usage adds in, and
+- It asks as a task call does, and goes on the same meter: each reply's usage adds in, and
   the calls are listed in bursts (`addModelCall`), one starting within
   30 s (`BURST_MS`) of the last one ending joining its entry, as
   `agex.model` with its model calls and tokens, so an entry is roughly
