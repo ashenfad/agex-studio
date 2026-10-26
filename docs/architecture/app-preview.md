@@ -216,6 +216,20 @@ statement's `index`, which the shim rebuilds as an `Error`. Values
 cross as they are: blobs as `Uint8Array`, integers past 2^53 as
 `bigint`.
 
+`agex.kvStore(name?)` is a kvgit `KVStore` in the same database, for a
+store of the app's own (an agent's world): the rows of `_agex_kv`
+(`store`, `k`, `v`, keyed by both) with its name, `default` without
+one. Each call posts `agex-db` as the call `kv` and runs as one of the
+procedures every tab's database worker serves (`app-kv.js`, kvsql's
+`serve(open, { procedures })`): one transaction on the worker holding
+the database, so `cas` and `casMany` read and write with nothing
+between. The bridge makes the table when a call finds it missing (a
+store's first call, or a restore to before it). It syncs as the
+database does. kvgit writes almost every row once, under a hash, so
+two devices' rows join up; only a branch's head rows conflict, when
+both committed to it before syncing, and the person picks a side as for
+any other rows.
+
 The database is the one the preview's session names
 (`appDbs.dbFor`, in `app-db-clients.js`), never one the message names.
 A fork names its parent's, unless the person gave it a copy of its own

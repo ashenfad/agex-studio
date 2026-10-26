@@ -383,6 +383,46 @@ describe('agex.model() in the app', () => {
     })
 })
 
+describe('agex.kvStore() in the app', () => {
+    it('sends each call to the studio as a kv call on its store, and answers with the reply', async () => {
+        const { agex, posted, send } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        const kv = agex.kvStore('world')
+        const answer = (value) => send({ type: 'agex-db-result', id: posted.at(-1).id, value, error: null })
+
+        const got = kv.get('k')
+        expect(posted.at(-1)).toMatchObject({ type: 'agex-db', op: 'kv', args: ['get', { key: 'k', store: 'world' }] })
+        answer(new Uint8Array([1]))
+        expect(await got).toEqual(new Uint8Array([1]))
+
+        const many = kv.getMany(new Set(['a', 'b']))
+        expect(posted.at(-1).args).toEqual(['getMany', { keys: ['a', 'b'], store: 'world' }])
+        answer([['a', new Uint8Array([2])]])
+        expect(await many).toEqual(new Map([['a', new Uint8Array([2])]]))
+
+        const swapped = kv.casMany(new Map([['h', null]]), new Map([['h', new Uint8Array([3])]]))
+        expect(posted.at(-1).args).toEqual(['casMany', { expected: [['h', null]], writes: [['h', new Uint8Array([3])]], removes: [], store: 'world' }])
+        answer(true)
+        expect(await swapped).toBe(true)
+
+        const keys = []
+        const listing = (async () => {
+            for await (const k of kv.keys('p:')) keys.push(k)
+        })()
+        await new Promise((r) => setTimeout(r, 0))
+        expect(posted.at(-1).args).toEqual(['keys', { prefix: 'p:', store: 'world' }])
+        answer(['p:1', 'p:2'])
+        await listing
+        expect(keys).toEqual(['p:1', 'p:2'])
+    })
+
+    it('is the default store without a name, and refuses an empty one', async () => {
+        const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        void agex.kvStore().clear()
+        expect(posted.at(-1).args).toEqual(['clear', { store: 'default' }])
+        expect(() => agex.kvStore('')).toThrow('non-empty string')
+    })
+})
+
 describe('agex.busy', () => {
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
