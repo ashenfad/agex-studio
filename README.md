@@ -34,7 +34,8 @@ direct provider, or an endpoint of your own (a local proxy, say).
   itself that run in the page beside it; their answers wake it, and it
   merges their work with `ws-git`, its own git.
 - **Apps that call agents.** An app defines its own agent tasks
-  (`agex.task`) and calls them; they run on the viewer's model, on a meter
+  (`agex.task`) and calls them, or runs an agex-ts agent of its own on
+  `agex.model()`; they run on the viewer's model, on a meter
   that pauses an app calling in a loop, and an app from someone else
   asks before its first call.
 - **Sharing.** Export a session as a bundle (`.agex`), or publish it as

@@ -166,6 +166,91 @@ window.agex = {
         fn.spec = spec;
         return fn;
     },
+    // agex.model() — an agex-ts Provider on the viewer's model, for an
+    // agent the app runs itself: new Agent({ model: agex.model(), primer }).
+    // Each stream(messages, tools, settings, { signal }) is one model call
+    // the studio makes on the viewer's model and key, its events (text and
+    // thinking deltas, then the Reply) yielded as they arrive; aborting the
+    // signal stops it in the studio too. The calls are metered and limited
+    // as tasks are, and an app from elsewhere asks first. A failed call
+    // rejects; transient(error) and describe(error) answer as the viewer's
+    // own provider does.
+    // NOTE: this whole block is inside a template literal — no backticks.
+    model: function() {
+        function abortError(signal) {
+            var reason = signal.reason;
+            if (reason instanceof Error) return reason;
+            var err = new Error(typeof reason === 'string' ? reason : 'the request was cancelled');
+            err.name = 'AbortError';
+            return err;
+        }
+        return {
+            name: 'agex-studio:viewer',
+            stream: async function*(messages, tools, settings, opts) {
+                var signal = opts && opts.signal;
+                if (signal && signal.aborted) throw abortError(signal);
+                var id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+                var queue = [];
+                var ended = false;
+                var failure = null;
+                var wake = null;
+                function nudge() {
+                    if (!wake) return;
+                    var w = wake;
+                    wake = null;
+                    w();
+                }
+                function handler(event) {
+                    var d = event.data;
+                    if (!d || d.id !== id) return;
+                    if (d.type === 'agex-model-event') {
+                        queue.push(d.event);
+                    } else if (d.type === 'agex-model-end') {
+                        ended = true;
+                        if (d.error) {
+                            failure = new Error(d.error.message);
+                            failure.name = d.error.name || 'Error';
+                            failure.agexModel = { transient: d.error.transient === true, describe: typeof d.error.describe === 'string' ? d.error.describe : null };
+                        }
+                    } else {
+                        return;
+                    }
+                    nudge();
+                }
+                window.addEventListener('message', handler);
+                if (signal) signal.addEventListener('abort', nudge);
+                try {
+                    if (!window.__agexPost({ type: 'agex-model', id: id, messages: messages, tools: tools || [], settings: settings || {} })) {
+                        ended = true;
+                        throw new Error('agex parent origin not configured');
+                    }
+                    for (;;) {
+                        if (signal && signal.aborted) throw abortError(signal);
+                        if (queue.length > 0) {
+                            yield queue.shift();
+                            continue;
+                        }
+                        if (ended) {
+                            if (failure) throw failure;
+                            return;
+                        }
+                        await new Promise(function(resolve) { wake = resolve; });
+                    }
+                } finally {
+                    window.removeEventListener('message', handler);
+                    if (signal) signal.removeEventListener('abort', nudge);
+                    // stopped, or left early: the studio stops the call too
+                    if (!ended) window.__agexPost({ type: 'agex-model-cancel', id: id });
+                }
+            },
+            transient: function(error) {
+                return !!(error && error.agexModel && error.agexModel.transient);
+            },
+            describe: function(error) {
+                return error && error.agexModel ? error.agexModel.describe : null;
+            },
+        };
+    },
 };
 
 // agex.db — the session's SQLite database, kept by the studio (forks

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RATE, emptyMeter, loadMeter, saveMeter } from "./app-meter.js";
-import { appAgent, checkSpec } from "./app-tasks.svelte.js";
+import { BURST_MS, MODEL_TASK, RATE, emptyMeter, loadMeter, saveMeter } from "./app-meter.js";
+import { AppModelError, appAgent, checkModelCall, checkSpec, modelSettings } from "./app-tasks.svelte.js";
 
 describe("an app's task spec", () => {
     it("takes a name, instructions, and JSON Schemas", () => {
@@ -19,7 +19,10 @@ describe("an app's task spec", () => {
     });
 });
 
-const { usage, FakeAgent, gate } = vi.hoisted(() => {
+const { usage, FakeAgent, gate, script } = vi.hoisted(() => {
+    /** The provider a model call runs on, when a test sets one.
+     *  @type {{ provider: any }} */
+    const script = { provider: null };
     /** What a task given `hold` waits on before its model call. */
     const gate = { open: () => {}, wait: Promise.resolve() };
     const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 60, cacheWriteTokens: 0 };
@@ -39,7 +42,7 @@ const { usage, FakeAgent, gate } = vi.hoisted(() => {
             };
         }
     }
-    return { usage, FakeAgent, gate };
+    return { usage, FakeAgent, gate, script };
 });
 
 vi.mock("agex-ts", async (importOriginal) => ({ ...(await importOriginal()), Agent: FakeAgent }));
@@ -49,7 +52,7 @@ vi.mock("./settings.js", async (importOriginal) => {
 });
 vi.mock("./scripted.js", async (importOriginal) => ({
     ...(await importOriginal()),
-    scriptedNow: () => ({
+    scriptedNow: () => script.provider ?? ({
         name: "fake",
         async *stream() {
             yield { kind: "Reply", message: { role: "assistant", parts: [], usage } };
@@ -179,5 +182,151 @@ describe("an app's agent calls", () => {
         await expect(running).resolves.toBe("done");
         expect(appAgent.meterOf("g2")).toBeNull();
         expect(loadMeter("g2")).toBeNull();
+    });
+});
+
+describe("an app's own agent's model call", () => {
+    const messages = [{ id: "m1", role: "user", parts: [{ kind: "text", text: "hi" }] }];
+
+    it("takes agex-ts messages, tool specs and settings, and refuses what isn't", () => {
+        const tools = [{ name: "look", description: "Look.", parameters: { type: "object" } }];
+        expect(checkModelCall({ messages, tools, settings: undefined })).toEqual({ messages, tools, settings: {} });
+        expect(() => checkModelCall({ messages: [], tools: [], settings: {} })).toThrow("non-empty list");
+        expect(() => checkModelCall({ messages: [{ role: "user" }], tools: [], settings: {} })).toThrow("agex-ts Message");
+        expect(() => checkModelCall({ messages, tools: {}, settings: {} })).toThrow("tools is a list");
+        expect(() => checkModelCall({ messages, tools: [{ name: "x" }], settings: {} })).toThrow("parameters a JSON Schema");
+        expect(() => checkModelCall({ messages, tools: [], settings: "fast" })).toThrow("settings is an object");
+    });
+
+    it("goes with the viewer's thinking, its token cap within the studio's, and no provider-specific settings", () => {
+        const s = /** @type {any} */ ({ thinking: "high" });
+        expect(modelSettings({ maxTokens: 500, temperature: 0.2, thinking: false, extra: { openrouter: { models: ["x"] } } }, s)).toEqual({
+            maxTokens: 500,
+            temperature: 0.2,
+            thinking: "high",
+        });
+        expect(modelSettings({ maxTokens: 1e9 }, /** @type {any} */ ({ thinking: "off" }))).toEqual({ maxTokens: 16_000, thinking: false });
+        expect(modelSettings({}, s).maxTokens).toBe(8000);
+    });
+
+    let now = 5_000_000;
+    beforeEach(() => {
+        const items = new Map();
+        vi.stubGlobal("localStorage", {
+            getItem: (/** @type {string} */ k) => items.get(k) ?? null,
+            setItem: (/** @type {string} */ k, /** @type {string} */ v) => items.set(k, String(v)),
+            removeItem: (/** @type {string} */ k) => items.delete(k),
+        });
+        vi.spyOn(Date, "now").mockImplementation(() => now);
+        script.provider = null;
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        script.provider = null;
+    });
+
+    /** A provider that streams a delta then a reply; given `hold`, it
+     *  waits for its signal to abort in between. @param {{ hold?: boolean, fail?: unknown }} [opts] */
+    const provider = ({ hold = false, fail } = {}) => ({
+        name: "fake",
+        /** @type {any[]} */
+        asked: [],
+        /** @param {any} messages @param {any} tools @param {any} settings @param {{ signal?: AbortSignal }} opts */
+        async *stream(messages, tools, settings, opts) {
+            this.asked.push({ messages, tools, settings });
+            yield { kind: "TextDelta", text: "he" };
+            if (hold) {
+                await new Promise((_, reject) => opts.signal?.addEventListener("abort", () => reject(opts.signal?.reason)));
+            }
+            if (fail !== undefined) throw fail;
+            yield { kind: "Reply", message: { id: "r", role: "assistant", parts: [{ kind: "text", text: "hello" }], usage } };
+        },
+        /** @param {any} e */
+        transient: (e) => e?.status === 529,
+        /** @param {any} e */
+        describe: (e) => (e?.status ? `the model provider failed (${e.status})` : null),
+    });
+    /** @param {string} session @param {{ ask?: boolean, prompt?: boolean, signal?: AbortSignal }} [opts] */
+    async function model(session, opts = {}) {
+        /** @type {any[]} */
+        const events = [];
+        await appAgent.model(session, { messages, tools: [], settings: { maxTokens: 100 } }, { ask: false, ...opts, onEvent: (e) => events.push(e) });
+        return events;
+    }
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+
+    it("streams the provider's events, its usage on the meter, the calls listed in bursts", async () => {
+        const p = provider();
+        script.provider = p;
+        expect((await model("x1")).map((e) => e.kind)).toEqual(["TextDelta", "Reply"]);
+        expect(p.asked[0]).toMatchObject({ messages, tools: [], settings: { maxTokens: 100 } });
+        now += 2000;
+        await model("x1");
+        let m = appAgent.meterOf("x1");
+        expect(m).toMatchObject({ calls: 1, failed: 0, steps: 2, inputTokens: 200, outputTokens: 40, cacheReadTokens: 120 });
+        expect(m?.recent).toEqual([{ task: MODEL_TASK, model: true, at: 5_000_000, ms: 2000, ok: true, steps: 2, inputTokens: 200, outputTokens: 40 }]);
+        now += BURST_MS;
+        await model("x1");
+        m = appAgent.meterOf("x1");
+        expect(m?.calls).toBe(2);
+        expect(m?.recent.map((c) => c.steps)).toEqual([1, 2]);
+    });
+
+    it("carry the viewer's provider's judgment of a failure", async () => {
+        script.provider = provider({ fail: Object.assign(new Error("overloaded"), { status: 529 }) });
+        const e = await model("x2").catch((err) => err);
+        expect(e).toBeInstanceOf(AppModelError);
+        expect(e).toMatchObject({ message: "overloaded", transient: true, description: "the model provider failed (529)" });
+        expect(appAgent.meterOf("x2")).toMatchObject({ calls: 1, failed: 1, steps: 0 });
+        expect(appAgent.meterOf("x2")?.recent[0]).toMatchObject({ ok: false, error: "overloaded" });
+    });
+
+    it("stop when the app aborts, which isn't a failure", async () => {
+        script.provider = provider({ hold: true });
+        const stop = new AbortController();
+        const running = model("x3", { signal: stop.signal });
+        await settle();
+        expect(appAgent.modelCalls("x3")).toBe(1);
+        stop.abort();
+        await expect(running).rejects.toBeInstanceOf(AppModelError);
+        expect(appAgent.modelCalls("x3")).toBe(0);
+        expect(appAgent.meterOf("x3")).toMatchObject({ calls: 1, failed: 0, steps: 0 });
+    });
+
+    it("pause past their own rate, apart from task calls, and are refused there when nobody is looking", async () => {
+        script.provider = provider();
+        for (let i = 0; i < RATE.modelCalls; i++) {
+            await model("x4");
+            now += 100;
+        }
+        // task calls count on their own
+        await expect(appAgent.call("x4", { spec: { name: "t", instructions: "Do it." }, inputs: {} }, { ask: false })).resolves.toBe("done");
+        await expect(model("x4", { prompt: false })).rejects.toThrow(`made ${RATE.modelCalls} model calls (agex.model) inside a minute`);
+        const held = model("x4");
+        await settle();
+        expect(appAgent.paused.x4).toMatchObject({ calls: RATE.modelCalls, model: true });
+        appAgent.goOn("x4");
+        await expect(held).resolves.toHaveLength(2);
+    });
+
+    it("from elsewhere ask first, for the app's own agent, and are refused if the person says no", async () => {
+        script.provider = provider();
+        await expect(model("x5", { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");
+        const first = model("x5", { ask: true });
+        await settle();
+        expect(appAgent.asking.x5?.task).toBeNull();
+        appAgent.asking.x5?.answer(false);
+        await expect(first).rejects.toThrow("didn't allow");
+        expect(appAgent.meterOf("x5")).toBeNull();
+    });
+
+    it("are stopped when the session is deleted, writing nothing after", async () => {
+        script.provider = provider({ hold: true });
+        const running = model("x6");
+        await settle();
+        appAgent.forget("x6");
+        await expect(running).rejects.toThrow("session was deleted");
+        expect(appAgent.modelCalls("x6")).toBe(0);
+        expect(loadMeter("x6")).toBeNull();
     });
 });

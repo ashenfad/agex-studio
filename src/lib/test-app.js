@@ -155,6 +155,12 @@ async function runTest(session, args) {
                         const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
                         return appAgent.call(session.name, call, { ask: imported, prompt: false });
                     },
+                    // and its own agent's model calls, likewise
+                    modelHandler: async (call, opts) => {
+                        const { studio } = await import("./studio.svelte.js");
+                        const imported = (studio.sessions.find((x) => x.name === session.name)?.source ?? null) !== null;
+                        return appAgent.model(session.name, call, { ask: imported, prompt: false, ...opts });
+                    },
                     dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
                     viewport: /** @type {any} */ (args.viewport) ?? null,
                 });
