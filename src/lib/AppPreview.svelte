@@ -42,7 +42,6 @@
     import { appNotify } from './notify.js'
     import { sync } from './sync.svelte.js'
     import { studio } from './studio.svelte.js'
-    import { vault } from './vault.svelte.js'
 
     /** @type {{ session: import('./session.svelte.js').ChatSession, loading?: boolean, empty?: boolean, asking?: boolean }} */
     let { session, loading = $bindable(false), empty = $bindable(false), asking = $bindable(false) } = $props()
@@ -381,14 +380,16 @@
         }
         if (data.type === 'agex-fetch') {
             // a request with a secret, filled from this session's app's
-            // grants, for the secrets its built page declares
+            // grants, for the secrets its built page declares; one with no
+            // grant asks the person (the "This app needs…" panel)
             const frame = iframe
             const needs = current?.page.needs ?? null
-            const appKey = studio.appKey(session.name)
+            const name = session.name
+            const appKey = studio.appKey(name)
             const done = callStarted(frame)
             try {
                 await relayFetch(frame, data, needs === null ? null : (call, signal) =>
-                    answerFetch(call, { needs, grantFor: (need) => Promise.resolve(vault.valueFor(appKey, need)), signal }))
+                    answerFetch(call, { needs, grantFor: (need) => needsAsk.secretFor(name, appKey, needs, need, { signal }), signal }))
             } finally {
                 done()
             }
