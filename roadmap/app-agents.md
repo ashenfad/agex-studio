@@ -1,7 +1,8 @@
 # Agents in apps, and what apps need
 
-Status: phase 1 built (2026-10-26): agex-ts v0.6.3 (agex-ts #155,
-#156, #157), studio #161 (`agex.busy`), #162 (`agex.model`), #163 (the
+Status: phase 1 built (2026-10-26): the agex-ts repository's v0.6.3
+release (agex-ts 0.6.1, world 0.1.3, kvgit 0.2.1, kvsql 0.1.1; agex-ts
+#155, #156, #157), studio #161 (`agex.busy`), #162 (`agex.model`), #163 (the
 import map), #164 (`agex.kvStore`) and the `app-agents` skill, whose
 spike met the exit below. Phases 2 to 4 not started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
