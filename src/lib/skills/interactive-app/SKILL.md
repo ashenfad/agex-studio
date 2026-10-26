@@ -196,6 +196,9 @@ await agex.db.transaction([
   the session gets the same data, and the app reloads when its data
   changes underneath it (a sync, a restore), so read state from the
   database when the page loads rather than keeping it only in memory.
+  Long work the app shouldn't lose (an agent's turn) goes in
+  `agex.busy(promise)`, which returns the promise: while any is in
+  flight, a sync offers the person the reload instead.
   When two devices changed the same rows, the person picks a side in
   the session's dialog. They can also export it as a `.sqlite` file
   there.

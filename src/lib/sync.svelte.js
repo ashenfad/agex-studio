@@ -263,7 +263,7 @@ export class Sync {
                 });
                 this.dbs[id] = state;
                 // what its apps here show is from before
-                if (state.moved) dbRestores.announce(id);
+                if (state.moved) dbRestores.announce(id, "sync");
                 if (state.pruned) this.#storeSweeper.request();
                 // the repo moved meanwhile: again shortly
                 if (state.state === "waiting") this.#scheduleDb(name, DB_RETRY_DELAY);

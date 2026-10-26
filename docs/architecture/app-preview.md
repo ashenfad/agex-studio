@@ -105,6 +105,8 @@ The host bridge (`HOST_BRIDGE_SCRIPT`) gives the page:
   iframe answers false at once.
 - **`agex.task(spec)`**: an agent task the app calls (below).
 - **`agex.db`**: the session's SQLite database (below).
+- **`agex.busy(promise)`**: work in flight that a reload would cut
+  off, which a sync then doesn't (below).
 
 ### App data across devices
 
@@ -221,6 +223,21 @@ and the preview reloads when one was its database's. The agent's
 `db.restore(id)` first asks the person, as an app asks before spending
 the viewer's key: the question shows above the app (its tab comes
 forward), and a turn that ends before an answer takes it as a no.
+
+A sync that brought another device's changes to the database (its
+state's `moved`) is announced the same way, marked as a sync, and
+reloads the apps on it too, unless an app has work in flight.
+`agex.busy(promise)` marks some, and returns the promise: the page
+counts the promises it was given that haven't settled (a rejection
+settles one) and posts the count (`agex-busy`) as it changes, and the
+preview keeps the last, back to 0 whenever a page loads. A sync that
+finds it above 0 offers the reload in a bar above the app, as another
+device's app data does; the offer stays once the work settles, until
+the person takes it or the page loads again, since a reload then would
+land as the person reads what the work did or types the next thing.
+A restore reloads the app, busy or not: the person asked for it
+(`afterDbChange` in `app-busy.js`). A test iframe ignores what the
+page posts: nothing syncs its copy of the database.
 
 ## `test_app`
 

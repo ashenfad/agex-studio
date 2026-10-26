@@ -11,9 +11,11 @@
  *     await __studio.fork('fresh'); await __studio.undo(0); __studio.sessions()
  *     await __studio.sync.sweep(); __studio.sync.state()   // with sync connected
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
+ *     await __studio.db.announceSync(); __studio.appBusy()   // agex.busy's offer
  */
 
 import { appDbs } from "./app-db-clients.js";
+import { liveBusy } from "./app-busy.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
 import { distribution } from "./distribution.svelte.js";
@@ -217,6 +219,12 @@ export function installDevHook(studio, sync) {
             if (iframe === null) throw new Error("the preview isn't showing an app");
             return runLiveApp({ iframe, actions });
         },
+        /** The preview's app: its work in flight (`agex.busy`), and
+         *  whether a reload a sync brought is offered rather than done;
+         *  null without a preview. */
+        appBusy() {
+            return liveBusy();
+        },
         /** The current session's app agent: its meter, whether the
          *  limiter holds it (paused, stopped), and an app asking. */
         async appAgent() {
@@ -307,6 +315,13 @@ export function installDevHook(studio, sync) {
             /** How many restores this page has heard of. */
             restores() {
                 return dbRestores.restored.count;
+            },
+            /** Announce a sync that brought another device's changes to
+             *  the database, as one does, without a second device. */
+            async announceSync() {
+                const id = await appDbs.idOf(session().name);
+                if (id === null) throw new Error("the session has no database yet");
+                dbRestores.announce(id, "sync");
             },
             /** Start the database's next epoch. */
             async newEpoch() {

@@ -6,8 +6,11 @@
      * studio posts the built HTML to the origin's bootloader, and
      * answers the app's calls to it: `getCacheValue`, its storage,
      * `notify`, its agent tasks (`agex.task`, run on the viewer's model,
-     * counted on its meter) and its database (`agex.db`, the
-     * session's). The preview rebuilds when the app's files change.
+     * counted on its meter), its database (`agex.db`, the session's) and
+     * the work it marks in flight (`agex.busy`). The preview rebuilds
+     * when the app's files change, and reloads the app when its
+     * database changes under it (a restore, or a sync, which only offers
+     * the reload while the app is busy).
      *
      * It is the iframe `test_app` acts on with `live: true`. Its bar is
      * the workbench's: it says whether it is loading and whether there is
@@ -18,6 +21,7 @@
     import { callStarted, callsLost, setLiveIframe, setLiveSettled } from './app-control.js'
     import { appDbs } from './app-db-clients.js'
     import { dbRestores } from './db-restore.svelte.js'
+    import { afterDbChange, busyCount, setLiveBusy } from './app-busy.js'
     import { formatDate } from './format-time.js'
     import { answerDb, mayHaveWritten } from './app-db-bridge.js'
     import { appDigest, hasApp, readApp } from './app-files.js'
@@ -166,21 +170,37 @@
      *  device's data arrived, and the preview offers to reload. */
     let seenAppData = $state(untrack(() => session.appDataStamp))
 
+    /** The app's work in flight, as its page last said (`agex.busy`). */
+    let busy = 0
+    /** Whether a sync changed the app's database while it was busy, so
+     *  the preview offers the reload it didn't do. */
+    let dbOffered = $state(false)
+
+    $effect(() => {
+        setLiveBusy(() => ({ busy, offered: dbOffered }))
+        return () => setLiveBusy(null)
+    })
+
     function reloadWithData() {
         seenAppData = session.appDataStamp
+        dbOffered = false
         void load(true)
     }
 
-    // A restore of the app's database (here, or in another tab) leaves
-    // the app holding data from before it: it reloads.
+    // A restore of the app's database (here, or in another tab), or a
+    // sync that brought another device's changes to it, leaves the app
+    // holding data from before: it reloads, unless a sync finds it busy,
+    // which offers the reload instead.
     let seenRestores = untrack(() => dbRestores.restored.count)
     $effect(() => {
-        const { count, id } = dbRestores.restored
+        const { count, id, cause } = dbRestores.restored
         if (count === seenRestores) return
         seenRestores = count
         const name = session.name
         void appDbs.idOf(name).then((mine) => {
-            if (mine !== null && mine === id && session.name === name) void load(true)
+            if (mine === null || mine !== id || session.name !== name) return
+            if (afterDbChange(cause, busy) === 'offer') dbOffered = true
+            else void load(true)
         })
     })
 
@@ -239,6 +259,9 @@
             // that's what it was built with, after a reload of its own
             // it's what it saved before reloading
             flushStorage()
+            // a fresh page: nothing in flight, and the database as it is now
+            busy = 0
+            dbOffered = false
             const page = reseedAppPage(current.page, { seed: readAppStorage(current.name), writeable: true })
             replyToApp(iframe, hostInit(page, data))
             loading = false
@@ -315,6 +338,11 @@
             replyToApp(iframe, { type: 'agex-notify-result', id: data.id, shown, error: reason })
             return
         }
+        if (data.type === 'agex-busy') {
+            // the app's work in flight; it settling leaves an offer showing
+            busy = busyCount(data.busy)
+            return
+        }
         if (data.type === 'agex-iframe-resource-error') {
             resourceErrors = [...resourceErrors, `<${data.tag} ${data.attr}="${data.url}">`].slice(-5)
         }
@@ -335,6 +363,11 @@
     {#if session.appDataStamp > seenAppData && !empty}
         <div class="data-note">
             The app's data changed on another device.
+            <button onclick={reloadWithData}>Reload the app</button>
+        </div>
+    {:else if dbOffered && !empty}
+        <div class="data-note">
+            The app's database changed on another device while the app was busy.
             <button onclick={reloadWithData}>Reload the app</button>
         </div>
     {/if}
