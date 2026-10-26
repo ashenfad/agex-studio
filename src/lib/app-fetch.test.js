@@ -107,10 +107,16 @@ describe("agex.fetch, in the studio", () => {
         const { reply, calls } = await answer(req({ headers: [["authorization", "Bearer ${STRIPE_KEY}"], ["x-debug", "${STRIPE_KEY}"]] }));
         expect(reply.error).toBe("agex.fetch: ${STRIPE_KEY} is in the x-debug header; it goes in its Authorization header only, as app/agex.json declares");
         expect(calls).toEqual([]);
-        // bare, as the world would fill it
+        // bare, which the world would fill all the same
         const bare = await answer(req({ headers: [["authorization", "Bearer ${STRIPE_KEY}"], ["x-debug", "$STRIPE_KEY"]] }));
-        expect(bare.reply.error).toContain("is in the x-debug header");
+        expect(bare.reply.error).toBe("agex.fetch: $STRIPE_KEY in the x-debug header: write it as ${STRIPE_KEY}");
         expect(bare.calls).toEqual([]);
+    });
+
+    it("refuses a bare reference even in its own header: one is written ${NAME}", async () => {
+        const { reply, calls } = await answer(req({ headers: [["authorization", "Bearer $STRIPE_KEY"], ["x-trace", "${STRIPE_KEY}"]] }));
+        expect(reply.error).toBe("agex.fetch: $STRIPE_KEY in the authorization header: write it as ${STRIPE_KEY}");
+        expect(calls).toEqual([]);
     });
 
     it("refuses a secret app/agex.json doesn't declare", async () => {
