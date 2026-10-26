@@ -3,7 +3,7 @@ import { Store } from '@agex-ts/world'
 import { describe, expect, it } from 'vitest'
 import { appDigest, hasApp, readApp } from './app-files.js'
 import { GRID_MAX, gridLayout } from './grid.js'
-import { HIDDEN_NOTE, formatResults, watchHidden } from './test-app.js'
+import { HIDDEN_NOTE, formatResults, testAppTool, watchHidden } from './test-app.js'
 
 describe('the app’s files', () => {
     it('are read by app/ path, text apart from binary, with a fingerprint that follows them', async () => {
@@ -193,5 +193,16 @@ describe('a test while the studio’s page is hidden', () => {
         expect(stop()).toBe(false)
         expect(watchHidden(undefined)()).toBe(false)
         expect(HIDDEN_NOTE).toMatch(/background.*animation frames were paused and timers slowed/)
+    })
+})
+
+describe('test_app on an app whose app/agex.json has a mistake', () => {
+    it('says what to fix, as it does any build error', async () => {
+        const ws = await (await Store.open(new Memory())).open('s')
+        await ws.files.write('/workspace/app/index.html', '<div id="app"></div>')
+        await ws.files.write('/workspace/app/agex.json', '{ "needs": { "model": "yes" } }')
+        const out = await testAppTool({ ws, name: 's' }).call({ fresh: true })
+        expect(out.text).toBe('[error] test_app failed: app/agex.json: needs.model: must be true or false; got "yes"')
+        await ws.close()
     })
 })

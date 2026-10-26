@@ -42,7 +42,9 @@ session's `appStamp` moves (a tool call that wrote, an undo, a
 reload), and only when the files' fingerprint changed (`appDigest`).
 
 `buildAppPage(appFiles, { appBinaries, appStorage })` returns the
-page's HTML and its assets:
+page's HTML and its assets. It first reads and checks `app/agex.json`
+(`app-needs.js`), failing the build on a mistake, and keeps the app's
+needs on the page (`needs`), the file itself no part of it. Then:
 
 1. Takes `app/index.html`, or for an app with only a main script, a
    page that loads it.

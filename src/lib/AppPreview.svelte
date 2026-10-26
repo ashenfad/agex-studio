@@ -526,6 +526,7 @@
     }
     .error {
         color: var(--error);
+        white-space: pre-line;
     }
     .errors {
         font-size: 0.75rem;
