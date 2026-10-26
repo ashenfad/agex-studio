@@ -151,8 +151,14 @@ The parts:
   never into a URL, a query or a body, which services echo far more
   often. It runs on the world's `request` (no redirect followed, a size
   cap, a literal echo in the response replaced with the reference).
-  Without a secret it fetches any origin: nothing the app's own `fetch`
-  couldn't.
+- **Only a request with a secret leaves through the studio.** The
+  studio's origin isn't the app's: a service that trusts the studio, or
+  the studio itself, would answer it where it refuses the app. So
+  `agex.fetch` with no secret reference is the app's own `fetch`, run in
+  its frame; one with a reference goes from the studio only to that
+  secret's declared origins, `https:` only, never the studio's or the
+  apps' own origins, with no credentials (`credentials: 'omit'`) and no
+  redirect followed.
 - **What that guarantees, and what it doesn't.** The secret reaches
   only its origins, in its declared header: an app can't send it
   anywhere else. It can't keep a service *at* those origins from
@@ -186,7 +192,7 @@ Slices:
 | 1 | agex-ts | A secret declared by name and origins, with no value: listed in the tools' descriptions, its reference given by `secret('NAME')` and `$NAME`, its origins enforced, filled only by a host object that forwards it; then a patch release | |
 | 2 | studio | `app/agex.json`: parsing and checking `needs`, its mistakes shown where the agent sees a build error | |
 | 3 | studio | The vault and grants: the device-only store, the model, and settings (entries, origins, "used by", revoke) | 2 |
-| 4 | studio | `agex.fetch`: the page's shim and the studio's handler on the world's `request`, the header-only rule, values from grants | 2, 3 |
+| 4 | studio | `agex.fetch`: the page's shim (its own `fetch` without a secret) and the studio's handler on the world's `request` for one with a secret (declared origins only, no credentials, never the studio's own origins), the header-only rule, values from grants | 2, 3 |
 | 5 | studio | The "This app needs…" panel, with the picker over the vault, replacing the consent question | 2, 3 |
 | 6 | studio | `agex.http()` and declared secrets in an app's world | 1 (released), 4 |
 | 7 | studio | Stand-ins for `test_app`: canned responses by origin and path | 4 |
@@ -245,6 +251,9 @@ The vault is phase 2's; what's left is the person's own agents:
   APIs) can't be used through `agex.fetch` until a real app needs one.
 - **`agex.fetch` is unmetered:** it spends the viewer's key with a
   service, not their model, and the panel names the services.
+- **The studio fetches only what carries a secret,** to its declared
+  origins, without credentials: everything else stays the app's own
+  `fetch`, so no app borrows the studio's origin.
 - **Agents don't see vault entries by default** (phase 3): an app
   always asks, and a session's agent asks with `request_secret`.
 
