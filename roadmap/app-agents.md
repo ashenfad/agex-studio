@@ -4,7 +4,8 @@ Status: phase 1 built (2026-10-26): the agex-ts repository's v0.6.3
 release (agex-ts 0.6.1, world 0.1.3, kvgit 0.2.1, kvsql 0.1.1; agex-ts
 #155, #156, #157), studio #161 (`agex.busy`), #162 (`agex.model`), #163 (the
 import map), #164 (`agex.kvStore`) and the `app-agents` skill, whose
-spike met the exit below. Phases 2 to 4 not started. This
+spike met the exit below. Phase 2 is sliced, phases 2 to 4 not
+started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -120,49 +121,92 @@ and no turn lost to a reload.
 
 ## Phase 2: an app's needs, and its viewer's secrets
 
+An app is often written by one person and run by another, who brings
+their own key. So **sharing an app shares its needs, never values**:
+the app says what it needs (a key for `api.stripe.com`, in the
+`Authorization` header, and why), and each viewer supplies their own.
+The app names a secret (`STRIPE_KEY`); the viewer's key is their own,
+whatever an app calls it. Two layers, after GitHub's organization and
+repository secrets:
+
+- **The vault**, the person's secrets: one list in settings, beside
+  the model key, kept on this device (not synced, not published, not in
+  any app's storage). Each entry is a label, a value (hidden once
+  saved), and the origins it may go to, which are required and which no
+  app can widen. Phase 3's agents use the same vault.
+- **Grants**, an app's access: each links one of the app's declared
+  needs to one vault entry, by reference, so a key changed in the vault
+  changes for every app that uses it. A grant is per app (below), and
+  pointing it at another entry (a test key for one session) is all an
+  override needs.
+
+The parts:
+
 - **Needs, declared.** `app/agex.json`:
   `{ "needs": { "model": true, "secrets": [{ "name", "origins", "in", "why" }] } }`,
   where `in` is the one place a secret goes, a request header
   (`"header:Authorization"`).
 - **`agex.fetch(url, init)`**: the studio fills `${NAME}` into the
-  declared header, for a declared origin only; never into a URL, a
-  query or a body, which services echo far more often. A literal echo
-  in a response is replaced with the reference (the world's
-  `httpHost` rules).
+  declared header, for a declared origin only, from the app's grant;
+  never into a URL, a query or a body, which services echo far more
+  often. It runs on the world's `request` (no redirect followed, a size
+  cap, a literal echo in the response replaced with the reference).
+  Without a secret it fetches any origin: nothing the app's own `fetch`
+  couldn't.
 - **What that guarantees, and what it doesn't.** The secret reaches
   only its origins, in its declared header: an app can't send it
   anywhere else. It can't keep a service *at* those origins from
   reflecting it back transformed (a debug echo, an encoding endpoint),
   so the viewer is trusting the service with the key, not the app's
   code with it; the panel says so.
-- **One panel, "This app needs…"**, on a viewer's first use: each need
-  met (✓ a model) or not (a key for `api.stripe.com`, with a field),
-  the value kept on the viewer's device, and for a secret what it
-  allows ("this app can use your key with api.stripe.com; a service
-  there that echoes keys could expose it"). Allowing grants this app,
-  per app and by name, its model (on the meter) and those secrets; it
-  replaces today's consent question. A need the app didn't declare
-  asks the same way when it is first used.
-- **Secrets for an app's agent.** The app's world gets an `http` host
-  object that forwards to `agex.fetch` with `${NAME}` unfilled, so
-  neither the app's code nor its agent holds the value. agex-ts gains
-  a secret declared by name and origins without its value, so the
-  tools' descriptions still name it.
+- **One panel, "This app needs…"**, on a viewer's first use, replacing
+  today's consent question: each need met (✓ a model) or not ("a key
+  for `api.stripe.com`, to look up prices"). For a secret it offers the
+  vault entries whose origins cover the app's (Use *Stripe (personal)*),
+  or a field for a new key, which goes into the vault and is granted;
+  and it says what allowing grants ("this app can use your key with
+  api.stripe.com; a service there that echoes keys could expose it").
+  A need the app didn't declare asks the same way when it is first
+  used. A hidden test refuses rather than asks.
+- **In settings**, each vault entry lists the apps it is granted to,
+  each with a revoke.
+- **Secrets for an app's agent.** `agex.http()` is a host object for
+  the app's world that forwards to `agex.fetch` with `${NAME}` unfilled,
+  and the app's declared secrets go into its profile by name and
+  origins, without values (agex-ts gains such a secret), so the tools'
+  descriptions name them and neither the app's code nor its agent holds
+  a value.
 - **Stand-ins** for live services, so `test_app` checks an app without
-  touching its real backend.
+  touching its real backend or needing a key.
+
+Slices:
+
+| # | Where | What | Needs |
+|---|---|---|---|
+| 1 | agex-ts | A secret declared by name and origins, with no value: listed in the tools' descriptions, its reference given by `secret('NAME')` and `$NAME`, its origins enforced, filled only by a host object that forwards it; then a patch release | |
+| 2 | studio | `app/agex.json`: parsing and checking `needs`, its mistakes shown where the agent sees a build error | |
+| 3 | studio | The vault and grants: the device-only store, the model, and settings (entries, origins, "used by", revoke) | 2 |
+| 4 | studio | `agex.fetch`: the page's shim and the studio's handler on the world's `request`, the header-only rule, values from grants | 2, 3 |
+| 5 | studio | The "This app needs…" panel, with the picker over the vault, replacing the consent question | 2, 3 |
+| 6 | studio | `agex.http()` and declared secrets in an app's world | 1 (released), 4 |
+| 7 | studio | Stand-ins for `test_app`: canned responses by origin and path | 4 |
+| 8 | studio | Skills (interactive-app's services and secrets, app-agents' note) and a spike: an agent builds a keyed app; httpbin's `/headers` shows only the declared header carried the key, and that the echo was scrubbed | all |
+
+(1) and (2) are independent; (4) and (5) follow (3); (6) and (7)
+follow (4).
 
 ## Phase 3: the agent's own secrets
 
-- Device-wide, in settings beside the model key: name, value (hidden
-  once saved), and the origins it may go to, which are required. Not
-  synced, not published.
-- Given to every session's profile as the world's secrets (`{value,
-  origins}`); the agent sees names and origins, never values, and uses
-  them as `$NAME` in `curl` and `secret('NAME')` with the `http` host
-  object.
+The vault is phase 2's; what's left is the person's own agents:
+
+- Each vault entry has **"available to my agents"**, off by default.
+  When on, every session's profile gets it as one of the world's
+  secrets (`{value, origins}`): the agent sees its name and origins,
+  never its value, and uses it as `$NAME` in `curl` and `secret('NAME')`
+  with the `http` host object.
 - Asked for when needed: a `request_secret` tool (name, origins, why)
-  shows a form in the chat; the value goes to settings, never into the
-  transcript.
+  shows the same picker in the chat (an entry, or a new key); the value
+  goes to the vault, never into the transcript.
 
 ## Phase 4: variables
 
@@ -185,6 +229,24 @@ and no turn lost to a reload.
   new; a kvgit namespace of the studio's own for apps waits (Later).
 - **The recipe is a skill of its own**, `app-agents`, referenced from
   interactive-app: it is long, and most apps don't need it.
+- **Secrets are a vault plus grants** (phase 2): the person's keys
+  defined once, each app granted access to entries by reference.
+  Apps and keys meet by origin, not by name.
+- **Every vault entry has origins:** without them nothing bounds where
+  a key may go, which is the point of keeping it out of apps.
+- **A grant is per app.** Your own app's grant is its session's, which
+  its forks share; a shared or imported app's is its published id's,
+  and a new version keeps it while it declares nothing new.
+- **Your own apps use the model without asking,** as now; the panel
+  shows for them only when a secret has no grant. A shared app gets the
+  whole panel.
+- **Header only:** a secret goes in one declared request header. A
+  service that takes its key in the query string (some weather and maps
+  APIs) can't be used through `agex.fetch` until a real app needs one.
+- **`agex.fetch` is unmetered:** it spends the viewer's key with a
+  service, not their model, and the panel names the services.
+- **Agents don't see vault entries by default** (phase 3): an app
+  always asks, and a session's agent asks with `request_secret`.
 
 ## Reserved meanwhile
 
@@ -204,6 +266,9 @@ and `agex.kvStore(name?)` takes a name, `default` without one.
 
 ## Later
 
+- **The vault across your devices:** synced encrypted, with a
+  passphrase only the person knows; until then each device's keys are
+  entered on it.
 - **A kvgit namespace for apps** in the studio's own store, instead
   of kvgit inside SQLite inside kvgit: no double versioning, and a
   head that syncs as a session's does.
