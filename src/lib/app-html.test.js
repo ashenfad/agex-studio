@@ -476,6 +476,34 @@ describe('agex.fetch in the app', () => {
         expect(posted).toEqual([])
     })
 
+    it('posts a request whose only reference is in a body of any kind, for the studio to refuse', async () => {
+        const bodies = [
+            new Blob(['key=${STRIPE_KEY}']),
+            new TextEncoder().encode('key=${STRIPE_KEY}'),
+            new TextEncoder().encode('key=${STRIPE_KEY}').buffer,
+            (() => {
+                const form = new FormData()
+                form.set('key', '${STRIPE_KEY}')
+                return form
+            })(),
+        ]
+        for (const body of bodies) {
+            const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+            void agex.fetch('https://api.stripe.com/v1/prices', { method: 'POST', body })
+            await settle()
+            await settle()
+            expect(posted).toHaveLength(1)
+            expect(new TextDecoder().decode(posted[0].body)).toContain('${STRIPE_KEY}')
+        }
+        // and a Request's, read from a copy
+        const { agex, posted } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
+        void agex.fetch(new Request('https://api.stripe.com/v1/prices', { method: 'POST', body: 'key=${STRIPE_KEY}' }))
+        await settle()
+        await settle()
+        expect(posted).toHaveLength(1)
+        expect(new TextDecoder().decode(posted[0].body)).toBe('key=${STRIPE_KEY}')
+    })
+
     it('posts a request with a reference to the studio, and its reply becomes a Response', async () => {
         const { agex, posted, send, listeners } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
         const got = agex.fetch('https://api.stripe.com/v1/prices', {

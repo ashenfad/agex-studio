@@ -417,6 +417,14 @@ window.notify = function(title, body) {
         if (REF.test(text)) return true;
         try { return REF.test(decodeURIComponent(text)); } catch (e) { return false; }
     }
+    // a body's text, to look for a reference in: read from a copy, so
+    // the body is still there to send (a stream would be used up, so
+    // isn't read)
+    async function bodyMentions(body) {
+        if (body === undefined || body === null || typeof body === 'string') return false;
+        if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) return false;
+        try { return mentions(await new Response(body).text()); } catch (e) { return false; }
+    }
     window.agex.fetch = async function(input, init) {
         init = init || {};
         var isRequest = typeof Request !== 'undefined' && input instanceof Request;
@@ -426,7 +434,9 @@ window.notify = function(title, body) {
         headers.forEach(function(value, name) { pairs.push([name, value]); });
         var named = mentions(url) || pairs.some(function(p) { return REF.test(p[1]); }) ||
             (typeof init.body === 'string' && REF.test(init.body)) ||
-            (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams && mentions(String(init.body)));
+            (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams && mentions(String(init.body))) ||
+            (await bodyMentions(init.body)) ||
+            (isRequest && init.body === undefined && input.body !== null && mentions(await input.clone().text()));
         if (!named) return window.fetch(input, init);
 
         var signal = init.signal || (isRequest ? input.signal : null);
