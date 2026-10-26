@@ -323,6 +323,17 @@ describe("an app's own agent's model call", () => {
         expect(tasks.filter((r) => r.status === "rejected")).toHaveLength(1);
     });
 
+    it("held together by a pause each count in the new minute once it goes on", async () => {
+        script.provider = provider();
+        for (let i = 0; i < RATE.modelCalls; i++) await model("x10");
+        const held = Promise.all([model("x10"), model("x10"), model("x10")]);
+        await settle();
+        appAgent.goOn("x10");
+        await held;
+        for (let i = 0; i < RATE.modelCalls - 3; i++) await model("x10", { prompt: false });
+        await expect(model("x10", { prompt: false })).rejects.toThrow(`made ${RATE.modelCalls} model calls`);
+    });
+
     it("from elsewhere ask first, for the app's own agent, and are refused if the person says no", async () => {
         script.provider = provider();
         await expect(model("x5", { ask: true, prompt: false })).rejects.toThrow("hasn't allowed this app");

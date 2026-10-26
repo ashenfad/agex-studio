@@ -342,10 +342,9 @@ class AppAgent {
         if (!prompt) throw new Error(model ? HIDDEN_MODEL_PAUSE : HIDDEN_PAUSE);
         const go = await this.#pause(session, starts.length, model, signal);
         if (this.#gone(session, generation)) throw new Error(GONE);
-        if (go) {
-            all.delete(session);
-            return counted();
-        }
+        // going on counted the minute afresh (goOn), once for every
+        // call the pause held, which each count in it
+        if (go) return counted();
         this.stopped[session] = true;
         throw new Error(STOPPED);
     }
