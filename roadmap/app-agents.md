@@ -4,8 +4,14 @@ Status: phase 1 built (2026-10-26): the agex-ts repository's v0.6.3
 release (agex-ts 0.6.1, world 0.1.3, kvgit 0.2.1, kvsql 0.1.1; agex-ts
 #155, #156, #157), studio #161 (`agex.busy`), #162 (`agex.model`), #163 (the
 import map), #164 (`agex.kvStore`) and the `app-agents` skill, whose
-spike met the exit below. Phase 2 is sliced, phases 2 to 4 not
-started. This
+spike met the exit below. Phase 2 built (2026-10-26): agex-ts #159
+in v0.6.4 (world 0.1.4), studio #167 (`app/agex.json`), #168 (the
+vault), #169 (`agex.fetch`), #170 (the panel), #172 (`agex.http()`),
+#173 (stand-ins) and #174 (the skills), whose spike met slice 8's
+check: agents given the skills alone built a keyed app and an app agent
+that used the key, and against httpbin the key went only in its
+declared header, its echo came back as the reference, and the studio's
+page never held it. Phases 3 and 4 not started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -259,10 +265,10 @@ The vault is phase 2's; what's left is the person's own agents:
 
 ## Reserved meanwhile
 
-`window.env` and `agex.fetch` in the app's page, `app/agex.json`, and
-the `variables` key on the studio plane; the interactive-app skill
-tells the agent to leave the app-side three alone. Phase 1 adds
-`agex.model`, `agex.kvStore` and `agex.busy`.
+`window.env` in the app's page and the `variables` key on the studio
+plane; the interactive-app skill tells the agent to leave `window.env`
+alone. Phase 1 adds `agex.model`, `agex.kvStore` and `agex.busy`;
+phase 2 `agex.fetch`, `agex.http`, `agex.secrets` and `app/agex.json`.
 
 ## Open questions
 
