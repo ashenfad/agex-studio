@@ -82,6 +82,13 @@ describe('answerFromStandIns', () => {
         expect(JSON.parse(new TextDecoder().decode(reply.body))).toEqual({ echoed: '${STRIPE_KEY}' })
     })
 
+    it('refuses a request fetch would, as it would be for real', async () => {
+        const reply = await answer(message({ method: 'TRACE' }))
+        expect(reply.error).toMatch(/^agex\.fetch: .*TRACE/i)
+        expect(reply.note).toBe(`[stand-in] TRACE https://api.stripe.com/v1/prices?limit=3: refused: ${reply.error}`)
+        expect(reply).not.toHaveProperty('status')
+    })
+
     it('answers HEAD without a body', async () => {
         const reply = await answer(message({ method: 'HEAD' }))
         expect([reply.status, reply.body.length]).toEqual([200, 0])
