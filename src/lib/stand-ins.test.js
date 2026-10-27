@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { answerFetch } from './app-fetch.js'
-import { answerFromStandIns, matchStandIn, parseStandIns, standInsScript } from './stand-ins.js'
+import { answerFromStandIns, matchStandIn, parseStandIns, standInsScript, standInsWorkerSources } from './stand-ins.js'
 
 describe('parseStandIns', () => {
     it('takes origin and path, a method upper-cased, and json as its text with its type', () => {
@@ -101,14 +101,14 @@ describe('standInsScript', () => {
         const reached = []
         const win = { __agex_logs: [], fetch: (input) => (reached.push(String(input)), Promise.resolve(new Response('network'))) }
         const src = standInsScript(parseStandIns(list).standIns).trim()
-        new Function('window', 'location', src.replace(/^<script>|<\/script>$/g, ''))(win, { href: 'https://apps.example/app/' })
+        new Function('self', 'location', src.replace(/^<script>|<\/script>$/g, ''))(win, { href: 'https://apps.example/app/' })
         return { win, reached }
     }
 
     it('answers a request to a stand-in in place of the network, said in the console output', async () => {
         const { win, reached } = run([{ url: 'https://api.example.com/items', json: [1, 2] }, { url: 'https://api.example.com/items', method: 'DELETE', status: 204 }])
         const res = await win.fetch('https://api.example.com/items?page=1')
-        expect([res.status, res.headers.get('content-type'), await res.json()]).toEqual([200, 'application/json', [1, 2]])
+        expect([res.status, res.url, res.headers.get('content-type'), await res.json()]).toEqual([200, 'https://api.example.com/items?page=1', 'application/json', [1, 2]])
         expect((await win.fetch(new Request('https://api.example.com/items', { method: 'DELETE' }))).status).toBe(204)
         expect(await (await win.fetch('https://api.example.com/other')).text()).toBe('network')
         expect(reached).toEqual(['https://api.example.com/other'])
@@ -116,6 +116,15 @@ describe('standInsScript', () => {
             { level: 'info', message: '[stand-in] GET https://api.example.com/items?page=1 → 200' },
             { level: 'info', message: '[stand-in] DELETE https://api.example.com/items → 204' },
         ])
+    })
+
+    it('answers a worker’s requests too, ahead of its own code', async () => {
+        const { standIns } = parseStandIns([{ url: 'https://api.example.com/items', body: 'from the stand-in' }])
+        const sources = standInsWorkerSources({ 'sum.worker.js': 'self.done = self.fetch("https://api.example.com/items").then((r) => r.text())' }, standIns)
+        const worker = { fetch: () => Promise.resolve(new Response('network')) }
+        new Function('self', 'location', sources['sum.worker.js'])(worker, { href: 'blob:https://apps.example/1' })
+        expect(await worker.done).toBe('from the stand-in')
+        expect(standInsWorkerSources({ 'a.worker.js': 'x' }, [])).toEqual({ 'a.worker.js': 'x' })
     })
 
     it('is nothing without stand-ins, and keeps a `</script>` in a body from ending it', () => {
