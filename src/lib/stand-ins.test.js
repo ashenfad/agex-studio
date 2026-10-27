@@ -82,6 +82,11 @@ describe('answerFromStandIns', () => {
         expect(JSON.parse(new TextDecoder().decode(reply.body))).toEqual({ echoed: '${STRIPE_KEY}' })
     })
 
+    it('answers HEAD without a body', async () => {
+        const reply = await answer(message({ method: 'HEAD' }))
+        expect([reply.status, reply.body.length]).toEqual([200, 0])
+    })
+
     it('refuses one no stand-in matches, and sends nothing', async () => {
         const reply = await answer(message({ url: 'https://api.stripe.com/v1/customers' }))
         expect(reply).toEqual({
@@ -142,6 +147,20 @@ describe('standInsScript', () => {
         await expect(pending).rejects.toThrow('stopped')
         // and neither was answered
         expect(win.__agex_logs).toEqual([])
+    })
+
+    it('refuses a request fetch would, and answers HEAD without a body', async () => {
+        const { win, reached } = run([{ url: 'https://api.example.com/items', body: 'listed' }])
+        await expect(win.fetch('https://api.example.com/items', { method: 'GET', body: 'x' })).rejects.toBeInstanceOf(TypeError)
+        await expect(win.fetch('https://api.example.com/items', { method: 'TRACE' })).rejects.toBeInstanceOf(TypeError)
+        const head = await win.fetch('https://api.example.com/items', { method: 'HEAD' })
+        expect([head.status, await head.text()]).toEqual([200, ''])
+        expect(reached).toEqual([])
+        // a Request passed on to the network keeps its body
+        const { win: other, reached: sent } = run([{ url: 'https://api.example.com/items', body: 'listed' }])
+        const post = new Request('https://api.example.com/other', { method: 'POST', body: 'kept' })
+        await other.fetch(post)
+        expect([sent, post.bodyUsed]).toEqual([['[object Request]'], false])
     })
 
     it('is nothing without stand-ins, and keeps a `</script>` in a body from ending it', () => {
