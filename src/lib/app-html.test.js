@@ -288,13 +288,15 @@ describe('reseedAppPage', () => {
     })
 })
 
-/** Run a built page's host bridge against a bare window: the `agex` it
- *  installs, what it posts to the studio, and a way to answer. */
-function runBridge(html) {
+/** Run a built page's host bridge against a bare window (with `own`
+ *  for the window's own, such as `fetch`): the `agex` it installs, what
+ *  it posts to the studio, and a way to answer. */
+function runBridge(html, own = {}) {
     const src = html.match(/<script>\s*\/\/ getCacheValue[\s\S]*?<\/script>/)?.[0]
     const listeners = new Set()
     const posted = []
     const win = {
+        ...own,
         addEventListener: (type, fn) => type === 'message' && listeners.add(fn),
         removeEventListener: (type, fn) => listeners.delete(fn),
         __agexPost: (msg) => (posted.push(msg), true),
@@ -581,6 +583,91 @@ describe('agex.fetch in the app', () => {
     })
 })
 
+describe('agex.http() in the app', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+    /** The host bridge over a window whose own fetch answers with `answer`. */
+    async function bridge(answer = () => new Response('own')) {
+        const fetched = []
+        const { agex, posted, send } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html, {
+            fetch: (input, init) => (fetched.push([input, init]), Promise.resolve(answer(input, init))),
+        })
+        return { http: agex.http(), fetched, posted, send }
+    }
+
+    it('is the app’s own fetch without a secret, its result as the world’s http gives it', async () => {
+        const { http, fetched, posted } = await bridge(() => new Response('{"a":1}', { status: 201, statusText: 'Created', headers: { 'content-type': 'application/json' } }))
+        const r = await http.fetch('api.example.com/items', { headers: { Accept: 'application/json' }, as: 'json' })
+        expect(r).toEqual({ status: 201, ok: true, statusText: 'Created', url: 'https://api.example.com/items', headers: { 'content-type': 'application/json' }, body: { a: 1 } })
+        expect(fetched).toHaveLength(1)
+        expect(fetched[0][0]).toBe('https://api.example.com/items')
+        expect(fetched[0][1]).toMatchObject({ method: 'GET', headers: { Accept: 'application/json' }, redirect: 'follow' })
+        expect(fetched[0][1]).not.toHaveProperty('body')
+        expect(posted).toEqual([])
+        // a body makes it a POST; follow: false doesn't follow; bytes as bytes
+        const b = await http.fetch('https://api.example.com/x', { body: 'hi', follow: false, as: 'bytes' })
+        expect(fetched[1][1]).toMatchObject({ method: 'POST', body: 'hi', redirect: 'manual' })
+        expect(b.body).toEqual(new TextEncoder().encode('{"a":1}'))
+        await expect(http.fetch(new URL('https://api.example.com'))).rejects.toThrow('http.fetch: url must be a string')
+    })
+
+    it('sends a request carrying secret(NAME) through the studio', async () => {
+        const { http, fetched, posted, send } = await bridge()
+        const got = http.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' } })
+        await settle()
+        expect(fetched).toEqual([])
+        expect(posted).toEqual([{ type: 'agex-fetch', id: posted[0].id, url: 'https://api.stripe.com/v1/prices', method: 'GET', headers: [['authorization', 'Bearer ${STRIPE_KEY}']], body: null }])
+        send({ type: 'agex-fetch-result', id: posted[0].id, status: 200, statusText: 'OK', url: 'https://api.stripe.com/v1/prices', headers: [['x-echo', 'Bearer ${STRIPE_KEY}']], body: new TextEncoder().encode('[]'), error: null })
+        expect(await got).toMatchObject({ status: 200, headers: { 'x-echo': 'Bearer ${STRIPE_KEY}' }, body: '[]' })
+        // and the studio's refusal is the call's error
+        const refused = http.fetch('https://api.stripe.com/v1/prices', { headers: { 'X-Other': '${STRIPE_KEY}' } }).catch((e) => e)
+        await settle()
+        send({ type: 'agex-fetch-result', id: posted[1].id, error: 'agex.fetch: STRIPE_KEY goes only in its declared header, Authorization' })
+        expect((await refused).message).toBe('agex.fetch: STRIPE_KEY goes only in its declared header, Authorization')
+    })
+
+    it('refuses a response past 10 MB, and gives up after its timeout', async () => {
+        const big = new Uint8Array(6 * 1024 * 1024)
+        const { http } = await bridge(() => new Response(new Blob([big, big])))
+        await expect(http.fetch('https://api.example.com/big')).rejects.toThrow('http.fetch: the response is larger than 10 MB')
+
+        const never = await bridge((_input, init) => new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))))
+        never.fetched.length = 0
+        const late = never.http.fetch('https://api.example.com/slow', { timeout: 0.01 })
+        await expect(late).rejects.toThrow('http.fetch: no answer in 0.01 seconds')
+    })
+})
+
+describe('agex.secrets() in the app', () => {
+    /** The page's agex.secrets(), run after its host bridge. */
+    function secretsOf(html) {
+        const win = { __agexPost: () => true, addEventListener() {}, removeEventListener() {} }
+        for (const marker of ['// getCacheValue', '// agex.secrets()']) {
+            const src = html.match(new RegExp(`<script>\\s*${marker.replace(/[.()]/g, '\\$&')}[\\s\\S]*?</script>`))[0]
+            new Function('window', src.replace(/^<script>|<\/script>$/g, ''))(win)
+        }
+        return win.agex.secrets
+    }
+
+    it('gives the declared secrets by name and origins, a fresh copy each time', async () => {
+        const manifest = JSON.stringify({ needs: { secrets: [
+            { name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], in: 'header:Authorization', why: 'to look up </script> prices' },
+            { name: 'MAPS_KEY', origins: ['https://maps.example.com', 'https://tiles.example.com'], in: 'header:X-Api-Key', why: 'to draw the map' },
+        ] } })
+        const secrets = secretsOf((await buildAppPage({ ...blank(), 'app/agex.json': manifest }, { workerSources: {} })).html)
+        const specs = secrets()
+        expect(specs).toEqual({
+            STRIPE_KEY: { origins: ['https://api.stripe.com'] },
+            MAPS_KEY: { origins: ['https://maps.example.com', 'https://tiles.example.com'] },
+        })
+        specs.STRIPE_KEY.origins.push('https://evil.example')
+        expect(secrets().STRIPE_KEY.origins).toEqual(['https://api.stripe.com'])
+    })
+
+    it('is empty for an app that declares none', async () => {
+        expect(secretsOf((await buildAppPage(blank(), { workerSources: {} })).html)()).toEqual({})
+    })
+})
+
 describe('an app’s needs', () => {
     const page = '<html><head></head><body></body></html>'
     const manifest = JSON.stringify({ needs: { model: true, secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], in: 'header:Authorization', why: 'to look up prices' }] } })
@@ -595,7 +682,7 @@ describe('an app’s needs', () => {
         expect(built.assets.map((a) => a.type)).toEqual(['application/json'])
         expect(built.html).toContain(`"data.json":"${assetToken(0)}"`)
         expect(built.html).not.toContain('agex.json')
-        expect(built.html).not.toContain('STRIPE_KEY')
+        expect(built.html).not.toContain('to look up prices')
         // and the needs stay with a page seeded again
         expect(reseedAppPage(built, { seed: {} }).needs).toEqual(built.needs)
     })
