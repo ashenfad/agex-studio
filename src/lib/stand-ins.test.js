@@ -38,6 +38,10 @@ describe('parseStandIns', () => {
             'standIns[2]: give body or json, not both',
             'standIns[3]: must be an object like {"url": "https://api.example.com/v1/items", "json": [...]}; got string',
         ])
+        expect(parseStandIns([{ url: 'https://a.example/x', headers: { 'bad header': 'x', 'X-Ok': 'a\nb' } }]).errors).toEqual([
+            'standIns[0].headers: "bad header": "x" isn\'t a header a response can carry (a name is letters, digits and -, a value one line)',
+            'standIns[0].headers: "X-Ok": "a\\nb" isn\'t a header a response can carry (a name is letters, digits and -, a value one line)',
+        ])
         expect(parseStandIns({}).errors).toEqual(['standIns: must be a list of stand-ins; got object'])
         expect(parseStandIns(Array.from({ length: 51 }, () => ({ url: 'https://a.example/' }))).errors).toEqual(['standIns: at most 50; got 51'])
     })
@@ -125,6 +129,19 @@ describe('standInsScript', () => {
         new Function('self', 'location', sources['sum.worker.js'])(worker, { href: 'blob:https://apps.example/1' })
         expect(await worker.done).toBe('from the stand-in')
         expect(standInsWorkerSources({ 'a.worker.js': 'x' }, [])).toEqual({ 'a.worker.js': 'x' })
+    })
+
+    it('rejects as fetch does when the signal is aborted before it answers', async () => {
+        const { win } = run([{ url: 'https://api.example.com/items', body: 'listed' }])
+        const before = new AbortController()
+        before.abort()
+        await expect(win.fetch('https://api.example.com/items', { signal: before.signal })).rejects.toMatchObject({ name: 'AbortError' })
+        const during = new AbortController()
+        const pending = win.fetch(new Request('https://api.example.com/items', { signal: during.signal }))
+        during.abort(new Error('stopped'))
+        await expect(pending).rejects.toThrow('stopped')
+        // and neither was answered
+        expect(win.__agex_logs).toEqual([])
     })
 
     it('is nothing without stand-ins, and keeps a `</script>` in a body from ending it', () => {

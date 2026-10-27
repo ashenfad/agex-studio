@@ -84,6 +84,15 @@ export function parseStandIns(list) {
         const headers = entry.headers ?? {};
         if (typeof headers !== "object" || headers === null || Array.isArray(headers) || !Object.values(headers).every((v) => typeof v === "string")) {
             fail(".headers", `must be an object of header names to strings; got ${describe(entry.headers)}`);
+        } else {
+            // as a Response will take them, so a stand-in that matches can answer
+            for (const [name, value] of Object.entries(headers)) {
+                try {
+                    new Headers([[name, value]]);
+                } catch {
+                    fail(".headers", `${JSON.stringify(name)}: ${JSON.stringify(value)} isn't a header a response can carry (a name is letters, digits and -, a value one line)`);
+                }
+            }
         }
         if (entry.body !== undefined && entry.json !== undefined) fail("", "give body or json, not both");
         if (entry.body !== undefined && typeof entry.body !== "string") {
@@ -177,7 +186,8 @@ export async function answerFromStandIns(standIns, data, answer) {
  * The code that answers a test's own requests from its stand-ins, in a
  * page or a worker (`self`): `fetch` to a stand-in resolves with its
  * response (its `url` the request's), said in the page's console output
- * (a worker has none); any other goes on to the `fetch` it wraps.
+ * (a worker has none), or rejects as fetch does when its signal is
+ * aborted first; any other goes on to the `fetch` it wraps.
  *
  * @param {StandIn[]} standIns
  * @returns {string}
@@ -203,10 +213,23 @@ function patchSource(standIns) {
             if (S[i].method === null && s === null) s = S[i];
         }
         if (s !== null) {
-            if (self.__agex_logs) self.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
-            var res = new Response(s.body, { status: s.status, headers: s.headers });
-            Object.defineProperty(res, 'url', { value: u.href });
-            return Promise.resolve(res);
+            var signal = (init && init.signal) || (isRequest ? input.signal : null);
+            return new Promise(function(resolve, reject) {
+                function stopped() {
+                    reject(signal.reason !== undefined ? signal.reason : new DOMException('The operation was aborted.', 'AbortError'));
+                }
+                if (signal && signal.aborted) return stopped();
+                if (signal) signal.addEventListener('abort', stopped, { once: true });
+                // answered a moment later, as the network would be: a signal aborted meanwhile wins
+                setTimeout(function() {
+                    if (signal) signal.removeEventListener('abort', stopped);
+                    if (signal && signal.aborted) return;
+                    if (self.__agex_logs) self.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
+                    var res = new Response(s.body, { status: s.status, headers: s.headers });
+                    Object.defineProperty(res, 'url', { value: u.href });
+                    resolve(res);
+                }, 0);
+            });
         }
         return real.apply(this, arguments);
     };
