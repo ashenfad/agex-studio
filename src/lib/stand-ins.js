@@ -174,24 +174,20 @@ export async function answerFromStandIns(standIns, data, answer) {
 }
 
 /**
- * Classic <script> for a test's page with stand-ins: its own requests
- * (`fetch`, and so `agex.fetch` without a secret) to a stand-in are
- * answered by it, each said in the console output. Runs after the
- * assets script, whose `fetch` it wraps.
+ * The code that answers a test's own requests from its stand-ins, in a
+ * page or a worker (`self`): `fetch` to a stand-in resolves with its
+ * response (its `url` the request's), said in the page's console output
+ * (a worker has none); any other goes on to the `fetch` it wraps.
  *
  * @param {StandIn[]} standIns
  * @returns {string}
  */
-export function standInsScript(standIns) {
-    if (standIns.length === 0) return "";
+function patchSource(standIns) {
     const json = JSON.stringify(standIns).replace(/</g, "\\u003c");
-    return `
-<script>
-// test_app's stand-ins
-(function() {
+    return `(function() {
     var S = ${json};
-    var real = window.fetch;
-    window.fetch = function(input, init) {
+    var real = self.fetch;
+    self.fetch = function(input, init) {
         var isRequest = typeof Request !== 'undefined' && input instanceof Request;
         var method = String((init && init.method) || (isRequest ? input.method : 'GET')).toUpperCase();
         var at = null;
@@ -207,11 +203,43 @@ export function standInsScript(standIns) {
             if (S[i].method === null && s === null) s = S[i];
         }
         if (s !== null) {
-            if (window.__agex_logs) window.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
-            return Promise.resolve(new Response(s.body, { status: s.status, headers: s.headers }));
+            if (self.__agex_logs) self.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
+            var res = new Response(s.body, { status: s.status, headers: s.headers });
+            Object.defineProperty(res, 'url', { value: u.href });
+            return Promise.resolve(res);
         }
         return real.apply(this, arguments);
     };
-})();
+})();`;
+}
+
+/**
+ * Classic <script> for a test's page with stand-ins: its own requests
+ * (`fetch`, and so `agex.fetch` without a secret) to a stand-in are
+ * answered by it, each said in the console output. Runs after the
+ * assets script, whose `fetch` it wraps.
+ *
+ * @param {StandIn[]} standIns
+ * @returns {string}
+ */
+export function standInsScript(standIns) {
+    if (standIns.length === 0) return "";
+    return `
+<script>
+// test_app's stand-ins
+${patchSource(standIns)}
 <\/script>`;
+}
+
+/**
+ * A test's worker sources (`app/*.worker.js`, bundled), each answering
+ * its own requests from the stand-ins as the page does.
+ *
+ * @param {Record<string, string>} sources @param {StandIn[]} standIns
+ * @returns {Record<string, string>}
+ */
+export function standInsWorkerSources(sources, standIns) {
+    if (standIns.length === 0) return sources;
+    const patch = `// test_app's stand-ins\n${patchSource(standIns)}\n`;
+    return Object.fromEntries(Object.entries(sources).map(([name, src]) => [name, patch + src]));
 }

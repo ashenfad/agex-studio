@@ -11,7 +11,7 @@ import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { APP_STORAGE_QUOTA } from './app-storage.js';
 import { PLOTLY_URL } from './cdn.js';
 import { NEEDS_PATH, parseNeeds } from './app-needs.js';
-import { standInsScript } from './stand-ins.js';
+import { standInsScript, standInsWorkerSources } from './stand-ins.js';
 import ecosystem from 'virtual:ecosystem-packages';
 import {
     buildAssetsScript,
@@ -1261,7 +1261,8 @@ export async function buildAppPage(appFiles, opts = {}) {
     appFiles = Object.fromEntries(Object.entries(appFiles).filter(([path]) => path !== NEEDS_PATH));
     const storageShim = buildAppStorageShim(opts.appStorage || {});
     const workerSources = opts.workerSources ?? (await bundleAppWorkers(appFiles));
-    const workerScript = _workerRegistryScript(workerSources);
+    // a test's stand-ins answer its workers' requests too
+    const workerScript = _workerRegistryScript(standInsWorkerSources(workerSources, opts.standIns ?? []));
     // Collect the assets up-front so their tokens can flow into both
     // the module resolver (which rewrites HTML / inlined CSS refs) and
     // the injected script that exposes `window.appAssets` + the fetch
