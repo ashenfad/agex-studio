@@ -11,6 +11,7 @@ import _iframeBridgeSource from './iframe-bridge.js?raw';
 import { APP_STORAGE_QUOTA } from './app-storage.js';
 import { PLOTLY_URL } from './cdn.js';
 import { NEEDS_PATH, parseNeeds } from './app-needs.js';
+import { standInsScript } from './stand-ins.js';
 import ecosystem from 'virtual:ecosystem-packages';
 import {
     buildAssetsScript,
@@ -463,6 +464,8 @@ window.notify = function(title, body) {
                 var d = event.data;
                 if (!d || d.type !== 'agex-fetch-result' || d.id !== id) return;
                 done();
+                // a test's stand-in says what it answered
+                if (d.note && window.__agex_logs) window.__agex_logs.push({ level: 'info', message: String(d.note) });
                 if (d.error) { reject(new TypeError(d.error)); return; }
                 try {
                     var res = new Response(NULL_BODY.indexOf(d.status) >= 0 ? null : d.body, { status: d.status, statusText: d.statusText, headers: d.headers });
@@ -1245,6 +1248,7 @@ function _secretsScript(needs) {
  *   appBinaries?: Record<string, Uint8Array>,
  *   appStorage?: { seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> },
  *   workerSources?: Record<string, string>,
+ *   standIns?: import('./stand-ins.js').StandIn[],
  * }} [opts]
  * @returns {Promise<AppPage>}
  */
@@ -1263,7 +1267,8 @@ export async function buildAppPage(appFiles, opts = {}) {
     // the injected script that exposes `window.appAssets` + the fetch
     // monkey-patch.
     const { urls: assetUrls, assets } = collectAssets(opts.appBinaries || {}, appFiles);
-    const assetsScript = buildAssetsScript(assetUrls);
+    // a test's stand-ins wrap the assets script's fetch
+    const assetsScript = buildAssetsScript(assetUrls) + standInsScript(opts.standIns ?? []);
     // An app with a main script and no page gets a page that loads it,
     // built as any other: its imports resolve the same way.
     let html = appFiles['app/index.html'] || appFiles['index.html'] || MAIN_JS_PAGE;

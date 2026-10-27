@@ -556,6 +556,16 @@ describe('agex.fetch in the app', () => {
         expect(posted.at(-1).headers).toContainEqual(['content-type', 'application/x-www-form-urlencoded;charset=UTF-8'])
     })
 
+    it('puts a test stand-in’s note in the console output', async () => {
+        const logs = []
+        const { agex, posted, send } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html, { __agex_logs: logs })
+        const got = agex.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' } })
+        await settle()
+        send({ type: 'agex-fetch-result', id: posted[0].id, status: 200, statusText: 'OK', url: '', headers: [], body: new Uint8Array(), error: null, note: '[stand-in] GET https://api.stripe.com/v1/prices → 200' })
+        await got
+        expect(logs).toEqual([{ level: 'info', message: '[stand-in] GET https://api.stripe.com/v1/prices → 200' }])
+    })
+
     it('rejects with a TypeError carrying the studio’s message', async () => {
         const { agex, posted, send } = runBridge((await buildAppPage(blank(), { workerSources: {} })).html)
         const failed = agex.fetch('https://api.stripe.com/v1/prices', { headers: { Authorization: 'Bearer ${STRIPE_KEY}' } }).catch((e) => e)

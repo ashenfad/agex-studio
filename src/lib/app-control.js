@@ -15,6 +15,7 @@ import { hostInit } from "./app-assets.js";
 import { answerDb } from "./app-db-bridge.js";
 import { cancelModel, cancelModels, relayModel } from "./app-model.js";
 import { answerFetch, cancelFetch, cancelFetches, relayFetch } from "./app-fetch.js";
+import { answerFromStandIns } from "./stand-ins.js";
 import { checkBag } from "./app-storage.js";
 
 // ---------------------------------------------------------------------------
@@ -767,8 +768,10 @@ const _keys = (bag, store) => {
  * agent's model calls (`agex.model`) on `modelHandler`, likewise. Its
  * requests that carry a secret (`agex.fetch`) are filled from
  * `grantFor`, for the secrets the built page declares, and fail without
- * one; a test never asks for a grant. A model call or request still
- * running when its page goes is stopped.
+ * one; a test never asks for a grant. With `standIns`, a request is
+ * answered by its stand-in instead (`stand-ins.js`), and one with a
+ * secret is never sent. A model call or request still running when its
+ * page goes is stopped.
  *
  * @param {{
  *   appFiles: Record<string, string>,
@@ -781,6 +784,7 @@ const _keys = (bag, store) => {
  *   taskHandler?: ((call: { spec: unknown, inputs: unknown }) => Promise<unknown>) | null,
  *   modelHandler?: import("./app-model.js").ModelRunner | null,
  *   grantFor?: import("./app-fetch.js").FetchContext["grantFor"] | null,
+ *   standIns?: import("./stand-ins.js").StandIn[],
  *   dbHandler?: (() => Promise<import("@agex-ts/kvsql/client").DatabaseClient>) | null,
  *   viewport?: string | { width?: number, height?: number },
  * }} opts
@@ -798,6 +802,7 @@ export async function runTestApp(opts) {
         taskHandler = null,
         modelHandler = null,
         grantFor = null,
+        standIns = [],
         dbHandler = null,
         viewport = null,
     } = opts;
@@ -829,6 +834,7 @@ export async function runTestApp(opts) {
         const page = await buildAppPage(appFiles, {
             appBinaries,
             appStorage: { seed: appStorageSeed, writeable: false, report: true },
+            standIns,
         });
         /** What the test's pages hold in storage, as last reported. */
         let storage = { local: { ...appStorageSeed }, session: {} };
@@ -879,7 +885,9 @@ export async function runTestApp(opts) {
             },
             dbHandler,
             modelHandler,
-            grantFor === null ? null : (data, signal) => answerFetch(data, { needs: page.needs, grantFor, signal }),
+            standIns.length > 0
+                ? (data, signal) => answerFromStandIns(standIns, data, (ctx) => answerFetch(data, { needs: page.needs, signal, ...ctx }))
+                : grantFor === null ? null : (data, signal) => answerFetch(data, { needs: page.needs, grantFor, signal }),
         );
         window.addEventListener("message", messageHandler);
 
