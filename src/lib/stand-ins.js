@@ -1,7 +1,7 @@
 /**
  * Stand-ins for the services an app calls, in a `test_app` test: canned
  * responses by method, origin and path, so a test needs no key and
- * touches no real backend.
+ * doesn't reach the services they stand in for.
  *
  * A request with a secret (`agex.fetch` naming `${NAME}`) is checked by
  * the studio as it would be for real, then answered by its stand-in and
