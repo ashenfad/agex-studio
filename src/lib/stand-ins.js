@@ -1,0 +1,217 @@
+/**
+ * Stand-ins for the services an app calls, in a `test_app` test: canned
+ * responses by method, origin and path, so a test needs no key and
+ * touches no real backend.
+ *
+ * A request with a secret (`agex.fetch` naming `${NAME}`) is checked by
+ * the studio as it would be for real, then answered by its stand-in and
+ * never sent; one no stand-in matches is refused, so a test never sends
+ * a key anywhere. A request without one is answered in the test's page,
+ * in place of the network (`standInsScript`); one no stand-in matches
+ * goes out as it would.
+ */
+
+/** The most stand-ins a test takes. */
+export const STAND_INS_MAX = 50;
+
+/** Statuses a stand-in may answer with, as a `Response` takes them. */
+const MIN_STATUS = 200;
+const MAX_STATUS = 599;
+const NULL_BODY = [204, 205, 304];
+const KEYS = ["url", "method", "status", "headers", "body", "json"];
+
+/**
+ * A stand-in, as a test's page and the studio use it: `url` its origin
+ * and path, `method` upper-cased (null: any), `body` the text (null:
+ * none).
+ *
+ * @typedef {{ url: string, method: string | null, status: number, headers: Record<string, string>, body: string | null }} StandIn
+ */
+
+/** @param {unknown} value */
+const describe = (value) => (Array.isArray(value) ? "a list" : value === null ? "null" : typeof value);
+
+/**
+ * Check a test's `standIns`, as the agent gives them: a list of
+ * `{ url, method?, status?, headers?, body? | json? }`, `url` an
+ * `https:` or `http:` origin and path with no query.
+ *
+ * @param {unknown} list
+ * @returns {{ standIns: StandIn[], errors: string[] }}
+ */
+export function parseStandIns(list) {
+    /** @type {StandIn[]} */
+    const standIns = [];
+    /** @type {string[]} */
+    const errors = [];
+    if (list === undefined || list === null) return { standIns, errors };
+    if (!Array.isArray(list)) return { standIns, errors: [`standIns: must be a list of stand-ins; got ${describe(list)}`] };
+    if (list.length > STAND_INS_MAX) return { standIns, errors: [`standIns: at most ${STAND_INS_MAX}; got ${list.length}`] };
+    list.forEach((entry, i) => {
+        const at = `standIns[${i}]`;
+        const fail = (/** @type {string} */ where, /** @type {string} */ message) => errors.push(`${at}${where}: ${message}`);
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+            fail("", `must be an object like {"url": "https://api.example.com/v1/items", "json": [...]}; got ${describe(entry)}`);
+            return;
+        }
+        const before = errors.length;
+        for (const key of Object.keys(entry)) {
+            if (!KEYS.includes(key)) fail("", `unknown key "${key}" (expected ${KEYS.map((k) => `"${k}"`).join(", ")})`);
+        }
+        /** @type {URL | null} */
+        let url = null;
+        if (typeof entry.url !== "string") {
+            fail(".url", `must be a URL like "https://api.example.com/v1/items"; got ${describe(entry.url)}`);
+        } else {
+            try {
+                url = new URL(entry.url);
+            } catch {
+                fail(".url", `${JSON.stringify(entry.url)} isn't an absolute URL`);
+            }
+            if (url !== null && url.protocol !== "https:" && url.protocol !== "http:") {
+                fail(".url", `${JSON.stringify(entry.url)} isn't https: or http:`);
+            } else if (url !== null && (url.search !== "" || url.hash !== "")) {
+                fail(".url", `${JSON.stringify(entry.url)} has a query or fragment; give the origin and path, which any query matches`);
+            }
+        }
+        if (entry.method !== undefined && (typeof entry.method !== "string" || !/^[A-Za-z]+$/.test(entry.method))) {
+            fail(".method", `must be a method like "GET"; got ${JSON.stringify(entry.method)}`);
+        }
+        const status = entry.status ?? 200;
+        if (!Number.isInteger(status) || status < MIN_STATUS || status > MAX_STATUS) {
+            fail(".status", `must be a status from ${MIN_STATUS} to ${MAX_STATUS}; got ${JSON.stringify(entry.status)}`);
+        }
+        const headers = entry.headers ?? {};
+        if (typeof headers !== "object" || headers === null || Array.isArray(headers) || !Object.values(headers).every((v) => typeof v === "string")) {
+            fail(".headers", `must be an object of header names to strings; got ${describe(entry.headers)}`);
+        }
+        if (entry.body !== undefined && entry.json !== undefined) fail("", "give body or json, not both");
+        if (entry.body !== undefined && typeof entry.body !== "string") {
+            fail(".body", `must be a string (json takes any value); got ${describe(entry.body)}`);
+        }
+        if (errors.length > before || url === null) return;
+        /** @type {Record<string, string>} */
+        const out = { ...headers };
+        let body = entry.body ?? null;
+        if (entry.json !== undefined) {
+            body = JSON.stringify(entry.json);
+            if (!Object.keys(out).some((h) => h.toLowerCase() === "content-type")) out["content-type"] = "application/json";
+        }
+        standIns.push({
+            url: url.origin + url.pathname,
+            method: entry.method === undefined ? null : entry.method.toUpperCase(),
+            status,
+            headers: out,
+            body: NULL_BODY.includes(status) ? null : body,
+        });
+    });
+    return { standIns, errors };
+}
+
+/**
+ * The stand-in that answers `method` to `url` (its origin and path; any
+ * query), or null: the first that names the method, else the first that
+ * names none.
+ *
+ * @param {StandIn[]} standIns @param {string} method @param {string | URL} url
+ * @returns {StandIn | null}
+ */
+export function matchStandIn(standIns, method, url) {
+    let at;
+    try {
+        const u = new URL(url);
+        at = u.origin + u.pathname;
+    } catch {
+        return null;
+    }
+    const m = method.toUpperCase();
+    const here = standIns.filter((s) => s.url === at);
+    return here.find((s) => s.method === m) ?? here.find((s) => s.method === null) ?? null;
+}
+
+/** @param {StandIn} s */
+const respond = (s) => new Response(s.body, { status: s.status, headers: s.headers });
+
+/**
+ * Answer a test's request with a secret (`agex-fetch`) from its
+ * stand-ins: checked by `answer` as for real, with a stand-in's key in
+ * place of the viewer's, and never sent. One no stand-in matches is
+ * refused. A reply that went through says so in `note`, which the page
+ * shows in its console output.
+ *
+ * @param {StandIn[]} standIns
+ * @param {Record<string, unknown>} data the page's `agex-fetch` message
+ * @param {(ctx: { grantFor: (need: import("./app-needs.js").SecretNeed) => Promise<string>, fetch: typeof globalThis.fetch }) => Promise<Record<string, unknown>>} answer
+ *   `answerFetch` over this request, given the stand-ins' grants and fetch
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function answerFromStandIns(standIns, data, answer) {
+    /** @type {string | null} */
+    let missed = null;
+    const reply = await answer({
+        // a key no service sees: the request goes no further than a stand-in
+        grantFor: async (need) => `stand-in-key-for-${need.name}`,
+        fetch: async (input, init) => {
+            const method = init?.method ?? "GET";
+            const s = matchStandIn(standIns, method, String(input));
+            if (s !== null) return respond(s);
+            const u = new URL(String(input));
+            missed = `${method.toUpperCase()} ${u.origin}${u.pathname}`;
+            return new Response(null, { status: 404 });
+        },
+    });
+    const url = typeof data.url === "string" ? data.url : "";
+    const method = (typeof data.method === "string" ? data.method : "GET").toUpperCase();
+    if (missed !== null) {
+        const error = `agex.fetch: no stand-in answers ${missed}; in a test with standIns, every request with a secret needs one, and none is sent`;
+        return { type: "agex-fetch-result", id: data.id, error, note: `[stand-in] ${method} ${url}: none matches, refused` };
+    }
+    if (reply.error) return { ...reply, note: `[stand-in] ${method} ${url}: refused: ${reply.error}` };
+    const keyed = (Array.isArray(data.headers) ? data.headers : [])
+        .filter((h) => Array.isArray(h) && typeof h[1] === "string" && h[1].includes("${"))
+        .map(([name, value]) => `${String(name).toLowerCase()}: ${value}`);
+    return { ...reply, note: `[stand-in] ${method} ${url} (${keyed.join(", ")}) → ${reply.status}` };
+}
+
+/**
+ * Classic <script> for a test's page with stand-ins: its own requests
+ * (`fetch`, and so `agex.fetch` without a secret) to a stand-in are
+ * answered by it, each said in the console output. Runs after the
+ * assets script, whose `fetch` it wraps.
+ *
+ * @param {StandIn[]} standIns
+ * @returns {string}
+ */
+export function standInsScript(standIns) {
+    if (standIns.length === 0) return "";
+    const json = JSON.stringify(standIns).replace(/</g, "\\u003c");
+    return `
+<script>
+// test_app's stand-ins
+(function() {
+    var S = ${json};
+    var real = window.fetch;
+    window.fetch = function(input, init) {
+        var isRequest = typeof Request !== 'undefined' && input instanceof Request;
+        var method = String((init && init.method) || (isRequest ? input.method : 'GET')).toUpperCase();
+        var at = null;
+        try {
+            var u = new URL(isRequest ? input.url : String(input), location.href);
+            at = u.origin + u.pathname;
+        } catch (e) { /* not a URL: the real fetch says so */ }
+        // the first that names the method, else the first that names none
+        var s = null;
+        for (var i = 0; i < S.length; i++) {
+            if (S[i].url !== at) continue;
+            if (S[i].method === method) { s = S[i]; break; }
+            if (S[i].method === null && s === null) s = S[i];
+        }
+        if (s !== null) {
+            if (window.__agex_logs) window.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
+            return Promise.resolve(new Response(s.body, { status: s.status, headers: s.headers }));
+        }
+        return real.apply(this, arguments);
+    };
+})();
+<\/script>`;
+}

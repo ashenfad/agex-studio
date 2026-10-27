@@ -16,6 +16,7 @@ import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
 import { errorText } from "./errors.js";
 import { GRID_MAX, tileGrid } from "./grid.js";
+import { STAND_INS_MAX, parseStandIns } from "./stand-ins.js";
 
 /** What the model reads of a value: JSON, cut at `max` characters. */
 const shown = (/** @type {unknown} */ value, max = 4000) => {
@@ -41,6 +42,7 @@ actions: a list of plain objects, run in order:
 
 An action that fails ends the call with an error, after the results that came before it; an eval that throws is reported and the actions go on.
 viewport sets the hidden iframe's starting size (default 800x600); fresh: true starts it with empty storage and an empty agex.db.
+standIns: canned responses for the services the app calls, so a test needs no key and touches no real backend (not live). Up to ${STAND_INS_MAX}, each {url: "https://api.example.com/v1/items", method?: "GET", status?: 200, headers?: {...}, json?: any value | body?: "text"}; it answers that method (any, without one) to that origin and path, whatever the query. A request with a secret (agex.fetch with \${NAME} in its header) is checked as for real, then answered by its stand-in and never sent; one no stand-in matches is refused. A request without one (fetch, agex.fetch) is answered by its stand-in in place of the network, or goes out as usual. Each shows in the console output as [stand-in], with the headers that named a secret.
 The result lists the app's console output, then each action's result. The app's own timers keep running between actions, so compare time-driven values with a tolerance, or give the app a hook to pause or step it. While the studio's tab is in the background, the browser pauses animation frames and slows timers: the result says so when that happened.`;
 
 /** The line a result gets when the studio's page was hidden during the call. */
@@ -96,6 +98,7 @@ export function testAppTool(session) {
                     ],
                 },
                 fresh: { type: "boolean" },
+                standIns: { type: "array", items: { type: "object" } },
             },
         },
         async call(args) {
@@ -119,6 +122,11 @@ async function runTest(session, args) {
     const ws = session.ws;
     if (ws === null) return { text: "the session isn't open", images: [], isError: true };
     const actions = Array.isArray(args.actions) ? args.actions : [];
+    const { standIns, errors } = parseStandIns(args.standIns);
+    if (errors.length > 0) return { text: errors.join("\n"), images: [], isError: true };
+    if (args.live === true && standIns.length > 0) {
+        return { text: "standIns are for a hidden test: live acts on the preview the person is looking at, with its real services; test without live", images: [], isError: true };
+    }
     /** @type {any[]} */
     let results;
     try {
@@ -170,6 +178,7 @@ async function runTest(session, args) {
                         const [{ studio }, { vault }] = await Promise.all([import("./studio.svelte.js"), import("./vault.svelte.js")]);
                         return vault.valueFor(studio.appKey(session.name), need);
                     },
+                    standIns,
                     dbHandler: () => (testDb ??= appDbs.testDb(session.name, { empty: args.fresh === true })),
                     viewport: /** @type {any} */ (args.viewport) ?? null,
                 });
