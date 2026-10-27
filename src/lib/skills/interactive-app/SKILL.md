@@ -366,8 +366,8 @@ one into its code, or keep one in `agex.db` or `localStorage`.
 } }
 ```
 
-- `name`: upper-case letters, digits and `_`, the app's own name for
-  the key.
+- `name`: upper-case letters, digits and `_`, starting with a letter
+  (`WEATHER_KEY`): the app's own name for the key.
 - `origins`: where the key may go, each `https://host` alone (no path).
 - `in`: the one request header it goes in (`header:Authorization`,
   `header:X-Api-Key`, whichever the service's docs name).

@@ -10,8 +10,9 @@ vault), #169 (`agex.fetch`), #170 (the panel), #172 (`agex.http()`),
 #173 (stand-ins) and #174 (the skills), whose spike met slice 8's
 check: agents given the skills alone built a keyed app and an app agent
 that used the key, and against httpbin the key went only in its
-declared header, its echo came back as the reference, and the studio's
-page never held it. Phases 3 and 4 not started. This
+declared header, its echo came back as the reference, and neither the
+app's page nor its agent held it (the studio fills it in). Phases 3 and
+4 not started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
