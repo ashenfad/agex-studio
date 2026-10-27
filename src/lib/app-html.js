@@ -487,6 +487,81 @@ window.notify = function(title, body) {
         });
     };
 })();
+
+// agex.http() — the http host object for an agent the app runs, so its
+// code reaches services with the viewer's keys and never holds one. Give
+// it to the world with the app's declared secrets:
+//   profile: { hostObjects: { http: agex.http() }, secrets: agex.secrets() }
+// The agent's code calls http.fetch(url, { method, headers, body, follow,
+// timeout, as }), with secret('NAME') in the header declared for it; the
+// request is agex.fetch's, so the studio fills in the key. It resolves
+// with { status, ok, statusText, url, headers, body }, the body as text
+// (as: 'text', the default), parsed JSON ('json') or bytes ('bytes');
+// a response past 10 MB, or no answer in timeout seconds (60), fails.
+// NOTE: this whole block is inside a template literal — no backticks.
+(function() {
+    var MAX_BYTES = 10 * 1024 * 1024;
+    async function readCapped(res) {
+        if (res.body === null) return new Uint8Array(0);
+        var reader = res.body.getReader();
+        var chunks = [];
+        var size = 0;
+        for (;;) {
+            var step = await reader.read();
+            if (step.done) break;
+            size += step.value.byteLength;
+            if (size > MAX_BYTES) {
+                await reader.cancel();
+                throw new TypeError('http.fetch: the response is larger than 10 MB');
+            }
+            chunks.push(step.value);
+        }
+        var out = new Uint8Array(size);
+        var at = 0;
+        chunks.forEach(function(c) { out.set(c, at); at += c.byteLength; });
+        return out;
+    }
+    window.agex.http = function() {
+        return {
+            fetch: async function(url, init) {
+                init = init || {};
+                if (typeof url !== 'string') throw new TypeError('http.fetch: url must be a string');
+                if (!/^[a-z][a-z0-9+.-]*:/i.test(url)) url = 'https://' + url;
+                var seconds = init.timeout === undefined ? 60 : init.timeout;
+                var controller = new AbortController();
+                var timer = setTimeout(function() {
+                    controller.abort(new TypeError('http.fetch: no answer in ' + seconds + ' seconds'));
+                }, seconds * 1000);
+                var res, bytes;
+                try {
+                    var request = {
+                        method: init.method || (init.body === undefined ? 'GET' : 'POST'),
+                        headers: init.headers || {},
+                        redirect: init.follow === false ? 'manual' : 'follow',
+                        signal: controller.signal,
+                    };
+                    if (init.body !== undefined) request.body = init.body;
+                    res = await window.agex.fetch(url, request);
+                    bytes = await readCapped(res);
+                } finally {
+                    clearTimeout(timer);
+                }
+                var as = init.as || 'text';
+                var text = function() { return new TextDecoder().decode(bytes); };
+                var headers = {};
+                res.headers.forEach(function(value, name) { headers[name] = value; });
+                return {
+                    status: res.status,
+                    ok: res.ok,
+                    statusText: res.statusText,
+                    url: res.url || url,
+                    headers: headers,
+                    body: as === 'bytes' ? bytes : as === 'json' ? JSON.parse(text()) : text(),
+                };
+            },
+        };
+    };
+})();
 <\/script>`;
 
 /**
@@ -1134,6 +1209,23 @@ function _workerRegistryScript(workerSources) {
 }
 
 /**
+ * Classic <script> giving the page `agex.secrets()`: the secrets the app
+ * declares, as a world's profile takes them (`{ NAME: { origins } }`),
+ * names and origins only, never a value. Runs after the host bridge,
+ * which makes `window.agex`.
+ *
+ * @param {import('./app-needs.js').AppNeeds} needs
+ */
+function _secretsScript(needs) {
+    const specs = Object.fromEntries(needs.secrets.map((s) => [s.name, { origins: s.origins }]));
+    const json = JSON.stringify(specs).replace(/</g, '\\u003c');
+    return (
+        `\n<script>\n// agex.secrets()\n(function(){var S=${json};` +
+        `window.agex.secrets=function(){return JSON.parse(JSON.stringify(S));};})();\n<\/script>`
+    );
+}
+
+/**
  * Build the page for an app preview or test iframe: its HTML, with the
  * console interceptor, host bridge and CDN scripts injected, and
  * multi-file app projects resolved (JS via import map with data URIs,
@@ -1157,9 +1249,9 @@ function _workerRegistryScript(workerSources) {
  * @returns {Promise<AppPage>}
  */
 export async function buildAppPage(appFiles, opts = {}) {
-    // The app's needs are the studio's to read, not the page's: a
-    // mistake in them fails the build, and the file is left out of the
-    // page and its assets.
+    // The app's needs are the studio's to read: a mistake in them fails
+    // the build, and the file is left out of the page and its assets.
+    // The page has its secrets' names and origins (`agex.secrets()`).
     const { needs, errors } = parseNeeds(appFiles[NEEDS_PATH] ?? null);
     if (errors.length > 0) throw new Error(errors.join('\n'));
     appFiles = Object.fromEntries(Object.entries(appFiles).filter(([path]) => path !== NEEDS_PATH));
@@ -1187,7 +1279,7 @@ export async function buildAppPage(appFiles, opts = {}) {
     // scripts below: a library might poke localStorage on import),
     // and the assets script early, so its fetch patch is in place
     // before any app JS runs.
-    const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+    const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + _secretsScript(needs) + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
     return { html: _injectHead(html, injected), assets, storageShim, needs };
 }
 
