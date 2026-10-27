@@ -217,6 +217,34 @@ Use run_ts to read or change the board. Reply briefly, in plain text with no Mar
   Policy(100_000)`): what the model is sent is summarized past that
   many tokens, while the stored runs keep everything for the page.
 
+## Services with the viewer's keys
+
+For an agent that calls a service needing a key, declare the key in
+`app/agex.json` (interactive-app: "Services with the viewer's keys"),
+and give the world the `http` host object and the declared secrets:
+
+```js
+const ws = await store.open('chat', {
+  profile: { hostObjects: { board, http: agex.http() }, secrets: agex.secrets() },
+})
+```
+
+- **`agex.http()`** is the world's `http` over `agex.fetch`. The
+  agent's code calls `await http.fetch(url, { headers, as: 'json' })`
+  (`as`: `text`, the default, `json` or `bytes`) and gets
+  `{ status, ok, statusText, url, headers, body }`. `secret('NAME')`
+  in its code is the key's reference, which goes in the declared
+  header: `{ Authorization: 'Bearer ' + secret('WEATHER_KEY') }`. The
+  studio fills it in, so neither the app nor its agent holds the key.
+- **`agex.secrets()`** is the declared secrets by name and origins,
+  with no values, so the agent's tools list them.
+- **Say it in the primer:** the service, what to call, and that the key
+  goes as `secret('WEATHER_KEY')` in that header, through
+  `http.fetch`. `curl` in the agent's shell refuses a request carrying
+  one of these keys.
+- **Test** with `test_app`'s `standIns`, as any app that calls a
+  service.
+
 ## Designing one
 
 - **Give the agent the app's verbs, not its insides.** `board.add`,
