@@ -236,9 +236,12 @@ the transcript, the model's context and the session's history.
 - **A grant is per session,** after an app's: kept in the vault under
   `agent:<session>`, apart from that session's app (`session:<name>`),
   so granting the app a key doesn't hand it to the agent, or the other
-  way. A fork copies it; a delegate has its top session's; removing a
-  session forgets it. A grant beats an entry made available under the
-  same name.
+  way. It keeps the origins the person approved with it (an app's come
+  from `app/agex.json`; an agent's request has no such file), and the
+  secret goes to those origins only, never the entry's wider ones. A
+  fork copies it; a delegate has its top session's; removing a session
+  forgets it. A grant beats an entry made available under the same
+  name.
 - **No one to ask, no asking:** a delegate's `request_secret` is
   refused (it runs with nobody at the picker): it says to ask the
   session that delegated, which can ask the person and delegate again.
