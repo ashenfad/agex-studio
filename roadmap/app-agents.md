@@ -243,8 +243,12 @@ the transcript, the model's context and the session's history.
   forgets it. A grant beats an entry made available under the same
   name.
 - **No one to ask, no asking:** a delegate's `request_secret` is
-  refused (it runs with nobody at the picker): it says to ask the
-  session that delegated, which can ask the person and delegate again.
+  refused, since it runs with nobody at the picker (a delegate has
+  its top session's grants already). The refusal tells it to finish
+  and say in its answer which key it needs (name, origins, why). A
+  delegate that delegated passes that up in its own answer, so it
+  reaches the top session, whose agent can ask the person and delegate
+  again.
 - **The world reads its secrets live** (agex-ts): a profile's `secrets`
   may be a function, called each time a request, the shell or a tool
   description needs them. A key granted mid-turn is there for the next
