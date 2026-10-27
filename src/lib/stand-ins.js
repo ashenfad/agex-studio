@@ -138,8 +138,9 @@ export function matchStandIn(standIns, method, url) {
     return here.find((s) => s.method === m) ?? here.find((s) => s.method === null) ?? null;
 }
 
-/** @param {StandIn} s */
-const respond = (s) => new Response(s.body, { status: s.status, headers: s.headers });
+/** A stand-in's response to `method`: to HEAD, without a body.
+ *  @param {StandIn} s @param {string} method */
+const respond = (s, method) => new Response(method.toUpperCase() === "HEAD" ? null : s.body, { status: s.status, headers: s.headers });
 
 /**
  * Answer a test's request with a secret (`agex-fetch`) from its
@@ -163,7 +164,7 @@ export async function answerFromStandIns(standIns, data, answer) {
         fetch: async (input, init) => {
             const method = init?.method ?? "GET";
             const s = matchStandIn(standIns, method, String(input));
-            if (s !== null) return respond(s);
+            if (s !== null) return respond(s, method);
             const u = new URL(String(input));
             missed = `${method.toUpperCase()} ${u.origin}${u.pathname}`;
             return new Response(null, { status: 404 });
@@ -186,8 +187,9 @@ export async function answerFromStandIns(standIns, data, answer) {
  * The code that answers a test's own requests from its stand-ins, in a
  * page or a worker (`self`): `fetch` to a stand-in resolves with its
  * response (its `url` the request's), said in the page's console output
- * (a worker has none), or rejects as fetch does when its signal is
- * aborted first; any other goes on to the `fetch` it wraps.
+ * (a worker has none), or rejects as fetch does when the request is
+ * one fetch refuses or its signal is aborted first; any other goes on
+ * to the `fetch` it wraps.
  *
  * @param {StandIn[]} standIns
  * @returns {string}
@@ -215,6 +217,10 @@ function patchSource(standIns) {
         if (s !== null) {
             var signal = (init && init.signal) || (isRequest ? input.signal : null);
             return new Promise(function(resolve, reject) {
+                // a request fetch would refuse (a GET with a body, a forbidden
+                // method) is refused here too; built only once it matched, as
+                // building it uses a Request's body up
+                try { new Request(input, init); } catch (e) { return reject(e); }
                 function stopped() {
                     reject(signal.reason !== undefined ? signal.reason : new DOMException('The operation was aborted.', 'AbortError'));
                 }
@@ -225,7 +231,8 @@ function patchSource(standIns) {
                     if (signal) signal.removeEventListener('abort', stopped);
                     if (signal && signal.aborted) return;
                     if (self.__agex_logs) self.__agex_logs.push({ level: 'info', message: '[stand-in] ' + method + ' ' + u.href + ' → ' + s.status });
-                    var res = new Response(s.body, { status: s.status, headers: s.headers });
+                    // a response to HEAD has no body
+                    var res = new Response(method === 'HEAD' ? null : s.body, { status: s.status, headers: s.headers });
                     Object.defineProperty(res, 'url', { value: u.href });
                     resolve(res);
                 }, 0);
