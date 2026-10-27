@@ -18,8 +18,8 @@ importers:
         specifier: ^0.3.2
         version: 0.3.2
       '@agex-ts/world':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       '@ai-sdk/anthropic':
         specifier: 4.0.79
         version: 4.0.79(zod@4.6.5)
@@ -90,8 +90,8 @@ packages:
     resolution: {integrity: sha512-jZI2Pr8gsswFQreHRhs20mcPo6B6T/htYkT55fzgqfnDupHqvaK5kKJZQBpwVscvORfoNzSHe8kkiuMRM2WKwA==}
     engines: {node: '>=22'}
 
-  '@agex-ts/world@0.1.3':
-    resolution: {integrity: sha512-7tKJH523YwLjKfOb0ok9WYazx5VQUuiZSx4YMxap223j2F3sZY+E+bhuTfPsR2yjhGJc9COi7QRQQG+Z3uvJNQ==}
+  '@agex-ts/world@0.1.4':
+    resolution: {integrity: sha512-UI8+49zuYQ7scSB0iATW1kQd1x/YV5pa/ASIty+uxjFLCQAMHZsbTUhRMpEC+VUzH04KwWq6hPBjOV1ye9vP6w==}
     engines: {node: '>=22'}
 
   '@ai-sdk/anthropic@4.0.79':
@@ -1194,7 +1194,7 @@ snapshots:
       fflate: 0.8.3
       superjson: 2.2.6
 
-  '@agex-ts/world@0.1.3':
+  '@agex-ts/world@0.1.4':
     dependencies:
       '@agex-ts/kvgit': 0.2.1
       '@agex-ts/termish': 0.3.2
@@ -1609,7 +1609,7 @@ snapshots:
   agex-ts@0.6.1:
     dependencies:
       '@agex-ts/kvgit': 0.2.1
-      '@agex-ts/world': 0.1.3
+      '@agex-ts/world': 0.1.4
       '@ai-sdk/provider': 4.0.27
       '@standard-schema/spec': 1.1.0
 
