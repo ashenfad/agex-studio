@@ -408,7 +408,7 @@ const forecast = await res.json()
 - Without a reference, `agex.fetch` is the app's own `fetch`.
 
 Test it with stand-ins (`test_app`'s `standIns`, below): no key, and
-no real service touched. An agent in the app reaches the service the
+the service itself isn't called. An agent in the app reaches the service the
 same way (the app-agents skill).
 
 ## Checking your app: `test_app`
@@ -458,13 +458,15 @@ Options beside `actions`:
 - `fresh: true`: start with empty app storage (by default it is seeded
   from the person's, and the test's writes are thrown away).
 - `standIns`: canned responses for the services the app calls, so a
-  test needs no key and touches no real backend:
+  test needs no key and doesn't reach the services they stand in for:
   `[{"url": "https://api.weather.example/v1/forecast", "json": {"temp": 21}}]`,
   with `method`, `status`, `headers` or `body` (text) when they matter.
   Each answers its method (any, without one) to that origin and path,
   whatever the query. A request with a key is checked as it would be
   for real, then answered without being sent; one no stand-in matches
-  fails. Each answer shows in the console output as
+  fails. A request without a key that no stand-in matches goes out for
+  real, so give a stand-in to every request the test shouldn't send.
+  Each answer shows in the console output as
   `[stand-in] GET … → 200`, with the header that named the key, as its
   reference. Not with `live`.
 - `live: true`: act on the preview **the person is looking at** instead,
