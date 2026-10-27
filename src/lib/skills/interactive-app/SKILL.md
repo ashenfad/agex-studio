@@ -132,7 +132,9 @@ small settings (5 MB in all). Both sync with the session when the
 person has sync on: what the app saves lands in their sync repo. So
 before an app keeps a secret in either (an API key, a token, a
 password), ask the person whether that's all right; `sessionStorage`
-holds one only while the page is open.
+holds one only while the page is open. A key for a service is better
+declared, so each viewer brings their own and the app never holds it
+(see "Services with the viewer's keys").
 
 ```js
 await agex.db.query(`CREATE TABLE IF NOT EXISTS tasks (
@@ -344,6 +346,71 @@ its own functions, work of several steps) runs agex-ts in the page, on
 **app-agents** skill for that. A task is the lighter choice whenever
 one answer per call will do.
 
+## Services with the viewer's keys: `agex.fetch`
+
+An app that calls a service needing a key (a weather API, a payments
+API, a maps service) never holds the key: it declares what it needs,
+and each viewer brings their own. Don't ask for a key in the app, write
+one into its code, or keep one in `agex.db` or `localStorage`.
+
+**Declare it** in `app/agex.json`:
+
+```json
+{ "needs": {
+    "secrets": [{
+      "name": "WEATHER_KEY",
+      "origins": ["https://api.weather.example"],
+      "in": "header:Authorization",
+      "why": "to look up the forecast"
+    }]
+} }
+```
+
+- `name`: upper-case letters, digits and `_`, the app's own name for
+  the key.
+- `origins`: where the key may go, each `https://host` alone (no path).
+- `in`: the one request header it goes in (`header:Authorization`,
+  `header:X-Api-Key`, whichever the service's docs name).
+- `why`: a short phrase the viewer reads when asked (up to 200
+  characters).
+- `"model": true` beside `secrets` when the app also uses `agex.task`
+  or `agex.model()`, so a viewer of a shared copy is asked for
+  everything at once.
+
+A mistake in the file fails the build, each one named.
+
+**Call it** with `agex.fetch`, the key's reference in that header:
+
+```js
+const res = await agex.fetch('https://api.weather.example/v1/forecast?city=Oslo', {
+  headers: { Authorization: 'Bearer ${WEATHER_KEY}' },
+})
+const forecast = await res.json()
+```
+
+- **The reference is a plain string,** `'Bearer ${WEATHER_KEY}'` in
+  quotes. In a backtick template, `${WEATHER_KEY}` is JavaScript's own,
+  and throws.
+- **The viewer is asked once,** in the preview: their own key, or one
+  they keep in the studio. Then the studio fills it in and sends the
+  request: only to the declared origins, in the declared header,
+  without cookies, following no redirect. A key the response echoes
+  comes back as `${WEATHER_KEY}`.
+- **It resolves with a `Response`,** as `fetch` does, and rejects with
+  a `TypeError` saying what went wrong: no key given, the reference
+  somewhere else (the URL, the query, the body, another header), an
+  origin not declared. Show the viewer the message.
+- **A header only:** a service that takes its key in the query string
+  can't be used this way.
+- **The service must allow browser requests (CORS).** The studio sends
+  the request from its page, and many APIs meant for servers refuse
+  that: the error then says so.
+- Without a reference, `agex.fetch` is the app's own `fetch`.
+
+Test it with stand-ins (`test_app`'s `standIns`, below): no key, and
+no real service touched. An agent in the app reaches the service the
+same way (the app-agents skill).
+
 ## Checking your app: `test_app`
 
 After writing the app, **check it before you say it's done.** `test_app`
@@ -390,6 +457,16 @@ Options beside `actions`:
   `desktop` (1280×800), `tablet` (768×1024) and `mobile` (390×844).
 - `fresh: true`: start with empty app storage (by default it is seeded
   from the person's, and the test's writes are thrown away).
+- `standIns`: canned responses for the services the app calls, so a
+  test needs no key and touches no real backend:
+  `[{"url": "https://api.weather.example/v1/forecast", "json": {"temp": 21}}]`,
+  with `method`, `status`, `headers` or `body` (text) when they matter.
+  Each answers its method (any, without one) to that origin and path,
+  whatever the query. A request with a key is checked as it would be
+  for real, then answered without being sent; one no stand-in matches
+  fails. Each answer shows in the console output as
+  `[stand-in] GET … → 200`, with the header that named the key, as its
+  reference. Not with `live`.
 - `live: true`: act on the preview **the person is looking at** instead,
   to read what they entered or selected, or to apply something to the
   open app. A change you just wrote is in it: the call waits for the
@@ -561,5 +638,5 @@ page. Arguments and results must be structured-cloneable.
   data, and full URLs (CORS permitting) for public APIs.
 - **`SharedArrayBuffer` / threaded WASM**: the page isn't
   cross-origin-isolated.
-- **`window.env`, `agex.fetch`, `app/agex.json`**: reserved for the
-  studio's own use; don't define them in an app.
+- **`window.env`**: reserved for the studio's own use; don't define it
+  in an app.
