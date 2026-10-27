@@ -158,11 +158,19 @@ const respond = (s, method) => new Response(method.toUpperCase() === "HEAD" ? nu
 export async function answerFromStandIns(standIns, data, answer) {
     /** @type {string | null} */
     let missed = null;
+    /** Why fetch would refuse the request (a forbidden method). @type {string | null} */
+    let invalid = null;
     const reply = await answer({
         // a key no service sees: the request goes no further than a stand-in
         grantFor: async (need) => `stand-in-key-for-${need.name}`,
         fetch: async (input, init) => {
             const method = init?.method ?? "GET";
+            try {
+                new Request(input, init);
+            } catch (e) {
+                invalid = e instanceof Error ? e.message : String(e);
+                return new Response(null, { status: 400 });
+            }
             const s = matchStandIn(standIns, method, String(input));
             if (s !== null) return respond(s, method);
             const u = new URL(String(input));
@@ -172,6 +180,10 @@ export async function answerFromStandIns(standIns, data, answer) {
     });
     const url = typeof data.url === "string" ? data.url : "";
     const method = (typeof data.method === "string" ? data.method : "GET").toUpperCase();
+    if (invalid !== null) {
+        const error = `agex.fetch: ${invalid}`;
+        return { type: "agex-fetch-result", id: data.id, error, note: `[stand-in] ${method} ${url}: refused: ${error}` };
+    }
     if (missed !== null) {
         const error = `agex.fetch: no stand-in answers ${missed}; in a test with standIns, every request with a secret needs one, and none is sent`;
         return { type: "agex-fetch-result", id: data.id, error, note: `[stand-in] ${method} ${url}: none matches, refused` };
