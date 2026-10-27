@@ -169,6 +169,16 @@ describe("agex.fetch, in the studio", () => {
         expect(reply.error).toMatch(/^agex\.fetch: /);
         expect(String(reply.error)).not.toContain(KEY);
     });
+
+    it("says when the service's CORS policy refused the studio, not only that the fetch failed", async () => {
+        // a CORS refusal rejects as a dead network does; a no-cors probe, which carries no key, gets through
+        const fetch = /** @type {typeof globalThis.fetch} */ (async (_input, init) => {
+            if (init?.mode === "no-cors") return new Response(null);
+            throw new TypeError("Failed to fetch");
+        });
+        const reply = await answerFetch(req(), { needs, grantFor, fetch });
+        expect(reply.error).toBe("agex.fetch: api.stripe.com answered, but its CORS policy doesn't let this page read the response (it must send Access-Control-Allow-Origin for this origin)");
+    });
 });
 
 /** A frame whose page records what the studio posts to it. */
