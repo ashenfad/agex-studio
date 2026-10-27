@@ -11,8 +11,8 @@ vault), #169 (`agex.fetch`), #170 (the panel), #172 (`agex.http()`),
 check: agents given the skills alone built a keyed app and an app agent
 that used the key, and against httpbin the key went only in its
 declared header, its echo came back as the reference, and neither the
-app's page nor its agent held it (the studio fills it in). Phases 3 and
-4 not started. This
+app's page nor its agent held it (the studio fills it in). Phase 3 is
+sliced, phase 4 not started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -210,16 +210,55 @@ follow (4).
 
 ## Phase 3: the agent's own secrets
 
-The vault is phase 2's; what's left is the person's own agents:
+The vault is phase 2's. What's left is the person's own agents, which
+today have `curl` and no key, so a key typed into the chat lands in
+the transcript, the model's context and the session's history.
 
-- Each vault entry has **"available to my agents"**, off by default.
-  When on, every session's profile gets it as one of the world's
-  secrets (`{value, origins}`): the agent sees its name and origins,
-  never its value, and uses it as `$NAME` in `curl` and `secret('NAME')`
-  with the `http` host object.
-- Asked for when needed: a `request_secret` tool (name, origins, why)
-  shows the same picker in the chat (an entry, or a new key); the value
-  goes to the vault, never into the transcript.
+- **A key, by name, for the agent:** the world's secrets
+  (`{ value, origins }`), so the agent sees a name and its origins,
+  never the value. It writes `$NAME` in `curl` and `secret('NAME')` in
+  code with the `http` host object, which the studio's profile gains
+  (its requests sent without credentials). The world fills it in for
+  those origins only, and replaces an echo with the reference.
+- **Two ways a key reaches a session's agent:**
+  - **"Available to my agents"** on a vault entry, off by default, with
+    a name for agents (`STRIPE_KEY`, upper-case, one per entry and
+    unique among those on). Every session's agent has it, as someone
+    sets an `.env` for their own tools.
+  - **`request_secret`** (`name`, `origins`, `why`): the agent asks
+    when a task needs a key. The chat shows the picker phase 2's panel
+    has, over the entries whose origins cover the request, or a field
+    for a new key, which goes into the vault. What the person picks
+    is granted to this session under the requested name and origins;
+    "Not now" answers the tool so the turn goes on. The value is typed
+    into the picker, never into a message, and the tool's result names
+    the secret only.
+- **A grant is per session,** after an app's: kept in the vault under
+  `agent:<session>`, apart from that session's app (`session:<name>`),
+  so granting the app a key doesn't hand it to the agent, or the other
+  way. A fork copies it; a delegate has its top session's; removing a
+  session forgets it. A grant beats an entry made available under the
+  same name.
+- **No one to ask, no asking:** a delegate's `request_secret` is
+  refused (it runs with nobody at the picker): it says to ask the
+  session that delegated, which can ask the person and delegate again.
+- **The world reads its secrets live** (agex-ts): a profile's `secrets`
+  may be a function, called each time a request, the shell or a tool
+  description needs them. A key granted mid-turn is there for the next
+  tool call, and one revoked is gone, without reopening the session.
+- **Settings:** each entry's toggle and name for agents, and its "used
+  by" listing sessions' agents beside apps, each with a revoke.
+- **On another device** the session has no grant (the vault isn't
+  synced), so its agent asks again there.
+
+Slices:
+
+| # | Where | What | Needs |
+|---|---|---|---|
+| 1 | agex-ts | A profile's `secrets` as a function, read at each use (requests, the shell's environment, the tools' descriptions); then a patch release | |
+| 2 | studio | Agents' grants in the vault (`agent:<session>`; forks, delegates, removal), "available to my agents" and its name, settings; each session's world given its secrets live, and the `http` host object | 1 (released) |
+| 3 | studio | `request_secret`: the picker in the chat (shared with the panel), a delegate's refusal, the result | 2 |
+| 4 | studio | The primer's note on keys, and a spike: an agent asked to call httpbin with "my key" asks, uses it in `curl` and `http.fetch`, and httpbin's echo comes back as the reference | all |
 
 ## Phase 4: variables
 
@@ -263,6 +302,11 @@ The vault is phase 2's; what's left is the person's own agents:
   `fetch`, so no app borrows the studio's origin.
 - **Agents don't see vault entries by default** (phase 3): an app
   always asks, and a session's agent asks with `request_secret`.
+- **An agent's grant is its session's,** apart from its app's: the two
+  are trusted differently (a person's own agent, an app anyone may have
+  written), so neither inherits the other's keys.
+- **The world's secrets are read live,** not fixed when a session
+  opens: a key asked for mid-turn has to reach the next tool call.
 
 ## Reserved meanwhile
 
