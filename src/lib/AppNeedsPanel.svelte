@@ -16,7 +16,8 @@
     import { tick, untrack } from 'svelte'
     import { needsAsk } from './app-needs-ask.svelte.js'
     import { errorText } from './errors.js'
-    import { VaultError, checkFields, vault } from './vault.svelte.js'
+    import KeyChoice from './KeyChoice.svelte'
+    import { VaultError, checkNewKey, freshLabel, vault } from './vault.svelte.js'
 
     /** @type {{ session: string, question: import('./app-needs-ask.svelte.js').NeedsQuestion }} */
     let { session, question } = $props()
@@ -28,22 +29,11 @@
     /** The hosts of a need's origins, for its title. @param {SecretNeed} need */
     const hostsOf = (need) => need.origins.map((o) => new URL(o).host).join(', ')
 
-    /** A label for a new key that neither an entry nor another draft
-     *  has: its service's host, then numbered.
-     *  @param {SecretNeed} need @param {Set<string>} taken lower-cased, and added to */
-    function freshLabel(need, taken) {
-        const host = new URL(need.origins[0]).host
-        let label = host
-        for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${host} ${n}`
-        taken.add(label.toLowerCase())
-        return label
-    }
-
     /** Each new key's fields, by the app's name for it, prefilled. */
     let drafts = $state(
         untrack(() => {
             const taken = new Set(vault.entries.map((e) => e.label.toLowerCase()))
-            return Object.fromEntries(question.needs.secrets.map((need) => [need.name, { label: freshLabel(need, taken), value: '', origins: need.origins.join('\n') }]))
+            return Object.fromEntries(question.needs.secrets.map((need) => [need.name, { label: freshLabel(need.origins, taken), value: '', origins: need.origins.join('\n') }]))
         }),
     )
     /** The choice made for each key not granted: an entry's id, `new`,
@@ -96,10 +86,7 @@
                 grants[need.name] = pick
                 continue
             }
-            const d = drafts[need.name]
-            const fields = checkFields({ label: d.label, value: d.value, origins: d.origins.split('\n') }, { taken })
-            const missing = need.origins.filter((o) => !fields.origins.includes(o))
-            if (fields.origins.length > 0 && missing.length > 0) fields.errors.push(`origins: include ${missing.join(', ')}, where this app sends it`)
+            const fields = checkNewKey(drafts[need.name], need.origins, { taken, sentBy: 'this app' })
             if (fields.errors.length > 0) wrong[need.name] = fields.errors
             taken.push(fields.label)
             adds.push({ need, fields })
@@ -139,8 +126,6 @@
         {/if}
         {#each question.needs.secrets as need (need.name)}
             {@const granted = grantedFor(need)}
-            {@const covering = vault.entriesCovering(need.origins)}
-            {@const pick = pickOf(need)}
             <li>
                 <p><strong>A key for {hostsOf(need)}</strong> <code>{need.name}</code></p>
                 <p class="why">{need.why}</p>
@@ -150,36 +135,14 @@
                         <button class="secondary small" onclick={() => (changing[need.name] = true)} aria-label="Change the key for {need.name}">Change</button>
                     </p>
                 {:else}
-                    <fieldset class="choices">
-                        <legend class="hidden">Key for {need.name}</legend>
-                        {#each covering as entry (entry.id)}
-                            <label><input type="radio" name="{uid}-{need.name}" checked={pick === entry.id} onchange={() => (picks[need.name] = entry.id)} /> Use {entry.label}</label>
-                        {/each}
-                        <label><input type="radio" name="{uid}-{need.name}" checked={pick === 'new'} onchange={() => (picks[need.name] = 'new')} /> Add a new key</label>
-                        <label><input type="radio" name="{uid}-{need.name}" checked={pick === 'none'} onchange={() => (picks[need.name] = 'none')} /> No key for now</label>
-                    </fieldset>
-                    {#if pick === 'new'}
-                        <div class="fields">
-                            <label>
-                                <span>Label</span>
-                                <input class="input" bind:value={drafts[need.name].label} autocomplete="off" />
-                            </label>
-                            <label>
-                                <span>Key</span>
-                                <input class="input" type="password" bind:value={drafts[need.name].value} autocomplete="off" />
-                            </label>
-                            <label class="wide">
-                                <span>Origins</span>
-                                <textarea class="input" rows={Math.max(1, need.origins.length)} bind:value={drafts[need.name].origins} spellcheck="false"></textarea>
-                            </label>
-                            <p class="hint wide">Kept on this device only.</p>
-                            {#if fieldErrors[need.name]}
-                                <ul class="errors wide" role="alert">
-                                    {#each fieldErrors[need.name] as e, i (i)}<li>{e}</li>{/each}
-                                </ul>
-                            {/if}
-                        </div>
-                    {/if}
+                    <KeyChoice
+                        {need}
+                        group="{uid}-{need.name}"
+                        bind:pick={() => pickOf(need), (v) => (picks[need.name] = v)}
+                        bind:draft={drafts[need.name]}
+                        errors={fieldErrors[need.name] ?? []}
+                        noneLabel="No key for now"
+                    />
                 {/if}
                 <p class="warn">
                     This app can use the key with {#each need.origins as origin, i (origin)}{i > 0 ? ', ' : ''}<code>{origin}</code>{/each} only, in its
@@ -249,49 +212,6 @@
         font-family: var(--font-mono);
         font-size: 0.8rem;
         overflow-wrap: anywhere;
-    }
-    .choices {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.3rem 1rem;
-        margin: 0;
-        padding: 0;
-        border: none;
-    }
-    .choices label {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.3rem;
-        cursor: pointer;
-    }
-    .hidden {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip-path: inset(50%);
-        white-space: nowrap;
-    }
-    .fields {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-        gap: 0.35rem 0.6rem;
-        max-width: 36rem;
-    }
-    .fields .wide {
-        grid-column: 1 / -1;
-    }
-    .fields label {
-        display: flex;
-        flex-direction: column;
-        gap: 0.15rem;
-        font-size: 0.8rem;
-        color: var(--text-muted);
-    }
-    .fields textarea {
-        resize: vertical;
-        font-family: var(--font-mono);
-        font-size: 0.8rem;
     }
     .small {
         margin-left: 0.4rem;

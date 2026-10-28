@@ -4,7 +4,8 @@
      * messages queued for it, and the composer. A message sent while a
      * turn runs is queued as a note, delivered with the turn's next tool
      * result, and can be taken back until then. Files dropped on the chat
-     * attach to the next message. With no model chosen (a published
+     * attach to the next message. A key the agent asks for
+     * (`request_secret`) is chosen under the turn. With no model chosen (a published
      * session opened by a visitor, say), the conversation reads and the
      * composer waits for one.
      */
@@ -15,6 +16,8 @@
     import { Nearby, provideNearby } from './lazy.js'
     import { attachmentsOf } from './notes.js'
     import { keepReading, readingAt } from './reading.js'
+    import KeyRequest from './KeyRequest.svelte'
+    import { keyRequests } from './key-requests.svelte.js'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
@@ -248,6 +251,10 @@
         {/if}
         {#if session.busy}
             <LiveTurn {session} prompt={session.prompt} parts={session.live} />
+            {@const asked = keyRequests.asking[session.name]}
+            {#if asked !== undefined}
+                {#key asked}<KeyRequest session={session.name} question={asked} />{/key}
+            {/if}
         {/if}
         {#each session.queued as q (q.id)}
             <div class="mine">
