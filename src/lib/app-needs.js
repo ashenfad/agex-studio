@@ -184,6 +184,23 @@ function checkSecret(entry, at, studio, fail) {
 }
 
 /**
+ * Why `name` can't name a secret, or null when it can: upper-case
+ * letters, digits and _, starting with a letter. The reason suggests one
+ * that would do.
+ *
+ * @param {unknown} name
+ * @returns {string | null}
+ */
+export function secretNameRefusal(name) {
+    /** @type {string | null} */
+    let why = null;
+    checkName(name, "", (_, message) => {
+        why ??= message;
+    });
+    return why;
+}
+
+/**
  * @param {unknown} name @param {string} at
  * @param {(where: string, message: string) => void} fail
  * @returns {string | null}

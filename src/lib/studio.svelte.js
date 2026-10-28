@@ -9,7 +9,7 @@ import { appDbs } from "./app-db-clients.js";
 import { appAgent } from "./app-tasks.svelte.js";
 import { copy as copyAppStorage, remove as removeAppStorage } from "./app-storage.js";
 import { readLocal, writeLocal } from "./local.js";
-import { PROFILE } from "./profile.js";
+import { PROFILE, profileFor } from "./profile.js";
 import { ChatSession } from "./session.svelte.js";
 import { snapshotBranch } from "./snapshot.js";
 import { onScreen } from "./status.js";
@@ -118,11 +118,13 @@ export class Studio {
         return appKeyOf(this.sessions.find((s) => s.name === name) ?? { name });
     }
 
-    /** A fork's app starts as its parent's: its saved data, and its
-     *  grants to the vault's keys. @param {string} from @param {string} to */
+    /** A fork's app starts as its parent's (its saved data, and its
+     *  grants to the vault's keys), and its agent with its parent's
+     *  agent's grants. @param {string} from @param {string} to */
     #copyApp(from, to) {
         copyAppStorage(from, to);
         vault.copyGrants(this.appKey(from), appKeyOf({ name: to }));
+        vault.copyAgentGrants(from, to);
     }
 
     /** The session `name`, if this page has it open. @param {string} name */
@@ -186,7 +188,7 @@ export class Studio {
      */
     async withWorkspace(name, fn) {
         const open = this.#open.get(name)?.ws ?? null;
-        const ws = open ?? (await (await openStore()).open(name, { profile: PROFILE }));
+        const ws = open ?? (await (await openStore()).open(name, { profile: profileFor(name) }));
         try {
             return await fn(ws);
         } finally {
@@ -209,7 +211,8 @@ export class Studio {
     /** A new, empty session, looked at. */
     async create() {
         const store = await openStore();
-        const ws = await store.open(newName(), { profile: PROFILE });
+        const name = newName();
+        const ws = await store.open(name, { profile: profileFor(name) });
         const now = Date.now();
         ws.plane(PLANE).set("meta", { title: "", createdAt: now, updatedAt: now });
         await ws.autoCommit({ tool: "studio.create" });
@@ -258,8 +261,10 @@ export class Studio {
         await settleFork(child, { title: inherit === "full" ? `${base} (fork)` : `${base} (files)`, createdAt: now, updatedAt: now }, undefined, "studio.fork");
         // the app's saved data and grants go with its files, on either kind of fork
         this.#copyApp(from.name, child.session);
+        // opened again with its own profile: a fork opens with its parent's
+        await child.close();
         const session = this.#watch(new ChatSession(child.session, this));
-        await session.open(child);
+        await session.open();
         await this.refresh();
         await this.switchTo(session.name);
     }
@@ -288,8 +293,10 @@ export class Studio {
         const { source, ...rest } = meta;
         // a snapshot or bundle carries the source session's own record
         await settleFork(child, { title: "", createdAt: now, updatedAt: now, ...rest }, /** @type {SessionSource | undefined} */ (source), "studio.adopt");
+        // opened again with its own profile: a fork opens with its parent's
+        await child.close();
         const session = this.#watch(new ChatSession(child.session, this));
-        await session.open(child);
+        await session.open();
         await this.refresh();
         return child.session;
     }
@@ -321,8 +328,9 @@ export class Studio {
         else await appDbs.forget(name);
         await this.refresh();
         // its grants go, unless another session is the same app (another
-        // copy of one gist, say)
+        // copy of one gist, say); its agent's go with it
         if (!this.sessions.some((s) => appKeyOf(s) === appKey)) vault.forgetApp(appKey);
+        vault.forgetAgent(name);
         if (this.current?.name === name) {
             this.current = null;
             const next = this.sessions[0];

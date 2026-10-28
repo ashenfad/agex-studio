@@ -5,8 +5,9 @@
      *  the rest under Advanced, summed up in a line. Notifications:
      *  whether a turn that ends while they're away notifies them. Sync &
      *  sharing: syncing sessions through a GitHub repo of their own, and
-     *  the token publishing writes gists with. App keys: the vault of keys
-     *  the person gives apps, each with the apps it is granted to. The
+     *  the token publishing writes gists with. Keys: the vault of keys
+     *  the person gives apps and their agents, each with whether every
+     *  agent has it, and the apps and sessions' agents granted it. The
      *  header and the buttons stay put; the tab's content scrolls. */
     import { tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
@@ -225,16 +226,59 @@
         confirming = null
     }
 
+    /** Entry `id`'s name for agents, being typed (`agentNaming` the
+     *  entry), and what it was refused for. */
+    let agentNaming = $state(/** @type {string | null} */ (null))
+    let agentName = $state('')
+    /** @type {string[]} */
+    let agentErrors = $state([])
+    /** A name for agents from a label: "Stripe (personal)" is
+     *  STRIPE_PERSONAL. @param {string} label */
+    const suggestName = (label) =>
+        label
+            .toUpperCase()
+            .replace(/[^A-Z0-9]+/g, '_')
+            .replace(/^[^A-Z]+|_+$/g, '')
+    /** @param {import('./vault.svelte.js').VaultEntry} entry @param {boolean} on */
+    function toggleAgents(entry, on) {
+        agentErrors = []
+        if (on) {
+            agentNaming = entry.id
+            agentName = entry.agentName ?? suggestName(entry.label)
+            return
+        }
+        agentNaming = null
+        if (entry.agentName !== undefined) vault.setAgentName(entry.id, null)
+    }
+    function saveAgentName() {
+        if (agentNaming === null) return
+        try {
+            vault.setAgentName(agentNaming, agentName.trim())
+            agentNaming = null
+            agentErrors = []
+        } catch (e) {
+            agentErrors = refusal(e)
+        }
+    }
+    /** A session's title, for its agent's grants; null when it's gone.
+     *  @param {string} name */
+    function sessionTitle(name) {
+        const found = studio.sessions.find((x) => x.name === name)
+        return found === undefined ? null : found.title || 'Untitled'
+    }
+
     /** An app's name, from the sessions it is open in; null when none is
      *  left. @param {string} appKey */
     function appName(appKey) {
         const titles = [...new Set(sessionsOf(appKey, studio.sessions).map((x) => x.title || 'Untitled'))]
         return titles.length === 0 ? null : titles.join(', ')
     }
-    /** The apps using entry `id`, named, for a delete's question.
-     *  @param {string} id */
+    /** The apps and sessions' agents using entry `id`, named, for a
+     *  delete's question. @param {string} id */
     function usersOf(id) {
-        return [...new Set(vault.usedBy(id).map((u) => appName(u.appKey) ?? 'a removed app'))]
+        const apps = vault.usedBy(id).map((u) => appName(u.appKey) ?? 'a removed app')
+        const agents = vault.agentsUsing(id).map((u) => `${sessionTitle(u.session) ?? 'a removed session'}'s agent`)
+        return [...new Set([...apps, ...agents])]
     }
 
     function disconnect() {
@@ -252,7 +296,7 @@
             <button role="tab" class="tab" class:on={tab === 'model'} aria-selected={tab === 'model'} onclick={() => (tab = 'model')}>Model</button>
             <button role="tab" class="tab" class:on={tab === 'notify'} aria-selected={tab === 'notify'} onclick={() => (tab = 'notify')}>Notifications</button>
             <button role="tab" class="tab" class:on={tab === 'sync'} aria-selected={tab === 'sync'} onclick={() => (tab = 'sync')}>Sync &amp; sharing</button>
-            <button role="tab" class="tab" class:on={tab === 'keys'} aria-selected={tab === 'keys'} onclick={() => (tab = 'keys')}>App keys</button>
+            <button role="tab" class="tab" class:on={tab === 'keys'} aria-selected={tab === 'keys'} onclick={() => (tab = 'keys')}>Keys</button>
         </div>
     {/snippet}
 
@@ -426,14 +470,15 @@
         {/if}
         <p class="hint">Away: in another session, another tab or another app. They come only while the studio's tab is open. Apps can notify you too, once you've allowed it here.</p>
     {:else if tab === 'keys'}
-        <h3>Keys for apps</h3>
-        <p class="hint">Keys you give apps for other services, like Stripe. They're kept on this device only: not synced, not published, never shown to an app. An app may use one only once you grant it, and only with the origins listed. Changes here are kept at once, without waiting for Save.</p>
+        <h3>Your keys</h3>
+        <p class="hint">Keys you give apps and your agents for other services, like Stripe. They're kept on this device only: not synced, not published, never shown to an app or an agent. One is used only once you grant it, or make it available to your agents, and only with the origins listed. Changes here are kept at once, without waiting for Save.</p>
         {#if vault.entries.length === 0}
             <p class="hint">No keys yet.</p>
         {:else}
             <ul class="keys">
                 {#each vault.entries as entry (entry.id)}
                     {@const users = vault.usedBy(entry.id)}
+                    {@const agents = vault.agentsUsing(entry.id)}
                     <li class="key">
                         {#if editing === entry.id}
                             <form class="fields" aria-label="Edit {entry.label}" onsubmit={(e) => (e.preventDefault(), saveEdit())}>
@@ -463,16 +508,43 @@
                                 <span class="hint">key saved</span>
                             </div>
                             <p class="hint">Goes to {#each entry.origins as origin, i (origin)}{i > 0 ? ', ' : ''}<code>{origin}</code>{/each}</p>
-                            {#if users.length === 0}
-                                <p class="hint">No app uses it yet.</p>
+                            <label class="check" title="Every session's agent has it, by this name, for its origins.">
+                                <input type="checkbox" checked={entry.agentName !== undefined || agentNaming === entry.id} onchange={(e) => toggleAgents(entry, e.currentTarget.checked)} />
+                                Available to my agents{#if entry.agentName !== undefined && agentNaming !== entry.id}&nbsp;as <code>{entry.agentName}</code>{/if}
+                            </label>
+                            {#if agentNaming === entry.id}
+                                <form class="actions-row" aria-label="Name {entry.label} for agents" onsubmit={(e) => (e.preventDefault(), saveAgentName())}>
+                                    <input class="input" bind:value={agentName} placeholder="STRIPE_KEY" autocomplete="off" spellcheck="false" aria-label="Name for agents" />
+                                    <button class="btn secondary small" type="submit">Save name</button>
+                                    <button class="btn secondary small" type="button" onclick={() => ((agentNaming = null), (agentErrors = []))}>Cancel</button>
+                                </form>
+                                {#if agentErrors.length > 0}
+                                    <ul class="hint warn errors" role="alert">{#each agentErrors as err, i (i)}<li>{err}</li>{/each}</ul>
+                                {:else}
+                                    <p class="hint">Agents write it as <code>${agentName.trim() || 'NAME'}</code> in curl, or <code>secret('{agentName.trim() || 'NAME'}')</code> in code.</p>
+                                {/if}
+                            {:else if entry.agentName !== undefined}
+                                <div class="actions-row">
+                                    <button class="btn secondary small" onclick={() => toggleAgents(entry, true)} aria-label="Rename {entry.label} for agents">Rename</button>
+                                </div>
+                            {/if}
+                            {#if users.length === 0 && agents.length === 0}
+                                <p class="hint">Not granted to an app or a session's agent yet.</p>
                             {:else}
-                                <p class="hint">Used by</p>
+                                <p class="hint">Granted to</p>
                                 <ul class="users">
                                     {#each users as u (`${u.appKey} ${u.name}`)}
                                         {@const name = appName(u.appKey)}
                                         <li>
                                             <span class="hint">{#if name === null}a removed app{:else}{name}{/if}, as <code>{u.name}</code></span>
                                             <button class="btn secondary small" onclick={() => vault.revoke(u.appKey, u.name)} aria-label="Revoke {name ?? 'a removed app'}'s use of {entry.label} as {u.name}">Revoke</button>
+                                        </li>
+                                    {/each}
+                                    {#each agents as u (`${u.session} ${u.name}`)}
+                                        {@const name = `${sessionTitle(u.session) ?? 'a removed session'}'s agent`}
+                                        <li>
+                                            <span class="hint">{name}, as <code>{u.name}</code></span>
+                                            <button class="btn secondary small" onclick={() => vault.revokeAgent(u.session, u.name)} aria-label="Revoke {name}'s use of {entry.label} as {u.name}">Revoke</button>
                                         </li>
                                     {/each}
                                 </ul>
