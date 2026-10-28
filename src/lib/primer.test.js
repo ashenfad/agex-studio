@@ -20,6 +20,13 @@ describe("primer", () => {
         expect(primer(DEFAULTS)).toContain("read the delegation skill");
     });
 
+    it("tells the agent to use keys by name, and to ask for one with request_secret, never in the chat", () => {
+        const text = primer(DEFAULTS);
+        expect(text).toContain("never ask the person to type it into the chat");
+        expect(text).toContain("`secret('NAME')` in `await http.fetch(url");
+        expect(text).toContain("ask for it with request_secret");
+    });
+
     it("tells the agent it can draw a diagram in a mermaid block", () => {
         expect(primer(DEFAULTS)).toContain("```mermaid block in your reply");
     });

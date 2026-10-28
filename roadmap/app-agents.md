@@ -11,8 +11,15 @@ vault), #169 (`agex.fetch`), #170 (the panel), #172 (`agex.http()`),
 check: agents given the skills alone built a keyed app and an app agent
 that used the key, and against httpbin the key went only in its
 declared header, its echo came back as the reference, and neither the
-app's page nor its agent held it (the studio fills it in). Phase 3 is
-sliced, phase 4 not started. This
+app's page nor its agent held it (the studio fills it in). Phase 3
+built (2026-10-28): agex-ts #167 in v0.6.6 (world 0.1.6, agex-ts
+0.6.3), studio #177 (agents' keys and grants, `curl` and `http`),
+#178 (`request_secret`) and the primer's note, whose spike met slice
+4's check: asked to use "my token" with httpbin, the agent asked for it,
+and `curl` and `http.fetch` authenticated with the echo shown as the
+reference; a delegate asked the same was refused, named the key in its
+answer, and its session asked and delegated again. Phase 4 not
+started. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -211,8 +218,9 @@ follow (4).
 ## Phase 3: the agent's own secrets
 
 The vault is phase 2's. What's left is the person's own agents, which
-today have `curl` and no key, so a key typed into the chat lands in
-the transcript, the model's context and the session's history.
+have no network tool with a key (no `curl` and no `http` either), so a
+key typed into the chat lands in the transcript, the model's context
+and the session's history.
 
 - **A key, by name, for the agent:** the world's secrets
   (`{ value, origins }`), so the agent sees a name and its origins,

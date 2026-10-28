@@ -1,7 +1,8 @@
 /**
  * What every turn's agent is told first, ahead of the workspace's own
  * tool instructions: the studio, then its host objects as the settings
- * allow them (`web` and `media` run on an OpenRouter key), and what a
+ * allow them (`web` and `media` run on an OpenRouter key), how to use
+ * a service's key without seeing it, and what a
  * model that takes no images should do instead.
  */
 
@@ -28,6 +29,8 @@ const PDF = `\`pdf\` reads the workspace's PDFs, from run_ts, its pages numbered
 
 const DB = `\`db\` is the session's app database, from run_ts: the SQLite database its app reaches as \`agex.db\`. \`await db.query(sql, params?)\` gives \`{ rows, changes, lastInsertRowid }\`; \`db.transaction([[sql, params], ...])\` runs several statements as one, all or none. Read it to see what the app stored and to debug it; \`await db.tables()\` lists its tables, indexes, views and triggers with their SQL. It holds the person's data, which outlives your edits and isn't rewound by an undo: change, migrate or delete it only when the person asked, and say what you changed. Before a bulk change to its rows (a backfill, a cleanup), \`await db.checkpoint('before backfill')\`; the database takes one itself before every schema change. \`await db.checkpoints()\` lists them (\`{ id, label, auto, time }\`), and \`await db.restore(id)\` brings the data back to one, discarding everything written since: the person is asked first, and if they say no it throws, so don't ask again unless they say so. The interactive-app skill has the rules for its tables and schema changes.`;
 
+const KEYS = `A service that needs a key (an API token): never ask the person to type it into the chat, where it stays in the transcript and your context. The terminal's and run_ts's descriptions list the secrets you have, by name. Use one in curl as \`$NAME\` (\`curl -H "Authorization: Bearer $STRIPE_KEY" https://api.stripe.com/v1/prices\`), or from run_ts as \`secret('NAME')\` in \`await http.fetch(url, { method, headers, body, as: 'json' })\`, which gives \`{ status, ok, headers, body }\`. You never see the value: it goes only to the sites it is for, and a response that echoes it shows the reference. Without the key a task needs, ask for it with request_secret (its name, the origins it goes to, and why); the person picks it in the chat. Requests go from the browser without cookies, so a service that refuses other sites' pages (CORS) can't be reached from here.`;
+
 const NO_VISION = `Your model takes no images here: view_image and test_app's screenshots don't reach you. Check an app by what test_app reports as text (its console, its results, values you log from the page), read a PDF with pdf.text, and leave judging a generated image to the person.`;
 
 const HOSTS = "Your run_ts code has host objects of the studio's; an app's code doesn't (it runs in the preview), so build an app's assets with them ahead of time.";
@@ -41,7 +44,7 @@ export function primer(settings) {
     const parts = [STUDIO, HOSTS];
     if (hasRouterKey(settings)) parts.push(WEB, MEDIA);
     else parts.push(NO_ROUTER);
-    parts.push(PDF, DB, DELEGATION);
+    parts.push(PDF, DB, KEYS, DELEGATION);
     if (!visionOf(settings)) parts.push(NO_VISION);
     return parts.join("\n\n");
 }
