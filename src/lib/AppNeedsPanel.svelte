@@ -200,8 +200,7 @@
     .met {
         color: var(--success);
     }
-    .why,
-    .hint {
+    .why {
         color: var(--text-muted);
     }
     .warn {
