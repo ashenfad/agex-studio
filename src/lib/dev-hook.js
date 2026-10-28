@@ -23,6 +23,7 @@ import { distribution } from "./distribution.svelte.js";
 import { script } from "./scripted.js";
 import { getSettings, updateSettings } from "./settings.js";
 import { vault } from "./vault.svelte.js";
+import { keyRequests } from "./key-requests.svelte.js";
 
 /** @typedef {import("./studio.svelte.js").Studio} Studio */
 
@@ -411,6 +412,18 @@ export function installDevHook(studio, sync) {
              *  origins, never values. */
             agentSecrets() {
                 return Object.fromEntries(Object.entries(vault.agentSecrets(session().name)).map(([n, s]) => [n, s.origins]));
+            },
+            /** The key the current session's agent is asking for
+             *  (`request_secret`), or null. */
+            keyRequest() {
+                const q = keyRequests.asking[session().name];
+                return q === undefined ? null : { name: q.name, origins: [...q.origins], why: q.why };
+            },
+            /** Answer it, as the chat's picker does: an entry's id to
+             *  grant, or null for Not now. @param {string | null} entryId */
+            answerKeyRequest(entryId) {
+                keyRequests.answer(session().name, entryId);
+                return vault.agentGrantsOf(session().name);
             },
         },
         /** Sync, as the session list works it. */
