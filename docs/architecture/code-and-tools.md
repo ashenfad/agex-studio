@@ -19,6 +19,7 @@ A turn's tools come from the world (`worldTools`, inside agex-ts's
 | `run_ts` | run TypeScript in the kernel (below) |
 | `sessions` | delegate: ask, list, result, cancel, keep, resume, published (see [agent-loop.md](agent-loop.md)) |
 | `test_app` | act on the app in a browser (see [app-preview.md](app-preview.md)) |
+| `request_secret` | ask the person for a key, granted to the session's agent by name (see Keys below) |
 
 Every call that changes the workspace commits, stamped with its tool,
 so the history and undo follow the tool calls.
@@ -145,6 +146,19 @@ the top session's (`agentKeyOf`). Removing a session forgets its
 agent's grants; removing a delegate leaves its top session's. An
 agent's grants are apart from its app's (`session:<name>`), so granting
 one gives the other nothing.
+
+**`request_secret`** (`request-secret.js`): the agent asks for a key by
+`name`, `origins` and `why`. One it has already for those origins is
+answered at once. Otherwise the question shows under the turn
+(`KeyRequest.svelte`, its state in `key-requests.svelte.js`): the
+vault's entries that cover the origins, or a new key, which goes into
+the vault (`KeyChoice.svelte`, shared with an app's "This app needs…"
+panel). Give it grants the entry to the session's agent for the origins
+asked (`vault.grantAgent`), and the tool's result names the secret and
+how to use it; Not now answers so the turn goes on; the turn ending
+takes the question back. A delegate's call is refused, telling it to
+say in its answer which key it needs, so the session that asked it can
+ask the person.
 
 ## Skills
 
