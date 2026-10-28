@@ -77,8 +77,8 @@
         </ul>
     {/if}
     <div class="actions">
-        <button onclick={give}>Give it</button>
-        <button class="secondary" onclick={() => keyRequests.answer(session, null)}>Not now</button>
+        <button class="btn" onclick={give}>Give it</button>
+        <button class="btn secondary" onclick={() => keyRequests.answer(session, null)}>Not now</button>
     </div>
 </section>
 
@@ -92,6 +92,7 @@
         padding: 0.6rem 0.7rem;
         margin: 0.5rem 0;
         background: var(--surface);
+        font-size: 0.85rem;
     }
     h2 {
         margin: 0;

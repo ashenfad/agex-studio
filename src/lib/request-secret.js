@@ -56,7 +56,7 @@ export function checkRequest(args) {
  * @param {string} name @param {string[]} origins
  */
 const usage = (name, origins) =>
-    `Use it as $${name} in curl (-H "Authorization: Bearer $${name}") or secret('${name}') in http.fetch's headers, with ${origins.join(", ")} only. Its value never reaches you: a response that echoes it shows $${name}.`;
+    `Use it as $${name} in curl (-H "Authorization: Bearer $${name}") or secret('${name}') in http.fetch's headers, with ${origins.join(", ")} only. Its value never reaches you: a response that echoes it shows ${"${"}${name}}.`;
 
 /**
  * The tool, for session `session` (a delegate's refuses).
