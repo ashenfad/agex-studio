@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY, Vault, VaultError, appKeyOf, checkFields, isOwnApp, sessionsOf } from "./vault.svelte.js";
+import { STORAGE_KEY, Vault, VaultError, agentKeyOf, appKeyOf, checkFields, isOwnApp, sessionsOf } from "./vault.svelte.js";
 
 /** @type {Map<string, string>} */
 let items;
@@ -254,6 +254,126 @@ describe("the vault", () => {
         expect(v.entries.map((e) => e.id)).toEqual(["k-1"]);
         expect(v.grants).toEqual({ "session:s1": { A: "k-1" } });
         expect(v.models).toEqual({ "gist:ann/abc": true });
+    });
+});
+
+describe("a session's agent's keys", () => {
+    const FILES = "https://files.stripe.com";
+
+    it("are the entries made available, by their names for agents, to their own origins", () => {
+        const { v, id } = withKey([STRIPE, FILES]);
+        expect(v.agentSecrets("s1")).toEqual({});
+        v.setAgentName(id, "STRIPE_KEY");
+        expect(v.entries[0].agentName).toBe("STRIPE_KEY");
+        expect(v.agentSecrets("s1")).toEqual({ STRIPE_KEY: { value: FAKE, origins: [STRIPE, FILES] } });
+        expect(v.agentSecrets("s2")).toEqual(v.agentSecrets("s1"));
+        // an app has none of them
+        expect(v.valueFor("session:s1", need)).toBeNull();
+        v.setAgentName(id, null);
+        expect(v.agentSecrets("s1")).toEqual({});
+        expect(v.entries[0]).not.toHaveProperty("agentName");
+    });
+
+    it("refuse a name for agents that isn't one, or that another entry has", () => {
+        const { v, id } = withKey();
+        const other = v.add({ label: "Stripe (test)", value: "sk_test_fake_other", origins: [STRIPE] }, STUDIO);
+        expect(refused(() => v.setAgentName(id, "stripe-key"))).toEqual(['name for agents: "stripe-key" must be upper-case letters, digits and _, starting with a letter, like "STRIPE_KEY"']);
+        v.setAgentName(id, "STRIPE_KEY");
+        expect(refused(() => v.setAgentName(other, "STRIPE_KEY"))).toEqual(['name for agents: "Stripe (personal)" is STRIPE_KEY to your agents; give this one its own name']);
+        // its own name again is no clash
+        v.setAgentName(id, "STRIPE_KEY");
+    });
+
+    it("are a session's grants, each to the origins approved, beating one made available", () => {
+        const { v, id } = withKey([STRIPE, FILES]);
+        const test = v.add({ label: "Stripe (test)", value: "sk_test_fake_other", origins: [STRIPE] }, STUDIO);
+        v.setAgentName(id, "STRIPE_KEY");
+        v.grantAgent("s1", { name: "STRIPE_KEY", origins: ["https://API.stripe.com"] }, test, STUDIO);
+        expect(v.agentGrantsOf("s1")).toEqual({ STRIPE_KEY: { entry: test, origins: [STRIPE] } });
+        expect(v.agentSecrets("s1")).toEqual({ STRIPE_KEY: { value: "sk_test_fake_other", origins: [STRIPE] } });
+        expect(v.agentSecrets("s2")).toEqual({ STRIPE_KEY: { value: FAKE, origins: [STRIPE, FILES] } });
+        // the entry's wider origins aren't the grant's
+        v.grantAgent("s1", { name: "FILES_KEY", origins: [FILES] }, id, STUDIO);
+        expect(v.agentSecrets("s1").FILES_KEY).toEqual({ value: FAKE, origins: [FILES] });
+        // and an app of the same session has none of them
+        expect(v.grantsOf("session:s1")).toEqual({});
+    });
+
+    it("are a delegate's top session's", () => {
+        const { v, id } = withKey();
+        expect(agentKeyOf("s1.helper.sub")).toBe("agent:s1");
+        v.grantAgent("s1", need, id, STUDIO);
+        expect(v.agentSecrets("s1.helper")).toEqual(v.agentSecrets("s1"));
+        expect(Object.keys(v.agentGrants)).toEqual(["agent:s1"]);
+    });
+
+    it("refuse a grant with a bad name, bad origins, or origins the entry doesn't cover", () => {
+        const { v, id } = withKey();
+        expect(refused(() => v.grantAgent("s1", { name: "key", origins: [STRIPE] }, id, STUDIO))[0]).toMatch(/^name: "key" must be upper-case/);
+        expect(refused(() => v.grantAgent("s1", { name: "K", origins: ["http://api.stripe.com"] }, id, STUDIO))).toEqual(['origin 1: "http://api.stripe.com" is http:; a key goes over https: only ("https://api.stripe.com")']);
+        expect(refused(() => v.grantAgent("s1", { name: "K", origins: [] }, id, STUDIO))).toEqual(['origins: name where K may go, like "https://api.stripe.com"']);
+        expect(refused(() => v.grantAgent("s1", { name: "K", origins: [STRIPE, FILES] }, id, STUDIO))).toEqual([`"Stripe (personal)" may go to ${STRIPE}, not ${FILES}`]);
+        expect(refused(() => v.grantAgent("s1", { name: "K", origins: [STRIPE] }, "k-gone", STUDIO))).toEqual(['no key "k-gone" in the vault']);
+        expect(v.agentGrants).toEqual({});
+    });
+
+    it("give nothing once the entry no longer covers a grant, or is gone, which drops the grant", () => {
+        const { v, id } = withKey([STRIPE, FILES]);
+        v.grantAgent("s1", { name: "FILES_KEY", origins: [FILES] }, id, STUDIO);
+        v.update(id, { origins: [STRIPE] }, STUDIO);
+        expect(v.agentSecrets("s1")).toEqual({});
+        v.update(id, { origins: [STRIPE, FILES] }, STUDIO);
+        expect(v.agentSecrets("s1")).toEqual({ FILES_KEY: { value: FAKE, origins: [FILES] } });
+        v.remove(id);
+        expect([v.agentSecrets("s1"), v.agentGrants]).toEqual([{}, {}]);
+    });
+
+    it("are listed by entry, revoked one or all, copied to a fork, and forgotten with the session", () => {
+        const { v, id } = withKey();
+        v.grantAgent("s1", need, id, STUDIO);
+        v.grantAgent("s1", { name: "OTHER", origins: [STRIPE] }, id, STUDIO);
+        v.grantAgent("s2", need, id, STUDIO);
+        expect(v.agentsUsing(id)).toEqual([
+            { session: "s1", name: "STRIPE_KEY" },
+            { session: "s1", name: "OTHER" },
+            { session: "s2", name: "STRIPE_KEY" },
+        ]);
+        v.revokeAgent("s1", "OTHER");
+        v.copyAgentGrants("s1", "s3");
+        expect(v.agentGrantsOf("s3")).toEqual({ STRIPE_KEY: { entry: id, origins: [STRIPE] } });
+        v.revokeAgent("s2");
+        // a delegate's removal leaves its top session's
+        v.forgetAgent("s1.helper");
+        expect(v.agentsUsing(id).map((u) => u.session)).toEqual(["s1", "s3"]);
+        v.forgetAgent("s1");
+        expect(v.agentsUsing(id).map((u) => u.session)).toEqual(["s3"]);
+    });
+
+    it("are kept, and what doesn't hold together is dropped when read", () => {
+        const { v, id } = withKey();
+        v.setAgentName(id, "STRIPE_KEY");
+        v.grantAgent("s1", need, id, STUDIO);
+        const again = new Vault();
+        expect([again.entries, again.agentGrants]).toEqual([v.entries, v.agentGrants]);
+        expect(again.toJSON().agentGrants).toEqual({ "agent:s1": { STRIPE_KEY: { entry: id, origins: [STRIPE] } } });
+        items.set(
+            STORAGE_KEY,
+            JSON.stringify({
+                entries: [
+                    { id: "k-1", label: "A", value: FAKE, origins: [STRIPE], agentName: "A_KEY" },
+                    { id: "k-2", label: "B", value: FAKE, origins: [STRIPE], agentName: "A_KEY" },
+                    { id: "k-3", label: "C", value: FAKE, origins: [STRIPE], agentName: "bad name" },
+                ],
+                agentGrants: {
+                    "agent:s1": { GOOD: { entry: "k-1", origins: [STRIPE] }, GONE: { entry: "k-9", origins: [STRIPE] }, NONE: { entry: "k-1", origins: [] }, bad: { entry: "k-1", origins: [STRIPE] } },
+                    "session:s1": { X: { entry: "k-1", origins: [STRIPE] } },
+                    "agent:s2": "junk",
+                },
+            }),
+        );
+        const read = new Vault();
+        expect(read.entries.map((e) => e.agentName)).toEqual(["A_KEY", undefined, undefined]);
+        expect(read.agentGrants).toEqual({ "agent:s1": { GOOD: { entry: "k-1", origins: [STRIPE] } } });
     });
 });
 

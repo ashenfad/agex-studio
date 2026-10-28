@@ -5,7 +5,7 @@
  */
 
 import workerUrl from "@agex-ts/world/worker?worker&url";
-import { commandFactory, wsGit } from "@agex-ts/world";
+import { commandFactory, curlCommand, httpHost, wsGit } from "@agex-ts/world";
 import { AGEX_GUIDE, Agent, AiSdkProvider, agentTasks } from "agex-ts";
 import { runEsbuildCommand } from "./esbuild-terminal.js";
 import { buildModel, thinkingOf, visionOf } from "./model.js";
@@ -15,6 +15,7 @@ import { pdfHost } from "./pdf.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings } from "./settings.js";
 import { SKILLS } from "./skills/index.js";
+import { vault } from "./vault.svelte.js";
 import { webHost } from "./web.js";
 
 /** `esbuild`, a terminal command: bundles JSX/TSX under app/ (and
@@ -69,14 +70,23 @@ export function toolOptionsNow() {
 }
 
 /**
+ * The network as the agent's `curl` and `http` reach it: never with the
+ * studio's cookies or other credentials, so a request is the agent's
+ * alone, not the person's signed-in studio.
+ *
+ * @type {typeof globalThis.fetch}
+ */
+const agentFetch = (input, init) => fetch(input, { ...init, credentials: "omit" });
+
+/**
  * What every world the studio opens is given: code runs in the world's
  * worker, bundled by Vite; a bare import loads from esm.sh; what code
  * puts in `ui` is written under /workspace/ui to show in the reply; the
  * studio's host objects (`web`, `media`, `pdf`, `db` for the session's
- * app database, and `agex` for tasks the agent's code defines);
- * `esbuild` in the
- * terminal; and the studio's skills (`skills/`: a directory each),
- * mounted read-only under /workspace/skills.
+ * app database, `http` for requests, and `agex` for tasks the agent's
+ * code defines); `esbuild` and `curl` in the terminal; and the studio's
+ * skills (`skills/`: a directory each), mounted read-only under
+ * /workspace/skills. A session's secrets are its own (`profileFor`).
  */
 export const PROFILE = {
     code: {
@@ -86,8 +96,20 @@ export const PROFILE = {
         // `ui.chart = spec`: shown in the reply
         ui: true,
     },
-    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), db: dbHost(), agex },
+    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), db: dbHost(), http: httpHost({ fetch: agentFetch }), agex },
     // ws-git: the agent's own git, which brings a delegate's work back
-    commands: { esbuild, "ws-git": wsGit },
+    commands: { esbuild, curl: curlCommand({ fetch: agentFetch }), "ws-git": wsGit },
     skills: SKILLS,
 };
+
+/**
+ * The profile session `name`'s world opens with: `PROFILE`, and the
+ * keys its agent has (`vault.agentSecrets`), read at each use, so one
+ * granted or revoked while it is open counts from the next tool call.
+ * Its delegates, opened with its settings, have the same.
+ *
+ * @param {string} name
+ */
+export function profileFor(name) {
+    return { ...PROFILE, secrets: () => vault.agentSecrets(name) };
+}

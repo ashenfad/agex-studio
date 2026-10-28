@@ -31,7 +31,7 @@ vi.mock("./app-db-clients.js", () => ({
     appDbs: { share: async () => {}, copyTo: async () => false, forget: async () => {}, release: async () => {} },
 }));
 vi.mock("./session.svelte.js", () => ({ ChatSession: class {} }));
-vi.mock("./profile.js", () => ({ PROFILE: {} }));
+vi.mock("./profile.js", () => ({ PROFILE: {}, profileFor: () => ({}) }));
 vi.mock("./snapshot.js", () => ({ snapshotBranch: async () => {} }));
 vi.mock("./app-tasks.svelte.js", () => ({ appAgent: { forget: () => {} } }));
 vi.mock("./app-storage.js", () => ({ copy: () => {}, remove: () => {} }));
@@ -87,5 +87,30 @@ describe("the studio's sessions and the vault", () => {
         studio.current = /** @type {any} */ ({ name: "elsewhere" });
         await studio.remove("s-own");
         expect(vault.usedBy(key)).toEqual([]);
+    });
+
+    it("give a fork's agent its parent's agent's grants, apart from the app's", async () => {
+        infos.set("s-own", { name: "s-own", title: "Mine", createdAt: 0, updatedAt: 0 });
+        const studio = new Studio();
+        await studio.refresh();
+        vault.grantAgent("s-own", need, key, { studioOrigins: [] });
+        const child = await studio.forkAs("s-own", "Mine (fork)");
+        expect(vault.agentGrantsOf(child)).toEqual({ STRIPE_KEY: { entry: key, origins: [STRIPE] } });
+        expect(vault.grantsOf(`session:${child}`)).toEqual({});
+        vault.revokeAgent(child);
+        expect(vault.agentGrantsOf("s-own")).toEqual({ STRIPE_KEY: { entry: key, origins: [STRIPE] } });
+    });
+
+    it("forget a removed session's agent's grants, but not for a delegate's removal", async () => {
+        infos.set("s-own", { name: "s-own", title: "Mine", createdAt: 0, updatedAt: 0 });
+        infos.set("s-own.helper", { name: "s-own.helper", title: "", createdAt: 0, updatedAt: 0 });
+        const studio = new Studio();
+        await studio.refresh();
+        vault.grantAgent("s-own", need, key, { studioOrigins: [] });
+        studio.current = /** @type {any} */ ({ name: "elsewhere" });
+        await studio.remove("s-own.helper");
+        expect(vault.agentsUsing(key)).toEqual([{ session: "s-own", name: "STRIPE_KEY" }]);
+        await studio.remove("s-own");
+        expect(vault.agentsUsing(key)).toEqual([]);
     });
 });

@@ -177,7 +177,7 @@ call needs something the app hasn't been given. `needsAsk`
 - **The model.** An app from elsewhere is asked before its first task
   or model call (`allowModel`), whether or not `app/agex.json`
   declares the model; allowing it is a grant to the app (`vault.models`,
-  by app key), kept across pages, revoked in settings (App keys, "Apps
+  by app key), kept across pages, revoked in settings (Keys, "Apps
   allowed your model"). The person's own app uses the model without
   asking, its line a ✓.
 - **Each key** the app declares: its name, its `why`, and its origins.

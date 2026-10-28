@@ -25,7 +25,7 @@ so the history and undo follow the tool calls.
 
 ### Terminal commands
 
-The profile adds two commands to termish's own:
+The profile adds three commands to termish's own:
 
 - **`esbuild <entry> --outfile=<out>`** (`esbuild-terminal.js`):
   bundles JSX/TSX under `app/` (and `helpers/`) into a module the
@@ -36,6 +36,10 @@ The profile adds two commands to termish's own:
   work back (`ws-git merge <name>`, `ws-git checkout <name> --
   <paths>`). It reads store tags too, so `ws-git checkout
   published/<slug>/<n> -- app/` takes a published version's app.
+- **`curl`** (the world's `curlCommand`): requests from the studio's
+  page, sent without its cookies or other credentials (`agentFetch` in
+  `profile.js`), so a site that allows only some origins answers with
+  a CORS error. A key the agent has goes in as `$NAME`; see Keys below.
 
 ## The kernel
 
@@ -94,6 +98,9 @@ schemas before the method runs) that code calls with `await`:
   already. A delegate's
   code reaches its lead's database. A world that isn't a studio session
   (a task's scratch world) is refused rather than given a database.
+- **`http`** (the world's `httpHost`): `http.fetch(url, { method,
+  headers, body, as })`, `curl`'s requests from code, without
+  credentials as `curl`'s are. A key goes in as `secret('NAME')`.
 - **`agex`** (agex-ts's `agentTasks`): tasks the agent's code defines
   (`agex.task({ name, instructions, params, returns })`, the types as
   JSON Schema) and calls like a function, or `.map`s over a list. Each
@@ -115,6 +122,29 @@ behind on a custom endpoint, goes to `routerKey`, and is never sent to
 the endpoint again. A host object belongs to the
 agent's code: an app's code runs in the preview, which has none of
 them. Delegates inherit the profile, so they have them too.
+
+## Keys
+
+A session's world is opened with `profileFor(name)`: `PROFILE` and a
+`secrets` function, which the world calls at each use (a request, the
+shell's environment, the tools' descriptions), so a key granted or
+revoked while the session is open counts from the next tool call. It
+returns `vault.agentSecrets(name)` (`vault.svelte.js`): each vault
+entry made available to the person's agents, by its name for agents,
+to its own origins; then the session's agent's grants (`agent:<name>`),
+each to the origins the person approved, in place of one made
+available under the same name. The agent sees names, never values: the
+world fills `$NAME` and `secret('NAME')` in at a request to those
+origins, and replaces an echo with the reference.
+
+A fork's agent starts with its parent's agent's grants (`#copyApp`),
+and the fork is opened again with its own profile, since a world's
+fork opens with its parent's settings. A delegate opens with its top
+session's settings, so it has that session's keys, and its grants are
+the top session's (`agentKeyOf`). Removing a session forgets its
+agent's grants; removing a delegate leaves its top session's. An
+agent's grants are apart from its app's (`session:<name>`), so granting
+one gives the other nothing.
 
 ## Skills
 

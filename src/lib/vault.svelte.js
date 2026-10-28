@@ -1,6 +1,6 @@
 /**
- * The vault: the person's keys for apps, each app's grants to them, and
- * the apps allowed the person's model.
+ * The vault: the person's keys, each app's and each session's agent's
+ * grants to them, and the apps allowed the person's model.
  *
  * An entry is a key the person saved (a label, the value, and the
  * origins it may go to); a grant links one secret an app declares (in
@@ -9,6 +9,14 @@
  * entry serves a need only while its origins cover the need's: apps and
  * keys meet by origin, not by name. An app allowed the model (`models`)
  * may run its calls on the person's model and key until that is revoked.
+ *
+ * A session's agent has a key two ways: an entry the person made
+ * available to their agents (`agentName`, the name agents know it by),
+ * which every session's agent has; or a grant to that session's agent
+ * (`agentGrants`, under `agent:<session>`), which keeps the origins the
+ * person approved, the key going to those only. A grant beats an entry
+ * made available under the same name. An agent's grants are apart from
+ * its session's app's: granting one gives the other nothing.
  *
  * It is kept in this device's `localStorage`, under a key of its own,
  * and nowhere else: not synced, not bundled, not published, and not in
@@ -19,7 +27,7 @@
  * and no error names one.
  */
 
-import { checkKeyOrigins } from "./app-needs.js";
+import { checkKeyOrigins, secretNameRefusal } from "./app-needs.js";
 import { readLocalJson, writeLocalJson } from "./local.js";
 
 /** Where the vault is kept. */
@@ -29,13 +37,20 @@ export const STORAGE_KEY = "agex-studio-vault";
 export const LABEL_MAX = 80;
 
 /**
- * An entry as the vault shows it: no value.
- * @typedef {{ id: string, label: string, origins: string[] }} VaultEntry
+ * An entry as the vault shows it: no value. `agentName`, when there is
+ * one, is the name the person's agents have it by.
+ * @typedef {{ id: string, label: string, origins: string[], agentName?: string }} VaultEntry
  * @typedef {{ name: string, origins: string[] }} Need
  * @typedef {Record<string, Record<string, string>>} Grants app key, then
  *   secret name, to entry id
  * @typedef {Record<string, true>} ModelGrants the apps allowed the
  *   model, by app key
+ * @typedef {{ entry: string, origins: string[] }} AgentGrant an entry,
+ *   and the origins the person approved it for
+ * @typedef {Record<string, Record<string, AgentGrant>>} AgentGrants
+ *   agent key (`agentKeyOf`), then secret name, to its grant
+ * @typedef {Readonly<Record<string, { value: string, origins: string[] }>>} AgentSecrets
+ *   a profile's `secrets`
  */
 
 /** A change the vault refused: each thing wrong, in `errors`. */
@@ -64,6 +79,16 @@ export function appKeyOf(info) {
     if (gist !== undefined) return `gist:${gist.owner}/${gist.id}`;
     if (info.source !== undefined) return `bundle:${info.source.head}`;
     return `session:${info.name}`;
+}
+
+/**
+ * Who session `name`'s agent is to its grants: `agent:<session>`, a
+ * delegate (`top.child`) its top session's, whose grants it has.
+ *
+ * @param {string} name
+ */
+export function agentKeyOf(name) {
+    return `agent:${name.split(".")[0]}`;
 }
 
 /** Whether app `appKey` is the person's own (see `appKeyOf`).
@@ -133,6 +158,8 @@ export class Vault {
     grants = $state({});
     /** The apps allowed the person's model. @type {ModelGrants} */
     models = $state({});
+    /** Each session's agent's grants. @type {AgentGrants} */
+    agentGrants = $state({});
     /** Each entry's value, by id. @type {Map<string, string>} */
     #values = new Map();
 
@@ -148,8 +175,8 @@ export class Vault {
 
     /** Read what is kept, dropping what doesn't hold together (an entry
      *  without a value or origins, a grant to no entry, a model grant
-     *  that isn't `true`). With nothing
-     *  readable, what this page holds stays. */
+     *  that isn't `true`, a name for agents that isn't one or another
+     *  entry has). With nothing readable, what this page holds stays. */
     #load() {
         const kept = readLocalJson(STORAGE_KEY);
         if (kept === null || typeof kept !== "object") return;
@@ -163,7 +190,8 @@ export class Vault {
             if (typeof id !== "string" || typeof label !== "string" || typeof value !== "string" || value === "") continue;
             if (!Array.isArray(origins) || origins.length === 0 || !origins.every((o) => typeof o === "string")) continue;
             if (values.has(id)) continue;
-            entries.push({ id, label, origins: [...origins] });
+            const named = typeof e.agentName === "string" && secretNameRefusal(e.agentName) === null && !entries.some((x) => x.agentName === e.agentName);
+            entries.push({ id, label, origins: [...origins], ...(named && { agentName: e.agentName }) });
             values.set(id, value);
         }
         /** @type {Grants} */
@@ -179,15 +207,28 @@ export class Vault {
         const models = {};
         const allowed = typeof kept.models === "object" && kept.models !== null ? kept.models : {};
         for (const [app, yes] of Object.entries(allowed)) if (yes === true) models[app] = true;
+        /** @type {AgentGrants} */
+        const agentGrants = {};
+        const given = typeof kept.agentGrants === "object" && kept.agentGrants !== null ? kept.agentGrants : {};
+        for (const [agent, names] of Object.entries(given)) {
+            if (!agent.startsWith("agent:") || names === null || typeof names !== "object") continue;
+            for (const [name, g] of Object.entries(names)) {
+                if (g === null || typeof g !== "object" || typeof g.entry !== "string" || !values.has(g.entry)) continue;
+                if (!Array.isArray(g.origins) || g.origins.length === 0 || !g.origins.every((o) => typeof o === "string")) continue;
+                if (secretNameRefusal(name) !== null) continue;
+                (agentGrants[agent] ??= {})[name] = { entry: g.entry, origins: [...g.origins] };
+            }
+        }
         this.entries = entries;
         this.grants = grants;
         this.models = models;
+        this.agentGrants = agentGrants;
         this.#values = values;
     }
 
     #save() {
-        const entries = this.entries.map((e) => ({ id: e.id, label: e.label, value: this.#values.get(e.id), origins: [...e.origins] }));
-        writeLocalJson(STORAGE_KEY, { entries, grants: $state.snapshot(this.grants), models: $state.snapshot(this.models) });
+        const entries = this.entries.map((e) => ({ id: e.id, label: e.label, value: this.#values.get(e.id), origins: [...e.origins], ...(e.agentName !== undefined && { agentName: e.agentName }) }));
+        writeLocalJson(STORAGE_KEY, { entries, grants: $state.snapshot(this.grants), models: $state.snapshot(this.models), agentGrants: $state.snapshot(this.agentGrants) });
     }
 
     /** Make a change to the vault as it is kept now (another tab's
@@ -249,7 +290,8 @@ export class Vault {
         });
     }
 
-    /** Remove entry `id`, and every grant to it. @param {string} id */
+    /** Remove entry `id`, and every grant to it, an app's or an
+     *  agent's. @param {string} id */
     remove(id) {
         this.#change(() => {
             this.entries = this.entries.filter((e) => e.id !== id);
@@ -258,6 +300,32 @@ export class Vault {
                 for (const [name, to] of Object.entries(names)) if (to === id) delete names[name];
                 if (Object.keys(names).length === 0) delete this.grants[app];
             }
+            for (const [agent, names] of Object.entries(this.agentGrants)) {
+                for (const [name, g] of Object.entries(names)) if (g.entry === id) delete names[name];
+                if (Object.keys(names).length === 0) delete this.agentGrants[agent];
+            }
+        });
+    }
+
+    /**
+     * Make entry `id` available to every session's agent as `name`, or
+     * with null no longer. Refused for a name that isn't upper-case
+     * letters, digits and _, or that another entry has.
+     *
+     * @param {string} id @param {string | null} name
+     */
+    setAgentName(id, name) {
+        this.#change(() => {
+            const entry = this.#entry(id);
+            if (name === null) {
+                delete entry.agentName;
+                return;
+            }
+            const why = secretNameRefusal(name);
+            if (why !== null) throw new VaultError([`name for agents: ${why}`]);
+            const other = this.entries.find((e) => e.id !== id && e.agentName === name);
+            if (other !== undefined) throw new VaultError([`name for agents: "${other.label}" is ${name} to your agents; give this one its own name`]);
+            entry.agentName = name;
         });
     }
 
@@ -368,9 +436,104 @@ export class Vault {
         this.revokeModel(appKey);
     }
 
+    /**
+     * Grant session `session`'s agent the key in entry `entryId` as
+     * secret `name`, for `origins`, in place of any grant it had under
+     * that name. Refused for a name that isn't one, origins that aren't
+     * `https://host` alone (or are the studio's), or an entry whose
+     * origins don't cover them. A delegate's grant is its top session's.
+     *
+     * @param {string} session
+     * @param {{ name: string, origins: string[] }} want
+     * @param {string} entryId
+     * @param {{ studioOrigins?: Iterable<string> }} [opts]
+     */
+    grantAgent(session, { name, origins }, entryId, opts = {}) {
+        this.#change(() => {
+            const entry = this.#entry(entryId);
+            const why = secretNameRefusal(name);
+            if (why !== null) throw new VaultError([`name: ${why}`]);
+            const checked = checkKeyOrigins(Array.isArray(origins) ? origins : [], opts);
+            if (checked.errors.length > 0) throw new VaultError(checked.errors);
+            if (checked.origins.length === 0) throw new VaultError([`origins: name where ${name} may go, like "https://api.stripe.com"`]);
+            const missing = checked.origins.filter((o) => !entry.origins.includes(o));
+            if (missing.length > 0) throw new VaultError([`"${entry.label}" may go to ${entry.origins.join(", ")}, not ${missing.join(", ")}`]);
+            (this.agentGrants[agentKeyOf(session)] ??= {})[name] = { entry: entryId, origins: checked.origins };
+        });
+    }
+
+    /** Take back session `session`'s agent's grant for secret `name`, or
+     *  with no name every grant it has. @param {string} session @param {string} [name] */
+    revokeAgent(session, name) {
+        this.#change(() => {
+            const key = agentKeyOf(session);
+            const names = this.agentGrants[key];
+            if (names === undefined) return;
+            if (name !== undefined) delete names[name];
+            if (name === undefined || Object.keys(names).length === 0) delete this.agentGrants[key];
+        });
+    }
+
+    /** Session `session` is gone: its agent's grants go. A delegate's
+     *  are its top session's, which keeps them. @param {string} session */
+    forgetAgent(session) {
+        if (!session.includes(".")) this.revokeAgent(session);
+    }
+
+    /** Session `session`'s agent's grants, by secret name.
+     *  @param {string} session @returns {Record<string, AgentGrant>} */
+    agentGrantsOf(session) {
+        return $state.snapshot(this.agentGrants[agentKeyOf(session)] ?? {});
+    }
+
+    /** The sessions whose agents are granted entry `id`, and the secret
+     *  each has it as. @param {string} id @returns {{ session: string, name: string }[]} */
+    agentsUsing(id) {
+        return Object.entries(this.agentGrants).flatMap(([agent, names]) =>
+            Object.entries(names)
+                .filter(([, g]) => g.entry === id)
+                .map(([name]) => ({ session: agent.slice("agent:".length), name })),
+        );
+    }
+
+    /** Give session `to`'s agent session `from`'s agent's grants (a fork
+     *  its parent's), beside any of its own. @param {string} from @param {string} to */
+    copyAgentGrants(from, to) {
+        const [fromKey, toKey] = [agentKeyOf(from), agentKeyOf(to)];
+        if (fromKey === toKey) return;
+        this.#change(() => {
+            const grants = this.agentGrants[fromKey];
+            if (grants !== undefined) this.agentGrants[toKey] = { ...this.agentGrants[toKey], ...$state.snapshot(grants) };
+        });
+    }
+
+    /**
+     * The secrets session `session`'s agent has now, as its world's
+     * profile takes them: each entry made available, by its name for
+     * agents, to its own origins; then the session's grants, each to the
+     * origins approved, in place of one made available by the same name.
+     * A grant whose entry no longer covers its origins gives nothing.
+     *
+     * @param {string} session @returns {AgentSecrets}
+     */
+    agentSecrets(session) {
+        /** @type {Record<string, { value: string, origins: string[] }>} */
+        const out = {};
+        for (const e of this.entries) {
+            const value = this.#values.get(e.id);
+            if (e.agentName !== undefined && value !== undefined) out[e.agentName] = { value, origins: [...e.origins] };
+        }
+        for (const [name, g] of Object.entries(this.agentGrants[agentKeyOf(session)] ?? {})) {
+            const entry = this.entries.find((e) => e.id === g.entry);
+            const value = this.#values.get(g.entry);
+            if (entry !== undefined && value !== undefined && covers(entry, g.origins)) out[name] = { value, origins: [...g.origins] };
+        }
+        return out;
+    }
+
     /** The vault as it may be shown: entries without values. */
     toJSON() {
-        return { entries: $state.snapshot(this.entries), grants: $state.snapshot(this.grants), models: $state.snapshot(this.models) };
+        return { entries: $state.snapshot(this.entries), grants: $state.snapshot(this.grants), models: $state.snapshot(this.models), agentGrants: $state.snapshot(this.agentGrants) };
     }
 
     toString() {

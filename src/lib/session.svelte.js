@@ -15,7 +15,7 @@ import { buildModel, foldBudgetOf, thinkingOf } from "./model.js";
 import { attachmentsOf } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { primer } from "./primer.js";
-import { PROFILE, toolOptionsNow } from "./profile.js";
+import { profileFor, toolOptionsNow } from "./profile.js";
 import { keepUnchanged } from "./runs.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -206,7 +206,7 @@ export class ChatSession {
      *  its record.
      *  @param {Workspace} [ws] */
     async open(ws) {
-        this.ws = ws ?? (await (await openStore()).open(this.name, { profile: PROFILE }));
+        this.ws = ws ?? (await (await openStore()).open(this.name, { profile: profileFor(this.name) }));
         if (!this.readonly) {
             const helper = new Sessions(this.ws, new StudioRunner(this.ws, runnerHost(this)));
             helper.onAnswer = () => {
