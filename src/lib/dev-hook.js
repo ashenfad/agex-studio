@@ -346,7 +346,7 @@ export function installDevHook(studio, sync) {
         vault: {
             /** The entries, each without its value. */
             entries() {
-                return vault.entries.map((e) => ({ id: e.id, label: e.label, origins: [...e.origins], hasValue: true }));
+                return vault.entries.map((e) => ({ id: e.id, label: e.label, origins: [...e.origins], ...(e.agentName !== undefined && { agentName: e.agentName }), hasValue: true }));
             },
             /** Add a key, as settings do; its id.
              *  @param {{ label: string, value: string, origins: string[] }} fields */
@@ -388,6 +388,29 @@ export function installDevHook(studio, sync) {
             revokeModel(appKey) {
                 vault.revokeModel(appKey);
                 return this.models();
+            },
+            /** Make entry `id` available to every session's agent as
+             *  `name`, or with null no longer. @param {string} id @param {string | null} name */
+            setAgentName(id, name) {
+                vault.setAgentName(id, name);
+                return this.entries();
+            },
+            /** Grant the current session's agent entry `entryId` as
+             *  `want.name`, for `want.origins`; its grants.
+             *  @param {{ name: string, origins: string[] }} want @param {string} entryId */
+            grantAgent(want, entryId) {
+                vault.grantAgent(session().name, want, entryId);
+                return vault.agentGrantsOf(session().name);
+            },
+            /** @param {string} [name] */
+            revokeAgent(name) {
+                vault.revokeAgent(session().name, name);
+                return vault.agentGrantsOf(session().name);
+            },
+            /** The secrets the current session's agent has: names and
+             *  origins, never values. */
+            agentSecrets() {
+                return Object.fromEntries(Object.entries(vault.agentSecrets(session().name)).map(([n, s]) => [n, s.origins]));
             },
         },
         /** Sync, as the session list works it. */
