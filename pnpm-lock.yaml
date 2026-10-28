@@ -18,8 +18,8 @@ importers:
         specifier: ^0.3.2
         version: 0.3.2
       '@agex-ts/world':
-        specifier: ^0.1.4
-        version: 0.1.4
+        specifier: ^0.1.6
+        version: 0.1.6
       '@ai-sdk/anthropic':
         specifier: 4.0.79
         version: 4.0.79(zod@4.6.5)
@@ -30,8 +30,8 @@ importers:
         specifier: 3.1.0
         version: 3.1.0(ai@7.0.138(zod@4.6.5))(zod@4.6.5)
       agex-ts:
-        specifier: ^0.6.1
-        version: 0.6.1
+        specifier: ^0.6.3
+        version: 0.6.3
       dompurify:
         specifier: ^3.4.12
         version: 3.4.17
@@ -90,8 +90,8 @@ packages:
     resolution: {integrity: sha512-jZI2Pr8gsswFQreHRhs20mcPo6B6T/htYkT55fzgqfnDupHqvaK5kKJZQBpwVscvORfoNzSHe8kkiuMRM2WKwA==}
     engines: {node: '>=22'}
 
-  '@agex-ts/world@0.1.4':
-    resolution: {integrity: sha512-UI8+49zuYQ7scSB0iATW1kQd1x/YV5pa/ASIty+uxjFLCQAMHZsbTUhRMpEC+VUzH04KwWq6hPBjOV1ye9vP6w==}
+  '@agex-ts/world@0.1.6':
+    resolution: {integrity: sha512-9W7eVFVPn7QqKJXP4oGGyJaz6MSNdnOJt+OWmRvNdqEBrH8thMIpkMIcZKJ4EyY+hTZ71gNyUYRGg+pqt6tIng==}
     engines: {node: '>=22'}
 
   '@ai-sdk/anthropic@4.0.79':
@@ -663,8 +663,8 @@ packages:
     engines: {node: '>=0.4.0'}
     hasBin: true
 
-  agex-ts@0.6.1:
-    resolution: {integrity: sha512-8fWS3X9PeNonOmqaypXVs2014wzdpo+yPIscVCl5RH2p+fLAK2xxK0qOSgLewXJ0Nn7zR/wwh7BlFujmlqkujg==}
+  agex-ts@0.6.3:
+    resolution: {integrity: sha512-gUJYUOwXNlFLzqT9mLBxjQj/Vh9wYcp38SlvrYZFKIWZ/ehPS5aRA4VXLSc7dNBtZbXisNyaTRWQF4/Et8A85Q==}
     engines: {node: '>=22'}
 
   ai@7.0.138:
@@ -1194,7 +1194,7 @@ snapshots:
       fflate: 0.8.3
       superjson: 2.2.6
 
-  '@agex-ts/world@0.1.4':
+  '@agex-ts/world@0.1.6':
     dependencies:
       '@agex-ts/kvgit': 0.2.1
       '@agex-ts/termish': 0.3.2
@@ -1606,10 +1606,10 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  agex-ts@0.6.1:
+  agex-ts@0.6.3:
     dependencies:
       '@agex-ts/kvgit': 0.2.1
-      '@agex-ts/world': 0.1.4
+      '@agex-ts/world': 0.1.6
       '@ai-sdk/provider': 4.0.27
       '@standard-schema/spec': 1.1.0
 
