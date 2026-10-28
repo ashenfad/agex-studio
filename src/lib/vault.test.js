@@ -324,6 +324,14 @@ describe("a session's agent's keys", () => {
         expect(v.agentSecrets("s1")).toEqual({});
         v.update(id, { origins: [STRIPE, FILES] }, STUDIO);
         expect(v.agentSecrets("s1")).toEqual({ FILES_KEY: { value: FAKE, origins: [FILES] } });
+        // nor does the entry made available under its name stand in
+        const live = v.add({ label: "Files (live)", value: "sk_live_fake_files", origins: [FILES] }, STUDIO);
+        v.setAgentName(live, "FILES_KEY");
+        v.update(id, { origins: [STRIPE] }, STUDIO);
+        expect(v.agentSecrets("s1")).toEqual({});
+        expect(v.agentSecrets("s2")).toEqual({ FILES_KEY: { value: "sk_live_fake_files", origins: [FILES] } });
+        v.remove(live);
+        v.update(id, { origins: [STRIPE, FILES] }, STUDIO);
         v.remove(id);
         expect([v.agentSecrets("s1"), v.agentGrants]).toEqual([{}, {}]);
     });

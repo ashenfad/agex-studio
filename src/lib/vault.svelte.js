@@ -512,7 +512,9 @@ export class Vault {
      * profile takes them: each entry made available, by its name for
      * agents, to its own origins; then the session's grants, each to the
      * origins approved, in place of one made available by the same name.
-     * A grant whose entry no longer covers its origins gives nothing.
+     * A grant whose entry no longer covers its origins gives nothing under
+     * its name, not the one made available: the person chose this
+     * session's key, and another (a production key, say) mustn't stand in.
      *
      * @param {string} session @returns {AgentSecrets}
      */
@@ -526,6 +528,7 @@ export class Vault {
         for (const [name, g] of Object.entries(this.agentGrants[agentKeyOf(session)] ?? {})) {
             const entry = this.entries.find((e) => e.id === g.entry);
             const value = this.#values.get(g.entry);
+            delete out[name];
             if (entry !== undefined && value !== undefined && covers(entry, g.origins)) out[name] = { value, origins: [...g.origins] };
         }
         return out;
