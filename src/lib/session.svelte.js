@@ -16,6 +16,7 @@ import { attachmentsOf } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { primer } from "./primer.js";
 import { profileFor, toolOptionsNow } from "./profile.js";
+import { requestSecretTool } from "./request-secret.js";
 import { keepUnchanged } from "./runs.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings, isConfigured } from "./settings.js";
@@ -54,7 +55,8 @@ async function publishedNow() {
 
 /**
  * What a session's delegates run with: its agent (capped as a
- * delegate's), `test_app` and the `sessions` tool at their depth, and
+ * delegate's), `test_app`, `request_secret` (which refuses, saying to
+ * name the key in its answer), the `sessions` tool at their depth, and
  * the chat session open on one, which follows its turns.
  *
  * @param {ChatSession} owner
@@ -66,6 +68,8 @@ function runnerHost(owner) {
         // a delegate tests its own app, seeded with its top session's storage
         tools: (helper, depth, ws) => [
             testAppTool({ ws, name: ws.session.split(".")[0] ?? ws.session, delegate: true }),
+            // refused: a delegate says in its answer which key it needs
+            requestSecretTool({ name: ws.session, delegate: true }),
             studioSessionsTool(helper, depth, publishedNow),
         ],
         observe: (name) => owner.studio.opened(name),
@@ -526,7 +530,7 @@ export class ChatSession {
         return this.#agent().session(ws, {
             inbox: this.inbox,
             ...(helper !== null && { sessions: helper }),
-            tools: [testAppTool(this), ...(helper !== null ? [studioSessionsTool(helper, depthOf(this.name), publishedNow)] : [])],
+            tools: [testAppTool(this), requestSecretTool(this), ...(helper !== null ? [studioSessionsTool(helper, depthOf(this.name), publishedNow)] : [])],
             toolOptions: toolOptionsNow(),
         });
     }

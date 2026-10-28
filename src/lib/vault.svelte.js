@@ -137,6 +137,39 @@ export function checkFields({ label, value, origins }, opts = {}) {
     return { label: text, value: key, origins: checked.origins, errors };
 }
 
+/**
+ * A new key's fields, as typed beside a need (an app's declared secret,
+ * or one an agent asks for), checked as `checkFields` does, and its
+ * origins required to include every one of the need's; `sentBy` is who
+ * sends it there, for the refusal ("this app").
+ *
+ * @param {{ label: string, value: string, origins: string }} draft
+ *   origins as typed, one per line
+ * @param {string[]} origins the need's
+ * @param {{ taken: string[], sentBy: string, studioOrigins?: Iterable<string> }} opts
+ */
+export function checkNewKey(draft, origins, { taken, sentBy, studioOrigins }) {
+    const fields = checkFields({ label: draft.label, value: draft.value, origins: draft.origins.split("\n") }, { taken, ...(studioOrigins !== undefined && { studioOrigins }) });
+    const missing = origins.filter((o) => !fields.origins.includes(o));
+    if (fields.origins.length > 0 && missing.length > 0) fields.errors.push(`origins: include ${missing.join(", ")}, where ${sentBy} sends it`);
+    return fields;
+}
+
+/**
+ * A label for a new key that no entry has, nor any of `taken`: the host
+ * of the need's first origin, then numbered.
+ *
+ * @param {string[]} origins the need's
+ * @param {Set<string>} taken labels, lower-cased; the one made is added
+ */
+export function freshLabel(origins, taken) {
+    const host = new URL(origins[0]).host;
+    let label = host;
+    for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${host} ${n}`;
+    taken.add(label.toLowerCase());
+    return label;
+}
+
 /** A new entry's id. */
 function newId() {
     const bytes = crypto.getRandomValues(new Uint8Array(9));
