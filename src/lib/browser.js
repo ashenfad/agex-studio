@@ -6,9 +6,10 @@
  * Tabs belong to the top session: a delegate's calls are its top
  * session's, so a tab it opens outlives it, and a delegate resumed later
  * finds it again. Each read of a tab gives an outline with a version, and
- * an action names the latest one read here (by the tool or by code), so
- * an action on a page that changed since is refused rather than landing
- * on whatever now sits at that ref.
+ * an action names the version of the outline its ref came from, which
+ * each caller keeps for itself (the tool for its session, code with its
+ * tab): an action on a page that changed since, or read by someone else
+ * since, is refused rather than landing on whatever now sits at that ref.
  */
 
 import { ExtensionError, browserExtension } from "./browser-extension.svelte.js";
@@ -24,9 +25,6 @@ export const topOf = (session) => session.split(".")[0];
  */
 
 export class Browser {
-    /** The latest outline's version read of each tab. @type {Map<number, number>} */
-    #versions = new Map();
-
     /** @param {import("./browser-extension.svelte.js").BrowserExtension} extension */
     constructor(extension) {
         this.extension = extension;
@@ -52,17 +50,13 @@ export class Browser {
     /** @param {string} session @param {number} tab */
     async close(session, tab) {
         await this.extension.call("close", { session: topOf(session), tab });
-        this.#versions.delete(tab);
     }
 
-    /** The tab's page as an outline, its version kept for the actions
-     *  that follow. @param {string} session @param {number} tab
+    /** The tab's page as an outline, with its version, which the actions
+     *  on its refs name. @param {string} session @param {number} tab
      *  @param {{ maxChars?: number, hrefs?: boolean }} [opts] @returns {Promise<Outline>} */
-    async read(session, tab, opts = {}) {
-        /** @type {Outline} */
-        const outline = await this.extension.call("read", { session: topOf(session), tab, ...opts });
-        this.#versions.set(tab, outline.version);
-        return outline;
+    read(session, tab, opts = {}) {
+        return this.extension.call("read", { session: topOf(session), tab, ...opts });
     }
 
     /** @param {string} session @param {number} tab @param {string} url
@@ -83,17 +77,17 @@ export class Browser {
     }
 
     /**
-     * An action on the element at `ref` of the latest outline read of the
-     * tab: `click`, `type` (`text`, `submit`, `clear`) or `select`
-     * (`value`). `confirmed` only for a step the person has confirmed.
+     * An action on the element at `ref` of outline `version` of the tab
+     * (the caller's own latest read): `click`, `type` (`text`, `submit`,
+     * `clear`) or `select` (`value`). `confirmed` only for a step the
+     * person has confirmed.
      *
      * @param {string} session @param {number} tab @param {"click" | "type" | "select"} op
-     * @param {number} ref @param {Record<string, unknown>} [args]
+     * @param {number | undefined} version @param {number} ref @param {Record<string, unknown>} [args]
      * @param {{ confirmed?: boolean }} [opts]
      * @returns {Promise<ActResult>}
      */
-    act(session, tab, op, ref, args = {}, { confirmed = false } = {}) {
-        const version = this.#versions.get(tab);
+    act(session, tab, op, version, ref, args = {}, { confirmed = false } = {}) {
         if (version === undefined) return Promise.reject(new ExtensionError("stale", `tab ${tab} hasn't been read here yet; read it first`));
         return this.extension.call(op, { session: topOf(session), tab, version, ref, ...args, ...(confirmed && { confirmed: true }) });
     }

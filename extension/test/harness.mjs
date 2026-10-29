@@ -121,7 +121,8 @@ export async function launch({ extension, query }) {
             browser.kill();
             await new Promise((ok) => (browser.exitCode !== null ? ok(undefined) : browser.once("exit", ok)));
             server.close();
-            rmSync(profile, { recursive: true, force: true });
+            // Chromium's helper processes may still be writing to it a moment after the browser exits
+            rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
         },
     };
 }

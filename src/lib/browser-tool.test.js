@@ -41,11 +41,10 @@ describe("the browser service", () => {
         expect(topOf("s1.d1.d2")).toBe("s1");
     });
 
-    it("acts on the latest outline read of the tab, and refuses before any read", async () => {
+    it("acts on the outline version the caller names, and refuses without one", async () => {
         const { ext, browser } = setup();
-        await expect(browser.act("s1.d1", 7, "click", 1)).rejects.toMatchObject({ code: "stale" });
-        await browser.read("s1.d1", 7);
-        await browser.act("s1.d1", 7, "click", 1);
+        await expect(browser.act("s1.d1", 7, "click", undefined, 1)).rejects.toMatchObject({ code: "stale" });
+        await browser.act("s1.d1", 7, "click", 4, 1);
         expect(ext.calls.at(-1)).toEqual({ op: "click", args: { session: "s1", tab: 7, version: 4, ref: 1 } });
     });
 });
@@ -58,6 +57,8 @@ describe("browser's actions", () => {
         expect(checkAction({ type: 3 })).toMatchObject({ error: expect.stringMatching(/^type: the text/) });
         expect(checkAction({ read: true, click: 2 })).toMatchObject({ error: expect.stringMatching(/^an action does one thing/) });
         expect(checkAction("read")).toEqual({ error: "an action is a plain object, like {read: true}" });
+        expect(checkAction({ close: false })).toEqual({ error: "close: true, {close: true}" });
+        expect(checkAction({ tabs: "yes" })).toEqual({ error: "tabs: true, {tabs: true}" });
     });
 });
 
@@ -105,6 +106,20 @@ describe("the browser tool", () => {
     it("lists the session's tabs", async () => {
         const out = await setup({ tabs: [{ id: 7, url: "https://www.hyatt.com/", title: "Hyatt", working: true }] }).tool.call({ actions: [{ tabs: true }] });
         expect(out.text).toBe("1. tabs:\n   tab 7: Hyatt · https://www.hyatt.com/ (working in it)");
+    });
+});
+
+describe("each agent's own outline", () => {
+    it("is what its actions name, though a delegate read the tab since", async () => {
+        let version = 0;
+        const { ext } = setup({ read: () => ({ ...outline, version: ++version }) });
+        const browser = new Browser(/** @type {any} */ (ext));
+        const parent = browserTool({ name: "p1" }, { browser });
+        const child = browserTool({ name: "p1.d1", delegate: true }, { browser });
+        await parent.call({ tab: 7, actions: [{ read: true }] });
+        await child.call({ tab: 7, actions: [{ read: true }] });
+        await parent.call({ tab: 7, actions: [{ click: 1 }] });
+        expect(ext.calls.filter((c) => c.op === "click").map((c) => c.args.version)).toEqual([1]);
     });
 });
 
