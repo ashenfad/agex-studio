@@ -171,15 +171,17 @@ ends the wait. Its card becomes the first of a family:
   gate is which sites a session may visit, and a private tab and sites
   the person doesn't trust belong in different sessions. The share card
   says so when the session holds grants for other sites.
-- **After a shared read, requests go only to granted sites.** A site's
+- **After reading a tab, requests go only to granted sites.** A site's
   own owner already gets whatever the agent sends it; someone who wrote
-  only part of a page (an email in a shared inbox, a review, a listing)
-  can't collect anything there, and needs the agent to send it to a
-  server of their own. Page loads are held to the grants already, so
-  once a session's agent has read a shared tab, `curl` and `http.fetch`
-  are held to them too: a request to any other origin is refused, and
-  the agent can ask with a `sites` card. Before such a read nothing
-  changes, so searching and calling services are as they are now.
+  only part of a page (an email in an inbox, a review, a listing) can't
+  collect anything there, and needs the agent to send it to a server of
+  their own. Any tab may hold the person's data, a shared one or one the
+  agent opened on a site they're signed in to, and nothing tells the
+  two apart, so once a session's agent has read any tab, `curl` and
+  `http.fetch` are held to the session's site grants and its keys'
+  origins (which the person approved for those keys): a request to any
+  other origin is refused, and the agent can ask with a `sites` card. A
+  session that never reads a tab is as it is now.
 - **What an injection can't reach:** a key's value, which the agent
   never holds, and a committing step, which waits for a `confirm`. Its
   one way left to the person's data is posting it to a granted site (a
@@ -234,7 +236,8 @@ The cost is the `debugger` permission's install warning and Chrome's
 Exit: a spike. A session's agent, given the skill alone, searches five
 hotel sites for one date range, with one `sites` card up front: it
 reports availability and price from at least four of them correctly,
-and stops before booking. A blocked site (a CAPTCHA, or one the spike
+and stops before booking; a `curl` afterwards to an origin the session
+holds no grant for is refused. A blocked site (a CAPTCHA, or one the spike
 forces) is reported, handed to the person, and rerun, once from code
 and once from a delegate resumed. It also measures tokens per site,
 against the first spike's 1,500 to 4,800 an outline.
@@ -244,7 +247,7 @@ against the first spike's 1,500 to 4,800 an outline.
 | 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in, and the tab marked; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), each outline's version, an action on a stale one refused; the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
-| 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
+| 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only; once a tab is read, `curl` and `http.fetch` held to the session's grants and its keys' origins | 2, 3 |
 | 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step, each given its own tabs; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
 
 ## Phase 2: tabs the person shares, to read
@@ -252,14 +255,12 @@ against the first spike's 1,500 to 4,800 an outline.
 Exit: the person signs in to a site, shares the tab, and the agent
 answers a question about it. The card said where what it reads goes,
 and, in a session that holds grants for other sites, that what it reads
-can reach them. Afterwards a `curl` to an origin the session holds no
-grant for is refused.
+can reach them.
 
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | extension | Share from the toolbar (`activeTab`), naming a session: the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front, whose return reconnects the port; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
 | 2 | studio | Shares taken on each connect, a share held until its session takes it; the `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
-| 3 | studio | Once a session's agent has read a shared tab, `curl` and `http.fetch` held to its site grants: a request elsewhere refused, saying the agent can ask with a `sites` card | 2 |
 
 A shared tab is read-only in this phase.
 
@@ -301,7 +302,7 @@ most.
   happens in a tab.
 - **The gate is the sites a session may visit,** every page load in its
   tabs held to them, and its `curl` and `http.fetch` too once it has
-  read a shared tab. Nothing a tab shows is tracked after it is read:
+  read any tab. Nothing a tab shows is tracked after it is read:
   sessions are the boundary, and publishing is the person's choice.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
