@@ -22,7 +22,8 @@ worded.
 ## 1. Ask for every site at once
 
 Before you open anything, ask for all the domains the task needs in one
-`request_sites` call, saying what for, with the specifics:
+`request_sites` call, saying what for, with the specifics, in one
+sentence of 200 characters at most:
 
 ```
 request_sites({ domains: ["marriott.com", "hilton.com", "hyatt.com", "ihg.com", "booking.com"],
@@ -42,9 +43,13 @@ landed: the `url` in the read is the pattern, its dates and guests in
 the query string.
 
 ```
-browser({ actions: [{ open: "https://www.hyatt.com/search/Lisbon?checkinDate=2026-12-03&checkoutDate=2026-12-06&rooms=1&adults=2" },
+browser({ actions: [{ open: "https://www.hyatt.com/search/hotels/en-US/Lisbon,%20Portugal?checkinDate=2026-12-03&checkoutDate=2026-12-06&rooms=1&adults=2" },
                     { read: true }] })
 ```
+
+Sites change their links: a pattern that worked before, or that you
+remember, may land on "Page Not Found" now. Search by hand once, each
+task.
 
 **Check the page, not the URL.** Read that the dates, guests and place
 you asked for show on the page before you trust a pattern: a site may
@@ -62,34 +67,42 @@ pages never reach your context; you see the table at the end.
 ```ts
 const availability = agex.task({
   name: 'availability',
-  instructions: 'From a hotel search results page, list the hotels shown with their price for the whole stay or per night (say which) and whether rooms are available. Only what the page says; leave out what it doesn't.',
+  instructions: "From a hotel search results page, list the hotels shown with their price for the whole stay or per night (say which) and whether rooms are available. Only what the page says; leave out what it doesn't. If the page is a sign-in wall, an error, or shows no results, say which in note and list no hotels.",
   params: { site: { type: 'string' }, page: { type: 'string' } },
-  returns: { type: 'array', items: { type: 'object', properties: {
-    hotel: { type: 'string' }, price: { type: 'string' }, per: { type: 'string' }, available: { type: 'boolean' } },
-    required: ['hotel', 'available'] } },
+  returns: { type: 'object', properties: {
+    note: { type: 'string' },
+    hotels: { type: 'array', items: { type: 'object', properties: {
+      hotel: { type: 'string' }, price: { type: 'string' }, per: { type: 'string' }, available: { type: 'boolean' } },
+      required: ['hotel', 'available'] } } },
+    required: ['hotels'] },
 })
 
 const sites = [
-  { site: 'Hyatt', url: 'https://www.hyatt.com/search/Lisbon?checkinDate=2026-12-03&checkoutDate=2026-12-06&rooms=1&adults=2' },
+  { site: 'Hyatt', url: 'https://www.hyatt.com/search/hotels/en-US/Lisbon,%20Portugal?checkinDate=2026-12-03&checkoutDate=2026-12-06&rooms=1&adults=2' },
   // ... one per site, each from its pattern
 ]
 
 const pages = await Promise.all(sites.map(async ({ site, url }) => {
+  let tab
   try {
-    const tab = await browser.open(url)
+    tab = await browser.open(url)
     await tab.waitFor('Lisbon', { timeout: 20000 }).catch(() => {})  // something every results page shows
     const page = await tab.read()
     return { site, tab: tab.id, page }
   } catch (e) {
+    await tab?.close().catch(() => {})  // a tab that came to nothing doesn't stay behind
     return { site, error: String(e.message ?? e) }
   }
 }))
 
-const read = pages.filter((p) => p.page && !p.page.blocker)
+// a page that is a CAPTCHA or bot check, or whose load the browser stopped (it went on to
+// a domain you weren't allowed), isn't results: it goes to section 5, or to request_sites
+const read = pages.filter((p) => p.page && !p.page.blocker && !p.page.blocked)
 const found = await availability.map(read.map((p) => ({ site: p.site, page: p.page.text })))
 console.log(JSON.stringify({
-  found: read.map((p, i) => ({ site: p.site, tab: p.tab, hotels: found[i] })),
+  found: read.map((p, i) => ({ site: p.site, tab: p.tab, ...found[i] })),  // a note: a sign-in wall, an error
   blocked: pages.filter((p) => p.page?.blocker).map((p) => ({ site: p.site, tab: p.tab, blocker: p.page.blocker })),
+  stopped: pages.filter((p) => p.page?.blocked).map((p) => ({ site: p.site, tab: p.tab, wentTo: p.page.blocked.url })),
   failed: pages.filter((p) => p.error).map((p) => ({ site: p.site, error: p.error })),
 }, null, 1))
 ```
@@ -104,9 +117,16 @@ console.log(JSON.stringify({
 - **Keep the fan-out to the sites asked for**, a dozen or so at most at
   once. Close the tabs you're done with (`tab.close()`); leave open the
   ones you report, so the person can look.
+- **Wait through the tab, not with a timer.** Code has about 30 seconds of
+  its own time a run; a call on a tab (`waitFor`, `read`) is the
+  browser's time, and doesn't count. `await new Promise((r) =>
+  setTimeout(r, 3000))` does count, and a few of them cut a fan-out short.
 - **Code never asks the person**: a domain you weren't allowed, or a step
   that commits, throws an error saying so. Return it and deal with it
-  yourself (sections 1 and 5).
+  yourself (sections 1 and 5). A page that went on to another domain
+  reads with `blocked` (the load the browser stopped): ask for that
+  domain, saying why. A sign-in wall comes back in the task's `note`:
+  hand that tab to the person (section 5).
 
 ## 4. Delegates, for sites driven step by step
 
