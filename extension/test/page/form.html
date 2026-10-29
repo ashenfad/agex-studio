@@ -5,7 +5,10 @@
 <form action="form.html"><label>Where <input name="q"></label> <button>Search</button></form>
 <form id="pay"><label>Card name <input name="card"></label> <button>Pay now</button></form>
 <p><button onclick="out('reserved')">Reserve</button> <button onclick="out(`clicked ${event.isTrusted}`)">Show photos</button></p>
-<p><label>Guests <select onchange="out(`guests ${this.value}`)"><option>1</option><option>2</option></select></label></p>
+<p><label>Guests <select onchange="out(`guests ${this.value}`)"><option>1</option><option>2</option><option disabled>3</option><optgroup label="Groups" disabled><option>10</option></optgroup></select></label></p>
+<p><button onclick="out('deleted')"><img alt="Delete" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button>
+  <span id="trash-name">Delete booking</span><button aria-labelledby="trash-name" onclick="out('removed')">🗑</button></p>
+<p><label>Nights <input type="number" id="nights" value="3"></label></p>
 <p><input id="notes" aria-label="Notes"></p>
 <div id="list"><button onclick="rebuild()">Refresh list</button></div>
 <p style="position: relative"><button>Under the banner</button><span style="position: absolute; inset: 0; background: #eee">Cookie banner</span></p>
@@ -14,6 +17,7 @@
 <script>
     const out = (t) => (document.getElementById("out").textContent += `${t}; `);
     document.getElementById("pay").addEventListener("submit", (e) => (e.preventDefault(), out("paid")));
+    document.getElementById("nights").addEventListener("input", (e) => out(`nights ${e.target.value}`));
     document.getElementById("notes").addEventListener("input", (e) => out(`typed ${e.isTrusted} ${e.target.value}`));
     // as a framework re-renders: the same button, a new element
     const rebuild = () => (document.getElementById("list").innerHTML = `<button onclick="rebuild()">Refresh list</button>`);

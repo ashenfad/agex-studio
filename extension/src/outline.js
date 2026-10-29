@@ -6,8 +6,9 @@
  * `outlinePage` runs in the page, in the extension's isolated world (it
  * sees the page's DOM, not its scripts' globals), so it is
  * self-contained: it is sent as its source text. It keeps the elements
- * its refs name in that world, under the outline's version, for the
- * actions that follow; a new document starts a new world, without them.
+ * its refs name in that world, and their names, under the outline's
+ * version, for the actions that follow; a new document starts a new
+ * world, without them.
  */
 
 /**
@@ -46,6 +47,9 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
 
     /** @type {Element[]} */
     const refs = [];
+    /** each ref's name, as the outline gives it: what an action checks
+     *  for a step that commits @type {string[]} */
+    const names = [];
     /** @type {string[]} */
     const lines = [];
     let line = "";
@@ -138,6 +142,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         if (el.matches(INTERACTIVE)) {
             if (carousel) return; // a carousel's controls: next, previous, a dot per photo
             refs.push(el);
+            names.push(label(el));
             const field = el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement;
             if (!field && el instanceof HTMLElement && el.innerText.length > 80) {
                 // a card that is one link or button: its ref, then its text
@@ -199,7 +204,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     }
 
     const full = out.join("\n");
-    /** @type {typeof globalThis & { __agex?: unknown }} */ (globalThis).__agex = { version, refs };
+    /** @type {typeof globalThis & { __agex?: unknown }} */ (globalThis).__agex = { version, refs, names };
     return {
         version,
         url: location.href,
