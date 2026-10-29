@@ -86,7 +86,7 @@ debugger's focus emulation; nothing clicked.
 
 | Site | Dates taken from the URL | Hidden tab, content script | With focus emulation | Prices in the outline | Outline (≈ tokens) | Bot check |
 |---|---|---|---|---|---|---|
-| Marriott | yes | **empty** (no title even) | 27 hotels' cards | yes (`124EUR / Night`) | 3,200 (212 of 375 lines are photo carousels) | none |
+| Marriott | yes | **empty** (no title even) | hotel cards | yes (`124EUR / Night`) | 3,200 (212 of 375 lines are photo carousels) | none |
 | Hilton | yes | **empty** | results | yes (`From 257€`) | 2,100 | none |
 | Hyatt | yes | **empty** (title only) | 27 results | yes (`Rates from: €192`) | 1,500 | none |
 | IHG | yes (its month is zero-based: `qCiMy=112026` is December) | results | results | **no**: 16 hotels listed, rates not yet loaded | 1,500 | none |
