@@ -11,7 +11,7 @@
  * open, are in the registry. The person's own tabs are never held.
  */
 
-import { granted, isOrigin, originOf, pageRules } from "./grants.js";
+import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError } from "./protocol.js";
 import { change } from "./registry.js";
 import { MARK, isWorking, restAll, resume } from "./work.js";
@@ -20,20 +20,20 @@ import { MARK, isWorking, restAll, resume } from "./work.js";
 
 /** @type {Record<string, import("./port.js").Op>} */
 export const tabOps = {
-    /** A session's name (its tab group's title) and the origins it may
-     *  load, set or replaced. Its open tabs are held to the new origins
+    /** A session's name (its tab group's title) and the domains it may
+     *  load, set or replaced. Its open tabs are held to the new domains
      *  at once. */
     async session(req) {
         const session = sessionArg(req);
-        const { name, origins } = req;
+        const { name, domains } = req;
         if (typeof name !== "string" || name === "") throw bad("name: the session's name, its tab group's title");
-        if (!Array.isArray(origins) || !origins.every(isOrigin)) {
-            throw bad("origins: a list of origins, each like https://www.example.com");
+        if (!Array.isArray(domains) || !domains.every(isDomain)) {
+            throw bad("domains: a list of domains, each like marriott.com (its subdomains are granted with it)");
         }
         await change(async (state) => {
             const before = state.sessions[session];
-            state.sessions[session] = { name, origins: [...new Set(origins)] };
-            for (const tab of tabsOf(state, session)) await hold(tab, origins);
+            state.sessions[session] = { name, domains: [...new Set(domains)] };
+            for (const tab of tabsOf(state, session)) await hold(tab, domains);
             if (before !== undefined && before.name !== name) await renameGroups(state, session, before.name, name);
         });
         return null;
@@ -44,17 +44,17 @@ export const tabOps = {
     async open(req, port) {
         const session = sessionArg(req);
         const { url } = req;
-        if (typeof url !== "string" || originOf(url) === null) throw bad("url: an http or https URL");
+        if (typeof url !== "string" || hostOf(url) === null) throw bad("url: an http or https URL");
         const windowId = port.sender?.tab?.windowId;
         if (windowId === undefined) throw new ProtocolError("failed", "the port has no window to open a tab in");
         const tab = await change(async (state) => {
             const s = known(state, session);
-            if (!granted(url, s.origins)) throw new ProtocolError("not-granted", `this session holds no grant for ${originOf(url)}`);
+            if (!granted(url, s.domains)) throw new ProtocolError("not-granted", `this session holds no grant for ${hostOf(url)}`);
             // blank, and held to the grants, before it loads anything
             const { id } = await chrome.tabs.create({ url: "about:blank", active: false, windowId });
             if (id === undefined) throw new ProtocolError("failed", "the new tab has no id");
             try {
-                await hold(id, s.origins);
+                await hold(id, s.domains);
                 await group(state, session, id, windowId);
             } catch (e) {
                 await chrome.tabs.remove(id).catch(() => {});
@@ -126,10 +126,10 @@ export function watchTabs() {
         void change(async (state) => {
             const source = state.tabs[sourceTabId];
             if (source === undefined) return; // the person's own tab
-            const { origins } = known(state, source.session);
-            let refused = granted(url, origins) ? undefined : url;
+            const { domains } = known(state, source.session);
+            let refused = granted(url, domains) ? undefined : url;
             if (refused === undefined) {
-                await hold(tabId, origins);
+                await hold(tabId, domains);
                 const tab = await chrome.tabs.get(tabId).catch(() => null);
                 if (tab === null) {
                     await release(tabId);
@@ -137,7 +137,7 @@ export function watchTabs() {
                 }
                 // a page can open a tab and send it on at once, before its
                 // rules were in place: where it is now is what counts
-                refused = [tab.url, tab.pendingUrl].find((u) => u && !granted(u, origins));
+                refused = [tab.url, tab.pendingUrl].find((u) => u && !granted(u, domains));
             }
             if (refused !== undefined) {
                 // behind first: closed in front, it would hand the front to its neighbour
@@ -175,7 +175,7 @@ export function watchTabs() {
         if (frameId !== 0 || !error.includes("ERR_BLOCKED_BY_CLIENT")) return;
         void change((state) => {
             const tab = state.tabs[tabId];
-            if (tab === undefined || granted(url, state.sessions[tab.session]?.origins ?? [])) return;
+            if (tab === undefined || granted(url, state.sessions[tab.session]?.domains ?? [])) return;
             tab.blocked = { url, at: Date.now() };
         });
     });
@@ -193,7 +193,7 @@ export function watchTabs() {
         void change(async (state) => {
             const tab = state.tabs[removed];
             if (tab === undefined) return;
-            await hold(added, known(state, tab.session).origins);
+            await hold(added, known(state, tab.session).domains);
             await release(removed);
             delete state.tabs[removed];
             state.tabs[added] = tab;
@@ -221,7 +221,7 @@ export function start() {
                 delete state.tabs[key];
                 await release(id);
             } else if (rulesOf(rules, id).length === 0) {
-                await hold(id, state.sessions[session]?.origins ?? []);
+                await hold(id, state.sessions[session]?.domains ?? []);
             }
         }
         for (const tab of await chrome.tabs.query({ active: true })) {
@@ -283,18 +283,18 @@ function tabsOf(state, session) {
 
 /**
  * The session and tab a request names, checked: the tab is the
- * session's. With the session's granted origins.
+ * session's. With the session's granted domains.
  *
  * @param {Request} req
  */
 export async function ownTab(req) {
     const session = sessionArg(req);
     const tab = tabArg(req);
-    const { origins } = await change((state) => {
+    const { domains } = await change((state) => {
         mine(state, session, tab);
         return known(state, session);
     });
-    return { session, tab, origins };
+    return { session, tab, domains };
 }
 
 /** A tab's title without the mark of the agent working in it.
@@ -316,17 +316,17 @@ function mine(state, session, tab) {
 }
 
 /**
- * The tab's rules replaced by ones holding it to `origins`, in one
+ * The tab's rules replaced by ones holding it to `domains`, in one
  * update, so it is never unheld between the two.
  *
- * @param {number} tab @param {readonly string[]} origins
+ * @param {number} tab @param {readonly string[]} domains
  */
-async function hold(tab, origins) {
+async function hold(tab, domains) {
     const rules = await chrome.declarativeNetRequest.getSessionRules();
     const next = rules.reduce((max, r) => Math.max(max, r.id), 0) + 1;
     await chrome.declarativeNetRequest.updateSessionRules({
         removeRuleIds: rulesOf(rules, tab),
-        addRules: pageRules(tab, origins, next),
+        addRules: pageRules(tab, domains, next),
     });
 }
 

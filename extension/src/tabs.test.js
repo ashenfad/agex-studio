@@ -47,7 +47,7 @@ const settle = async () => {
 };
 
 const registry = {
-    sessions: { s: { name: "Hotels", origins: ["https://www.hyatt.com"] } },
+    sessions: { s: { name: "Hotels", domains: ["hyatt.com"] } },
     tabs: { 7: { session: "s" }, 8: { session: "s" } },
 };
 
@@ -68,7 +68,7 @@ describe("the worker's start", () => {
             ["block", [7]],
             ["allow", [7]],
         ]);
-        expect(rules[1].condition.urlFilter).toBe("|https://www.hyatt.com/");
+        expect(rules[1].condition.requestDomains).toEqual(["hyatt.com"]);
         expect(Object.keys(/** @type {any} */ (fake.areas.local.get("registry")).tabs)).toEqual(["7"]);
     });
 

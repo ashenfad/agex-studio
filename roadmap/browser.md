@@ -104,7 +104,7 @@ ends the wait. Its card becomes the first of a family:
 | Card | The agent asks | The person answers |
 |---|---|---|
 | key | a key, by name and origins (`request_secret`, today's) | an entry from the vault, or not now |
-| sites | to open these origins, and why ("marriott.com, hyatt.com and three more, for June 3 to 6") | allow for this session, or not now |
+| sites | to open these domains, and why ("marriott.com, hyatt.com and three more, for June 3 to 6") | allow for this session, or not now |
 | tab | to see a tab the person has open | one tab from a picker, or not now |
 | confirm | to take a step that commits (book, pay, send, post, delete) | yes or no |
 | handoff | the person's hands on a tab: a CAPTCHA, a login, a second factor | done, or skip |
@@ -133,28 +133,29 @@ ends the wait. Its card becomes the first of a family:
 
 ## Trust
 
-- **Site access is per session, by origin,** as an agent's keys are:
+- **Site access is per session, by domain,** as an agent's keys are:
   kept in the vault under `agent:<session>`, listed in settings with a
   revoke, copied by a fork, held by a delegate through its top session.
-  Chrome's host permission is a gesture inside the extension's own
-  page, which a click in the studio doesn't count as, so the person
-  grants it once there and the studio's grants decide what each session
-  may open.
+  A grant for a domain covers its subdomains (`marriott.com` covers
+  `www.marriott.com`, which most sites redirect to). The extension needs
+  no host permission: the `debugger` permission, granted at install,
+  covers its reading and acting, and the studio's grants decide what
+  each session may open.
 - **Every page load in a tab the agent opened is checked,** not only
   its `goto` and new tabs: a link it clicks, a redirect, a sign-in that
-  hops to another domain. One to an origin the session holds no grant
+  hops to another domain. One to a domain the session holds no grant
   for is blocked before it loads (the extension's
   `declarativeNetRequest` session rules, by tab, kept to the studio's
   grants), and the agent is told, so it can ask with a `sites` card. A
   tab a page opens itself (`target="_blank"`, `window.open`) gets an id
   no rule names yet, and Chrome only says so after it exists
   (`webNavigation.onCreatedNavigationTarget`): the extension registers
-  it to the session and closes it at once if its origin has no grant,
+  it to the session and closes it at once if its domain has no grant,
   before the agent can read it, but its first request may already have
   gone out. What's held is what the agent reads and acts in, not every
   request a page makes. A tab the person shared stays theirs: its loads aren't held, and when
   the agent acts in one (phase 3) they're held only while it acts, to
-  the session's grants and the tab's own origin (sharing it approved
+  the session's grants and the tab's own domain (sharing it approved
   that much), so its own submits and links still go.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
@@ -252,7 +253,7 @@ against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in the tabs the agent opened held to the origins the studio gives it (session rules by tab), a tab a page opens registered and, without a grant, closed; a shared tab left alone | |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in the tabs the agent opened held to the domains the studio gives it (session rules by tab), a tab a page opens registered and, without a grant, closed; a shared tab left alone | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in, and the tab marked; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), each outline's version, an action on a stale one refused; the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
 | 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
@@ -304,8 +305,9 @@ most.
 - **Who works in a tab is a convention;** an action on a stale outline
   fails, so a collision costs a retry, not a wrong click.
 - **The cards are the studio's,** grown from `request_secret`'s.
-- **Site access is a grant per session, by origin,** kept with the
-  agent's keys. Chrome's permission is granted once, in the extension.
+- **Site access is a grant per session, by domain** (its subdomains
+  with it), kept with the agent's keys. The extension needs no host
+  permission of Chrome's.
 - **No request carries the person's cookies;** acting as the person
   happens in a tab.
 - **The gate is the sites a session may visit,** every page load in its

@@ -5,8 +5,9 @@
  * server for the page that plays the studio. The page runs its scenarios
  * and posts each one's report here.
  *
- * The server answers on both `localhost` and `127.0.0.1`, two origins
- * for the tab tests: one granted, one not. It keeps every request it
+ * The server answers on `localhost` (and its subdomains, which Chromium
+ * sends to loopback) and on `127.0.0.1`: two domains for the tab tests,
+ * one granted, one not. It keeps every request it
  * serves (`served`), so a test can say a page never loaded, and
  * `/redirect?to=URL` redirects.
  *
