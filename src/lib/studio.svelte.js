@@ -15,6 +15,8 @@ import { snapshotBranch } from "./snapshot.js";
 import { onScreen } from "./status.js";
 import { PLANE, metaOf, newName, openStore, settleFork } from "./store.js";
 import { appKeyOf, vault } from "./vault.svelte.js";
+import { browserExtension } from "./browser-extension.svelte.js";
+import { watchSites } from "./site-sync.js";
 
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 /** @typedef {import("./store.js").SessionInfo} SessionInfo */
@@ -58,12 +60,17 @@ export class Studio {
      *  what reads every open session's status follows new ones. */
     /** @type {SvelteMap<string, ChatSession>} */
     #open = new SvelteMap();
+    /** The agents' sites, kept given to the browser extension.
+     *  @type {ReturnType<typeof watchSites> | null} */
+    #sites = null;
 
     /** Open the store, list the sessions, and open the one last looked
      *  at; with none, a new one, unless `empty` (a published session is
      *  about to open, and is the first). */
     async init({ empty = false } = {}) {
         await this.refresh();
+        // the agents' sites, kept given to the browser extension
+        this.#sites ??= watchSites({ vault, extension: browserExtension, titleOf: (name) => this.sessions.find((s) => s.name === name)?.title || "Your agent" });
         const last = readLocal(CURRENT_KEY);
         const target = this.sessions.find((s) => s.name === last) ?? this.sessions[0];
         if (target) await this.switchTo(target.name);
@@ -86,6 +93,8 @@ export class Studio {
             }),
         );
         this.sessions = infos.sort((a, b) => b.updatedAt - a.updatedAt);
+        // a renamed session's tab group follows
+        this.#sites?.sync();
     }
 
     /** Called with a session's name when its content changed here (a

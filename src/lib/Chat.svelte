@@ -17,7 +17,9 @@
     import { attachmentsOf } from './notes.js'
     import { keepReading, readingAt } from './reading.js'
     import KeyRequest from './KeyRequest.svelte'
+    import SitesRequest from './SitesRequest.svelte'
     import { keyRequests } from './key-requests.svelte.js'
+    import { siteRequests } from './site-requests.svelte.js'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
@@ -251,9 +253,13 @@
         {/if}
         {#if session.busy}
             <LiveTurn {session} prompt={session.prompt} parts={session.live} />
-            {@const asked = keyRequests.asking[session.name]}
-            {#if asked !== undefined}
-                {#key asked}<KeyRequest session={session.name} question={asked} />{/key}
+            <!-- the one card the session's agent asks with now, by its kind -->
+            {@const askedKey = keyRequests.open(session.name)}
+            {@const askedSites = siteRequests.open(session.name)}
+            {#if askedKey !== undefined}
+                {#key askedKey}<KeyRequest session={session.name} question={askedKey} />{/key}
+            {:else if askedSites !== undefined}
+                {#key askedSites}<SitesRequest session={session.name} question={askedSites} />{/key}
             {/if}
         {/if}
         {#each session.queued as q (q.id)}

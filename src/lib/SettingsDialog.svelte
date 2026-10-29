@@ -7,8 +7,9 @@
      *  sharing: syncing sessions through a GitHub repo of their own, and
      *  the token publishing writes gists with. Keys: the vault of keys
      *  the person gives apps and their agents, each with whether every
-     *  agent has it, and the apps and sessions' agents granted it. The
-     *  header and the buttons stay put; the tab's content scrolls. */
+     *  agent has it, and the apps and sessions' agents granted it; and
+     *  the sites each session's agent may open in this browser's tabs.
+     *  The header and the buttons stay put; the tab's content scrolls. */
     import { tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
@@ -23,6 +24,7 @@
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
     import { studio } from './studio.svelte.js'
     import { VaultError, sessionsOf, vault } from './vault.svelte.js'
+    import { browserExtension } from './browser-extension.svelte.js'
 
     /** @type {{ onClose: () => void, tab?: 'model' | 'notify' | 'sync' | 'keys' }} */
     let { onClose, tab: firstTab = 'model' } = $props()
@@ -604,6 +606,28 @@
                 {/each}
             </ul>
         {/if}
+        <h3>Sites your agents may open</h3>
+        <p class="hint">
+            The sites each session's agent may open in this browser's tabs, through the studio's extension, each with its subdomains. Its tabs load nothing else: a page that goes on to another site is stopped.
+            {#if browserExtension.status === 'found'}The extension is here{browserExtension.version ? ` (${browserExtension.version})` : ''}.{:else if browserExtension.status === 'outdated'}<span class="warn-text">The extension here is out of date: {browserExtension.problem}</span>{:else}The extension isn't installed in this browser, so they open nothing until it is.{/if}
+        </p>
+        {#if Object.keys(vault.agentSites).length === 0}
+            <p class="hint">None yet.</p>
+        {:else}
+            <ul class="users">
+                {#each Object.entries(vault.agentSites) as [agent, domains] (agent)}
+                    {@const session = agent.slice('agent:'.length)}
+                    {@const name = `${sessionTitle(session) ?? 'a removed session'}'s agent`}
+                    <li class="sites">
+                        <span class="hint">{name}:</span>
+                        {#each domains as domain (domain)}
+                            <span class="site"><code>{domain}</code><button class="btn secondary small" onclick={() => vault.revokeSites(session, domain)} aria-label="Revoke {name}'s use of {domain}">×</button></span>
+                        {/each}
+                        {#if domains.length > 1}<button class="btn secondary small" onclick={() => vault.revokeSites(session)} aria-label="Revoke every site {name} may open">Revoke all</button>{/if}
+                    </li>
+                {/each}
+            </ul>
+        {/if}
     {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
@@ -901,5 +925,16 @@
     }
     code {
         overflow-wrap: anywhere;
+    }
+    .users li.sites {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 0.3rem 0.5rem;
+    }
+    .site {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.8rem;
     }
 </style>
