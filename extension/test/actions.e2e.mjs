@@ -44,6 +44,13 @@ describe("acting in a session's pages", () => {
         assert.match(r.disabledGroup.error.message, /"10" is disabled/);
     });
 
+    it("sets a date field, which takes no typing, and says what it takes when it refuses a value", () => {
+        assert.equal(r.arrive.value?.title, "Book a room", JSON.stringify(r.arrive.error));
+        assert.match(r.out, /arrive false 2026-12-03;/);
+        assert.equal(r.arriveBad.error.code, "failed");
+        assert.match(r.arriveBad.error.message, /a date field takes a value like 2026-12-03, not "Dec 3"/);
+    });
+
     it("types into a field that has no selection, adding to it", () => {
         assert.equal(r.nights.value?.title, "Book a room", JSON.stringify(r.nights.error));
         assert.match(r.out, /nights 34;/);
