@@ -1,6 +1,6 @@
 /**
  * The registry: each top session the studio has told the extension
- * about (its name and granted origins), the tabs that are its, and the
+ * about (its name and granted domains), the tabs that are its, and the
  * tabs and windows the person has had in front.
  *
  * Sessions and tabs are kept in `chrome.storage.local`, which outlives
@@ -14,10 +14,10 @@
  */
 
 /**
- * @typedef {{ name: string, origins: string[] }} Session
+ * @typedef {{ name: string, domains: string[] }} Session
  * @typedef {{ url: string, at: number, newTab?: boolean }} Blocked
  *   The last load the extension stopped in a tab: a page load to an
- *   origin without a grant, or a tab the page opened there, closed.
+ *   domain without a grant, or a tab the page opened there, closed.
  * @typedef {{ session: string, opened?: boolean, blocked?: Blocked, reads?: number }} Tab
  *   `opened`: a tab one of the session's pages opened. `reads`: how many
  *   outlines of it have been read, the last one's version.

@@ -11,14 +11,14 @@ without a message, and the port drops with it).
 [`src/protocol.js`](src/protocol.js) has the messages.
 
 Over the port the studio tells the extension each top session's name
-and granted origins (`session`), and opens, lists and closes its tabs
-(`open`, `tabs`, `close`):
+and granted domains (`session`; each covers its subdomains), and opens,
+lists and closes its tabs (`open`, `tabs`, `close`):
 
 - **A session's tabs open in the background** of the studio's window,
   in a tab group with the session's name. A tab one of its pages opens
   is the session's too, and is sent behind if it took the front (a
   popup window gives the focus back to the window that had it).
-- **Every page load in them is held to the session's origins** by
+- **Every page load in them is held to the session's domains** by
   `declarativeNetRequest` session rules for that tab: a link, a
   redirect, a script's navigation. A load to anywhere else is stopped
   before it reaches the site, and `tabs` reports it. A tab a page opens
