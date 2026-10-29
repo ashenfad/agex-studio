@@ -39,6 +39,14 @@ drive them, and read a tab the person shares.
   outlives the delegate that opened it, so a delegate resumed later
   finds it again. The extension keeps the registry, and refuses a call
   for any other tab.
+- **Who works in a tab is a convention,** not enforced. A parent gives
+  each delegate its own tabs and names them in the task, and doesn't
+  act in a tab a delegate is working; the person leaves alone the tab
+  the agent is acting in, which the extension marks while it does (the
+  tab's title, and the debugger's bar). Whoever disturbs a tab, an
+  action on an outline read before the page changed fails ("the page
+  changed since you read it; read it again") rather than clicking what
+  now sits at that ref.
 - **A page reads as an outline:** its text, with a numbered ref on each
   thing that can be clicked or typed into (`[12] button "Check
   availability"`). The agent acts by ref. A screenshot is taken when
@@ -46,8 +54,9 @@ drive them, and read a tab the person shares.
   too many images.
 - **`test_app`'s vocabulary**, on a tab instead of the hidden page:
   `click`, `type`, `select`, `waitFor`, `read`, `screenshot`, and
-  `goto`. The same calls are tools for the agent's steps and a
-  `browser` host object for its code.
+  `goto`, and `tabs` to list the session's tabs (each one's id, title,
+  url, and whether the person shared it). The same calls are tools for
+  the agent's steps and a `browser` host object for its code.
 - **The person's own agents only.** A session's agent and its delegates
   get tabs; an app's agent never does, since an app may be anyone's.
 - **Without the extension** the studio is as it is now, and the tools
@@ -161,9 +170,20 @@ ends the wait. Its card becomes the first of a family:
   opens, a form it fills. No check inside a session stops that, so the
   gate is which sites a session may visit, and a private tab and sites
   the person doesn't trust belong in different sessions. The share card
-  says so when the session holds grants for other sites. What an
-  injection can't reach: a key's value, which the agent never holds,
-  and a committing step, which waits for a `confirm`.
+  says so when the session holds grants for other sites.
+- **After a shared read, requests go only to granted sites.** A site's
+  own owner already gets whatever the agent sends it; someone who wrote
+  only part of a page (an email in a shared inbox, a review, a listing)
+  can't collect anything there, and needs the agent to send it to a
+  server of their own. Page loads are held to the grants already, so
+  once a session's agent has read a shared tab, `curl` and `http.fetch`
+  are held to them too: a request to any other origin is refused, and
+  the agent can ask with a `sites` card. Before such a read nothing
+  changes, so searching and calling services are as they are now.
+- **What an injection can't reach:** a key's value, which the agent
+  never holds, and a committing step, which waits for a `confirm`. Its
+  one way left to the person's data is posting it to a granted site (a
+  reply, a review), and that is a committing step.
 
 ## What the spike found
 
@@ -222,22 +242,24 @@ against the first spike's 1,500 to 4,800 an outline.
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
-| 2 | extension | The debugger attached with focus emulation while a tab is worked in; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
+| 2 | extension | The debugger attached with focus emulation while a tab is worked in, and the tab marked; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), each outline's version, an action on a stale one refused; the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
-| 4 | studio | The browser tools and the `browser` host object (open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
-| 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
+| 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
+| 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step, each given its own tabs; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
 
 ## Phase 2: tabs the person shares, to read
 
 Exit: the person signs in to a site, shares the tab, and the agent
 answers a question about it. The card said where what it reads goes,
 and, in a session that holds grants for other sites, that what it reads
-can reach them.
+can reach them. Afterwards a `curl` to an origin the session holds no
+grant for is refused.
 
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | extension | Share from the toolbar (`activeTab`), naming a session: the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front, whose return reconnects the port; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
 | 2 | studio | Shares taken on each connect, a share held until its session takes it; the `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
+| 3 | studio | Once a session's agent has read a shared tab, `curl` and `http.fetch` held to its site grants: a request elsewhere refused, saying the agent can ask with a `sites` card | 2 |
 
 A shared tab is read-only in this phase.
 
@@ -270,13 +292,16 @@ most.
   the agent asks, then reruns the site or resumes the delegate. No
   request is relayed from a delegate.
 - **Tabs belong to the top session,** so they outlive a delegate.
+- **Who works in a tab is a convention;** an action on a stale outline
+  fails, so a collision costs a retry, not a wrong click.
 - **The cards are the studio's,** grown from `request_secret`'s.
 - **Site access is a grant per session, by origin,** kept with the
   agent's keys. Chrome's permission is granted once, in the extension.
 - **No request carries the person's cookies;** acting as the person
   happens in a tab.
 - **The gate is the sites a session may visit,** every page load in its
-  tabs held to them. Nothing a tab shows is tracked after it is read:
+  tabs held to them, and its `curl` and `http.fetch` too once it has
+  read a shared tab. Nothing a tab shows is tracked after it is read:
   sessions are the boundary, and publishing is the person's choice.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
