@@ -296,7 +296,11 @@ code. Variables keep them apart, set once for the session.
   refuses a name the session's agent has as a key, and `request_secret`
   refuses one that is a variable. A key made available to agents later
   under a variable's name wins in that session: the variable is left
-  out of its world and the panel marks it hidden.
+  out of its world and the panel marks it hidden. The app's secrets
+  (`app/agex.json`) share no name with its variables either, since an
+  app's agent is given both: setting a variable refuses a name the app
+  declares, and the app's build fails on a secret named as a variable,
+  where the agent sees the error.
 - **The world reads them live** (agex-ts): a profile's `variables` may
   be a function, called each time the shell, code's `env` or the tools'
   descriptions need them, as its `secrets` already are. One set
@@ -322,7 +326,7 @@ Slices:
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | agex-ts | A profile's `variables` as a function, read at each use (the shell's environment, code's `env`, the tools' descriptions, the check against secrets' names); then a patch release | |
-| 2 | studio | Variables on the plane: the model and its checks, the session's world given them live (`profileFor`), keys and variables sharing no name; forks, checkouts and bundles carrying them, tested | 1 (released) |
+| 2 | studio | Variables on the plane: the model and its checks, the session's world given them live (`profileFor`), keys (the agent's and the app's declared ones) and variables sharing no name; forks, checkouts and bundles carrying them, tested | 1 (released) |
 | 3 | studio | `window.env` in the app's page (preview, `test_app`, shared, exported), rebuilt on a change; interactive-app and app-agents skills | 2 |
 | 4 | studio | Setting them: the session dialog's section and `set_variables` (a delegate's refused); the dev hook | 2 |
 | 5 | studio | The primer's note and a spike: an agent builds an app against a public API with its base URL as a variable; the person changes it in the dialog and the app follows without a code edit; a fork set differently runs its own | all |
