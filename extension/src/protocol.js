@@ -10,6 +10,18 @@
  * `hello`, which says the studio's protocol version and gets the
  * extension's; any other op before it is refused.
  *
+ * The ops after it:
+ *
+ * - `ping`: the heartbeat.
+ * - `turn { running }`: whether a turn is running, while which the
+ *   studio's tab isn't discarded.
+ * - `session { session, name, origins }`: a top session's name (its tab
+ *   group's title) and the origins its tabs may load, set or replaced.
+ * - `open { session, url }` → `{ tab }`: a tab opened for the session.
+ * - `close { session, tab }`: one of its tabs closed.
+ * - `tabs { session }` → `[{ id, url, title, blocked? }]`: its tabs,
+ *   each with the last load the extension stopped in it.
+ *
  * A port with no messages on it doesn't keep the extension's service
  * worker alive (Chrome stops it after about 30 s idle, and the port
  * drops), so the studio sends `ping` while it needs the port, and opens
@@ -40,7 +52,7 @@ export const HEARTBEAT_MS = 20_000;
  * @typedef {{ id: number, op: string, [arg: string]: unknown }} Request
  * @typedef {{ code: ErrorCode, message: string }} ReplyError
  * @typedef {{ id: number, value: unknown } | { id: number, error: ReplyError }} Reply
- * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "failed"} ErrorCode
+ * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "not-found" | "not-granted" | "failed"} ErrorCode
  */
 
 /** What `hello` answers. @typedef {{ protocol: number, version: string }} Hello */
