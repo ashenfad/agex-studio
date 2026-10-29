@@ -47,6 +47,22 @@ And reads them (`read`, `waitFor`, `screenshot`) and sends them on
 - **The outline runs in the extension's isolated world** in the page:
   it sees the DOM, not the page's scripts, and keeps the elements its
   refs name there for the actions that follow.
+
+And acts in them, by an outline's refs (`click`, `type`, `select`):
+
+- **Input is trusted:** a click is the debugger's mouse events at the
+  element's center, typing its `Input.insertText` (and Enter, with
+  `submit`). An element something else covers there is refused, naming
+  what covers it.
+- **An action names its outline's `version`,** and is refused as
+  `stale` when that isn't the page's latest, when the page is another
+  document now, or when the element at its ref has left the page (a
+  re-render): the agent reads the page again.
+- **A step that reads as committing is refused as `confirm`** unless
+  the call says `confirmed: true`: a click on a control, or a form
+  submit whose submitting button, says book, reserve, pay, purchase,
+  buy, checkout, place order, send, post, publish, delete or confirm.
+  A guard rail, not a boundary: a control labelled otherwise gets past.
 - **The studio's tab isn't discarded** while a turn runs (`turn`).
 
 The registry (sessions, their tabs) is in `chrome.storage.local`, so it

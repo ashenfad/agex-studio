@@ -7,6 +7,7 @@ import { DEV } from "./build-info.js";
 import { originMatcher } from "./origins.js";
 import { servePort } from "./port.js";
 import { DEV_MATCHES, STUDIO_MATCHES } from "./protocol.js";
+import { actOps } from "./act.js";
 import { pageOps } from "./pages.js";
 import { read } from "./registry.js";
 import { start, tabOps, watchTabs } from "./tabs.js";
@@ -22,6 +23,7 @@ const ops = {
     ping: () => ({ at: Date.now() }),
     ...tabOps,
     ...pageOps,
+    ...actOps,
 };
 
 watchTabs();
