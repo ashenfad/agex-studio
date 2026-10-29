@@ -238,6 +238,10 @@ const ws = await store.open('chat', {
   studio fills it in, so neither the app nor its agent holds the key.
 - **`agex.secrets()`** is the declared secrets by name and origins,
   with no values, so the agent's tools list them.
+- **Configuration** the app reads from `window.env` (a service's base
+  URL) goes to its agent as the world's variables:
+  `profile: { ..., variables: window.env }`, so its code reads
+  `env.API_URL` and its shell `$API_URL`.
 - **Say it in the primer:** the service, what to call, and that the key
   goes as `secret('WEATHER_KEY')` in that header, through
   `http.fetch`. `curl` in the agent's shell refuses a request carrying

@@ -1212,6 +1212,21 @@ function _workerRegistryScript(workerSources) {
 }
 
 /**
+ * Classic <script> giving the page `window.env`: the session's variables
+ * (`variables.js`), frozen, and defined so the app can't replace it. Read
+ * from JSON, so every name is an own property, `__proto__` too.
+ *
+ * @param {Record<string, string>} variables
+ */
+function _envScript(variables) {
+    const json = JSON.stringify(JSON.stringify(variables)).replace(/</g, '\\u003c');
+    return (
+        `\n<script>\n// window.env: the session's variables\n` +
+        `Object.defineProperty(window,"env",{value:Object.freeze(JSON.parse(${json})),enumerable:true});\n<\/script>`
+    );
+}
+
+/**
  * Classic <script> giving the page `agex.secrets()`: the secrets the app
  * declares, as a world's profile takes them (`{ NAME: { origins } }`),
  * names and origins only, never a value. Runs after the host bridge,
@@ -1249,6 +1264,7 @@ function _secretsScript(needs) {
  *   appStorage?: { seed?: Record<string,string>, writeable?: boolean, report?: boolean, sessionSeed?: Record<string,string> },
  *   workerSources?: Record<string, string>,
  *   standIns?: import('./stand-ins.js').StandIn[],
+ *   variables?: Record<string, string>,
  * }} [opts]
  * @returns {Promise<AppPage>}
  */
@@ -1257,6 +1273,13 @@ export async function buildAppPage(appFiles, opts = {}) {
     // the build, and the file is left out of the page and its assets.
     // The page has its secrets' names and origins (`agex.secrets()`).
     const { needs, errors } = parseNeeds(appFiles[NEEDS_PATH] ?? null);
+    // an app's agent is given both, so a name is a secret or a variable
+    const variables = opts.variables ?? {};
+    for (const secret of needs.secrets) {
+        if (Object.hasOwn(variables, secret.name)) {
+            errors.push(`${secret.name} is both a secret ${NEEDS_PATH} declares and one of the session's variables; a name is a key or a variable, not both, so rename one`);
+        }
+    }
     if (errors.length > 0) throw new Error(errors.join('\n'));
     appFiles = Object.fromEntries(Object.entries(appFiles).filter(([path]) => path !== NEEDS_PATH));
     const storageShim = buildAppStorageShim(opts.appStorage || {});
@@ -1285,7 +1308,7 @@ export async function buildAppPage(appFiles, opts = {}) {
     // scripts below: a library might poke localStorage on import),
     // and the assets script early, so its fetch patch is in place
     // before any app JS runs.
-    const injected = CONSOLE_INTERCEPTOR + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + _secretsScript(needs) + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
+    const injected = CONSOLE_INTERCEPTOR + _envScript(variables) + storageShim + assetsScript + workerScript + HOST_BRIDGE_SCRIPT + _secretsScript(needs) + AGENT_CONTROL_BRIDGE_SCRIPT + cdnScripts;
     return { html: _injectHead(html, injected), assets, storageShim, needs };
 }
 
