@@ -17,5 +17,5 @@ done.
   S6).
 - [browser.md](browser.md): agents in the person's browser, through
   an extension: tabs the agent opens and drives (searching a dozen
-  hotels at once), tabs the person shares, and the world's requests to
-  the person (keys, sites, confirmations, handoffs).
+  hotels at once), tabs the person shares, and the cards the agent
+  asks the person with (sites, confirmations, handoffs).
