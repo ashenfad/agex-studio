@@ -140,12 +140,14 @@ ends the wait. Its card becomes the first of a family:
   page, which a click in the studio doesn't count as, so the person
   grants it once there and the studio's grants decide what each session
   may open.
-- **Every page load in a session's tab is checked,** not only the
-  agent's `goto` and new tabs: a link it clicks, a redirect, a sign-in
-  that hops to another domain. One to an origin the session holds no
-  grant for is blocked before it loads (the extension's
+- **Every page load in a tab the agent opened is checked,** not only
+  its `goto` and new tabs: a link it clicks, a redirect, a sign-in that
+  hops to another domain. One to an origin the session holds no grant
+  for is blocked before it loads (the extension's
   `declarativeNetRequest` session rules, by tab, kept to the studio's
-  grants), and the agent is told, so it can ask with a `sites` card.
+  grants), and the agent is told, so it can ask with a `sites` card. A
+  tab the person shared stays theirs: its loads aren't held, and when
+  the agent acts in one (phase 3) they're held only while it acts.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
   wherever the person is (opening marriott.com opens their account),
@@ -154,10 +156,13 @@ ends the wait. Its card becomes the first of a family:
 - **Steps that commit are confirmed.** The extension reports a form
   submit, and a click on a control whose text reads as committing
   (book, reserve, pay, purchase, send, post, delete, confirm), and the
-  tool refuses either without a `confirm` answered yes. It is a
-  heuristic: it catches the common steps, and the agent is told to ask
-  for the rest. A delegate that meets one stops and reports it, as it
-  does a CAPTCHA.
+  tool refuses either without a `confirm` answered yes. It is a guard
+  rail, not a boundary: it catches the common steps and the agent's own
+  mistakes, and the agent is told to ask for the rest, but a control
+  labelled in another language, or "Continue", or an icon, an autosaving
+  field, or a navigation with side effects gets past it. A rule a
+  machine could check (every form submit) would confirm every search. A
+  delegate that meets one stops and reports it, as it does a CAPTCHA.
 - **What a tab shows joins the session.** What the agent reads goes to
   the person's model provider, as everything in its context does, and
   into the session's history, which syncs and publishes with the rest
@@ -166,26 +171,20 @@ ends the wait. Its card becomes the first of a family:
   where it goes, and nothing is tracked after.
 - **Sessions are the boundary.** Any page's text may be an instruction
   aimed at the agent (mail, comments, listings, or the site itself), and
-  what the agent can see can reach any site it works in: a URL it
-  opens, a form it fills. No check inside a session stops that, so the
-  gate is which sites a session may visit, and a private tab and sites
-  the person doesn't trust belong in different sessions. The share card
-  says so when the session holds grants for other sites.
-- **After reading a tab, requests go only to granted sites.** A site's
-  own owner already gets whatever the agent sends it; someone who wrote
-  only part of a page (an email in an inbox, a review, a listing) can't
-  collect anything there, and needs the agent to send it to a server of
-  their own. Any tab may hold the person's data, a shared one or one the
-  agent opened on a site they're signed in to, and nothing tells the
-  two apart, so once a session's agent has read any tab, `curl` and
-  `http.fetch` are held to the session's site grants and its keys'
-  origins (which the person approved for those keys): a request to any
-  other origin is refused, and the agent can ask with a `sites` card. A
-  session that never reads a tab is as it is now.
-- **What an injection can't reach:** a key's value, which the agent
-  never holds, and a committing step, which waits for a `confirm`. Its
-  one way left to the person's data is posting it to a granted site (a
-  reply, a review), and that is a committing step.
+  what the agent can see can reach any server at all: a URL it opens, a
+  form it fills, and outside the tabs its code's own `fetch` (which goes
+  straight to the network), `web.fetch` (fetched by OpenRouter), an
+  import, an app's requests. No check on the tools closes all of those,
+  so none is promised: the gate is which sites a session may visit, and
+  a private tab and sites the person doesn't trust belong in different
+  sessions. The share card says so when the session holds grants for
+  other sites.
+- **What holds, whatever a page says:** a key's value, which the agent
+  never holds and which goes only to its origins in its header; and the
+  sites the agent's own tabs load, held to the session's grants.
+  Everything else here is a guard rail: `confirm`, the model's own
+  resistance to injection, keeping private tabs apart from sites the
+  person doesn't trust.
 
 ## What the spike found
 
@@ -236,18 +235,17 @@ The cost is the `debugger` permission's install warning and Chrome's
 Exit: a spike. A session's agent, given the skill alone, searches five
 hotel sites for one date range, with one `sites` card up front: it
 reports availability and price from at least four of them correctly,
-and stops before booking; a `curl` afterwards to an origin the session
-holds no grant for is refused. A blocked site (a CAPTCHA, or one the spike
+and stops before booking. A blocked site (a CAPTCHA, or one the spike
 forces) is reported, handed to the person, and rerun, once from code
 and once from a delegate resumed. It also measures tokens per site,
 against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in the tabs the agent opened held to the origins the studio gives it (session rules by tab), a shared tab left alone | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in, and the tab marked; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), each outline's version, an action on a stale one refused; the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
-| 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only; once a tab is read, `curl` and `http.fetch` held to the session's grants and its keys' origins | 2, 3 |
+| 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
 | 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step, each given its own tabs; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
 
 ## Phase 2: tabs the person shares, to read
@@ -301,9 +299,11 @@ most.
 - **No request carries the person's cookies;** acting as the person
   happens in a tab.
 - **The gate is the sites a session may visit,** every page load in its
-  tabs held to them, and its `curl` and `http.fetch` too once it has
-  read any tab. Nothing a tab shows is tracked after it is read:
-  sessions are the boundary, and publishing is the person's choice.
+  tabs held to them. Nothing a tab shows is tracked after it is read,
+  and no tool's requests are held after it: sessions are the boundary,
+  and publishing is the person's choice.
+- **Only what holds is promised:** a key's value, and the sites the
+  agent's tabs load. `confirm` is a guard rail.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
   protocol and the studio's tools change together.
@@ -325,6 +325,13 @@ most.
   `agex.fetch` and reading pages without OpenRouter. It reads no tab,
   so it is a smaller question of trust, and could ship before the
   tabs.
+- **Requests held at the network,** if a session's reach outside its
+  tabs ever needs a boundary: the extension's `declarativeNetRequest`
+  rules over every request the studio's tab makes (its workers and the
+  app's frame included), to the studio's own services and the session's
+  grants. It would hold the whole tab, not one session, and still leave
+  what goes through a service the studio needs (`web.fetch`, through
+  OpenRouter).
 - **A note in the publish dialog** when the session read a shared tab,
   if people turn out to need the reminder.
 - **A side panel,** for a session that follows the person from tab to
