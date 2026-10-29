@@ -6,13 +6,23 @@
 <div id="list"></div>
 <p id="end">Loading more…</p>
 <script>
-    // a list that loads ten more each time its end comes into view, up to thirty, as many sites do
+    // a list that loads ten more each time its end comes into view, up to thirty, as many sites
+    // do: each batch after a while, as one fetched over the network would come
     const list = document.getElementById("list");
     let n = 0;
-    const more = () => {
+    let loading = false;
+    const add = () => {
         for (let i = 0; i < 10 && n < 30; i++) list.insertAdjacentHTML("beforeend", `<div class="item">Hotel ${++n}</div>`);
         if (n >= 30) document.getElementById("end").textContent = "That's all.";
     };
-    more();
+    const more = () => {
+        if (loading || n >= 30) return;
+        loading = true;
+        setTimeout(() => {
+            add();
+            loading = false;
+        }, 1200);
+    };
+    add();
     new IntersectionObserver((seen) => seen.some((s) => s.isIntersecting) && more()).observe(document.getElementById("end"));
 </script>
