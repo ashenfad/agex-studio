@@ -27,6 +27,13 @@ describe("primer", () => {
         expect(text).toContain("ask for it with request_secret");
     });
 
+    it("tells the agent to keep public configuration in variables, set with set_variables, never a key", () => {
+        const text = primer(DEFAULTS);
+        expect(text).toContain("set them with set_variables");
+        expect(text).toContain("`window.env.NAME`");
+        expect(text).toContain("a key is never a variable");
+    });
+
     it("tells the agent it can draw a diagram in a mermaid block", () => {
         expect(primer(DEFAULTS)).toContain("```mermaid block in your reply");
     });
