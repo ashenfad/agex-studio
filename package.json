@@ -9,10 +9,13 @@
     "preview": "vite preview",
     "test": "vitest",
     "typecheck": "tsc --noEmit -p jsconfig.json && svelte-check --fail-on-warnings=false",
-    "drive": "node scripts/drive.mjs"
+    "drive": "node scripts/drive.mjs",
+    "extension:build": "node extension/build.mjs",
+    "extension:test": "node --test --test-timeout=300000 extension/test/port.e2e.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/chrome": "^0.3.7",
     "@vitest/coverage-v8": "^4.1.0",
     "happy-dom": "^20.9.0",
     "jsdom": "^29.1.1",
