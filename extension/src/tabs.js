@@ -14,6 +14,7 @@
 import { granted, isOrigin, originOf, pageRules } from "./grants.js";
 import { ProtocolError } from "./protocol.js";
 import { change } from "./registry.js";
+import { MARK, isWorking, restAll, resume } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
 
@@ -80,8 +81,9 @@ export const tabOps = {
         return null;
     },
 
-    /** The session's tabs, each with its URL and title, and the last
-     *  load the extension stopped in it. */
+    /** The session's tabs, each with its URL and title, whether the
+     *  agent is working in it, and the last load the extension stopped
+     *  in it. */
     async tabs(req) {
         const session = sessionArg(req);
         return change(async (state) => {
@@ -94,18 +96,22 @@ export const tabOps = {
                     continue;
                 }
                 const { blocked } = state.tabs[id];
-                listed.push({ id, url: tab.url ?? "", title: tab.title ?? "", ...(blocked && { blocked }) });
+                listed.push({ id, url: tab.url ?? "", title: unmarked(tab.title ?? ""), working: isWorking(id), ...(blocked && { blocked }) });
             }
             return listed;
         });
     },
 
     /** While a turn runs, the studio's tab isn't discarded to save
-     *  memory, which would end the turn. */
+     *  memory, which would end the turn. A turn's start lifts the
+     *  person's cancel of the agent's work, and its end rests every tab
+     *  worked in. */
     async turn(req, port) {
         if (typeof req.running !== "boolean") throw bad("running: whether a turn is running");
         const id = port.sender?.tab?.id;
         if (id === undefined) throw new ProtocolError("failed", "the port has no tab");
+        if (req.running) resume();
+        else await restAll();
         const tab = await chrome.tabs.update(id, { autoDiscardable: !req.running });
         return { discardable: tab?.autoDiscardable ?? !req.running };
     },
@@ -273,6 +279,28 @@ function tabsOf(state, session) {
     return Object.entries(state.tabs)
         .filter(([, t]) => t.session === session)
         .map(([id]) => Number(id));
+}
+
+/**
+ * The session and tab a request names, checked: the tab is the
+ * session's. With the session's granted origins.
+ *
+ * @param {Request} req
+ */
+export async function ownTab(req) {
+    const session = sessionArg(req);
+    const tab = tabArg(req);
+    const { origins } = await change((state) => {
+        mine(state, session, tab);
+        return known(state, session);
+    });
+    return { session, tab, origins };
+}
+
+/** A tab's title without the mark of the agent working in it.
+ *  @param {string} title */
+export function unmarked(title) {
+    return title.startsWith(MARK) ? title.slice(MARK.length) : title;
 }
 
 /** @param {import("./registry.js").State} state @param {string} session */

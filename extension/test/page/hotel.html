@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Hotels in Lisbon</title>
+<style>.card { display: block; border: 1px solid #ccc; margin: 8px; padding: 8px }</style>
+<h1>Hotels in Lisbon</h1>
+<form action="hotel.html">
+  <label for="where">Destination</label> <input id="where" name="where" value="Lisbon">
+  <label>Guests <select name="guests"><option>1</option><option selected>2</option><option>3</option></select></label>
+  <label><input type="checkbox" name="flex" checked> Flexible dates</label>
+  <button>Search</button>
+</form>
+<p id="count">Results load in a moment…</p>
+<div id="results"></div>
+<p id="rates" hidden>Rates loaded</p>
+<script>
+    // drawn in an animation frame, as sites that wait for a visible page do
+    requestAnimationFrame(() => {
+        document.getElementById("count").textContent = "2 hotels";
+        document.getElementById("results").innerHTML = `
+          <a class="card" href="hotel.html?h=avenida">
+            <h3>Hotel Avenida</h3>
+            <div class="carousel">${Array.from({ length: 12 }, (_, i) => `<button aria-label="Photo ${i + 1}">•</button>`).join("")}</div>
+            <p>Four stars, by the river, with a rooftop pool and a breakfast that is served until noon every day.
+              <span>(</span><span>383</span><span> reviews)</span></p>
+            <p>From <b>124</b> EUR a night</p>
+          </a>
+          <div class="card">
+            <h3>Casa Alfama</h3>
+            <p>From <b>98</b> EUR a night</p>
+            <button>Reserve</button>
+            ${Array.from({ length: 5 }, () => `<button>Save to list</button>`).join("")}
+          </div>`;
+    });
+    setTimeout(() => (document.getElementById("rates").hidden = false), 1500);
+</script>
