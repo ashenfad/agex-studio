@@ -31,7 +31,8 @@ describe("primer", () => {
         const text = primer(DEFAULTS);
         expect(text).toContain("set them with set_variables");
         expect(text).toContain("`window.env.NAME`");
-        expect(text).toContain("a key is never a variable");
+        expect(text).toContain("a secret (an API token, a password: anything that must stay private) is never a variable");
+        expect(text).toContain("a key made to be public, like that anon key, is");
     });
 
     it("tells the agent it can draw a diagram in a mermaid block", () => {

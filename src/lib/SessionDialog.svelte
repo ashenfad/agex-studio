@@ -302,7 +302,7 @@
         <h3>Variables</h3>
         <p class="hint">
             Configuration anyone may read, like a service's URL: the app has them as <code>window.env</code>, the agent as <code>env</code>. They go with the session when
-            it's shared or published, so a key never goes here: keys are in Settings, under Keys.
+            it's shared or published, so a secret never goes here: an API token or password belongs in Settings, under Keys. A key made to be public (an anon key) is fine.
         </p>
         {#if Object.keys(variables).length > 0}
             <ul class="variables">
