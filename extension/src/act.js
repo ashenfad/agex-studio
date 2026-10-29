@@ -208,6 +208,10 @@ export function aimAt(version, ref, how) {
     if (fields && !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || /** @type {HTMLElement} */ (el).isContentEditable)) {
         return { error: `${desc} isn't a field to type into` };
     }
+    // a person can't change it either: a site's own picker sets it, so click that
+    if (fields && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly) {
+        return { error: `${desc} is read-only: click it, or the control beside it, to open the site's own picker` };
+    }
     if (how === "select" && !(el instanceof HTMLSelectElement)) return { error: `${desc} isn't a select (click a custom one's options)` };
 
     // what a click or an Enter submits, and whether it reads as committing
@@ -296,10 +300,19 @@ export function setPicked(ref, text) {
         color: "#ff8800",
         range: `a number from ${el.min || 0} to ${el.max || 100}`,
     });
+    // tried on a field of its own first: a field sanitizes what it doesn't take (to empty, to
+    // black, to its midpoint), and the page's field keeps its value when this one is refused
+    const probe = document.createElement("input");
+    probe.type = el.type;
+    for (const a of ["min", "max", "step"]) if (el.hasAttribute(a)) probe.setAttribute(a, /** @type {string} */ (el.getAttribute(a)));
+    probe.value = text;
+    const wanted = el.type === "color" ? text.toLowerCase() : text;
+    if (text !== "" && probe.value !== wanted) {
+        return { error: `a ${el.type} field takes a value like ${FORMS[el.type]}, not ${JSON.stringify(text)}` };
+    }
     // the element's own setter: a page that wraps the value's setter still hears of it
     const setter = /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")).set;
     setter?.call(el, text);
-    if (text !== "" && el.value === "") return { error: `a ${el.type} field takes a value like ${FORMS[el.type]}, not ${JSON.stringify(text)}` };
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     return {};

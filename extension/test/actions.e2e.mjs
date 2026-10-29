@@ -49,6 +49,17 @@ describe("acting in a session's pages", () => {
         assert.match(r.out, /arrive false 2026-12-03;/);
         assert.equal(r.arriveBad.error.code, "failed");
         assert.match(r.arriveBad.error.message, /a date field takes a value like 2026-12-03, not "Dec 3"/);
+        // a refused value changes nothing: the date set before stays, the colour stays its own
+        assert.match(r.fields, /date field "Arrive" = "2026-12-03"/);
+        assert.equal(r.colourBad.error.code, "failed");
+        assert.match(r.colourBad.error.message, /a color field takes a value like #ff8800, not "red"/);
+        assert.match(r.fields, /color field "Colour" = "#336699"/);
+    });
+
+    it("refuses a read-only field, which only the site's own picker sets", () => {
+        assert.equal(r.departReadOnly.error.code, "failed");
+        assert.match(r.departReadOnly.error.message, /is read-only: click it/);
+        assert.doesNotMatch(r.out, /depart/);
     });
 
     it("types into a field that has no selection, adding to it", () => {

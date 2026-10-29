@@ -232,12 +232,16 @@ const SCENARIOS = {
             nights: await c.call("type", { ...on(first, "Nights"), text: "4", clear: false }),
             arrive: await c.call("type", { ...on(first, "Arrive"), text: "2026-12-03" }),
             arriveBad: await c.call("type", { ...on(first, "Arrive"), text: "Dec 3" }),
+            departReadOnly: await c.call("type", { ...on(first, "Depart"), text: "2026-12-07" }),
+            colourBad: await c.call("type", { ...on(first, "Colour"), text: "red" }),
             covered: await c.call("click", on(first, "Under the banner")),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
         };
         const second = (await c.call("read", at)).value;
         r.out = /Out: (.*)$/m.exec(second.text)?.[1];
+        // what the refused values left in their fields
+        r.fields = /\[\d+\] date field "Arrive"[^\n]*/.exec(second.text)?.[0] + " | " + /\[\d+\] color field "Colour"[^\n]*/.exec(second.text)?.[0];
         r.olderOutline = await c.call("click", on(first, "Show photos"));
         r.search = await c.call("type", { ...on(second, "Where"), text: "Lisbon", submit: true });
         r.otherPage = await c.call("click", on(second, "Show photos"));
