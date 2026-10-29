@@ -160,7 +160,10 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         }
         const heading = /^H([1-6])$/.exec(el.tagName.toUpperCase());
         if (heading) {
-            lines.push(`${"#".repeat(Number(heading[1]))} ${squash(/** @type {HTMLElement} */ (el).innerText)}`);
+            // walked, not copied: a result's heading is often its link
+            line = `${"#".repeat(Number(heading[1]))} `;
+            for (const c of children) walk(c, carousel);
+            flush();
             return;
         }
         if (el.tagName.toUpperCase() === "LI") line = "- ";

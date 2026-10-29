@@ -33,7 +33,14 @@ describe("a session's pages", () => {
         // drawn in an animation frame: a hidden tab never runs one
         assert.match(o.text, /^2 hotels$/m);
         assert.match(o.text, /^# Hotels in Lisbon$/m);
-        assert.match(o.text, /### Casa Alfama/);
+        // a heading that is the result's link keeps its ref
+        assert.match(o.text, /^### \[\d+\] link "Casa Alfama"$/m);
+    });
+
+    it("takes two calls at once in a tab not yet worked in", async () => {
+        const { first, together } = await browser.report("pages", 90_000);
+        assert.equal(first.value?.version, 1, JSON.stringify(first.error));
+        assert.equal(together, "image/jpeg");
     });
 
     it("gives what can be clicked or typed into a ref, with its state", async () => {
