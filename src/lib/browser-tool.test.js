@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Browser, topOf } from "./browser.js";
 import { ExtensionError } from "./browser-extension.svelte.js";
-import { browserTool, checkAction, refusalText } from "./browser-tool.js";
+import { BrowserAsks } from "./browser-asks.svelte.js";
+import { browserTool, checkAction, refusalText, stepText } from "./browser-tool.js";
 
 /**
  * An extension found, answering each op from `answers` (a value, or a
@@ -130,9 +131,107 @@ describe("refusals, for an agent and for a delegate", () => {
         expect(refusalText(e, true)).toMatch(/say in your answer which domain you need/);
     });
 
-    it("stop at a committing step, for the person's yes", () => {
+    it("stop a delegate at a committing step, for the person's yes", () => {
         const e = new ExtensionError("confirm", '[6] button "Reserve" reads as a step that commits ("Reserve")');
-        expect(refusalText(e, false)).toMatch(/it needs the person's yes\. Tell them what you were about to do, and stop\.$/);
         expect(refusalText(e, true)).toMatch(/Stop here, and say in your answer what you were about to do/);
+    });
+});
+
+/** Wait for a card to open. */
+const opened = () => new Promise((r) => setTimeout(r, 0));
+
+/** An extension refusing a click as committing until it's confirmed. */
+const committing = () => ({
+    tabs: [{ id: 7, url: "https://www.hyatt.com/book", title: "Book", working: true }],
+    click: (/** @type {any} */ args) =>
+        args.confirmed ? { url: "https://www.hyatt.com/booked", title: "Booked", navigated: true } : new ExtensionError("confirm", '[1] button "Book" reads as a step that commits ("Book")'),
+});
+
+describe("a committing step", () => {
+    it("asks the person, and is taken on their yes", async () => {
+        const { ext } = setup(committing());
+        const asks = new BrowserAsks();
+        const t = browserTool({ name: "s1" }, { browser: new Browser(/** @type {any} */ (ext)), asks });
+        const pending = t.call({ tab: 7, actions: [{ read: true }, { click: 1 }] });
+        await opened();
+        expect(asks.openConfirm("s1")).toMatchObject({ kind: "confirm", tab: 7, title: "Book", url: "https://www.hyatt.com/book", step: 'Click button "Book"' });
+        asks.answer("s1", true);
+        const out = await pending;
+        expect(out.isError).toBe(false);
+        expect(out.text).toMatch(/2\. click \[1\]: the person confirmed it\n2\. click \[1\]: went to Booked/);
+        expect(ext.calls.filter((c) => c.op === "click").map((c) => c.args.confirmed)).toEqual([undefined, true]);
+    });
+
+    it("isn't taken on their no, and stops the call there", async () => {
+        const { ext } = setup(committing());
+        const asks = new BrowserAsks();
+        const t = browserTool({ name: "s1" }, { browser: new Browser(/** @type {any} */ (ext)), asks });
+        const pending = t.call({ tab: 7, actions: [{ read: true }, { click: 1 }, { read: true }] });
+        await opened();
+        asks.answer("s1", false);
+        const out = await pending;
+        expect(out.isError).toBe(false);
+        expect(out.text).toMatch(/the person said no to it .* Don't take it another way/);
+        expect(ext.calls.filter((c) => c.op === "click")).toHaveLength(1);
+        expect(ext.calls.filter((c) => c.op === "read")).toHaveLength(1);
+    });
+
+    it("gives the card back when the turn ends first", async () => {
+        const { ext } = setup(committing());
+        const asks = new BrowserAsks();
+        const t = browserTool({ name: "s1" }, { browser: new Browser(/** @type {any} */ (ext)), asks });
+        const stop = new AbortController();
+        const pending = t.call({ tab: 7, actions: [{ read: true }, { click: 1 }] }, { signal: stop.signal });
+        await opened();
+        stop.abort();
+        expect((await pending).text).toMatch(/click failed: the turn ended before the person answered$/);
+        expect(asks.openConfirm("s1")).toBeUndefined();
+    });
+});
+
+describe("a committing step, as the person reads it", () => {
+    it("is a click, or Enter in a field that submits its form", () => {
+        expect(stepText('[5] button "Reserve" reads as a step that commits ("Reserve")')).toBe('Click button "Reserve"');
+        expect(stepText('Enter in [3] input "Card name", submitting its form by "Pay now", reads as a step that commits ("Pay")')).toBe(
+            'Press Enter in input "Card name", submitting its form by "Pay now"',
+        );
+    });
+});
+
+describe("a handoff", () => {
+    it("brings the tab to the front, and waits for the person's Done", async () => {
+        const { ext } = setup({ tabs: [{ id: 7, url: "https://www.hyatt.com/", title: "Hyatt", working: false }], show: null });
+        const asks = new BrowserAsks();
+        const t = browserTool({ name: "s1" }, { browser: new Browser(/** @type {any} */ (ext)), asks });
+        const pending = t.call({ tab: 7, actions: [{ handoff: "solve the CAPTCHA" }] });
+        await opened();
+        expect(asks.openHandoff("s1")).toMatchObject({ kind: "handoff", what: "solve the CAPTCHA", tab: 7, title: "Hyatt" });
+        expect(ext.calls.map((c) => c.op)).toContain("show");
+        asks.answer("s1", true);
+        expect((await pending).text).toBe("1. handoff tab 7: the person says it's done. Read the tab again before acting in it.");
+    });
+
+    it("fails the step, with no card, when the tab can't be shown", async () => {
+        const { ext } = setup({ tabs: [], show: new ExtensionError("not-found", "tab 7 isn't one of this session's") });
+        const asks = new BrowserAsks();
+        const out = await browserTool({ name: "s1" }, { browser: new Browser(/** @type {any} */ (ext)), asks }).call({ tab: 7, actions: [{ handoff: "log in" }] });
+        expect(out).toMatchObject({ isError: true, text: "1. handoff failed: tab 7 isn't one of this session's. {tabs: true} lists the session's tabs." });
+        expect(asks.asks.asking).toEqual({});
+    });
+
+    it("makes the agent read the tab again after it", async () => {
+        const { ext } = setup({ tabs: [], show: null });
+        const asks = new BrowserAsks();
+        const t = browserTool({ name: "h1" }, { browser: new Browser(/** @type {any} */ (ext)), asks });
+        const pending = t.call({ tab: 7, actions: [{ read: true }, { handoff: "log in" }, { click: 1 }] });
+        await opened();
+        asks.answer("h1", true);
+        expect((await pending).text).toMatch(/3\. click failed: tab 7 hasn't been read here yet; read it first$/);
+    });
+
+    it("is refused to a delegate", async () => {
+        const out = await setup({}, true).tool.call({ tab: 7, actions: [{ handoff: "log in" }] });
+        expect(out.isError).toBe(true);
+        expect(out.text).toMatch(/^a delegate can't hand a tab to the person/);
     });
 });
