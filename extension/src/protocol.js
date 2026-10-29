@@ -15,8 +15,10 @@
  * - `ping`: the heartbeat.
  * - `turn { running }`: whether a turn is running, while which the
  *   studio's tab isn't discarded.
- * - `session { session, name, origins }`: a top session's name (its tab
- *   group's title) and the origins its tabs may load, set or replaced.
+ * - `session { session, name, domains }`: a top session's name (its tab
+ *   group's title) and the domains its tabs may load (each with its
+ *   subdomains, as `marriott.com` covers `www.marriott.com`), set or
+ *   replaced.
  * - `open { session, url }` → `{ tab }`: a tab opened for the session.
  * - `close { session, tab }`: one of its tabs closed.
  * - `tabs { session }` → `[{ id, url, title, working, blocked? }]`: its
