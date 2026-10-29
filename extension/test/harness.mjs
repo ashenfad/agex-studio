@@ -93,7 +93,8 @@ export async function launch({ extension, query }) {
         ...(process.platform === "linux" ? ["--no-sandbox"] : []),
         `http://localhost:${port}/test/page/runner.html?${new URLSearchParams(query)}`,
     ];
-    const browser = spawn(await chromiumPath(), args, { stdio: ["ignore", "ignore", "pipe"] });
+    // a process group of its own, so closing it stops its helper processes too
+    const browser = spawn(await chromiumPath(), args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
     let stderr = "";
     browser.stderr.on("data", (d) => {
         stderr = (stderr + d).slice(-4000);
@@ -118,11 +119,21 @@ export async function launch({ extension, query }) {
             });
         },
         async close() {
-            browser.kill();
-            await new Promise((ok) => (browser.exitCode !== null ? ok(undefined) : browser.once("exit", ok)));
+            const exited = new Promise((ok) => (browser.exitCode !== null ? ok(undefined) : browser.once("exit", ok)));
+            try {
+                process.kill(-(/** @type {number} */ (browser.pid)), "SIGKILL");
+            } catch {
+                browser.kill("SIGKILL"); // gone already, or no group to signal
+            }
+            await exited;
             server.close();
-            // Chromium's helper processes may still be writing to it a moment after the browser exits
-            rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+            // a helper still writing as it dies can leave the profile unremovable for a moment;
+            // a temporary directory left behind fails no test
+            try {
+                rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+            } catch (e) {
+                console.warn(`couldn't remove the test profile ${profile}: ${e}`);
+            }
         },
     };
 }
