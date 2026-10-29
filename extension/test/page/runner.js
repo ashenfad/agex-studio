@@ -300,6 +300,25 @@ const SCENARIOS = {
         return { opened, loaded, refused, notDomain, topLevel, known };
     },
 
+    /** a tab brought to the front for the person's hands */
+    async show() {
+        const c = await greeted();
+        await c.call("session", { session: "shown", name: "Shown", domains: [GRANTED_DOMAIN] });
+        const { value: { tab } } = await c.call("open", { session: "shown", url: site("shown") });
+        const { value: { version } } = await c.call("read", { session: "shown", tab });
+        const before = document.visibilityState;
+        const shown = await c.call("show", { session: "shown", tab });
+        await sleep(300);
+        // this page, the studio's, went behind it
+        const after = document.visibilityState;
+        const working = (await c.call("tabs", { session: "shown" })).value?.[0]?.working;
+        const elsewhere = await c.call("show", { session: "nobody", tab });
+        // the person had the page: what was read before it is stale
+        const afterHands = await c.call("click", { session: "shown", tab, version, ref: 1 });
+        c.port.disconnect();
+        return { before, shown, after, working, elsewhere, afterHands };
+    },
+
     /** the studio's tab kept from discarding while a turn runs */
     async turn() {
         const c = await greeted();

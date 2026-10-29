@@ -47,6 +47,12 @@ export class Browser {
         return tab;
     }
 
+    /** The tab brought to the front, for the person's hands.
+     *  @param {string} session @param {number} tab */
+    async show(session, tab) {
+        await this.extension.call("show", { session: topOf(session), tab });
+    }
+
     /** @param {string} session @param {number} tab */
     async close(session, tab) {
         await this.extension.call("close", { session: topOf(session), tab });

@@ -17,6 +17,7 @@
  */
 
 import { appDbs } from "./app-db-clients.js";
+import { browserAsks } from "./browser-asks.svelte.js";
 import { browserExtension } from "./browser-extension.svelte.js";
 import { liveBusy } from "./app-busy.js";
 import { dbRestores } from "./db-restore.svelte.js";
@@ -449,6 +450,17 @@ export function installDevHook(studio, sync) {
                 siteRequests.answer(session().name, domains);
                 return vault.sitesOf(session().name);
             },
+        },
+        /** What the current session's agent is asking the person about
+         *  its browser tabs (a step to confirm, a handoff), or null. */
+        browserAsk() {
+            const q = browserAsks.openConfirm(session().name) ?? browserAsks.openHandoff(session().name);
+            return q === undefined ? null : { ...q, answer: undefined };
+        },
+        /** Answer it, as its card does: yes (or Done), or no (or Skip).
+         *  @param {boolean} yes */
+        answerBrowserAsk(yes) {
+            browserAsks.answer(session().name, yes);
         },
         /** The studio's browser extension: whether it's here, and a call
          *  of one of its ops (see `extension/src/protocol.js`). */
