@@ -76,11 +76,49 @@ list in an animation frame, then one more when an
   the real-site run's question.
 - **Windows per tab: no.** Occlusion and minimizing both stop them.
 
-## Still to measure, on real sites
+## Real sites
 
-The fixture can't say: how many hotel sites take the dates in the URL,
-how big a real outline is (tokens per page), whether results render
-without frames, and how often a bot check appears. That run belongs in
-the person's own Chrome (the extension loaded unpacked, the driver on
-`localhost:4173`), not a fresh automated profile, whose bot checks
-would mislead.
+The person's own Chrome (the extension unpacked, the driver on
+`localhost:4173?mode=real`), one background tab per site, all five at
+once, from a deep link for Lisbon, December 3 to 6 2026, two adults.
+Each page read as a content script sees it, then again after the
+debugger's focus emulation; nothing clicked.
+
+| Site | Dates taken from the URL | Hidden tab, content script | With focus emulation | Prices in the outline | Outline (≈ tokens) | Bot check |
+|---|---|---|---|---|---|---|
+| Marriott | yes | **empty** (no title even) | 27 hotels' cards | yes (`124EUR / Night`) | 3,200 (212 of 375 lines are photo carousels) | none |
+| Hilton | yes | **empty** | results | yes (`From 257€`) | 2,100 | none |
+| Hyatt | yes | **empty** (title only) | 27 results | yes (`Rates from: €192`) | 1,500 | none |
+| IHG | yes (its month is zero-based: `qCiMy=112026` is December) | results | results | **no**: 16 hotels listed, rates not yet loaded | 1,500 | none |
+| Booking.com | yes | results | results | yes | 4,800 | none seen (it added `chal_t=` to the URL: a challenge passed without asking) |
+
+- **Every deep link took,** dates and guests: no date picker needed
+  for any of the five.
+- **Three of five render nothing in a hidden tab.** Marriott, Hilton and
+  Hyatt wait for a frame before they draw (or for the page to be
+  visible); only focus emulation brought them up. Content scripts alone
+  would fail the hotel workflow.
+- **Four of five showed prices** once woken. IHG lists the hotels but
+  loads their rates later (on scroll, or per card): the agent will need
+  to scroll, or open a hotel's page.
+- **No CAPTCHA or bot wall** in the person's profile, five sites at once.
+- **Screenshots** through the debugger worked on all five (26-67 ms).
+- **The outline is 1,500 to 4,800 tokens a page,** and much of it is
+  noise: photo carousels (Marriott's 212 lines of image `option`s, IHG's
+  "Primary Room Photo" buttons), inline fragments split one per line
+  (Hyatt's `(` `383` `)`). Dropping carousels and joining inline text
+  should roughly halve it.
+- **The port dropped after the run** ("port disconnected" once the
+  driver went quiet): an open port doesn't keep an MV3 service worker
+  alive with no messages on it. The studio's client needs a heartbeat
+  while a turn runs, and to reconnect.
+
+## Settled
+
+- **The agent's tabs are background tabs,** the debugger attached with
+  focus emulation while the agent works in them (needed by three of
+  five real sites, and for trusted input and screenshots everywhere).
+- **Deep links first;** the skill teaches learning a site's pattern from
+  one pass and checking that the dates show on the page.
+- **The outline needs a pass** for carousels and inline text before its
+  token cost is a fair number.

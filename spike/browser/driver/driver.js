@@ -117,7 +117,11 @@ const SCENARIOS = {
     "studio-hidden": studioHidden,
 }
 
-;(async () => {
+window.addEventListener("load", async () => {
+    if (new URLSearchParams(location.search).get("mode") === "real") {
+        try { await realRun() } finally { await post("done", { at: new Date().toISOString(), ua: navigator.userAgent }); log("done") }
+        return
+    }
     try {
         for (const [name, run] of Object.entries(SCENARIOS)) {
             if (only && !only.split(",").includes(name)) continue
@@ -127,4 +131,4 @@ const SCENARIOS = {
         await post("done", { at: new Date().toISOString(), ua: navigator.userAgent })
         log("done")
     }
-})()
+})

@@ -120,6 +120,10 @@ const OPS = {
         return { active: tab.active, discarded: tab.discarded, ...page }
     },
 
+    async probeVisibility({ tabId }) {
+        return run(tabId, () => ({ visibility: document.visibilityState, focus: document.hasFocus() }))
+    },
+
     async outline({ tabId }) {
         return run(tabId, outlinePage)
     },
