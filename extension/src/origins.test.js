@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { originMatcher } from "./origins.js";
+import { originMatcher, untrusted } from "./origins.js";
+import { DEV_MATCHES, STUDIO_MATCHES } from "./protocol.js";
 
 describe("originMatcher", () => {
     const allows = originMatcher(["https://agex.studio/*", "http://localhost/*"]);
@@ -24,3 +25,16 @@ describe("originMatcher", () => {
         expect(() => originMatcher(["<all_urls>"])).toThrow(/isn't scheme:\/\/host/);
     });
 });
+
+describe("untrusted", () => {
+    it("names a manifest's pattern the worker's list doesn't", () => {
+        expect(untrusted(["https://agex.studio/*", "https://evil.example/*"], STUDIO_MATCHES)).toEqual(["https://evil.example/*"]);
+    });
+
+    it("passes the store's and the dev build's own patterns", () => {
+        expect(untrusted([...STUDIO_MATCHES], STUDIO_MATCHES)).toEqual([]);
+        expect(untrusted([...STUDIO_MATCHES, ...DEV_MATCHES], [...STUDIO_MATCHES, ...DEV_MATCHES])).toEqual([]);
+        expect(untrusted([...DEV_MATCHES], STUDIO_MATCHES)).toEqual([...DEV_MATCHES]);
+    });
+});
+

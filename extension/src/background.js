@@ -3,11 +3,14 @@
  * nothing else talks to it.
  */
 
+import { DEV } from "./build-info.js";
 import { originMatcher } from "./origins.js";
 import { servePort } from "./port.js";
+import { DEV_MATCHES, STUDIO_MATCHES } from "./protocol.js";
 
 const manifest = chrome.runtime.getManifest();
-const allows = originMatcher(manifest.externally_connectable?.matches ?? []);
+// the worker's own list, not the manifest's
+const allows = originMatcher(DEV ? [...STUDIO_MATCHES, ...DEV_MATCHES] : STUDIO_MATCHES);
 
 /** @type {Record<string, import("./port.js").Op>} */
 const ops = {
