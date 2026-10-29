@@ -26,6 +26,7 @@ import { script } from "./scripted.js";
 import { getSettings, updateSettings } from "./settings.js";
 import { vault } from "./vault.svelte.js";
 import { keyRequests } from "./key-requests.svelte.js";
+import { siteRequests } from "./site-requests.svelte.js";
 
 /** @typedef {import("./studio.svelte.js").Studio} Studio */
 
@@ -418,7 +419,7 @@ export function installDevHook(studio, sync) {
             /** The key the current session's agent is asking for
              *  (`request_secret`), or null. */
             keyRequest() {
-                const q = keyRequests.asking[session().name];
+                const q = keyRequests.open(session().name);
                 return q === undefined ? null : { name: q.name, origins: [...q.origins], why: q.why };
             },
             /** Answer it, as the chat's picker does: an entry's id to
@@ -426,6 +427,27 @@ export function installDevHook(studio, sync) {
             answerKeyRequest(entryId) {
                 keyRequests.answer(session().name, entryId);
                 return vault.agentGrantsOf(session().name);
+            },
+            /** The sites the current session's agent may open. */
+            sites() {
+                return vault.sitesOf(session().name);
+            },
+            /** @param {string} [domain] */
+            revokeSites(domain) {
+                vault.revokeSites(session().name, domain);
+                return vault.sitesOf(session().name);
+            },
+            /** The sites the current session's agent is asking to open
+             *  (`request_sites`), or null. */
+            sitesRequest() {
+                const q = siteRequests.open(session().name);
+                return q === undefined ? null : { domains: [...q.domains], why: q.why };
+            },
+            /** Answer it, as the card does: the domains allowed, or none
+             *  for Not now. @param {string[]} domains */
+            answerSitesRequest(domains) {
+                siteRequests.answer(session().name, domains);
+                return vault.sitesOf(session().name);
             },
         },
         /** The studio's browser extension: whether it's here, and a call
