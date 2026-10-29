@@ -5,6 +5,11 @@
  * server for the page that plays the studio. The page runs its scenarios
  * and posts each one's report here.
  *
+ * The server answers on both `localhost` and `127.0.0.1`, two origins
+ * for the tab tests: one granted, one not. It keeps every request it
+ * serves (`served`), so a test can say a page never loaded, and
+ * `/redirect?to=URL` redirects.
+ *
  * Chromium is Playwright's (`pnpm exec playwright install chromium`), or
  * `CHROME`, a path to another Chromium or Chrome for Testing (branded
  * Chrome ignores `--load-extension`). `HEADED=1` shows the window.
@@ -41,8 +46,17 @@ export async function launch({ extension, query }) {
     const reports = new Map();
     /** @type {Map<string, (r: unknown) => void>} */
     const waiting = new Map();
+    /** @type {{ host: string, path: string, id: string | null }[]} */
+    const served = [];
     const server = createServer(async (req, res) => {
-        const path = new URL(req.url ?? "/", "http://x").pathname;
+        const url = new URL(req.url ?? "/", "http://x");
+        const path = url.pathname;
+        served.push({ host: req.headers.host ?? "", path, id: url.searchParams.get("id") });
+        if (path === "/redirect") {
+            res.writeHead(302, { location: url.searchParams.get("to") ?? "/" });
+            res.end();
+            return;
+        }
         if (req.method === "POST" && path === "/report") {
             let body = "";
             for await (const chunk of req) body += chunk;
@@ -71,6 +85,8 @@ export async function launch({ extension, query }) {
         "--no-default-browser-check",
         `--disable-extensions-except=${extension}`,
         `--load-extension=${extension}`,
+        // a page's window.open needs no click, as on a site the agent clicks through
+        "--disable-popup-blocking",
         ...(process.env.HEADED ? [] : ["--headless=new"]),
         // GitHub's Linux runners can't give Chromium its sandbox
         ...(process.platform === "linux" ? ["--no-sandbox"] : []),
@@ -83,6 +99,9 @@ export async function launch({ extension, query }) {
     });
 
     return {
+        port,
+        /** Every request the server has answered. */
+        served: () => [...served],
         /**
          * The report the page posts under `name`.
          * @param {string} name @param {number} [ms]
