@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "agex tabs spike",
+  "version": "0.0.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmPyyBSZCIWTipm3ebUb9hi2hhzy2tlQ+J2/gNjnP5x2bYaguc7qmZxYlZLgWTtXQg5w6+6bLIghEZxwfM9xURX9Na7cTwM3SLWWItYaq0DYgBHFUrxvoK/eL+JB0A427tmQq67bUvODp634agJFZ0nMzf/84JSv2siRC0dASl7T6WmsJad4Nz/8lw1/EDPXft43kvc8EGUg7aJffhwusZzIAcP7JWdcHq3uPpz1Pf/IPNs2MoemDrsF9htXEc2fAdRwtZTHsd4olxzIKR9vW2N1B7cbgGR8AU557gJkUcan0M3iV0FskxZVU5RcbImP0GE2CauvV2hu9eLm1OYqlbQIDAQAB",
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "debugger"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:4173/*"
+    ]
+  }
+}

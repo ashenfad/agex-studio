@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fixture hotel: search results</title>
+<style>
+  body { font: 14px system-ui; margin: 2rem; }
+  #spacer { height: 3000px; }
+</style>
+<h1>Fixture hotel</h1>
+<form id="search">
+  <label>Destination <input id="dest" name="dest" type="text"></label>
+  <label>Check in <input id="checkin" name="checkin" type="date"></label>
+  <label>Guests <select id="guests" name="guests"><option>1</option><option selected>2</option><option>3</option></select></label>
+  <button id="check" type="button">Check availability</button>
+</form>
+<p id="clicked">no click yet</p>
+<h2>Rooms (fetched)</h2>
+<ul id="fetched"><li>loading…</li></ul>
+<h2>Rooms (rendered in an animation frame)</h2>
+<ul id="framed"><li>loading…</li></ul>
+<div id="spacer"></div>
+<h2 id="more">More rooms (loaded when scrolled to)</h2>
+<ul id="lazy"><li>scroll to load</li></ul>
+<script>
+  // What a hidden tab does and doesn't run, counted for the spike's probe.
+  const p = window.__probe = {
+    t0: performance.now(), intervals: 0, chain: 0, rafs: 0,
+    fetched: null, framed: null, lazy: null, clicks: [], inputs: [],
+    hiddenAtLoad: document.visibilityState,
+  }
+  const stamp = () => Math.round(performance.now() - p.t0)
+  setInterval(() => p.intervals++, 100)
+  const tick = () => { p.chain++; setTimeout(tick, 50) }; tick()
+  const frame = () => { p.rafs++; requestAnimationFrame(frame) }; requestAnimationFrame(frame)
+
+  fetch('/rooms.json').then((r) => r.json()).then((rooms) => {
+    document.getElementById('fetched').innerHTML = rooms.map((r) => `<li>${r.name}: ${r.price} (${r.free ? 'available' : 'sold out'})</li>`).join('')
+    p.fetched = stamp()
+    // a framework that waits for a frame before painting results
+    requestAnimationFrame(() => {
+      document.getElementById('framed').innerHTML = rooms.map((r) => `<li>${r.name} (framed)</li>`).join('')
+      p.framed = stamp()
+    })
+  })
+
+  new IntersectionObserver((entries) => {
+    if (entries.some((e) => e.isIntersecting) && p.lazy === null) {
+      document.getElementById('lazy').innerHTML = '<li>Suite: $410 (available)</li>'
+      p.lazy = stamp()
+    }
+  }).observe(document.getElementById('more'))
+
+  document.getElementById('check').addEventListener('click', (e) => {
+    p.clicks.push({ trusted: e.isTrusted, at: stamp() })
+    document.getElementById('clicked').textContent = `clicked (trusted: ${e.isTrusted})`
+  })
+  for (const id of ['dest', 'checkin']) document.getElementById(id).addEventListener('input', (e) => p.inputs.push({ id, trusted: e.isTrusted, value: e.target.value }))
+</script>
