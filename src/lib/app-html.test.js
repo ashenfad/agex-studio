@@ -678,6 +678,48 @@ describe('agex.secrets() in the app', () => {
     })
 })
 
+describe('window.env in the app', () => {
+    /** The page's window.env, as its script defines it on `win`. */
+    function envOf(html, win = {}) {
+        const src = html.match(/<script>\s*\/\/ window\.env[\s\S]*?<\/script>/)[0]
+        new Function('window', src.replace(/^<script>|<\/script>$/g, ''))(win)
+        return win
+    }
+
+    it('is the session\'s variables, frozen, and the app can\'t replace it', async () => {
+        const variables = { API_URL: 'https://a.test', NOTE: 'x </script> y' }
+        const { html } = await buildAppPage(blank(), { workerSources: {}, variables })
+        const win = envOf(html)
+        expect(win.env).toEqual(variables)
+        expect(Object.isFrozen(win.env)).toBe(true)
+        expect(() => {
+            'use strict'
+            win.env = {}
+        }).toThrow(TypeError)
+        expect(html.match(/<\/script>/g).length).toBe(html.match(/<script/g).length)
+    })
+
+    it('comes before the app\'s own scripts, and is empty without variables', async () => {
+        const { html } = await buildAppPage({ 'app/index.html': '<html><head><script>window.seen = window.env</script></head><body></body></html>' }, { workerSources: {} })
+        expect(html.indexOf('// window.env')).toBeLessThan(html.indexOf('window.seen'))
+        expect(envOf(html).env).toEqual({})
+    })
+
+    it('keeps every name the pattern allows, __proto__ too, as its own', async () => {
+        const variables = JSON.parse('{"__proto__":"p","toString":"t"}')
+        const win = envOf((await buildAppPage(blank(), { workerSources: {}, variables })).html)
+        expect(Object.keys(win.env)).toEqual(['__proto__', 'toString'])
+        expect(Object.getPrototypeOf(win.env)).toBe(Object.prototype)
+    })
+
+    it('shares no name with a secret the app declares: the build says so', async () => {
+        const manifest = JSON.stringify({ needs: { secrets: [{ name: 'MAPS_KEY', origins: ['https://maps.test'], in: 'header:X-Key', why: 'to draw the map' }] } })
+        await expect(buildAppPage({ ...blank(), 'app/agex.json': manifest }, { workerSources: {}, variables: { MAPS_KEY: 'public' } })).rejects.toThrow(
+            'MAPS_KEY is both a secret app/agex.json declares and one of the session\'s variables',
+        )
+    })
+})
+
 describe('an app’s needs', () => {
     const page = '<html><head></head><body></body></html>'
     const manifest = JSON.stringify({ needs: { model: true, secrets: [{ name: 'STRIPE_KEY', origins: ['https://api.stripe.com'], in: 'header:Authorization', why: 'to look up prices' }] } })

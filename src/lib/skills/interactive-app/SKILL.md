@@ -411,6 +411,28 @@ Test it with stand-ins (`test_app`'s `standIns`, below): no key, and
 the service itself isn't called. An agent in the app reaches the service the
 same way (the app-agents skill).
 
+## Configuration: `window.env`
+
+Configuration anyone may read (a service's base URL, a Supabase URL and
+its anon key, a map style) belongs in the session's variables, not the
+app's code: the page has them as `window.env`, frozen, before its own
+scripts run. A copy of the app pointed elsewhere changes a variable,
+not code.
+
+```js
+const api = window.env.API_URL ?? 'https://api.example.com'
+const res = await fetch(`${api}/items`)
+```
+
+- **Your own code sees them too:** `env.API_URL` in `run_ts`, and
+  `$API_URL` in the terminal; `run_ts`'s description lists them.
+- **Public by design:** they travel with the session, its bundles and
+  what it publishes. A key is never a variable; declare it in
+  `app/agex.json` (above), and don't give a declared secret a
+  variable's name: the build fails on it.
+- **Have a fallback** for a variable that isn't set, as above, or say
+  in the page what to set.
+
 ## Checking your app: `test_app`
 
 After writing the app, **check it before you say it's done.** `test_app`
@@ -640,5 +662,5 @@ page. Arguments and results must be structured-cloneable.
   data, and full URLs (CORS permitting) for public APIs.
 - **`SharedArrayBuffer` / threaded WASM**: the page isn't
   cross-origin-isolated.
-- **`window.env`**: reserved for the studio's own use; don't define it
-  in an app.
+- **Defining `window.env`**: the studio defines it (the session's
+  variables, above), and an app can't replace it.

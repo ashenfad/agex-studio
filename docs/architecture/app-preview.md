@@ -39,12 +39,15 @@ lists in `AppPreview.svelte` and `app-control.js` in step.
 `readApp(ws)` (`app-files.js`) reads the app: text files keyed
 `app/<path>`, binaries beside them. The preview rebuilds when the
 session's `appStamp` moves (a tool call that wrote, an undo, a
-reload), and only when the files' fingerprint changed (`appDigest`).
+reload), and only when the files' fingerprint changed (`appDigest`)
+or the session's variables did.
 
-`buildAppPage(appFiles, { appBinaries, appStorage })` returns the
-page's HTML and its assets. It first reads and checks `app/agex.json`
-(`app-needs.js`), failing the build on a mistake, and keeps the app's
-needs on the page (`needs`), the file itself no part of it. Then:
+`buildAppPage(appFiles, { appBinaries, appStorage, variables })`
+returns the page's HTML and its assets. It first reads and checks
+`app/agex.json` (`app-needs.js`), failing the build on a mistake or on
+a declared secret named as one of the session's variables (an app's
+agent is given both), and keeps the app's needs on the page (`needs`),
+the file itself no part of it. Then:
 
 1. Takes `app/index.html`, or for an app with only a main script, a
    page that loads it.
@@ -71,7 +74,9 @@ needs on the page (`needs`), the file itself no part of it. Then:
 4. Bundles `*.worker.js` files with esbuild into module sources,
    started with `appWorker(name)`.
 5. Injects, at the start of the page's head (after the doctype and
-   `<html>` tag when it has no `<head>`): the console interceptor, the
+   `<html>` tag when it has no `<head>`): the console interceptor,
+   `window.env` (the session's variables, frozen and defined so the
+   app can't replace it; `test_app`'s page has its top session's), the
    storage shim, the assets script, the worker registry, the host
    bridge, the control bridge, and the import map.
 

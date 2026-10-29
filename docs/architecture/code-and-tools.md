@@ -181,6 +181,9 @@ variable's name wins, and the variable is left out of the world. A
 change is committed at once (`studio.variables`), a turn running or
 not, and the studio told, so sync takes it. A record read from the
 plane (a bundle's, a gist's, a sync's) is held to the same limits.
+The app's page has them as `window.env` (see app-preview.md), and its
+build fails on a secret `app/agex.json` declares under a variable's
+name.
 
 ## Skills
 

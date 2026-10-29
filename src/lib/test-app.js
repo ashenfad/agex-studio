@@ -17,6 +17,7 @@ import { appAgent } from "./app-tasks.svelte.js";
 import { errorText } from "./errors.js";
 import { GRID_MAX, tileGrid } from "./grid.js";
 import { STAND_INS_MAX, parseStandIns } from "./stand-ins.js";
+import { liveVariables } from "./variables.js";
 
 /** What the model reads of a value: JSON, cut at `max` characters. */
 const shown = (/** @type {unknown} */ value, max = 4000) => {
@@ -160,7 +161,9 @@ async function runTest(session, args) {
                     appBinaries: app.binaries,
                     actions,
                     appStorageSeed: args.fresh === true ? {} : readAppStorage(session.name),
-                    buildAppPage,
+                    // the page has its session's variables as window.env (a delegate's, its top session's)
+                    buildAppPage: (/** @type {Record<string, string>} */ files, /** @type {any} */ opts) =>
+                        buildAppPage(files, { ...opts, variables: liveVariables(session.name) }),
                     reseedAppPage,
                     cacheHandler: (/** @type {string} */ key) => ws.cache.get(key),
                     // the app's agent tasks run for real, on its session's meter

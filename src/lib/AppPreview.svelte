@@ -117,9 +117,11 @@
         if (ws === null) return
         const ticket = ++loads
         const app = await readApp(ws)
+        // the page has them as window.env: a change is a new page
+        const variables = untrack(() => $state.snapshot(session.variables))
         // a later load already read the files and went on with them
         if (ticket < latest) return
-        const digest = appDigest(app)
+        const digest = `${appDigest(app)}\n${JSON.stringify(variables)}`
         if (!force && digest === builtDigest && appsUrl !== null) return
         latest = ticket
         builtDigest = digest
@@ -138,6 +140,7 @@
             const page = await buildAppPage(app.files, {
                 appBinaries: app.binaries,
                 appStorage: { seed: readAppStorage(name), writeable: true },
+                variables,
             })
             if (ticket !== latest) return
             current = { page, name }
@@ -165,6 +168,7 @@
     let timer = null
     $effect(() => {
         void session.appStamp
+        void session.variables
         if (timer !== null) clearTimeout(timer)
         timer = setTimeout(() => {
             timer = null
