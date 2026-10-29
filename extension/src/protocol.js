@@ -25,6 +25,13 @@ export const PROTOCOL = 1;
  *  Chrome Web Store. */
 export const DEV_EXTENSION_ID = "nmkolhlloohlmpklcknknipkaedblgbe";
 
+/** The pages the extension answers, as match patterns: the studio's,
+ *  and in the dev build local dev servers on any port. Kept here, apart
+ *  from the manifest's `externally_connectable.matches`, which the build
+ *  refuses to widen past them. */
+export const STUDIO_MATCHES = Object.freeze(["https://agex.studio/*"]);
+export const DEV_MATCHES = Object.freeze(["http://localhost/*", "http://127.0.0.1/*"]);
+
 /** How often the studio pings while it needs the port: well inside the
  *  service worker's 30 s idle limit. */
 export const HEARTBEAT_MS = 20_000;

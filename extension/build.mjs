@@ -10,15 +10,16 @@
  * only the manifest differs. The dev build carries the public key in
  * `dev-key.pub`, which fixes its id (`DEV_EXTENSION_ID`), and answers
  * `http://localhost` and `http://127.0.0.1` on any port beside
- * agex.studio.
+ * agex.studio (`DEV_MATCHES`). A manifest that names a page outside the
+ * worker's own list fails the build.
  */
 
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { originMatcher } from "./src/origins.js";
-import { DEV_EXTENSION_ID } from "./src/protocol.js";
+import { originMatcher, untrusted } from "./src/origins.js";
+import { DEV_EXTENSION_ID, DEV_MATCHES, STUDIO_MATCHES } from "./src/protocol.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dev = process.argv.includes("--dev");
@@ -30,9 +31,12 @@ if (dev) {
     if (idOf(key) !== DEV_EXTENSION_ID) throw new Error(`dev-key.pub gives id ${idOf(key)}, not DEV_EXTENSION_ID (${DEV_EXTENSION_ID})`);
     manifest.key = key;
     manifest.name += " (dev)";
-    manifest.externally_connectable.matches.push("http://localhost/*", "http://127.0.0.1/*");
+    manifest.externally_connectable.matches.push(...DEV_MATCHES);
 }
-originMatcher(manifest.externally_connectable.matches); // every pattern one the worker can read
+const trusted = dev ? [...STUDIO_MATCHES, ...DEV_MATCHES] : STUDIO_MATCHES;
+const extra = untrusted(manifest.externally_connectable.matches, trusted);
+if (extra.length > 0) throw new Error(`manifest.json's externally_connectable names ${extra.join(", ")}, which the worker's list (STUDIO_MATCHES in src/protocol.js) doesn't`);
+originMatcher(trusted); // every pattern one the worker can read
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -40,6 +44,7 @@ for (const file of readdirSync(join(here, "src"))) {
     if (file.endsWith(".js") && !file.endsWith(".test.js")) cpSync(join(here, "src", file), join(out, file));
 }
 writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+if (dev) writeFileSync(join(out, "build-info.js"), readFileSync(join(here, "src", "build-info.js"), "utf8").replace("DEV = false", "DEV = true"));
 console.log(`built ${out}${dev ? ` (id ${DEV_EXTENSION_ID})` : ""}`);
 
 /** An unpacked extension's id from its manifest key: the first 128 bits
