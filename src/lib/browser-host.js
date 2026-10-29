@@ -12,7 +12,9 @@
  *
  * Code gets tabs from the stub: `await browser.open(url)` is a tab with
  * `read`, `click`, `type`, `select`, `goto`, `waitFor` and `close`, each
- * a call of the host's with the tab's id.
+ * a call of the host's with the tab's id. A tab object keeps the version
+ * of its latest read, which its actions name: an action on a page read
+ * since by anyone else, or changed, is refused as stale.
  */
 
 import { hostFactory, typedHost, withStub } from "@agex-ts/world";
@@ -77,19 +79,19 @@ export class BrowserHost {
         return this._call(() => this._browser.read(this._session, tab, opts ?? {}));
     }
 
-    /** @param {number} tab @param {number} ref */
-    click(tab, ref) {
-        return this._call(() => this._browser.act(this._session, tab, "click", ref));
+    /** @param {number} tab @param {number | undefined} version @param {number} ref */
+    click(tab, version, ref) {
+        return this._call(() => this._browser.act(this._session, tab, "click", version, ref));
     }
 
-    /** @param {number} tab @param {number} ref @param {string} text @param {{ submit?: boolean, clear?: boolean }} [opts] */
-    type(tab, ref, text, opts) {
-        return this._call(() => this._browser.act(this._session, tab, "type", ref, { text, ...opts }));
+    /** @param {number} tab @param {number | undefined} version @param {number} ref @param {string} text @param {{ submit?: boolean, clear?: boolean }} [opts] */
+    type(tab, version, ref, text, opts) {
+        return this._call(() => this._browser.act(this._session, tab, "type", version, ref, { text, ...opts }));
     }
 
-    /** @param {number} tab @param {number} ref @param {string} value */
-    select(tab, ref, value) {
-        return this._call(() => this._browser.act(this._session, tab, "select", ref, { value }));
+    /** @param {number} tab @param {number | undefined} version @param {number} ref @param {string} value */
+    select(tab, version, ref, value) {
+        return this._call(() => this._browser.act(this._session, tab, "select", version, ref, { value }));
     }
 
     /** @param {number} tab @param {string} url */
@@ -110,17 +112,25 @@ export class BrowserHost {
 
 /** Code's half: tabs as objects, their methods the host's with the tab's id. */
 export const STUB = `(remote) => {
-    const tab = (id, info) => ({
-        id,
-        ...info,
-        read: (opts) => remote.read(id, opts),
-        click: (ref) => remote.click(id, ref),
-        type: (ref, text, opts) => remote.type(id, ref, text, opts),
-        select: (ref, value) => remote.select(id, ref, value),
-        goto: (url) => remote.goto(id, url),
-        waitFor: (what, opts) => remote.waitFor(id, { ...(typeof what === "string" ? { text: what } : what), ...opts }),
-        close: () => remote.close(id),
-    });
+    const tab = (id, info) => {
+        // the version of this tab object's latest read: its actions' refs are that outline's
+        let version;
+        return {
+            id,
+            ...info,
+            read: async (opts) => {
+                const page = await remote.read(id, opts);
+                version = page.version;
+                return page;
+            },
+            click: (ref) => remote.click(id, version, ref),
+            type: (ref, text, opts) => remote.type(id, version, ref, text, opts),
+            select: (ref, value) => remote.select(id, version, ref, value),
+            goto: (url) => remote.goto(id, url),
+            waitFor: (what, opts) => remote.waitFor(id, { ...(typeof what === "string" ? { text: what } : what), ...opts }),
+            close: () => remote.close(id),
+        };
+    };
     return {
         open: async (url) => tab((await remote.open(url)).id),
         tabs: async () => (await remote.tabs()).map((t) => tab(t.id, t)),
@@ -130,6 +140,8 @@ export const STUB = `(remote) => {
 
 const id = z.number().int();
 const ref = z.number().int().positive();
+// undefined for a tab object not read yet, which the host refuses: read it first
+const version = z.number().int().optional();
 const url = z.string().regex(/^https?:\/\//, "an http or https URL");
 
 /**
@@ -145,9 +157,9 @@ export function browserHost({ browser = deviceBrowser } = {}) {
                 tabs: {},
                 open: { args: { url } },
                 read: { args: { tab: id, opts: z.strictObject({ maxChars: z.number().int().min(100).optional(), hrefs: z.boolean().optional() }).optional() } },
-                click: { args: { tab: id, ref } },
-                type: { args: { tab: id, ref, text: z.string(), opts: z.strictObject({ submit: z.boolean().optional(), clear: z.boolean().optional() }).optional() } },
-                select: { args: { tab: id, ref, value: z.string() } },
+                click: { args: { tab: id, version, ref } },
+                type: { args: { tab: id, version, ref, text: z.string(), opts: z.strictObject({ submit: z.boolean().optional(), clear: z.boolean().optional() }).optional() } },
+                select: { args: { tab: id, version, ref, value: z.string() } },
                 goto: { args: { tab: id, url } },
                 waitFor: {
                     args: {
