@@ -75,9 +75,22 @@
     /** What the last change was refused for, a line each. @type {string[]} */
     let variableErrors = $state([])
 
+    /** The variable changes in flight, one after another. @type {Promise<unknown>} */
+    let changing = Promise.resolve()
+
     /** Set or remove variables (null removes), as the session's own
-     *  method checks them. @param {Record<string, string | null>} changes */
-    async function setVariables(changes) {
+     *  method checks them, after any change already in flight: an edit
+     *  saved as its field loses focus, then the click that took the
+     *  focus. Their buttons stay enabled meanwhile, so that click lands.
+     *  @param {Record<string, string | null>} changes */
+    function setVariables(changes) {
+        const next = changing.then(() => changeVariables(changes))
+        changing = next.catch(() => {})
+        return next
+    }
+
+    /** @param {Record<string, string | null>} changes */
+    async function changeVariables(changes) {
         let done = false
         await act(async () => {
             let session = studio.opened(name)
@@ -304,7 +317,7 @@
                             onkeydown={(e) => e.key === 'Enter' && saveEdit(n)}
                             onblur={() => saveEdit(n)}
                         />
-                        <button disabled={working} onclick={() => setVariables({ [n]: null })} aria-label="Remove {n}">Remove</button>
+                        <button onclick={() => setVariables({ [n]: null })} aria-label="Remove {n}">Remove</button>
                         {#if keyNames.has(n)}<small>Hidden from the agent: one of its keys has this name.</small>{/if}
                     </li>
                 {/each}
@@ -313,7 +326,7 @@
         <div class="row">
             <input class="input small name" bind:value={newName} placeholder="NAME" aria-label="New variable's name" />
             <input class="input small" bind:value={newValue} placeholder="Value" aria-label="New variable's value" onkeydown={(e) => e.key === 'Enter' && addVariable()} />
-            <button disabled={working || newName.trim() === ''} onclick={addVariable}>Add</button>
+            <button disabled={newName.trim() === ''} onclick={addVariable}>Add</button>
         </div>
         {#if variableErrors.length > 0}
             <ul class="failed" role="alert">
