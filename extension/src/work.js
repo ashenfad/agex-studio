@@ -24,7 +24,13 @@ export const REST_MS = 20_000;
 /** The isolated world the extension's code runs in, in each page. */
 const WORLD = "agex";
 
-/** @type {Map<number, ReturnType<typeof setTimeout>>} */
+/**
+ * The tabs worked in: each one's attaching (awaited by every call that
+ * comes while it is under way, so two never attach at once) and the
+ * timer that rests it.
+ *
+ * @type {Map<number, { ready: Promise<void>, timer?: ReturnType<typeof setTimeout> }>}
+ */
 const working = new Map();
 
 /** Whether the person cancelled the debugger this turn. The worker
@@ -42,17 +48,29 @@ export async function work(tab) {
     if (stopped) {
         throw new ProtocolError("stopped", "the person cancelled the agent's work in the browser; ask them before going on");
     }
-    if (!working.has(tab)) {
-        try {
-            await chrome.debugger.attach({ tabId: tab }, "1.3");
-        } catch (e) {
-            throw new ProtocolError("failed", `can't work in tab ${tab}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        await send(tab, "Emulation.setFocusEmulationEnabled", { enabled: true });
+    let entry = working.get(tab);
+    if (entry === undefined) {
+        const ready = attach(tab);
+        entry = { ready };
+        working.set(tab, entry);
+        ready.catch(() => {
+            if (working.get(tab)?.ready === ready) working.delete(tab);
+        });
     }
-    clearTimeout(working.get(tab));
-    working.set(tab, setTimeout(() => void rest(tab), REST_MS));
+    await entry.ready;
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => void rest(tab), REST_MS);
     await mark(tab);
+}
+
+/** @param {number} tab */
+async function attach(tab) {
+    try {
+        await chrome.debugger.attach({ tabId: tab }, "1.3");
+    } catch (e) {
+        throw new ProtocolError("failed", `can't work in tab ${tab}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    await send(tab, "Emulation.setFocusEmulationEnabled", { enabled: true });
 }
 
 /**
@@ -61,8 +79,11 @@ export async function work(tab) {
  * @param {number} tab
  */
 export async function rest(tab) {
-    clearTimeout(working.get(tab));
-    if (!working.delete(tab)) return;
+    const entry = working.get(tab);
+    if (entry === undefined) return;
+    clearTimeout(entry.timer);
+    working.delete(tab);
+    await entry.ready.catch(() => {});
     await inWorld(tab, unmarkPage, [MARK]).catch(() => {});
     await chrome.debugger.detach({ tabId: tab }).catch(() => {});
 }
@@ -92,7 +113,7 @@ export function resume() {
 export function watchWork(tabs) {
     chrome.debugger.onDetach.addListener(({ tabId }, reason) => {
         if (tabId === undefined) return;
-        clearTimeout(working.get(tabId));
+        clearTimeout(working.get(tabId)?.timer);
         working.delete(tabId);
         if (reason === "canceled_by_user") stopped = true;
     });
