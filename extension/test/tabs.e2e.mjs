@@ -115,6 +115,8 @@ describe("a session's tabs", () => {
         assert.equal(loaded("sub-refused"), false);
         assert.equal(r.notDomain.error.code, "bad-request");
         assert.equal(r.topLevel.error.code, "bad-request");
+        // and says which sessions it has been told of
+        assert.deepEqual(r.known, { session: "wide-domain", name: "Domain", domains: ["localhost"] });
     });
 
     it("keeps the studio's tab from discarding while a turn runs", async () => {

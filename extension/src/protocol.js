@@ -19,6 +19,8 @@
  *   group's title) and the domains its tabs may load (each with its
  *   subdomains, as `marriott.com` covers `www.marriott.com`), set or
  *   replaced.
+ * - `sessions` → `[{ session, name, domains }]`: the sessions it has
+ *   been told of (kept across the studio's absences).
  * - `open { session, url }` → `{ tab }`: a tab opened for the session.
  * - `close { session, tab }`: one of its tabs closed.
  * - `tabs { session }` → `[{ id, url, title, working, blocked? }]`: its
