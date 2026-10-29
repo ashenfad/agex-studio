@@ -95,6 +95,9 @@ export class ChatSession {
     /** Its variables (`variables.js`), as last read or set here.
      *  @type {import("./variables.js").Variables} */
     variables = $state({});
+    /** Counts `setVariables`' writes: a read that began before one is
+     *  older than it. */
+    #variablesSet = 0;
     /** @type {Run[]} */
     runs = $state([]);
     /** @type {Fold[]} */
@@ -425,9 +428,14 @@ export class ChatSession {
         this.title = meta.title;
         this.createdAt = meta.createdAt;
         this.#meta = /** @type {Record<string, unknown> | null} */ (await ws.plane(PLANE).get("meta")) ?? {};
-        this.variables = variablesOf(await plane.get(VARIABLES_KEY));
-        // a top session's world reads them live; a delegate's has its top session's
-        if (!this.readonly) putLiveVariables(this.name, this.variables);
+        const setBefore = this.#variablesSet;
+        const variables = variablesOf(await plane.get(VARIABLES_KEY));
+        // a set made while this read was out is newer: it stands
+        if (setBefore === this.#variablesSet) {
+            this.variables = variables;
+            // a top session's world reads them live; a delegate's has its top session's
+            if (!this.readonly) putLiveVariables(this.name, variables);
+        }
         await this.refreshFiles();
         this.appStamp += 1;
         this.filesStamp += 1;
@@ -975,6 +983,7 @@ export class ChatSession {
         const { next, errors } = applyVariables(current, changes, { taken: await this.#keyNames(ws) });
         if (next === null) return errors;
         plane.set(VARIABLES_KEY, next);
+        this.#variablesSet += 1;
         this.variables = next;
         putLiveVariables(this.name, next);
         await ws.autoCommit({ tool: "studio.variables" });

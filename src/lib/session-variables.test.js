@@ -69,6 +69,33 @@ describe("a session's variables", () => {
         await session.close();
     });
 
+    it("set while a reload's read is out stand: the read is older", async () => {
+        const { ws, session } = await openSession();
+        await session.setVariables({ API_URL: "https://a.test" });
+        const plane = ws.plane(PLANE);
+        const get = plane.get.bind(plane);
+        /** @type {() => void} */
+        let release = () => {};
+        const held = new Promise((r) => (release = () => r(undefined)));
+        // the reload's read of the variables waits, holding what was there
+        const stale = await get(VARIABLES_KEY);
+        vi.spyOn(ws, "plane").mockImplementation(() =>
+            Object.assign(Object.create(plane), {
+                /** @param {string} key */
+                get: async (key) => (key === VARIABLES_KEY ? held.then(() => stale) : get(key)),
+            }),
+        );
+        const reloading = session.reload();
+        await new Promise((r) => setTimeout(r, 0));
+        vi.mocked(ws.plane).mockRestore();
+        expect(await session.setVariables({ API_URL: "https://b.test" })).toEqual([]);
+        release();
+        await reloading;
+        expect(session.variables).toEqual({ API_URL: "https://b.test" });
+        expect(liveVariables("s1")).toEqual({ API_URL: "https://b.test" });
+        await session.close();
+    });
+
     it("are read again when the session reloads, as after a checkout", async () => {
         const { ws, session } = await openSession();
         await session.setVariables({ API_URL: "https://a.test" });
