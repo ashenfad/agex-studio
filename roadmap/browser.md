@@ -1,8 +1,10 @@
 # Agents in the person's browser
 
-Status: proposed (2026-10-28), not started. Three phases, each adding
-to a browser extension (Chrome first) and the studio's tools; nothing
-in agex-ts is needed to begin.
+Status: proposed (2026-10-28). A spike settled how the session's tabs
+run (below; its harness and numbers are on the `spike/browser-tabs`
+branch, `spike/browser/FINDINGS.md`). Three phases, each adding to a
+browser extension (Chrome first) and the studio's tools; nothing in
+agex-ts is needed to begin.
 
 ## Why
 
@@ -153,29 +155,47 @@ ends the wait. Its card becomes the first of a family:
   person's model provider, as everything in its context does; the
   `tab` card and the share say so.
 
-## What the spike has to settle
+## What the spike found
 
-- **Background tabs.** A hidden tab doesn't render:
-  `requestAnimationFrame` stops and timers are throttled, so results
-  that load as the page scrolls may never load, and
-  `captureVisibleTab` shows only a window's visible tab. Two ways
-  around it: a small window per tab at work, so each is visible; or
-  `chrome.debugger` (the DevTools protocol), which screenshots a
-  hidden tab and sends trusted input, at the cost of its install
-  warning and the bar it shows while attached.
-- **Synthetic input.** A content script's events are `isTrusted: false`,
-  and some sites ignore them. The debugger's aren't.
-- **Deep links.** How many hotel sites take the dates in the URL, and
-  whether an agent learns the pattern from one pass through a site's
-  form.
-- **Bot defences.** A real profile is the best case, but a dozen
-  searches at once from one profile may trip a rate limit or a CAPTCHA;
-  reporting and a handoff answer the CAPTCHA, a pace per site the rate.
-- **The studio tab in the background.** While the person watches the
-  session's tabs, the studio's tab is hidden: the extension sets it
-  `autoDiscardable: false` while a turn runs, so Memory Saver can't
-  drop it, and the open port keeps the extension's service worker
-  alive.
+Measured on 2026-10-28 with Chrome 149 on macOS: fixture pages in a
+fresh profile, then five hotel sites (Marriott, Hilton, Hyatt, IHG,
+Booking.com) in the person's own Chrome, one background tab each, all
+at once.
+
+- **A hidden tab runs `fetch` and the DOM, and nothing that waits for a
+  frame:** no `requestAnimationFrame`, no `IntersectionObserver`,
+  timers about once a second, and the debugger's mouse events dropped.
+  Three of the five real sites (Marriott, Hilton, Hyatt) drew nothing
+  at all in one.
+- **The debugger's focus emulation wakes it**
+  (`Emulation.setFocusEmulationEnabled`; attaching alone, or
+  `Page.enable`, doesn't): the tab reports `visible`, renders, takes
+  trusted input, and screenshots in 30 to 70 ms, without coming to the
+  front. Detaching hides it again. All five sites rendered with it.
+- **A window per tab doesn't work:** macOS hides a covered window
+  within seconds, and a minimized one can't be screenshotted.
+- **A content script's input is untrusted** (`isTrusted: false`);
+  the debugger's (`Input.insertText`, and mouse events once the tab
+  renders) is trusted.
+- **Every deep link took,** dates and guests, on all five sites: no
+  date picker needed. IHG's month is zero-based (`qCiMy=112026` is
+  December), which an agent checking that the dates show on the page
+  would catch.
+- **Four of five showed prices** once woken; IHG listed its hotels and
+  loads their rates later.
+- **No bot check** in the person's profile, five sites at once.
+- **An outline is 1,500 to 4,800 tokens a page,** much of it photo
+  carousels and inline text split one fragment per line; a pass over
+  both should roughly halve it.
+- **A port with no messages doesn't keep the extension's service
+  worker alive:** it dropped once the driver went quiet. The studio's
+  tab, hidden, keeps working (its timers drop to about once a second;
+  the port answers in a millisecond).
+
+So the session's tabs are background tabs, with the debugger attached
+and focus emulation on while the agent works in one, detached after.
+The cost is the `debugger` permission's install warning and Chrome's
+"started debugging this browser" bar while a tab is attached.
 
 ## Phase 1: the session's tabs
 
@@ -184,13 +204,13 @@ hotel sites for one date range, with one `sites` card up front: it
 reports availability and price from at least four of them correctly,
 and stops before booking. A blocked site (a CAPTCHA, or one the spike
 forces) is reported, handed to the person, and rerun, once from code
-and once from a delegate resumed. The spike also measures tokens per
-site, and answers the background-tab question.
+and once from a delegate resumed. It also measures tokens per site,
+against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn | |
-| 2 | extension | The outline (text and refs, and a blocker when the page is one), the actions by ref, `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs; the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn | |
+| 2 | extension | The debugger attached with focus emulation while a tab is worked in; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke) | 1 |
 | 4 | studio | The browser tools and the `browser` host object (open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
 | 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
@@ -229,7 +249,9 @@ most.
   person's sessions, and put the loop in a service worker Chrome stops
   when idle.
 - **Real tabs,** in the person's profile, in the background, grouped
-  per session.
+  per session, woken by the debugger's focus emulation while the agent
+  works in one (the spike: three of five hotel sites draw nothing
+  without it).
 - **Many sites from code first;** delegates for the sites that need
   driving step by step.
 - **Only the session's own agent asks the person,** with a tool call.
@@ -248,7 +270,6 @@ most.
 
 ## Open questions
 
-- Debugger or a window per tab at work (the spike).
 - A reload while a card waits leaves the run with a tool call and no
   result, as `request_secret` does today: whether agex-ts keeps the
   waiting call with the run, so a resume asks again.
