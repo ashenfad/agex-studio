@@ -20,7 +20,7 @@ export const topOf = (session) => session.split(".")[0];
 
 /**
  * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean } }} TabInfo
- * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: number, text: string, cut?: number, loading?: true, blocked?: { url: string, at: number } }} Outline
+ * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: number, text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
  * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
  */
 
@@ -59,8 +59,9 @@ export class Browser {
     }
 
     /** The tab's page as an outline, with its version, which the actions
-     *  on its refs name. @param {string} session @param {number} tab
-     *  @param {{ maxChars?: number, hrefs?: boolean }} [opts] @returns {Promise<Outline>} */
+     *  on its refs name; `settle` waits for its text to stop changing first.
+     *  @param {string} session @param {number} tab
+     *  @param {{ maxChars?: number, hrefs?: boolean, settle?: boolean | number }} [opts] @returns {Promise<Outline>} */
     read(session, tab, opts = {}) {
         return this.extension.call("read", { session: topOf(session), tab, ...opts });
     }
@@ -75,6 +76,19 @@ export class Browser {
      *  @param {{ text?: string, selector?: string, timeout?: number }} what @returns {Promise<{ ms: number }>} */
     waitFor(session, tab, what) {
         return this.extension.call("waitFor", { session: topOf(session), tab, ...what });
+    }
+
+    /** The page scrolled with the wheel: a screenful down, or to the bottom.
+     *  @param {string} session @param {number} tab @param {"down" | "bottom"} to
+     *  @returns {Promise<{ top: number, below: number }>} */
+    scroll(session, tab, to) {
+        return this.extension.call("scroll", { session: topOf(session), tab, to });
+    }
+
+    /** The person's cancel of the agent's work (Chrome's debugging bar)
+     *  lifted, on their word. */
+    async resume() {
+        await this.extension.call("resume");
     }
 
     /** @param {string} session @param {number} tab @returns {Promise<{ mime: string, data: string }>} */

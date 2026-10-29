@@ -5,7 +5,7 @@
      * the card asks for, what follows from answering, and its buttons.
      */
 
-    /** @type {{ title: import('svelte').Snippet, why: string, children: import('svelte').Snippet, note?: import('svelte').Snippet, errors?: string[], actions: import('svelte').Snippet }} */
+    /** @type {{ title: import('svelte').Snippet, why: string, children?: import('svelte').Snippet, note?: import('svelte').Snippet, errors?: string[], actions: import('svelte').Snippet }} */
     let { title, why, children, note, errors = [], actions } = $props()
 
     const uid = $props.id()
@@ -14,7 +14,7 @@
 <section class="ask" aria-labelledby="{uid}-title">
     <h2 id="{uid}-title">{@render title()}</h2>
     <p class="why">{why}</p>
-    {@render children()}
+    {@render children?.()}
     {#if note}<p class="note">{@render note()}</p>{/if}
     {#if errors.length > 0}
         <ul class="errors" role="alert">

@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Lazy hotels</title>
+<style>.item { height: 120px; border-bottom: 1px solid #ddd }</style>
+<h1>Lazy hotels</h1>
+<div id="list"></div>
+<p id="end">Loading more…</p>
+<script>
+    // a list that loads ten more each time its end comes into view, up to thirty, as many sites do
+    const list = document.getElementById("list");
+    let n = 0;
+    const more = () => {
+        for (let i = 0; i < 10 && n < 30; i++) list.insertAdjacentHTML("beforeend", `<div class="item">Hotel ${++n}</div>`);
+        if (n >= 30) document.getElementById("end").textContent = "That's all.";
+    };
+    more();
+    new IntersectionObserver((seen) => seen.some((s) => s.isIntersecting) && more()).observe(document.getElementById("end"));
+</script>

@@ -46,7 +46,10 @@ let stopped = false;
  */
 export async function work(tab) {
     if (stopped) {
-        throw new ProtocolError("stopped", "the person cancelled the agent's work in the browser; ask them before going on");
+        throw new ProtocolError(
+            "stopped",
+            "Chrome's debugging bar was cancelled, which stops the agent's work in every tab (not one tab), until the person lets it go on",
+        );
     }
     let entry = working.get(tab);
     if (entry === undefined) {

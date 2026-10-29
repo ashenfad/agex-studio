@@ -198,6 +198,63 @@ describe("a committing step, as the person reads it", () => {
     });
 });
 
+describe("scrolling and settling", () => {
+    it("scrolls with the wheel, and reads after the page settles", async () => {
+        const { tool, ext } = setup({ scroll: { top: 2000, below: 0 } });
+        const out = await tool.call({ tab: 7, actions: [{ scroll: "bottom" }, { read: { settle: true } }] });
+        expect(out.text).toMatch(/^1\. scroll tab 7: at the bottom\. Read it again to see what loaded\./);
+        expect(ext.calls.find((c) => c.op === "scroll")?.args).toEqual({ session: "s1", tab: 7, to: "bottom" });
+        expect(ext.calls.find((c) => c.op === "read")?.args).toMatchObject({ settle: true });
+    });
+
+    it("refuses a scroll that isn't down or to the bottom", () => {
+        expect(checkAction({ scroll: "up" })).toEqual({ error: 'scroll: "down" (a screenful) or "bottom"' });
+        expect(checkAction({ scroll: true })).toEqual({ kind: "scroll", a: { scroll: true } });
+    });
+});
+
+describe("a browser the person stopped", () => {
+    /** An extension stopped until it's resumed. */
+    const stoppedUntilResumed = () => {
+        let stopped = true;
+        return {
+            resume: () => ((stopped = false), null),
+            read: () => (stopped ? new ExtensionError("stopped", "Chrome's debugging bar was cancelled, which stops the agent's work in every tab (not one tab), until the person lets it go on") : outline),
+        };
+    };
+
+    it("asks the person whether to go on, and on their word goes on with the step", async () => {
+        const { ext } = setup(stoppedUntilResumed());
+        const asks = new BrowserAsks();
+        const pending = browserTool({ name: "g1" }, { browser: new Browser(/** @type {any} */ (ext)), asks }).call({ tab: 7, actions: [{ read: true }] });
+        await opened();
+        expect(asks.openGoOn("g1")).toMatchObject({ kind: "go-on" });
+        asks.answer("g1", true);
+        const out = await pending;
+        expect(out.isError).toBe(false);
+        expect(out.text).toMatch(/^1\. read: the person let you go on \(Chrome's debugging bar had been cancelled\)\n1\. read tab 7 \(outline 4/);
+        expect(ext.calls.map((c) => c.op)).toEqual(["read", "resume", "read"]);
+    });
+
+    it("stops the call when they keep it stopped", async () => {
+        const { ext } = setup(stoppedUntilResumed());
+        const asks = new BrowserAsks();
+        const pending = browserTool({ name: "g2" }, { browser: new Browser(/** @type {any} */ (ext)), asks }).call({ tab: 7, actions: [{ read: true }, { click: 1 }] });
+        await opened();
+        asks.answer("g2", false);
+        const out = await pending;
+        expect(out).toMatchObject({ isError: false });
+        expect(out.text).toMatch(/the person keeps the browser stopped\. Don't use it until they say so/);
+        expect(ext.calls.map((c) => c.op)).toEqual(["read"]);
+    });
+
+    it("stops a delegate, to say so in its answer", async () => {
+        const out = await setup(stoppedUntilResumed(), true).tool.call({ tab: 7, actions: [{ read: true }] });
+        expect(out.isError).toBe(true);
+        expect(out.text).toMatch(/not one tab\), until the person lets it go on\. Stop here, and say in your answer that the browser was stopped/);
+    });
+});
+
 describe("a handoff", () => {
     it("brings the tab to the front, and waits for the person's Done", async () => {
         const { ext } = setup({ tabs: [{ id: 7, url: "https://www.hyatt.com/", title: "Hyatt", working: false }], show: null });

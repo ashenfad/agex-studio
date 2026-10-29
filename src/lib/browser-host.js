@@ -11,7 +11,7 @@
  * the browser tool, whose card asks for the person's yes).
  *
  * Code gets tabs from the stub: `await browser.open(url)` is a tab with
- * `read`, `click`, `type`, `select`, `goto`, `waitFor` and `close`, each
+ * `read`, `click`, `type`, `select`, `scroll`, `goto`, `waitFor` and `close`, each
  * a call of the host's with the tab's id. A tab object keeps the version
  * of its latest read, which its actions name: an action on a page read
  * since by anyone else, or changed, is refused as stale.
@@ -39,6 +39,8 @@ export function codeError(e) {
             return new Error(`${message} (confirm): code never takes a step that commits; return this, and the agent takes it with the browser tool, which asks the person`);
         case "stale":
             return new Error(`${message} (stale)`);
+        case "stopped":
+            return new Error(`${message} (stopped): code can't ask; return this, and the agent's next browser tool call asks the person whether to go on`);
         case "absent":
         case "disconnected":
             return new Error(`the browser extension isn't reachable: ${message}`);
@@ -74,7 +76,7 @@ export class BrowserHost {
         return this._call(async () => ({ id: await this._browser.open(this._session, url) }));
     }
 
-    /** @param {number} tab @param {{ maxChars?: number, hrefs?: boolean }} [opts] */
+    /** @param {number} tab @param {{ maxChars?: number, hrefs?: boolean, settle?: boolean | number }} [opts] */
     read(tab, opts) {
         return this._call(() => this._browser.read(this._session, tab, opts ?? {}));
     }
@@ -92,6 +94,11 @@ export class BrowserHost {
     /** @param {number} tab @param {number | undefined} version @param {number} ref @param {string} value */
     select(tab, version, ref, value) {
         return this._call(() => this._browser.act(this._session, tab, "select", version, ref, { value }));
+    }
+
+    /** @param {number} tab @param {"down" | "bottom"} [to] */
+    scroll(tab, to) {
+        return this._call(() => this._browser.scroll(this._session, tab, to ?? "down"));
     }
 
     /** @param {number} tab @param {string} url */
@@ -126,6 +133,7 @@ export const STUB = `(remote) => {
             click: (ref) => remote.click(id, version, ref),
             type: (ref, text, opts) => remote.type(id, version, ref, text, opts),
             select: (ref, value) => remote.select(id, version, ref, value),
+            scroll: (to) => remote.scroll(id, to),
             goto: (url) => remote.goto(id, url),
             waitFor: (what, opts) => remote.waitFor(id, { ...(typeof what === "string" ? { text: what } : what), ...opts }),
             close: () => remote.close(id),
@@ -156,7 +164,13 @@ export function browserHost({ browser = deviceBrowser } = {}) {
             {
                 tabs: {},
                 open: { args: { url } },
-                read: { args: { tab: id, opts: z.strictObject({ maxChars: z.number().int().min(100).optional(), hrefs: z.boolean().optional() }).optional() } },
+                read: {
+                    args: {
+                        tab: id,
+                        opts: z.strictObject({ maxChars: z.number().int().min(100).optional(), hrefs: z.boolean().optional(), settle: z.union([z.boolean(), z.number().int().positive().max(60_000)]).optional() }).optional(),
+                    },
+                },
+                scroll: { args: { tab: id, to: z.enum(["down", "bottom"]).optional() } },
                 click: { args: { tab: id, version, ref } },
                 type: { args: { tab: id, version, ref, text: z.string(), opts: z.strictObject({ submit: z.boolean().optional(), clear: z.boolean().optional() }).optional() } },
                 select: { args: { tab: id, version, ref, value: z.string() } },

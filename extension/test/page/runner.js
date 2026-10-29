@@ -270,6 +270,33 @@ const SCENARIOS = {
         return { afterOne, stillOne, afterAll };
     },
 
+    /** a list that loads as it is scrolled, and a page that draws its results late */
+    async loading() {
+        const c = await greeted();
+        await c.call("session", { session: "loading", name: "Loading", domains: [GRANTED_DOMAIN] });
+        const { value: { tab } } = await c.call("open", { session: "loading", url: `${GRANTED}/test/page/lazy.html` });
+        const at = { session: "loading", tab };
+        const first = (await c.call("read", at)).value;
+        const down = (await c.call("scroll", { ...at, to: "down" })).value;
+        const bottom = (await c.call("scroll", { ...at, to: "bottom" })).value;
+        const all = (await c.call("read", at)).value;
+        const badTo = await c.call("scroll", { ...at, to: "sideways" });
+        const slow = (await c.call("open", { session: "loading", url: `${GRANTED}/test/page/slow.html` })).value.tab;
+        const early = (await c.call("read", { session: "loading", tab: slow })).value;
+        const late = (await c.call("read", { session: "loading", tab: slow, settle: true })).value;
+        await c.call("turn", { running: false });
+        c.port.disconnect();
+        const hotels = (/** @type {string} */ t) => (t.match(/Hotel \d+/g) ?? []).length;
+        return {
+            first: { hotels: hotels(first.text), below: first.below },
+            down, bottom,
+            all: { hotels: hotels(all.text), below: all.below ?? 0 },
+            badTo,
+            early: /Searching|loading rates/.test(early.text),
+            late: { text: /Hotel Avenida €124/.test(late.text), settled: late.settled ?? true },
+        };
+    },
+
     /** pages that are a CAPTCHA or a bot check */
     async blockers() {
         const c = await greeted();
