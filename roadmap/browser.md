@@ -143,9 +143,15 @@ ends the wait. Its card becomes the first of a family:
   heuristic: it catches the common steps, and the agent is told to ask
   for the rest. A delegate that meets one stops and reports it, as it
   does a CAPTCHA.
-- **What a shared tab shows is sensitive.** The person shared it because
-  it is theirs. Tool results read from a shared tab are marked in the
-  run: publishing leaves them out, and an export says it holds them.
+- **What a shared tab shows is sensitive,** and it doesn't stay in the
+  tool result: the agent repeats it in its replies, in files it writes,
+  in what it hands a delegate. No filter can find every copy, so the
+  mark is on the session: once its agent has read a shared tab, the
+  session is marked, and a fork carries the mark. Publishing a marked
+  session is refused, its link never made; publishing it without its
+  history (the files and app as they are now) is offered instead, with
+  a note that its files may hold what the tab showed. An export says the
+  same and asks.
 - **Pages carry other people's words.** A signed-in page is full of
   them (mail, comments, listings), and any of it may be an instruction
   aimed at the agent. Once a session has read a shared tab, its
@@ -218,14 +224,15 @@ against the first spike's 1,500 to 4,800 an outline.
 ## Phase 2: tabs the person shares, to read
 
 Exit: the person signs in to a site, shares the tab, and the agent
-answers a question about it; publishing the session leaves what it read
-out, and its requests afterwards go only to origins it was granted.
+answers a question about it; the session is marked, publishing it with
+its conversation is refused (without its history, offered with the
+note), and its requests afterwards go only to origins it was granted.
 
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | extension | Share from the toolbar (`activeTab`), naming a session; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
 | 2 | studio | The `tab` card and its picker; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
-| 3 | studio | Sensitive results: marked in the run, left out of a publish, named by an export | 2 |
+| 3 | studio | The session marked once it reads a shared tab, a fork keeping the mark; publishing it with its conversation refused, without its history offered with the note; an export saying so and asking | 2 |
 | 4 | studio | After a shared read, outbound requests limited to granted origins | 2 |
 
 A shared tab is read-only in this phase.
@@ -273,8 +280,11 @@ most.
 - A reload while a card waits leaves the run with a tool call and no
   result, as `request_secret` does today: whether agex-ts keeps the
   waiting call with the run, so a resume asks again.
-- Whether sensitive results also stay out of sync, or only out of
+- Whether a marked session also stays out of sync, or only out of
   publishing: sync goes to the person's own private repo.
+- Whether a mark can be cleared (the person reviewed the session and
+  says it holds nothing private), or only left behind by publishing
+  without history.
 - How `confirm` cards are shown so twenty of them stay readable, if a
   task makes that many.
 
