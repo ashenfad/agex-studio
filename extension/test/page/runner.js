@@ -230,6 +230,8 @@ const SCENARIOS = {
             iconDelete: await c.call("click", on(first, "Delete")),
             labelledDelete: await c.call("click", on(first, "Delete booking")),
             nights: await c.call("type", { ...on(first, "Nights"), text: "4", clear: false }),
+            arrive: await c.call("type", { ...on(first, "Arrive"), text: "2026-12-03" }),
+            arriveBad: await c.call("type", { ...on(first, "Arrive"), text: "Dec 3" }),
             covered: await c.call("click", on(first, "Under the banner")),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
