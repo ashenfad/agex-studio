@@ -131,6 +131,12 @@ ends the wait. Its card becomes the first of a family:
   page, which a click in the studio doesn't count as, so the person
   grants it once there and the studio's grants decide what each session
   may open.
+- **Every page load in a session's tab is checked,** not only the
+  agent's `goto` and new tabs: a link it clicks, a redirect, a sign-in
+  that hops to another domain. One to an origin the session holds no
+  grant for is blocked before it loads (the extension's
+  `declarativeNetRequest` session rules, by tab, kept to the studio's
+  grants), and the agent is told, so it can ask with a `sites` card.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
   wherever the person is (opening marriott.com opens their account),
@@ -143,23 +149,21 @@ ends the wait. Its card becomes the first of a family:
   heuristic: it catches the common steps, and the agent is told to ask
   for the rest. A delegate that meets one stops and reports it, as it
   does a CAPTCHA.
-- **What a shared tab shows is sensitive,** and it doesn't stay in the
-  tool result: the agent repeats it in its replies, in files it writes,
-  in what it hands a delegate. No filter can find every copy, so the
-  mark is on the session: once its agent has read a shared tab, the
-  session is marked, and a fork carries the mark. Publishing a marked
-  session is refused, its link never made; publishing it without its
-  history (the files and app as they are now) is offered instead, with
-  a note that its files may hold what the tab showed. An export says the
-  same and asks.
-- **Pages carry other people's words.** A signed-in page is full of
-  them (mail, comments, listings), and any of it may be an instruction
-  aimed at the agent. Once a session has read a shared tab, its
-  outbound requests (`curl`, `http.fetch`, `goto`, a new tab) go only to
-  origins it already holds a grant for.
-- **The model sees the page.** What the agent reads goes to the
-  person's model provider, as everything in its context does; the
-  `tab` card and the share say so.
+- **What a tab shows joins the session.** What the agent reads goes to
+  the person's model provider, as everything in its context does, and
+  into the session's history, which syncs and publishes with the rest
+  of it, as an upload's content does. The person chose to share it, and
+  publishing is a choice of its own: the `tab` card and the share say
+  where it goes, and nothing is tracked after.
+- **Sessions are the boundary.** Any page's text may be an instruction
+  aimed at the agent (mail, comments, listings, or the site itself), and
+  what the agent can see can reach any site it works in: a URL it
+  opens, a form it fills. No check inside a session stops that, so the
+  gate is which sites a session may visit, and a private tab and sites
+  the person doesn't trust belong in different sessions. The share card
+  says so when the session holds grants for other sites. What an
+  injection can't reach: a key's value, which the agent never holds,
+  and a committing step, which waits for a `confirm`.
 
 ## What the spike found
 
@@ -215,25 +219,23 @@ against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs; the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn | |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs; the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
-| 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke) | 1 |
+| 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
 | 4 | studio | The browser tools and the `browser` host object (open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
 | 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
 
 ## Phase 2: tabs the person shares, to read
 
 Exit: the person signs in to a site, shares the tab, and the agent
-answers a question about it; the session is marked, publishing it with
-its conversation is refused (without its history, offered with the
-note), and its requests afterwards go only to origins it was granted.
+answers a question about it. The card said where what it reads goes,
+and, in a session that holds grants for other sites, that what it reads
+can reach them.
 
 | # | Where | What | Needs |
 |---|---|---|---|
 | 1 | extension | Share from the toolbar (`activeTab`), naming a session; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
-| 2 | studio | The `tab` card and its picker; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
-| 3 | studio | The session marked once it reads a shared tab, a fork keeping the mark; publishing it with its conversation refused, without its history offered with the note; an export saying so and asking | 2 |
-| 4 | studio | After a shared read, outbound requests limited to granted origins | 2 |
+| 2 | studio | The `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
 
 A shared tab is read-only in this phase.
 
@@ -271,6 +273,9 @@ most.
   agent's keys. Chrome's permission is granted once, in the extension.
 - **No request carries the person's cookies;** acting as the person
   happens in a tab.
+- **The gate is the sites a session may visit,** every page load in its
+  tabs held to them. Nothing a tab shows is tracked after it is read:
+  sessions are the boundary, and publishing is the person's choice.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
   protocol and the studio's tools change together.
@@ -280,11 +285,6 @@ most.
 - A reload while a card waits leaves the run with a tool call and no
   result, as `request_secret` does today: whether agex-ts keeps the
   waiting call with the run, so a resume asks again.
-- Whether a marked session also stays out of sync, or only out of
-  publishing: sync goes to the person's own private repo.
-- Whether a mark can be cleared (the person reviewed the session and
-  says it holds nothing private), or only left behind by publishing
-  without history.
 - How `confirm` cards are shown so twenty of them stay readable, if a
   task makes that many.
 
@@ -297,5 +297,7 @@ most.
   `agex.fetch` and reading pages without OpenRouter. It reads no tab,
   so it is a smaller question of trust, and could ship before the
   tabs.
+- **A note in the publish dialog** when the session read a shared tab,
+  if people turn out to need the reminder.
 - **A side panel,** for a session that follows the person from tab to
   tab.
