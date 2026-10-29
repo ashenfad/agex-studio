@@ -28,6 +28,12 @@
  * - `goto { session, tab, url }` → `{ url, title }`: the tab sent on.
  * - `waitFor { session, tab, text | selector, timeout? }` → `{ ms }`.
  * - `screenshot { session, tab }` → `{ mime, data }`: a JPEG, base64.
+ * - `click { session, tab, version, ref, confirmed? }`,
+ *   `type { ..., text, submit?, clear? }`, `select { ..., value }` →
+ *   `{ url, title, navigated?, submitted?, blocked? }`: an action on the
+ *   element at `ref` in outline `version`. Refused as `stale` when the
+ *   page has changed since, and as `confirm` when the step reads as
+ *   committing and isn't `confirmed`.
  *
  * A port with no messages on it doesn't keep the extension's service
  * worker alive (Chrome stops it after about 30 s idle, and the port
@@ -59,7 +65,7 @@ export const HEARTBEAT_MS = 20_000;
  * @typedef {{ id: number, op: string, [arg: string]: unknown }} Request
  * @typedef {{ code: ErrorCode, message: string }} ReplyError
  * @typedef {{ id: number, value: unknown } | { id: number, error: ReplyError }} Reply
- * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "not-found" | "not-granted" | "timeout" | "stopped" | "failed"} ErrorCode
+ * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "not-found" | "not-granted" | "timeout" | "stopped" | "stale" | "confirm" | "failed"} ErrorCode
  */
 
 /** What `hello` answers. @typedef {{ protocol: number, version: string }} Hello */

@@ -206,6 +206,41 @@ const SCENARIOS = {
         };
     },
 
+    /** clicks, typing and choices, by the refs of an outline */
+    async actions() {
+        const c = await greeted();
+        await c.call("turn", { running: true });
+        await c.call("session", { session: "act", name: "Act", origins: [GRANTED] });
+        const { value: { tab } } = await c.call("open", { session: "act", url: `${GRANTED}/test/page/form.html` });
+        const at = { session: "act", tab };
+        const first = (await c.call("read", at)).value;
+        const on = (outline, label) => ({ ...at, version: outline.version, ref: refOf(outline.text, label) });
+        const r = {
+            photos: await c.call("click", on(first, "Show photos")),
+            reserve: await c.call("click", on(first, "Reserve")),
+            reserveConfirmed: await c.call("click", { ...on(first, "Reserve"), confirmed: true }),
+            pay: await c.call("type", { ...on(first, "Card name"), text: "A. Person", submit: true }),
+            notes: await c.call("type", { ...on(first, "Notes"), text: "hello" }),
+            notesMore: await c.call("type", { ...on(first, "Notes"), text: " there", clear: false }),
+            notesCleared: await c.call("type", { ...on(first, "Notes"), text: "" }),
+            guests: await c.call("select", { ...on(first, "Guests"), value: "2" }),
+            noOption: await c.call("select", { ...on(first, "Guests"), value: "9" }),
+            covered: await c.call("click", on(first, "Under the banner")),
+            refresh: await c.call("click", on(first, "Refresh list")),
+            refreshAgain: await c.call("click", on(first, "Refresh list")),
+        };
+        const second = (await c.call("read", at)).value;
+        r.out = /Out: (.*)$/m.exec(second.text)?.[1];
+        r.olderOutline = await c.call("click", on(first, "Show photos"));
+        r.search = await c.call("type", { ...on(second, "Where"), text: "Lisbon", submit: true });
+        r.otherPage = await c.call("click", on(second, "Show photos"));
+        const third = (await c.call("read", at)).value;
+        r.away = await c.call("click", on(third, "Elsewhere"));
+        await c.call("turn", { running: false });
+        c.port.disconnect();
+        return r;
+    },
+
     /** pages that are a CAPTCHA or a bot check */
     async blockers() {
         const c = await greeted();
@@ -236,6 +271,12 @@ const OTHER = `http://localhost:${location.port}`;
 
 /** The fixture site on the granted origin. @param {string} id @param {Record<string, string>} [more] */
 const site = (id, more = {}) => `${GRANTED}/test/page/site.html?${new URLSearchParams({ id, ...more })}`;
+
+/** The ref an outline gives the control labelled `label`. */
+function refOf(text, label) {
+    const m = new RegExp(`\\[(\\d+)\\] [^\\n\\[]*?"${label}"`).exec(text);
+    return m ? Number(m[1]) : -1;
+}
 
 async function greeted() {
     const c = connect();
