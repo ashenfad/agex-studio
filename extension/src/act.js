@@ -111,7 +111,8 @@ function refuse(aim, req) {
     if (aim.commits && req.confirmed !== true) {
         throw new ProtocolError(
             "confirm",
-            `${aim.desc} reads as a step that commits (${JSON.stringify(aim.commits)}): ask the person to confirm it, then call again with confirmed: true`,
+            // what to do about it is the caller's to say: a person to ask, or code to stop
+            `${aim.desc} reads as a step that commits (${JSON.stringify(aim.commits)})`,
         );
     }
 }
