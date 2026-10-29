@@ -1,0 +1,103 @@
+/**
+ * The agent's browser: a session's tabs, reached through the studio's
+ * extension (`browser-extension.svelte.js`), for the `browser` tool and
+ * the `browser` host object alike.
+ *
+ * Tabs belong to the top session: a delegate's calls are its top
+ * session's, so a tab it opens outlives it, and a delegate resumed later
+ * finds it again. Each read of a tab gives an outline with a version, and
+ * an action names the latest one read here (by the tool or by code), so
+ * an action on a page that changed since is refused rather than landing
+ * on whatever now sits at that ref.
+ */
+
+import { ExtensionError, browserExtension } from "./browser-extension.svelte.js";
+
+/** The top session of `session` (a delegate's is its parent's, up).
+ *  @param {string} session */
+export const topOf = (session) => session.split(".")[0];
+
+/**
+ * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean } }} TabInfo
+ * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: number, text: string, cut?: number, loading?: true, blocked?: { url: string, at: number } }} Outline
+ * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
+ */
+
+export class Browser {
+    /** The latest outline's version read of each tab. @type {Map<number, number>} */
+    #versions = new Map();
+
+    /** @param {import("./browser-extension.svelte.js").BrowserExtension} extension */
+    constructor(extension) {
+        this.extension = extension;
+    }
+
+    /** Whether the extension is here to reach tabs through. */
+    get available() {
+        return this.extension.status === "found";
+    }
+
+    /** @param {string} session @returns {Promise<TabInfo[]>} */
+    tabs(session) {
+        return this.extension.call("tabs", { session: topOf(session) });
+    }
+
+    /** A tab opened on `url`, in the background. @param {string} session @param {string} url
+     *  @returns {Promise<number>} */
+    async open(session, url) {
+        const { tab } = await this.extension.call("open", { session: topOf(session), url });
+        return tab;
+    }
+
+    /** @param {string} session @param {number} tab */
+    async close(session, tab) {
+        await this.extension.call("close", { session: topOf(session), tab });
+        this.#versions.delete(tab);
+    }
+
+    /** The tab's page as an outline, its version kept for the actions
+     *  that follow. @param {string} session @param {number} tab
+     *  @param {{ maxChars?: number, hrefs?: boolean }} [opts] @returns {Promise<Outline>} */
+    async read(session, tab, opts = {}) {
+        /** @type {Outline} */
+        const outline = await this.extension.call("read", { session: topOf(session), tab, ...opts });
+        this.#versions.set(tab, outline.version);
+        return outline;
+    }
+
+    /** @param {string} session @param {number} tab @param {string} url
+     *  @returns {Promise<{ url: string, title: string, loading?: true }>} */
+    goto(session, tab, url) {
+        return this.extension.call("goto", { session: topOf(session), tab, url });
+    }
+
+    /** @param {string} session @param {number} tab
+     *  @param {{ text?: string, selector?: string, timeout?: number }} what @returns {Promise<{ ms: number }>} */
+    waitFor(session, tab, what) {
+        return this.extension.call("waitFor", { session: topOf(session), tab, ...what });
+    }
+
+    /** @param {string} session @param {number} tab @returns {Promise<{ mime: string, data: string }>} */
+    screenshot(session, tab) {
+        return this.extension.call("screenshot", { session: topOf(session), tab });
+    }
+
+    /**
+     * An action on the element at `ref` of the latest outline read of the
+     * tab: `click`, `type` (`text`, `submit`, `clear`) or `select`
+     * (`value`). `confirmed` only for a step the person has confirmed.
+     *
+     * @param {string} session @param {number} tab @param {"click" | "type" | "select"} op
+     * @param {number} ref @param {Record<string, unknown>} [args]
+     * @param {{ confirmed?: boolean }} [opts]
+     * @returns {Promise<ActResult>}
+     */
+    act(session, tab, op, ref, args = {}, { confirmed = false } = {}) {
+        const version = this.#versions.get(tab);
+        if (version === undefined) return Promise.reject(new ExtensionError("stale", `tab ${tab} hasn't been read here yet; read it first`));
+        return this.extension.call(op, { session: topOf(session), tab, version, ref, ...args, ...(confirmed && { confirmed: true }) });
+    }
+}
+
+/** This page's browser. */
+export const browser = new Browser(browserExtension);
