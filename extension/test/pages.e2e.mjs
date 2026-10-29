@@ -20,7 +20,7 @@ describe("a session's pages", () => {
     const loaded = (id) => browser.served().some((r) => r.id === id);
     before(async () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
-        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "pages,blockers,twoTurns" } });
+        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "pages,blockers,twoTurns,loading" } });
     });
     after(() => browser?.close());
 
@@ -104,6 +104,22 @@ describe("a session's pages", () => {
     it("rests a tab only once no studio tab's turn runs", async () => {
         const r = await browser.report("twoTurns", 60_000);
         assert.deepEqual(r, { afterOne: true, stillOne: true, afterAll: false });
+    });
+
+    it("scrolls with the wheel, so a list that loads as it is scrolled loads, and says when there's more below", async () => {
+        const r = await browser.report("loading", 90_000);
+        assert.equal(r.first.hotels, 10);
+        assert.ok(r.first.below > 0, `below: ${r.first.below}`);
+        assert.ok(r.down.top > 0, "the page didn't move");
+        assert.equal(r.all.hotels, 30);
+        assert.equal(r.all.below, 0);
+        assert.equal(r.badTo.error.code, "bad-request");
+    });
+
+    it("waits, with settle, for a page that draws its results late", async () => {
+        const r = await browser.report("loading", 90_000);
+        assert.equal(r.early, true, "the first read was already the last state");
+        assert.deepEqual(r.late, { text: true, settled: true });
     });
 
     it("refuses another session's tab", async () => {

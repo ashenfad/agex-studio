@@ -18,6 +18,7 @@ const KIND_NAMES = /** @type {Record<string, string>} */ ({
     sites: "a request for sites",
     confirm: "a step to confirm",
     handoff: "a handoff",
+    "go-on": "a question whether to go on in the browser",
 });
 
 /**

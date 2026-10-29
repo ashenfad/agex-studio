@@ -23,14 +23,19 @@
  *   been told of (kept across the studio's absences).
  * - `open { session, url }` → `{ tab }`: a tab opened for the session.
  * - `close { session, tab }`: one of its tabs closed.
+ * - `resume`: the person's cancel (Chrome's debugging bar) lifted.
  * - `show { session, tab }`: one of its tabs brought to the front, for
  *   the person's hands (the agent's work in it rested first).
  * - `tabs { session }` → `[{ id, url, title, working, blocked? }]`: its
  *   tabs, each with whether the agent is working in it (the debugger
  *   attached), and the last load the extension stopped in it.
- * - `read { session, tab, maxChars?, hrefs? }` → an outline: the page's
- *   text, with numbered refs on what can be clicked or typed into, its
- *   `version`, and a `blocker` when the page is a CAPTCHA or bot check.
+ * - `read { session, tab, maxChars?, hrefs?, settle? }` → an outline: the
+ *   page's text, with numbered refs on what can be clicked or typed into,
+ *   its `version`, a `blocker` when the page is a CAPTCHA or bot check,
+ *   and how many screenfuls go on `below`; `settle` first waits for the
+ *   page's text to stop changing.
+ * - `scroll { session, tab, to? }` → `{ top, below }`: "down" a screenful
+ *   or to the "bottom", with the wheel, so lazy lists load.
  * - `goto { session, tab, url }` → `{ url, title }`: the tab sent on.
  * - `waitFor { session, tab, text | selector, timeout? }` → `{ ms }`.
  * - `screenshot { session, tab }` → `{ mime, data }`: a JPEG, base64.

@@ -44,6 +44,10 @@ describe("the browser host", () => {
         await expect(host.open("https://www.ihg.com/")).rejects.toThrow(/no grant for ihg\.com \(not-granted\): code can't ask for a site; return this, and the agent asks with request_sites/);
     });
 
+    it("sends code back to the agent when the browser was stopped", () => {
+        expect(codeError(new ExtensionError("stopped", "Chrome's debugging bar was cancelled")).message).toMatch(/\(stopped\): code can't ask; return this, and the agent's next browser tool call asks the person whether to go on/);
+    });
+
     it("never takes a committing step from code", () => {
         expect(codeError(new ExtensionError("confirm", '[1] button "Book" reads as a step that commits ("Book")')).message).toMatch(/\(confirm\): code never takes a step that commits/);
     });
@@ -70,6 +74,8 @@ describe("the browser stub", () => {
         await tab.type(2, "Lisbon", { submit: true });
         await tab.waitFor("Rates", { timeout: 5000 });
         await tab.waitFor({ selector: ".rates" });
+        await tab.scroll("bottom");
+        await tab.read({ settle: true });
         expect(calls).toEqual([
             ["open", "https://www.hyatt.com/"],
             ["click", 4, undefined, 1],
@@ -77,6 +83,8 @@ describe("the browser stub", () => {
             ["type", 4, 6, 2, "Lisbon", { submit: true }],
             ["waitFor", 4, { text: "Rates", timeout: 5000 }],
             ["waitFor", 4, { selector: ".rates" }],
+            ["scroll", 4, "bottom"],
+            ["read", 4, { settle: true }],
         ]);
     });
 

@@ -20,9 +20,12 @@
  *   refs: number,
  *   text: string,
  *   cut?: number,
+ *   below?: number,
  * }} Outline
  *   `blocker`: the page is a CAPTCHA or a bot check, not the site.
  *   `cut`: the text's full length, when it was cut to `maxChars`.
+ *   `below`: how far the page goes on below what shows, in screenfuls,
+ *   when it does: a list there may load more as it is scrolled.
  */
 
 /**
@@ -204,6 +207,8 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     }
 
     const full = out.join("\n");
+    const scroller = document.scrollingElement ?? document.documentElement;
+    const below = Math.round(((scroller.scrollHeight - scroller.scrollTop - innerHeight) / Math.max(innerHeight, 1)) * 10) / 10;
     /** @type {typeof globalThis & { __agex?: unknown }} */ (globalThis).__agex = { version, refs, names };
     return {
         version,
@@ -213,6 +218,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         refs: refs.length,
         text: full.length > maxChars ? full.slice(0, maxChars) : full,
         ...(full.length > maxChars && { cut: full.length }),
+        ...(below >= 0.5 && { below }),
     };
 }
 

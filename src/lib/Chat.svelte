@@ -20,6 +20,7 @@
     import SitesRequest from './SitesRequest.svelte'
     import ConfirmRequest from './ConfirmRequest.svelte'
     import HandoffRequest from './HandoffRequest.svelte'
+    import GoOnRequest from './GoOnRequest.svelte'
     import { browserAsks } from './browser-asks.svelte.js'
     import { keyRequests } from './key-requests.svelte.js'
     import { siteRequests } from './site-requests.svelte.js'
@@ -261,6 +262,7 @@
             {@const askedSites = siteRequests.open(session.name)}
             {@const askedConfirm = browserAsks.openConfirm(session.name)}
             {@const askedHandoff = browserAsks.openHandoff(session.name)}
+            {@const askedGoOn = browserAsks.openGoOn(session.name)}
             {#if askedKey !== undefined}
                 {#key askedKey}<KeyRequest session={session.name} question={askedKey} />{/key}
             {:else if askedSites !== undefined}
@@ -269,6 +271,8 @@
                 {#key askedConfirm}<ConfirmRequest session={session.name} question={askedConfirm} />{/key}
             {:else if askedHandoff !== undefined}
                 {#key askedHandoff}<HandoffRequest session={session.name} question={askedHandoff} />{/key}
+            {:else if askedGoOn !== undefined}
+                {#key askedGoOn}<GoOnRequest session={session.name} />{/key}
             {/if}
         {/if}
         {#each session.queued as q (q.id)}

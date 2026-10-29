@@ -101,6 +101,13 @@ export const tabOps = {
         return null;
     },
 
+    /** The person's cancel of the agent's work (Chrome's debugging bar)
+     *  lifted, on their word: the agent goes on before the next turn. */
+    async resume() {
+        resume();
+        return null;
+    },
+
     /** One of the session's tabs closed. */
     async close(req) {
         const session = sessionArg(req);
