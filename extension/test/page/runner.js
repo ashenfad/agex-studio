@@ -177,6 +177,48 @@ const SCENARIOS = {
         return { tab: opened.value?.tab, stoppedAfterMs, listed, blocked };
     },
 
+    /** a page read, waited on, sent on and shot */
+    async pages() {
+        const c = await greeted();
+        await c.call("turn", { running: true });
+        await c.call("session", { session: "pages", name: "Pages", origins: [GRANTED] });
+        const { value: { tab } } = await c.call("open", { session: "pages", url: `${GRANTED}/test/page/hotel.html` });
+        const at = { session: "pages", tab };
+        const first = await c.call("read", at);
+        const second = await c.call("read", { ...at, maxChars: 200 });
+        const working = (await c.call("tabs", { session: "pages" })).value?.[0]?.working;
+        const rates = await c.call("waitFor", { ...at, text: "Rates loaded" });
+        const never = await c.call("waitFor", { ...at, selector: "#nope", timeout: 500 });
+        const badSelector = await c.call("waitFor", { ...at, selector: "[[" });
+        const shot = await c.call("screenshot", at);
+        const went = await c.call("goto", { ...at, url: site("went") });
+        const ungranted = await c.call("goto", { ...at, url: `${OTHER}/test/page/site.html?id=leak-goto` });
+        const redirected = await c.call("goto", { ...at, url: `${GRANTED}/redirect?to=${encodeURIComponent(`${OTHER}/test/page/site.html?id=leak-goto-redirect`)}` });
+        const afterBlock = await c.call("read", at);
+        await c.call("turn", { running: false });
+        const rested = (await c.call("tabs", { session: "pages" })).value?.[0]?.working;
+        const other = await c.call("read", { session: "nobody", tab });
+        c.port.disconnect();
+        return {
+            first, second, working, rates, never, badSelector, went, ungranted, redirected, afterBlock, rested, other,
+            shot: shot.error ?? { mime: shot.value?.mime, bytes: shot.value?.data?.length },
+        };
+    },
+
+    /** pages that are a CAPTCHA or a bot check */
+    async blockers() {
+        const c = await greeted();
+        await c.call("session", { session: "blockers", name: "Blockers", origins: [GRANTED] });
+        const read = async (page) => {
+            const { value } = await c.call("open", { session: "blockers", url: `${GRANTED}/test/page/${page}` });
+            return (await c.call("read", { session: "blockers", tab: value.tab })).value?.blocker;
+        };
+        const report = { captcha: await read("captcha.html"), checking: await read("checking.html"), hotel: await read("hotel.html") };
+        await c.call("turn", { running: false });
+        c.port.disconnect();
+        return report;
+    },
+
     /** the studio's tab kept from discarding while a turn runs */
     async turn() {
         const c = await greeted();

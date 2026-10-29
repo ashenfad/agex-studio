@@ -27,6 +27,26 @@ and granted origins (`session`), and opens, lists and closes its tabs
   already have gone out. A page's own requests (images, scripts, its
   `fetch`) aren't held.
 - **The person's own tabs are never held**, nor listed.
+
+And reads them (`read`, `waitFor`, `screenshot`) and sends them on
+(`goto`):
+
+- **While the agent works in a tab, the debugger is attached** with
+  focus emulation on, so the background tab renders as if it were in
+  front: frames, observers, lazy lists, screenshots. It is detached 20 s
+  after the agent's last call there, and when the turn ends. Chrome
+  shows its "started debugging this browser" bar meanwhile, and the
+  tab's title starts with 🤖. The bar's Cancel stops the agent's work
+  in every tab until the next turn.
+- **A page reads as an outline:** its text, a line per block, with a
+  numbered ref on each thing that can be clicked or typed into
+  (`[12] button "Reserve"`), and its state (a field's value, a box
+  checked, a select's options). Photo carousels' controls are dropped,
+  and a row of refs alike folds into one. Each read has a `version`, and
+  the outline's `blocker` says when the page is a CAPTCHA or a bot check.
+- **The outline runs in the extension's isolated world** in the page:
+  it sees the DOM, not the page's scripts, and keeps the elements its
+  refs name there for the actions that follow.
 - **The studio's tab isn't discarded** while a turn runs (`turn`).
 
 The registry (sessions, their tabs) is in `chrome.storage.local`, so it

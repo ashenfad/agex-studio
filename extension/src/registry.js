@@ -18,8 +18,9 @@
  * @typedef {{ url: string, at: number, newTab?: boolean }} Blocked
  *   The last load the extension stopped in a tab: a page load to an
  *   origin without a grant, or a tab the page opened there, closed.
- * @typedef {{ session: string, opened?: boolean, blocked?: Blocked }} Tab
- *   `opened`: a tab one of the session's pages opened.
+ * @typedef {{ session: string, opened?: boolean, blocked?: Blocked, reads?: number }} Tab
+ *   `opened`: a tab one of the session's pages opened. `reads`: how many
+ *   outlines of it have been read, the last one's version.
  * @typedef {{
  *   sessions: Record<string, Session>,
  *   tabs: Record<string, Tab>,
