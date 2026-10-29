@@ -81,6 +81,15 @@ describe("request_secret", () => {
         expect(requests.asking).toEqual({});
     });
 
+    it("refuses a variable's name, unless a key under it already won", async () => {
+        const { vault, id, requests } = setup();
+        const tool = requestSecretTool({ name: "s1" }, { vault, requests, variables: () => ({ STRIPE_KEY: "pk" }) });
+        expect((await tool.call(args)).text).toMatch(/^name: STRIPE_KEY is one of this session's variables/);
+        vault.setAgentName(id, "STRIPE_KEY");
+        expect((await tool.call(args)).text).toMatch(/^You have STRIPE_KEY already\./);
+        expect(requests.asking).toEqual({});
+    });
+
     it("keeps the question open when the vault refuses the grant", async () => {
         const { vault, requests, tool } = setup();
         const narrow = vault.add({ label: "Other", value: "sk_test_fake_other", origins: ["https://files.stripe.com"] });
