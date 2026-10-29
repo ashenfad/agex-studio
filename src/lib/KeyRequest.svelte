@@ -7,6 +7,7 @@
      * so its turn goes on. The key is typed here, never into a message.
      */
     import { untrack } from 'svelte'
+    import AskCard from './AskCard.svelte'
     import { errorText } from './errors.js'
     import KeyChoice from './KeyChoice.svelte'
     import { keyRequests } from './key-requests.svelte.js'
@@ -63,66 +64,15 @@
     }
 </script>
 
-<section class="request" aria-labelledby="{uid}-title">
-    <h2 id="{uid}-title">Your agent asks for a key for {hosts} <code>{question.name}</code></h2>
-    <p class="why">{question.why}</p>
+<AskCard why={question.why} errors={errors}>
+    {#snippet title()}Your agent asks for a key for {hosts} <code>{question.name}</code>{/snippet}
     <KeyChoice need={question} group="{uid}-key" bind:pick={() => pick, (v) => (picked = v)} bind:draft errors={fieldErrors} />
-    <p class="warn">
+    {#snippet note()}
         Your agent can use it with {#each question.origins as origin, i (origin)}{i > 0 ? ', ' : ''}<code>{origin}</code>{/each} only, in this session and its delegates,
         and never sees it. A service there that echoes keys back could expose it.
-    </p>
-    {#if errors.length > 0}
-        <ul class="errors" role="alert">
-            {#each errors as e, i (i)}<li>{e}</li>{/each}
-        </ul>
-    {/if}
-    <div class="actions">
+    {/snippet}
+    {#snippet actions()}
         <button class="btn" onclick={give}>Give it</button>
         <button class="btn secondary" onclick={() => keyRequests.answer(session, null)}>Not now</button>
-    </div>
-</section>
-
-<style>
-    .request {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 0.6rem 0.7rem;
-        margin: 0.5rem 0;
-        background: var(--surface);
-        font-size: 0.85rem;
-    }
-    h2 {
-        margin: 0;
-        font-size: 0.9rem;
-        font-weight: 600;
-    }
-    p {
-        margin: 0;
-    }
-    .why {
-        color: var(--text-muted);
-    }
-    .warn {
-        color: var(--caution, #d9a441);
-        font-size: 0.8rem;
-    }
-    code {
-        font-family: var(--font-mono);
-        font-size: 0.8rem;
-        overflow-wrap: anywhere;
-    }
-    .errors {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        color: var(--error);
-        font-size: 0.8rem;
-    }
-    .actions {
-        display: flex;
-        gap: 0.5rem;
-    }
-</style>
+    {/snippet}
+</AskCard>

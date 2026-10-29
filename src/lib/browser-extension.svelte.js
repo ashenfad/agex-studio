@@ -76,6 +76,8 @@ export class BrowserExtension {
     #holds = 0;
     /** @type {ReturnType<typeof setInterval> | null} */
     #beat = null;
+    /** Called each time a port opens and is greeted. @type {Set<() => void>} */
+    #onOpen = new Set();
 
     /**
      * @param {{ runtime?: Runtime | null, ids?: string[], heartbeatMs?: number }} opts
@@ -134,6 +136,18 @@ export class BrowserExtension {
         };
     }
 
+    /**
+     * Call `fn` each time the port opens (the extension found, or found
+     * again after it dropped: its service worker may have lost what it
+     * was told, a browser restart clearing it). Returns the stopping.
+     *
+     * @param {() => void} fn
+     */
+    onOpen(fn) {
+        this.#onOpen.add(fn);
+        return () => this.#onOpen.delete(fn);
+    }
+
     /** Whether anything holds the extension now. */
     get held() {
         return this.#holds > 0;
@@ -186,6 +200,7 @@ export class BrowserExtension {
             this.version = typeof hello?.version === "string" ? hello.version : null;
             this.problem = null;
             if (this.#holds > 0) void this.call("turn", { running: true }).catch(() => {});
+            for (const f of this.#onOpen) f();
             return port;
         }
         this.status = "absent";
