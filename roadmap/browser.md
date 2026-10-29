@@ -153,7 +153,9 @@ ends the wait. Its card becomes the first of a family:
   before the agent can read it, but its first request may already have
   gone out. What's held is what the agent reads and acts in, not every
   request a page makes. A tab the person shared stays theirs: its loads aren't held, and when
-  the agent acts in one (phase 3) they're held only while it acts.
+  the agent acts in one (phase 3) they're held only while it acts, to
+  the session's grants and the tab's own origin (sharing it approved
+  that much), so its own submits and links still go.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
   wherever the person is (opening marriott.com opens their account),
