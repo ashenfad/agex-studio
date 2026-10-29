@@ -5,10 +5,31 @@ the person allows it (see [`roadmap/browser.md`](../roadmap/browser.md)).
 The agent stays in agex.studio; the extension only reaches tabs, and
 answers nothing but the studio's page.
 
-So far it is the port: the studio connects, says `hello` with the
-protocol's version, and keeps the port up with `ping` (an MV3 service
-worker stops after about 30 s without a message, and the port drops with
-it). [`src/protocol.js`](src/protocol.js) has the messages.
+The studio connects, says `hello` with the protocol's version, and keeps
+the port up with `ping` (an MV3 service worker stops after about 30 s
+without a message, and the port drops with it).
+[`src/protocol.js`](src/protocol.js) has the messages.
+
+Over the port the studio tells the extension each top session's name
+and granted origins (`session`), and opens, lists and closes its tabs
+(`open`, `tabs`, `close`):
+
+- **A session's tabs open in the background** of the studio's window,
+  in a tab group with the session's name. A tab one of its pages opens
+  is the session's too, and is sent behind if it took the front.
+- **Every page load in them is held to the session's origins** by
+  `declarativeNetRequest` session rules for that tab: a link, a
+  redirect, a script's navigation. A load to anywhere else is stopped
+  before it reaches the site, and `tabs` reports it. A tab a page opens
+  without a grant is closed at once, though its first request may
+  already have gone out. A page's own requests (images, scripts, its
+  `fetch`) aren't held.
+- **The person's own tabs are never held**, nor listed.
+- **The studio's tab isn't discarded** while a turn runs (`turn`).
+
+The registry (sessions, their tabs) is in `chrome.storage.session`: it
+outlives the worker's idle stops, and goes when the browser closes, as
+the tabs' ids and rules do.
 
 ## Building
 
@@ -35,7 +56,10 @@ pnpm extension:test              # end to end, in Chromium
 
 The end-to-end tests start Chromium as a plain process with the build
 loaded (an automation protocol attached would keep the service worker
-from ever going idle), and a page on localhost plays the studio. They
+from ever going idle), and a page on localhost plays the studio. The
+tab tests serve a fixture site on `127.0.0.1`, granted, and on
+`localhost`, not, and check by the server's own log that a held load
+never reached it. They
 use Playwright's Chromium (`pnpm exec playwright install chromium`), or
 `CHROME`, a path to another Chromium or Chrome for Testing: branded
 Chrome ignores `--load-extension`. `HEADED=1` shows the window. Waiting
