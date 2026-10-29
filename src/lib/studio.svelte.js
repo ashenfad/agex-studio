@@ -14,6 +14,7 @@ import { ChatSession } from "./session.svelte.js";
 import { snapshotBranch } from "./snapshot.js";
 import { onScreen } from "./status.js";
 import { PLANE, metaOf, newName, openStore, settleFork } from "./store.js";
+import { forgetLiveVariables } from "./variables.js";
 import { appKeyOf, vault } from "./vault.svelte.js";
 
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
@@ -331,6 +332,7 @@ export class Studio {
         // copy of one gist, say); its agent's go with it
         if (!this.sessions.some((s) => appKeyOf(s) === appKey)) vault.forgetApp(appKey);
         vault.forgetAgent(name);
+        forgetLiveVariables(name);
         if (this.current?.name === name) {
             this.current = null;
             const next = this.sessions[0];

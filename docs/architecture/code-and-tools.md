@@ -160,6 +160,27 @@ takes the question back. A delegate's call is refused, telling it to
 say in its answer which key it needs, so the session that asked it can
 ask the person.
 
+## Variables
+
+A session's variables (`variables.js`) are configuration anyone may
+read: a service's URL, a public key. They are kept on its plane under
+`variables`, so a checkout rewinds them, a fork copies them and a
+bundle or a publish carries them. `profileFor(name)` gives the world a
+`variables` function beside `secrets`, read at each use (`env.NAME` in
+code, `$NAME` in the shell, the tools' descriptions): a top session's,
+as `ChatSession.reload` last read them or `setVariables` set them, and
+a delegate its top session's.
+
+`setVariables(changes)` sets or removes them (a value sets, null
+removes), checked first: names as the world takes them, values strings
+of 4 KB at most, 64 at most. A name is a key or a variable, not both:
+it refuses a name the session's agent has as a key or the app declares
+as a secret (`app/agex.json`), and `request_secret` refuses a
+variable's name. A key made available to agents later under a
+variable's name wins, and the variable is left out of the world. A
+turn running commits the change with its own; else it gets a commit of
+its own (`studio.variables`).
+
 ## Skills
 
 `PROFILE.skills` mounts the studio's skills read-only under

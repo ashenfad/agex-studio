@@ -15,6 +15,7 @@ import { pdfHost } from "./pdf.js";
 import { scriptedNow } from "./scripted.js";
 import { getSettings } from "./settings.js";
 import { SKILLS } from "./skills/index.js";
+import { liveVariables, withoutKeys } from "./variables.js";
 import { vault } from "./vault.svelte.js";
 import { webHost } from "./web.js";
 
@@ -104,12 +105,18 @@ export const PROFILE = {
 
 /**
  * The profile session `name`'s world opens with: `PROFILE`, and the
- * keys its agent has (`vault.agentSecrets`), read at each use, so one
- * granted or revoked while it is open counts from the next tool call.
- * Its delegates, opened with its settings, have the same.
+ * keys its agent has (`vault.agentSecrets`) and its variables
+ * (`variables.js`), read at each use, so one granted, revoked or set
+ * while it is open counts from the next tool call. A key under a
+ * variable's name wins: the variable is left out. Its delegates, opened
+ * with its settings, have the same.
  *
  * @param {string} name
  */
 export function profileFor(name) {
-    return { ...PROFILE, secrets: () => vault.agentSecrets(name) };
+    return {
+        ...PROFILE,
+        secrets: () => vault.agentSecrets(name),
+        variables: () => withoutKeys(liveVariables(name), vault.agentSecrets(name)),
+    };
 }
