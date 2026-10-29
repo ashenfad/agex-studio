@@ -4,7 +4,9 @@
  * group's), sent with `session` whenever the vault changes or the titles
  * may have (`sync`), and again each time the port opens. A session whose
  * sites were taken back is sent none, so its open tabs are held to
- * nothing at once.
+ * nothing at once. The extension keeps what it was told while the studio
+ * is away, so on each opening the studio asks it which sessions it knows
+ * (`sessions`), and sends none to those whose sites went meanwhile.
  */
 
 /**
@@ -40,7 +42,14 @@ export function watchSites({ vault, extension, titleOf }) {
     const stopVault = vault.onChange(sync);
     const stopOpen = extension.onOpen(() => {
         for (const session of told.keys()) told.set(session, "");
-        sync();
+        void extension
+            .call("sessions")
+            .then((/** @type {{ session: string }[]} */ known) => {
+                // a session the extension knows that the studio doesn't tell of is told none
+                for (const { session } of known) if (!told.has(session)) told.set(session, "");
+            })
+            .catch(() => {})
+            .finally(sync);
     });
     sync();
     return {

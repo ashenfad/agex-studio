@@ -295,8 +295,9 @@ const SCENARIOS = {
         const refused = await c.call("open", { session: "narrow-domain", url: sub.replace("id=sub", "id=sub-refused") });
         const notDomain = await c.call("session", { session: "x", name: "X", domains: ["https://marriott.com"] });
         const topLevel = await c.call("session", { session: "x", name: "X", domains: ["com"] });
+        const known = (await c.call("sessions")).value?.find((s) => s.session === "wide-domain");
         c.port.disconnect();
-        return { opened, loaded, refused, notDomain, topLevel };
+        return { opened, loaded, refused, notDomain, topLevel, known };
     },
 
     /** the studio's tab kept from discarding while a turn runs */

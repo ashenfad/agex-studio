@@ -46,6 +46,13 @@ export const tabOps = {
         return null;
     },
 
+    /** The sessions the extension has been told of, each with its name
+     *  and domains: what the studio checks against its own grants, since
+     *  the extension keeps them while the studio isn't connected. */
+    async sessions() {
+        return change((state) => Object.entries(state.sessions).map(([session, s]) => ({ session, name: s.name, domains: [...s.domains] })));
+    },
+
     /** A tab opened for a session, in the background of the studio's
      *  window, on a URL it holds a grant for. */
     async open(req, port) {
