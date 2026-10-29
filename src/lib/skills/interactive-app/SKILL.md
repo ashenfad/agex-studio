@@ -429,9 +429,10 @@ const res = await fetch(`${api}/items`)
 - **Your own code sees them too:** `env.API_URL` in `run_ts`, and
   `$API_URL` in the terminal; `run_ts`'s description lists them.
 - **Public by design:** they travel with the session, its bundles and
-  what it publishes. A key is never a variable; declare it in
-  `app/agex.json` (above), and don't give a declared secret a
-  variable's name: the build fails on it.
+  what it publishes. A secret (an API token, anything that must stay
+  private) is never a variable; declare it in `app/agex.json` (above).
+  A key made to be public (a Supabase anon key) is a variable. Don't
+  give a declared secret a variable's name: the build fails on it.
 - **Have a fallback** for a variable that isn't set, as above, or say
   in the page what to set.
 
