@@ -200,7 +200,9 @@ at once.
 - **A port with no messages doesn't keep the extension's service
   worker alive:** it dropped once the driver went quiet. The studio's
   tab, hidden, keeps working (its timers drop to about once a second;
-  the port answers in a millisecond).
+  the port answers in a millisecond). Only the page can open the port, so the extension can't reach an idle
+  studio: whatever it has for the studio (a share from the toolbar)
+  waits in the extension's storage until the studio connects again.
 
 So the session's tabs are background tabs, with the debugger attached
 and focus emulation on while the agent works in one, detached after.
@@ -219,7 +221,7 @@ against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs; the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in a session's tabs held to the origins the studio gives it (session rules by tab) | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
 | 4 | studio | The browser tools and the `browser` host object (open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
@@ -234,8 +236,8 @@ can reach them.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | Share from the toolbar (`activeTab`), naming a session; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
-| 2 | studio | The `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
+| 1 | extension | Share from the toolbar (`activeTab`), naming a session: the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front, whose return reconnects the port; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
+| 2 | studio | Shares taken on each connect, a share held until its session takes it; the `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
 
 A shared tab is read-only in this phase.
 
