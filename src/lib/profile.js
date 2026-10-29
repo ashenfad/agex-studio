@@ -17,6 +17,7 @@ import { getSettings } from "./settings.js";
 import { SKILLS } from "./skills/index.js";
 import { vault } from "./vault.svelte.js";
 import { webHost } from "./web.js";
+import { browserHost } from "./browser-host.js";
 
 /** `esbuild`, a terminal command: bundles JSX/TSX under app/ (and
  *  helpers/) for the preview. esbuild-wasm loads on its first use. */
@@ -83,8 +84,8 @@ const agentFetch = (input, init) => fetch(input, { ...init, credentials: "omit" 
  * worker, bundled by Vite; a bare import loads from esm.sh; what code
  * puts in `ui` is written under /workspace/ui to show in the reply; the
  * studio's host objects (`web`, `media`, `pdf`, `db` for the session's
- * app database, `http` for requests, and `agex` for tasks the agent's
- * code defines); `esbuild` and `curl` in the terminal; and the studio's
+ * app database, `http` for requests, `browser` for the session's tabs,
+ * and `agex` for tasks the agent's code defines); `esbuild` and `curl` in the terminal; and the studio's
  * skills (`skills/`: a directory each), mounted read-only under
  * /workspace/skills. A session's secrets are its own (`profileFor`).
  */
@@ -96,7 +97,7 @@ export const PROFILE = {
         // `ui.chart = spec`: shown in the reply
         ui: true,
     },
-    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), db: dbHost(), http: httpHost({ fetch: agentFetch }), agex },
+    hostObjects: { web: webHost(), media: mediaHost(), pdf: pdfHost(), db: dbHost(), http: httpHost({ fetch: agentFetch }), browser: browserHost(), agex },
     // ws-git: the agent's own git, which brings a delegate's work back
     commands: { esbuild, curl: curlCommand({ fetch: agentFetch }), "ws-git": wsGit },
     skills: SKILLS,
