@@ -33,14 +33,18 @@ async function openSession() {
     await ws.autoCommit({ tool: "test" });
     const session = new ChatSession("s1", { current: null, opened: () => [] });
     await session.open(ws);
-    return { ws, session };
+    const told = vi.fn();
+    session.onMeta = told;
+    return { ws, session, told };
 }
 
 describe("a session's variables", () => {
     it("are set on its plane, committed, and live for its world and its delegates", async () => {
-        const { ws, session } = await openSession();
+        const { ws, session, told } = await openSession();
         const before = ws.head;
         expect(await session.setVariables({ API_URL: "https://a.test" })).toEqual([]);
+        // the studio hears of it, so sync takes it
+        expect(told).toHaveBeenCalledTimes(1);
         expect(session.variables).toEqual({ API_URL: "https://a.test" });
         expect(await ws.plane(PLANE).get(VARIABLES_KEY)).toEqual({ API_URL: "https://a.test" });
         expect(ws.head).not.toBe(before);

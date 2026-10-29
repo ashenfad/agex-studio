@@ -34,6 +34,14 @@ describe("a plane record's variables", () => {
         expect(variablesOf(null)).toEqual({});
         expect(variablesOf(["x"])).toEqual({});
     });
+
+    it("are held to the limits setting them is, though written elsewhere", () => {
+        expect(variablesOf({ BIG: "x".repeat(VALUE_MAX + 1), OK: "x" })).toEqual({ OK: "x" });
+        const many = Object.fromEntries(Array.from({ length: MAX_VARIABLES + 5 }, (_, i) => [`V${i}`, "x"]));
+        const kept = variablesOf(many);
+        expect(Object.keys(kept)).toHaveLength(MAX_VARIABLES);
+        expect(kept.V0).toBe("x");
+    });
 });
 
 describe("changing variables", () => {
@@ -64,6 +72,14 @@ describe("changing variables", () => {
         expect(applyVariables(full, { V0: "y" }).errors).toEqual([]);
         expect(applyVariables(full, { MORE: "y" }).errors).toEqual([`a session has at most ${MAX_VARIABLES} variables`]);
         expect(applyVariables(full, { MORE: "y", V0: null }).errors).toEqual([]);
+    });
+
+    it("takes any name the pattern allows, Object's own members' too", () => {
+        const { next, errors } = applyVariables({}, JSON.parse('{"toString":"a","constructor":"b","__proto__":"c"}'));
+        expect(errors).toEqual([]);
+        expect(Object.keys(next ?? {})).toEqual(["toString", "constructor", "__proto__"]);
+        expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
+        expect(withoutKeys(/** @type {Record<string, string>} */ (next), {})).toEqual(next);
     });
 
     it("removes a name it can't set, so a bad one already there can go", () => {
