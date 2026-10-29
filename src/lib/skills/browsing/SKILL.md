@@ -110,10 +110,14 @@ console.log(JSON.stringify({
 - **A read is an outline**: `{ version, url, title, blocker, text, refs }`,
   the text a line per block with numbered controls. `blocker` is
   `"captcha"` or `"bot-check"` when the page is one rather than the site.
-- **Pages render in the background** as if in front, but some load their
-  rates after the page (on scroll, or per card): if a page shows hotels
-  without prices, `waitFor` a price (`waitFor('€')`), or open one
-  hotel's own page, or look at it with the browser tool's screenshot.
+- **Pages render in the background** as if in front, but many draw
+  their results after the page loads: `tab.read({ settle: true })` waits
+  until the page's text stops changing, or `waitFor` what every results
+  page shows. A read says how far the page goes on `below`: a list that
+  loads more as it's scrolled ("15 results", ten shown) needs
+  `await tab.scroll('bottom')` and a read after. A page that shows hotels
+  without prices may load them per card: open one hotel's own page, or
+  look with the browser tool's screenshot.
 - **Keep the fan-out to the sites asked for**, a dozen or so at most at
   once. Close the tabs you're done with (`tab.close()`); leave open the
   ones you report, so the person can look.
@@ -165,6 +169,11 @@ the same way, then resume it on its own branch, its conversation kept:
 ```
 sessions ask resume="<name>" task="The person cleared the check in tab 1234; go on from where you stopped."
 ```
+
+If the browser is stopped (the person cancelled Chrome's debugging bar,
+which stops your work in every tab, not one), every call fails saying
+so. Your next browser tool call asks them whether you may go on; from
+code, return it and make that call.
 
 ## 6. Stop before anything that commits
 

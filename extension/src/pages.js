@@ -15,6 +15,12 @@ import { inWorld, send, work } from "./work.js";
 const READ_LOAD_MS = 10_000;
 /** How long `goto` waits for the page to load. */
 const GOTO_LOAD_MS = 30_000;
+/** How long `read` with `settle` waits for the page's text to stop changing,
+ *  and how long it must hold still to count. */
+const SETTLE_MS = 10_000;
+const STILL_MS = 1_000;
+/** How many turns of the wheel `scroll` to the bottom takes at most. */
+const SCROLLS_MAX = 25;
 /** `waitFor`'s timeout, and the most it may be given. */
 const WAIT_MS = 10_000;
 const WAIT_MAX_MS = 60_000;
@@ -24,13 +30,18 @@ export const pageOps = {
     /** The page's outline (`outline.js`), under a new version. */
     async read(req) {
         const { tab } = await ownTab(req);
-        const { maxChars, hrefs } = req;
+        const { maxChars, hrefs, settle } = req;
         if (maxChars !== undefined && !(Number.isInteger(maxChars) && /** @type {number} */ (maxChars) >= 100)) {
             throw bad("maxChars: how much of the page's text to read, at least 100");
         }
         if (hrefs !== undefined && typeof hrefs !== "boolean") throw bad("hrefs: whether links say where they go");
+        if (settle !== undefined && typeof settle !== "boolean" && !(Number.isInteger(settle) && /** @type {number} */ (settle) > 0 && /** @type {number} */ (settle) <= 60_000)) {
+            throw bad("settle: true, or how long to wait for the page to stop changing, in ms, up to 60000");
+        }
         await work(tab);
         const loaded = await settled(tab, READ_LOAD_MS);
+        // a page that draws its results after it loads: its text left to stop changing
+        const still = settle ? await stillness(tab, settle === true ? SETTLE_MS : /** @type {number} */ (settle)) : true;
         const version = await change((state) => {
             const t = state.tabs[tab];
             t.reads = (t.reads ?? 0) + 1;
@@ -45,6 +56,7 @@ export const pageOps = {
             url,
             title: unmarked(outline.title),
             ...(!loaded && { loading: true }),
+            ...(!still && { settled: false }),
             // a load the extension stopped
             ...(blocked?.url === url && !blocked.newTab && { blocked }),
         };
@@ -96,6 +108,27 @@ export const pageOps = {
         }
     },
 
+    /** The page scrolled, as a person's wheel would (so a list that loads
+     *  as it is scrolled loads): `to` "down", a screenful, or "bottom",
+     *  until the page stops growing. */
+    async scroll(req) {
+        const { tab } = await ownTab(req);
+        const { to = "down" } = req;
+        if (to !== "down" && to !== "bottom") throw bad('to: "down" (a screenful) or "bottom"');
+        await work(tab);
+        let at = await inWorld(tab, scrolledTo, []);
+        for (let i = 0; i < (to === "bottom" ? SCROLLS_MAX : 1); i++) {
+            await send(tab, "Input.dispatchMouseEvent", { type: "mouseWheel", x: at.width / 2, y: at.height / 2, deltaX: 0, deltaY: Math.round(at.height * 0.85) });
+            // what the scroll set off: a list loading more, the page growing
+            await new Promise((ok) => setTimeout(ok, 500));
+            const now = await inWorld(tab, scrolledTo, []);
+            const stuck = now.top === at.top && now.length === at.length;
+            at = now;
+            if (to === "bottom" && stuck) break;
+        }
+        return { top: at.top, below: at.below };
+    },
+
     /** The tab as it renders now, a JPEG. */
     async screenshot(req) {
         const { tab } = await ownTab(req);
@@ -106,6 +139,49 @@ export const pageOps = {
         return { mime: "image/jpeg", data };
     },
 };
+
+/**
+ * Whether the page's text held still for `STILL_MS`, within `ms`.
+ *
+ * @param {number} tab @param {number} ms
+ */
+async function stillness(tab, ms) {
+    const until = Date.now() + ms;
+    let last = "";
+    let since = Date.now();
+    while (Date.now() < until) {
+        const now = await inWorld(tab, textNow, []).catch(() => "");
+        if (now !== last) {
+            last = now;
+            since = Date.now();
+        } else if (Date.now() - since >= STILL_MS) {
+            return true;
+        }
+        await new Promise((ok) => setTimeout(ok, 250));
+    }
+    return false;
+}
+
+/** The page's text, as a short fingerprint. Runs in the page. */
+function textNow() {
+    const text = document.body?.innerText ?? "";
+    let h = 0;
+    for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+    return `${document.title}|${text.length}|${h}`;
+}
+
+/** Where the page is scrolled to, how much of it is below, and its
+ *  size. Runs in the page. */
+function scrolledTo() {
+    const el = document.scrollingElement ?? document.documentElement;
+    return {
+        top: Math.round(el.scrollTop),
+        below: Math.max(0, Math.round(el.scrollHeight - el.scrollTop - innerHeight)),
+        length: el.scrollHeight,
+        width: innerWidth,
+        height: innerHeight,
+    };
+}
 
 /**
  * Whether the tab's page has loaded, within `ms`.

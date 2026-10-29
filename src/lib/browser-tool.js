@@ -30,13 +30,14 @@ export const ACTIONS_MAX = 20;
 const readByAgent = new Map();
 
 /** What an action can be. */
-const KINDS = ["open", "read", "click", "type", "select", "goto", "waitFor", "screenshot", "tabs", "close", "handoff"];
+const KINDS = ["open", "read", "click", "type", "select", "scroll", "goto", "waitFor", "screenshot", "tabs", "close", "handoff"];
 
 export const BROWSER_DESCRIPTION = `Work in the session's own browser tabs: real tabs in the person's browser, in the background, signed in wherever they are, on the domains you were allowed (request_sites; each covers its subdomains).
 
 tab: the tab to work in (an id from open or tabs); actions: a list, run in order, each a plain object:
 - {open: "https://..."}: a new tab on that page, which the actions after it work in. Prefer a URL that carries the search (dates, guests, place) to filling in a form
-- {read: true} or {read: {maxChars, hrefs: true}}: the page as an outline: its text, a line per block, with a numbered ref on each thing to click or type into, like [12] button "Reserve", and its state (a field's value, a box checked, a select's options). hrefs adds where links go. A read says when the page is a CAPTCHA or a bot check (blocker)
+- {read: true} or {read: {maxChars, hrefs: true, settle: true}}: the page as an outline: its text, a line per block, with a numbered ref on each thing to click or type into, like [12] button "Reserve", and its state (a field's value, a box checked, a select's options). hrefs adds where links go; settle first waits until the page's text stops changing (for a page that draws its results after it loads). A read says when the page is a CAPTCHA or a bot check (blocker), and when the page goes on below (a list there may load more as it's scrolled)
+- {scroll: "down"} or {scroll: "bottom"}: the page scrolled as a person's wheel would, a screenful or until it stops growing, so a list that loads as it's scrolled loads; read it again after
 - {click: 12} · {type: 12, text: "Lisbon", submit?: true, clear?: false} · {select: 12, value: "2"}: on the ref of the latest read of the tab. A page that changed since (a new page, the element re-rendered) refuses it: read again. submit presses Enter; clear: false adds to what the field holds
 - {goto: "https://..."} · {waitFor: "text on the page"} or {waitFor: {selector: "css"}, timeout: ms} (10s by default, up to 60s)
 - {screenshot: true}: an image of the tab as it renders
@@ -63,6 +64,9 @@ export function refusalText(e, delegate) {
             return `${message}: it needs the person's yes. Stop here, and say in your answer what you were about to do; the session that asked you asks the person.`;
         case "not-found":
             return `${message}. {tabs: true} lists the session's tabs.`;
+        case "stopped":
+            // the session's own agent is asked whether it may go on instead (see the step loop)
+            return `${message}. Stop here, and say in your answer that the browser was stopped; the session that asked you asks the person.`;
         case "absent":
         case "disconnected":
             return `the browser extension isn't reachable (${message}); the person may have closed or turned it off.`;
@@ -88,6 +92,7 @@ export function checkAction(action) {
     if ((kind === "open" || kind === "goto") && !url(a[kind])) return { error: `${kind}: an http or https URL` };
     if (kind === "read" && a.read !== true && (typeof a.read !== "object" || a.read === null)) return { error: "read: true, or {maxChars, hrefs}" };
     if ((kind === "screenshot" || kind === "tabs" || kind === "close") && a[kind] !== true) return { error: `${kind}: true, {${kind}: true}` };
+    if (kind === "scroll" && a.scroll !== true && a.scroll !== "down" && a.scroll !== "bottom") return { error: 'scroll: "down" (a screenful) or "bottom"' };
     if ((kind === "click" || kind === "type" || kind === "select") && !ref(a[kind])) return { error: `${kind}: a ref from the latest read, like {${kind}: 12}` };
     if (kind === "type" && typeof a.text !== "string") return { error: "type: the text to type, {type: 12, text: \"...\"}" };
     if (kind === "select" && typeof a.value !== "string") return { error: "select: the option's text or value, {select: 12, value: \"...\"}" };
@@ -157,20 +162,21 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
             for (const [i, c] of /** @type {{ kind: string, a: Record<string, any> }[]} */ (checked).entries()) {
                 const { kind, a } = c;
                 const step = `${i + 1}. ${kind}`;
-                try {
+                /** The step, run; what to return when it ends the call. @returns {Promise<import("@agex-ts/world").ToolOutput | void>} */
+                const run = async () => {
                     if (kind === "open") {
                         tab = await browser.open(name, a.open);
                         lines.push(`${step} ${a.open}: tab ${tab}`);
-                        continue;
+                        return;
                     }
                     if (kind === "tabs") {
                         const list = await browser.tabs(name);
                         lines.push(list.length === 0 ? `${step}: none open` : `${step}:`, ...list.map(tabLine));
-                        continue;
+                        return;
                     }
                     if (tab === undefined) throw new Error("no tab: name one (tab: id) or open one first");
                     if (kind === "read") {
-                        const o = await browser.read(name, tab, a.read === true ? {} : pick(a.read, ["maxChars", "hrefs"]));
+                        const o = await browser.read(name, tab, a.read === true ? {} : pick(a.read, ["maxChars", "hrefs", "settle"]));
                         readByAgent.set(`${name} ${tab}`, o.version);
                         lines.push(`${step} tab ${tab} (outline ${o.version}, ${o.refs} refs): ${o.title} · ${o.url}${outlineNotes(o)}`, o.text);
                     } else if (kind === "click" || kind === "type" || kind === "select") {
@@ -193,6 +199,9 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                             lines.push(`${at}: the person confirmed it`);
                         }
                         lines.push(`${at}${kind === "select" ? ` ${JSON.stringify(r.chosen)}` : ""}: ${actNotes(r)}`);
+                    } else if (kind === "scroll") {
+                        const r = await browser.scroll(name, tab, a.scroll === true ? "down" : a.scroll);
+                        lines.push(`${step} tab ${tab}: ${r.below > 0 ? `${Math.round(r.below)}px more below` : "at the bottom"}. Read it again to see what loaded.`);
                     } else if (kind === "goto") {
                         const r = await browser.goto(name, tab, a.goto);
                         lines.push(`${step} ${a.goto}: ${r.title} · ${r.url}${r.loading ? " (still loading)" : ""}`);
@@ -222,6 +231,24 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                         lines.push(`${step} tab ${tab}`);
                         tab = undefined;
                     }
+                };
+                try {
+                    let ended;
+                    try {
+                        ended = await run();
+                    } catch (e) {
+                        if (delegate || !(e instanceof ExtensionError) || e.code !== "stopped") throw e;
+                        // Chrome's debugging bar cancelled: the person's word whether the agent goes on
+                        const go = await answered(asks.goOn(name, opts.signal));
+                        if (!go) {
+                            lines.push(`${step}: the person keeps the browser stopped. Don't use it until they say so; tell them where you'd got to.`);
+                            return { text: lines.join("\n"), images, isError: false };
+                        }
+                        await browser.resume();
+                        lines.push(`${step}: the person let you go on (Chrome's debugging bar had been cancelled)`);
+                        ended = await run();
+                    }
+                    if (ended) return ended;
                 } catch (e) {
                     lines.push(`${step} failed: ${refusalText(e, delegate)}`);
                     return { text: lines.join("\n"), images, isError: true };

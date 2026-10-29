@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Slow hotels</title>
+<h1>Slow hotels</h1>
+<p id="state">Searching…</p>
+<script>
+    // results drawn in steps after the page has loaded, as a site's script would
+    const state = document.getElementById("state");
+    setTimeout(() => (state.textContent = "Found 2 hotels, loading rates…"), 600);
+    setTimeout(() => (state.textContent = "Hotel Avenida €124 · Casa Alfama €98"), 1500);
+</script>
