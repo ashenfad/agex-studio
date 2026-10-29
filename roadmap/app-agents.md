@@ -18,8 +18,15 @@ built (2026-10-28): agex-ts #167 in v0.6.6 (world 0.1.6, agex-ts
 4's check: asked to use "my token" with httpbin, the agent asked for it,
 and `curl` and `http.fetch` authenticated with the echo shown as the
 reference; a delegate asked the same was refused, named the key in its
-answer, and its session asked and delegated again. Phase 4
-planned (below). This
+answer, and its session asked and delegated again. Phase 4 built
+(2026-10-29): agex-ts #169 in v0.6.7 (world 0.1.7), studio #196 (the
+variables on the plane, live in the world), #197 (`window.env`), #199
+(the session dialog's section and `set_variables`) and the primer's
+note, whose spike met slice 5's check: asked for an app whose echo
+service's base URL is configuration, the agent set `ECHO_URL` and read
+`window.env.ECHO_URL`; set elsewhere outside the turn, the app showed
+the other service with no file changed; a fork set back ran its own
+while the session kept its value. This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -372,12 +379,11 @@ Slices:
 - **The world's secrets are read live,** not fixed when a session
   opens: a key asked for mid-turn has to reach the next tool call.
 
-## Reserved meanwhile
+## Names the phases took
 
-`window.env` in the app's page and the `variables` key on the studio
-plane; the interactive-app skill tells the agent to leave `window.env`
-alone. Phase 1 adds `agex.model`, `agex.kvStore` and `agex.busy`;
-phase 2 `agex.fetch`, `agex.http`, `agex.secrets` and `app/agex.json`.
+Phase 1 added `agex.model`, `agex.kvStore` and `agex.busy`;
+phase 2 `agex.fetch`, `agex.http`, `agex.secrets` and `app/agex.json`;
+phase 4 `window.env` and the `variables` key on the studio plane.
 
 ## Open questions
 
