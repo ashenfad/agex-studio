@@ -25,12 +25,17 @@ describe("the browser host", () => {
         const host = new BrowserHost("s1.d1", new Browser(/** @type {any} */ (ext)));
         expect(await host.open("https://www.hyatt.com/")).toEqual({ id: 9 });
         await host.read(9);
-        await host.click(9, 3);
+        await host.click(9, 2, 3);
         expect(ext.calls.map((c) => [c.op, c.args.session, c.args.version])).toEqual([
             ["open", "s1", undefined],
             ["read", "s1", undefined],
             ["click", "s1", 2],
         ]);
+    });
+
+    it("refuses an action from a tab object not read yet", async () => {
+        const host = new BrowserHost("s1", new Browser(/** @type {any} */ (fakeExtension({}))));
+        await expect(host.click(9, undefined, 3)).rejects.toThrow(/hasn't been read here yet; read it first \(stale\)/);
     });
 
     it("throws a refusal as an error saying what code can do about it", async () => {
@@ -49,7 +54,8 @@ describe("the browser stub", () => {
     function stubbed() {
         /** @type {any[]} */
         const calls = [];
-        const remote = new Proxy({}, { get: (_, method) => async (/** @type {any[]} */ ...args) => (calls.push([method, ...args]), method === "open" ? { id: 4 } : method === "tabs" ? [{ id: 4, url: "u", title: "t", working: false }] : null) });
+        const answers = /** @type {Record<string, any>} */ ({ open: { id: 4 }, tabs: [{ id: 4, url: "u", title: "t", working: false }], read: { version: 6 } });
+        const remote = new Proxy({}, { get: (_, method) => async (/** @type {any[]} */ ...args) => (calls.push([method, ...args]), answers[String(method)] ?? null) });
         // eslint-disable-next-line no-eval
         const make = (0, eval)(STUB);
         return { code: make(remote), calls };
@@ -59,14 +65,16 @@ describe("the browser stub", () => {
         const { code, calls } = stubbed();
         const tab = await code.open("https://www.hyatt.com/");
         expect(tab.id).toBe(4);
+        await tab.click(1); // before any read: the host refuses it, read first
         await tab.read();
         await tab.type(2, "Lisbon", { submit: true });
         await tab.waitFor("Rates", { timeout: 5000 });
         await tab.waitFor({ selector: ".rates" });
         expect(calls).toEqual([
             ["open", "https://www.hyatt.com/"],
+            ["click", 4, undefined, 1],
             ["read", 4, undefined],
-            ["type", 4, 2, "Lisbon", { submit: true }],
+            ["type", 4, 6, 2, "Lisbon", { submit: true }],
             ["waitFor", 4, { text: "Rates", timeout: 5000 }],
             ["waitFor", 4, { selector: ".rates" }],
         ]);
