@@ -184,7 +184,8 @@ const SCENARIOS = {
         await c.call("session", { session: "pages", name: "Pages", origins: [GRANTED] });
         const { value: { tab } } = await c.call("open", { session: "pages", url: `${GRANTED}/test/page/hotel.html` });
         const at = { session: "pages", tab };
-        const first = await c.call("read", at);
+        // two calls at once in a tab not yet worked in
+        const [first, together] = await Promise.all([c.call("read", at), c.call("screenshot", at)]);
         const second = await c.call("read", { ...at, maxChars: 200 });
         const working = (await c.call("tabs", { session: "pages" })).value?.[0]?.working;
         const rates = await c.call("waitFor", { ...at, text: "Rates loaded" });
@@ -200,7 +201,7 @@ const SCENARIOS = {
         const other = await c.call("read", { session: "nobody", tab });
         c.port.disconnect();
         return {
-            first, second, working, rates, never, badSelector, went, ungranted, redirected, afterBlock, rested, other,
+            first, together: together.error ?? together.value?.mime, second, working, rates, never, badSelector, went, ungranted, redirected, afterBlock, rested, other,
             shot: shot.error ?? { mime: shot.value?.mime, bytes: shot.value?.data?.length },
         };
     },
