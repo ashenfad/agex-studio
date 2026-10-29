@@ -20,7 +20,7 @@ describe("a session's pages", () => {
     const loaded = (id) => browser.served().some((r) => r.id === id);
     before(async () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
-        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "pages,blockers" } });
+        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "pages,blockers,twoTurns" } });
     });
     after(() => browser?.close());
 
@@ -99,6 +99,11 @@ describe("a session's pages", () => {
         const { working, rested } = await browser.report("pages", 90_000);
         assert.equal(working, true);
         assert.equal(rested, false);
+    });
+
+    it("rests a tab only once no studio tab's turn runs", async () => {
+        const r = await browser.report("twoTurns", 60_000);
+        assert.deepEqual(r, { afterOne: true, stillOne: true, afterAll: false });
     });
 
     it("refuses another session's tab", async () => {

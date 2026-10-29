@@ -18,6 +18,13 @@ import { MARK, isWorking, restAll, resume } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
 
+/** The studio tabs' ports whose turn runs now. A stopped worker forgets
+ *  them, with the debugger's sessions, which its start detaches.
+ *  @type {Set<chrome.runtime.Port>} */
+const turning = new Set();
+/** @type {WeakSet<chrome.runtime.Port>} */
+const watched = new WeakSet();
+
 /** @type {Record<string, import("./port.js").Op>} */
 export const tabOps = {
     /** A session's name (its tab group's title) and the domains it may
@@ -104,14 +111,26 @@ export const tabOps = {
 
     /** While a turn runs, the studio's tab isn't discarded to save
      *  memory, which would end the turn. A turn's start lifts the
-     *  person's cancel of the agent's work, and its end rests every tab
-     *  worked in. */
+     *  person's cancel of the agent's work; once no studio tab's turn
+     *  runs (each port says for its own, and a port that closes has
+     *  ended its), every tab worked in rests. */
     async turn(req, port) {
         if (typeof req.running !== "boolean") throw bad("running: whether a turn is running");
         const id = port.sender?.tab?.id;
         if (id === undefined) throw new ProtocolError("failed", "the port has no tab");
-        if (req.running) resume();
-        else await restAll();
+        if (req.running) {
+            turning.add(port);
+            if (!watched.has(port)) {
+                watched.add(port);
+                port.onDisconnect.addListener(() => {
+                    if (turning.delete(port) && turning.size === 0) void restAll();
+                });
+            }
+            resume();
+        } else {
+            turning.delete(port);
+            if (turning.size === 0) await restAll();
+        }
         const tab = await chrome.tabs.update(id, { autoDiscardable: !req.running });
         return { discardable: tab?.autoDiscardable ?? !req.running };
     },

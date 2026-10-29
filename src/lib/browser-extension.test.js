@@ -72,6 +72,18 @@ describe("BrowserExtension", () => {
         expect(await ext.call("tabs", { session: "s" })).toEqual({ op: "tabs" });
     });
 
+    it("goes on past an id Chrome won't take", async () => {
+        const runtime = fakeRuntime({ dev: answering() });
+        const connect = runtime.connect.bind(runtime);
+        runtime.connect = (/** @type {string} */ id) => {
+            if (id === "not an id") throw new Error("Invalid extension id: 'not an id'");
+            return connect(id);
+        };
+        const ext = new BrowserExtension({ runtime, ids: ["not an id", "dev"] });
+        await ext.detect();
+        expect(ext.status).toBe("found");
+    });
+
     it("is absent when no id answers", async () => {
         const ext = new BrowserExtension({ runtime: fakeRuntime({}), ids: ["store", "dev"] });
         await ext.detect();

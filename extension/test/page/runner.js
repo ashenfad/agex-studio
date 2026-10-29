@@ -246,6 +246,30 @@ const SCENARIOS = {
         return r;
     },
 
+    /** two studio tabs' turns at once: one ending rests nothing the other works in */
+    async twoTurns() {
+        const a = await greeted();
+        const b = await greeted();
+        await a.call("turn", { running: true });
+        await b.call("turn", { running: true });
+        await b.call("session", { session: "two", name: "Two", domains: [GRANTED_DOMAIN] });
+        const { value: { tab } } = await b.call("open", { session: "two", url: site("two") });
+        await b.call("read", { session: "two", tab });
+        await a.call("turn", { running: false });
+        const afterOne = (await b.call("tabs", { session: "two" })).value?.[0]?.working;
+        // a studio tab closed mid-turn has ended its turn
+        await a.call("turn", { running: true });
+        b.port.disconnect();
+        await sleep(200);
+        const c = await greeted();
+        const stillOne = (await c.call("tabs", { session: "two" })).value?.[0]?.working;
+        await a.call("turn", { running: false });
+        const afterAll = (await c.call("tabs", { session: "two" })).value?.[0]?.working;
+        a.port.disconnect();
+        c.port.disconnect();
+        return { afterOne, stillOne, afterAll };
+    },
+
     /** pages that are a CAPTCHA or a bot check */
     async blockers() {
         const c = await greeted();

@@ -161,7 +161,13 @@ export class BrowserExtension {
             throw new ExtensionError("absent", "the studio's browser extension isn't installed");
         }
         for (const id of this.ids) {
-            const port = this.runtime.connect(id);
+            /** @type {chrome.runtime.Port} */
+            let port;
+            try {
+                port = this.runtime.connect(id);
+            } catch {
+                continue; // not an id at all (a typo in the one the person set)
+            }
             this.#listen(port, id);
             /** @type {any} */
             let hello;
