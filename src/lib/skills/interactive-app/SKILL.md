@@ -417,7 +417,9 @@ Configuration anyone may read (a service's base URL, a Supabase URL and
 its anon key, a map style) belongs in the session's variables, not the
 app's code: the page has them as `window.env`, frozen, before its own
 scripts run. A copy of the app pointed elsewhere changes a variable,
-not code.
+not code. Set them with `set_variables` (`{"API_URL":
+"https://api.example.com"}`; null removes one); the person can in the
+session dialog. The preview rebuilds with them.
 
 ```js
 const api = window.env.API_URL ?? 'https://api.example.com'
