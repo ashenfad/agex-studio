@@ -123,13 +123,27 @@ const SCENARIOS = {
         await c.call("session", { session: "opener", name: "Opener", origins: [GRANTED] });
         const refused = await c.call("open", { session: "opener", url: site("opener-refused", { open: `${OTHER}/test/page/site.html?id=leak-open` }) });
         const allowed = await c.call("open", { session: "opener", url: site("opener-allowed", { open: site("opened", { go: `${OTHER}/test/page/site.html?id=leak-opened`, after: "500" }) }) });
+        // sent on at once by a redirect, before its rules can be in place
+        const raced = await c.call("open", { session: "opener", url: site("opener-raced", { open: `${GRANTED}/redirect?to=${encodeURIComponent(`${OTHER}/test/page/site.html?id=leak-raced`)}` }) });
         const source = await tabWhere(c, "opener", (t) => t.id === refused.value?.tab && t.blocked);
         const child = await tabWhere(c, "opener", (t) => t.blocked?.url.includes("id=leak-opened"));
+        const racedSource = await tabWhere(c, "opener", (t) => t.id === raced.value?.tab && t.blocked);
+        await sleep(1000);
         const list = await c.call("tabs", { session: "opener" });
         c.port.disconnect();
         // this page is the person's tab in front: the opened one went behind it
         const shown = document.visibilityState;
-        return { refused, allowed, source, child, ids: list.value?.map((t) => t.id), shown };
+        return { refused, allowed, raced, source, child, racedSource, tabs: list.value, shown };
+    },
+
+    /** a popup window a page opens, which takes no tab group */
+    async popup() {
+        const c = await greeted();
+        await c.call("session", { session: "popup", name: "Popup", origins: [GRANTED] });
+        await c.call("open", { session: "popup", url: site("popup-opener", { open: site("popup"), popup: "1" }) });
+        const popup = await tabWhere(c, "popup", (t) => t.title === "site popup");
+        c.port.disconnect();
+        return { popup };
     },
 
     /** a session's grants replaced, and its open tabs held to the new ones */

@@ -16,20 +16,24 @@ and granted origins (`session`), and opens, lists and closes its tabs
 
 - **A session's tabs open in the background** of the studio's window,
   in a tab group with the session's name. A tab one of its pages opens
-  is the session's too, and is sent behind if it took the front.
+  is the session's too, and is sent behind if it took the front (a
+  popup window gives the focus back to the window that had it).
 - **Every page load in them is held to the session's origins** by
   `declarativeNetRequest` session rules for that tab: a link, a
   redirect, a script's navigation. A load to anywhere else is stopped
   before it reaches the site, and `tabs` reports it. A tab a page opens
-  without a grant is closed at once, though its first request may
+  is held as soon as the browser tells of it, then closed if it opened,
+  or has gone on, anywhere without a grant; its first requests may
   already have gone out. A page's own requests (images, scripts, its
   `fetch`) aren't held.
 - **The person's own tabs are never held**, nor listed.
 - **The studio's tab isn't discarded** while a turn runs (`turn`).
 
-The registry (sessions, their tabs) is in `chrome.storage.session`: it
-outlives the worker's idle stops, and goes when the browser closes, as
-the tabs' ids and rules do.
+The registry (sessions, their tabs) is in `chrome.storage.local`, so it
+outlives the worker's idle stops and the extension's own updates and
+reloads, which clear the tabs' rules and leave the tabs open: each time
+the worker starts, it holds the registry's tabs again. When the browser
+starts, the registry is cleared, since tab ids don't outlive it.
 
 ## Building
 

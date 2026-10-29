@@ -25,7 +25,7 @@ describe("a session's tabs", () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
         browser = await launch({
             extension: `${ext}/dist/dev`,
-            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,regrant,turn,restart" },
+            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,turn,restart" },
         });
     });
     after(() => browser?.close());
@@ -65,8 +65,30 @@ describe("a session's tabs", () => {
         assert.notEqual(r.child, null, "the granted tab the page opened isn't the session's, or wasn't held");
         assert.match(r.child.blocked.url, /id=leak-opened/);
         assert.equal(loaded("leak-opened"), false);
-        assert.equal(r.ids.length, 3, `the session's tabs: ${r.ids}`);
+        // four tabs the runner opened, and the one opened with a grant
+        const ids = r.tabs.map((t) => t.id);
+        assert.ok([r.refused, r.allowed, r.raced].every((o) => ids.includes(o.value.tab)), `the session's tabs: ${ids}`);
         assert.equal(r.shown, "visible", "the opened tab kept the front");
+    });
+
+    it("closes a tab a page opens that got somewhere without a grant before it was held", async () => {
+        const r = await browser.report("opened", 60_000);
+        const there = r.tabs.filter((t) => t.url.includes("id=leak-raced"));
+        if (loaded("leak-raced")) {
+            // the redirect beat the rules: the page loaded, and the tab is closed
+            assert.deepEqual(there, [], "a tab on an origin without a grant was left to the session");
+            assert.match(r.racedSource?.blocked?.url ?? "", /id=leak-raced/);
+        } else {
+            // the rules were in time: the load was stopped, in a tab closed or held
+            assert.ok(there.every((t) => t.blocked) && (there.length > 0 || r.racedSource?.blocked?.newTab));
+        }
+    });
+
+    // Whether the focus goes back from the popup isn't checked here:
+    // headless Chromium calls every window focused, and focuses none.
+    it("keeps a popup window a page opens as the session's", async () => {
+        const r = await browser.report("popup", 60_000);
+        assert.notEqual(r.popup, null, "the popup isn't the session's");
     });
 
     it("holds open tabs to a session's grants as they change", async () => {

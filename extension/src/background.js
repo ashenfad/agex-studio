@@ -7,7 +7,7 @@ import { DEV } from "./build-info.js";
 import { originMatcher } from "./origins.js";
 import { servePort } from "./port.js";
 import { DEV_MATCHES, STUDIO_MATCHES } from "./protocol.js";
-import { seedShown, tabOps, watchTabs } from "./tabs.js";
+import { start, tabOps, watchTabs } from "./tabs.js";
 
 const manifest = chrome.runtime.getManifest();
 // the worker's own list, not the manifest's
@@ -21,7 +21,7 @@ const ops = {
 };
 
 watchTabs();
-seedShown();
+start();
 
 chrome.runtime.onConnectExternal.addListener((port) => {
     servePort(port, { allows, ops, version: manifest.version });

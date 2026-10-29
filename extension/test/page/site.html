@@ -4,10 +4,11 @@
 <p>A page for the tab tests. <code>?id=</code> names it (its title is
 <code>site &lt;id&gt;</code>), <code>?go=URL&amp;after=ms</code> sends it
 on to <code>URL</code>, and <code>?open=URL</code> opens <code>URL</code>
-in a new tab, as a page's own script would.</p>
+in a new tab, as a page's own script would (in a popup window of its
+own with <code>&amp;popup=1</code>).</p>
 <script>
     const params = new URLSearchParams(location.search);
     document.title = `site ${params.get("id") ?? ""}`;
     if (params.has("go")) setTimeout(() => location.assign(params.get("go")), Number(params.get("after") ?? 0));
-    if (params.has("open")) window.open(params.get("open"), "_blank");
+    if (params.has("open")) window.open(params.get("open"), "_blank", params.has("popup") ? "popup" : "");
 </script>
