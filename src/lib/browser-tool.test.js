@@ -97,6 +97,12 @@ describe("the browser tool", () => {
         expect(out.text).toBe("1. screenshot tab 7: image 1");
     });
 
+    it("says when the page goes on below, and when it never settled", async () => {
+        const out = await setup({ read: { ...outline, below: 3.5, settled: false } }).tool.call({ tab: 7, actions: [{ read: { settle: true } }] });
+        expect(out.text).toMatch(/the page goes on 3\.5 screenfuls below: a list there may load more as it's scrolled \(scroll: "bottom"\)/);
+        expect(out.text).toMatch(/the page was still changing when this was read/);
+    });
+
     it("says what a read found: a CAPTCHA, a load stopped, text cut", async () => {
         const out = await setup({ read: { ...outline, blocker: "captcha", blocked: { url: "https://x.example/", at: 1 }, cut: 90000 } }).tool.call({ tab: 7, actions: [{ read: true }] });
         expect(out.text).toMatch(/the page is a CAPTCHA, not the site/);

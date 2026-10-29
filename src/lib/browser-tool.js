@@ -290,6 +290,8 @@ function outlineNotes(o) {
     if (o.blocker === "bot-check") notes.push("the page is a bot check, not the site: wait and read again, or the person has to get past it");
     if (o.blocked) notes.push(`the browser stopped this load: ${o.blocked.url} is on a domain you weren't allowed`);
     if (o.loading) notes.push("still loading: read again, or waitFor what you need");
+    if (o.settled === false) notes.push("the page was still changing when this was read: read again with settle, or waitFor what you need");
+    if (o.below) notes.push(`the page goes on ${o.below} screenfuls below: a list there may load more as it's scrolled (scroll: "bottom")`);
     if (o.cut) notes.push(`cut at ${o.text.length} of ${o.cut} characters`);
     return notes.length > 0 ? `\n(${notes.join("; ")})` : "";
 }
