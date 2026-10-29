@@ -146,7 +146,13 @@ ends the wait. Its card becomes the first of a family:
   for is blocked before it loads (the extension's
   `declarativeNetRequest` session rules, by tab, kept to the studio's
   grants), and the agent is told, so it can ask with a `sites` card. A
-  tab the person shared stays theirs: its loads aren't held, and when
+  tab a page opens itself (`target="_blank"`, `window.open`) gets an id
+  no rule names yet, and Chrome only says so after it exists
+  (`webNavigation.onCreatedNavigationTarget`): the extension registers
+  it to the session and closes it at once if its origin has no grant,
+  before the agent can read it, but its first request may already have
+  gone out. What's held is what the agent reads and acts in, not every
+  request a page makes. A tab the person shared stays theirs: its loads aren't held, and when
   the agent acts in one (phase 3) they're held only while it acts.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
@@ -181,7 +187,9 @@ ends the wait. Its card becomes the first of a family:
   other sites.
 - **What holds, whatever a page says:** a key's value, which the agent
   never holds and which goes only to its origins in its header; and the
-  sites the agent's own tabs load, held to the session's grants.
+  sites the agent reads and acts in, held to the session's grants (a
+  tab a page opens to anywhere else is closed before the agent can read
+  it).
   Everything else here is a guard rail: `confirm`, the model's own
   resistance to injection, keeping private tabs apart from sites the
   person doesn't trust.
@@ -242,7 +250,7 @@ against the first spike's 1,500 to 4,800 an outline.
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in the tabs the agent opened held to the origins the studio gives it (session rules by tab), a shared tab left alone | |
+| 1 | extension | A Manifest V3 skeleton: the port from agex.studio only, kept up with a heartbeat while a turn runs, and opened again by the studio whenever it has dropped (on its tab's return to the front, and before any call); the registry of tabs by top session, a tab group per session, the studio's tab kept from discarding during a turn; page loads in the tabs the agent opened held to the origins the studio gives it (session rules by tab), a tab a page opens registered and, without a grant, closed; a shared tab left alone | |
 | 2 | extension | The debugger attached with focus emulation while a tab is worked in, and the tab marked; the outline (text and refs, carousels dropped and inline text joined, and a blocker when the page is one), each outline's version, an action on a stale one refused; the actions by ref (trusted, through the debugger), `goto`, `waitFor`, `screenshot`; committing steps reported | 1 |
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
 | 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
@@ -303,7 +311,7 @@ most.
   and no tool's requests are held after it: sessions are the boundary,
   and publishing is the person's choice.
 - **Only what holds is promised:** a key's value, and the sites the
-  agent's tabs load. `confirm` is a guard rail.
+  agent reads and acts in. `confirm` is a guard rail.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
   protocol and the studio's tools change together.
