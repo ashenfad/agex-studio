@@ -52,6 +52,11 @@ export const PROTOCOL = 1;
  *  Chrome Web Store. */
 export const DEV_EXTENSION_ID = "nmkolhlloohlmpklcknknipkaedblgbe";
 
+/** The store build's id, once the Chrome Web Store has given it one;
+ *  until then the studio finds the dev build only.
+ *  @type {string | null} */
+export const STORE_EXTENSION_ID = null;
+
 /** The pages the extension answers, as match patterns: the studio's,
  *  and in the dev build local dev servers on any port. Kept here, apart
  *  from the manifest's `externally_connectable.matches`, which the build

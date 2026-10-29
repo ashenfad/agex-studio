@@ -13,9 +13,11 @@
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  *     await __studio.db.announceSync(); __studio.appBusy()   // agex.busy's offer
  *     __studio.vault.add({ label, value, origins }); __studio.vault.entries()   // never values
+ *     __studio.extension.status(); await __studio.extension.call('tabs', { session })
  */
 
 import { appDbs } from "./app-db-clients.js";
+import { browserExtension } from "./browser-extension.svelte.js";
 import { liveBusy } from "./app-busy.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
@@ -434,6 +436,17 @@ export function installDevHook(studio, sync) {
             answerKeyRequest(entryId) {
                 keyRequests.answer(session().name, entryId);
                 return vault.agentGrantsOf(session().name);
+            },
+        },
+        /** The studio's browser extension: whether it's here, and a call
+         *  of one of its ops (see `extension/src/protocol.js`). */
+        extension: {
+            status() {
+                return { status: browserExtension.status, version: browserExtension.version, problem: browserExtension.problem, held: browserExtension.held };
+            },
+            /** @param {string} op @param {Record<string, unknown>} [args] */
+            call(op, args) {
+                return browserExtension.call(op, args);
             },
         },
         /** Sync, as the session list works it. */

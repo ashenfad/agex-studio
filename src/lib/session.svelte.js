@@ -16,6 +16,7 @@ import { attachmentsOf } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { primer } from "./primer.js";
 import { profileFor, toolOptionsNow } from "./profile.js";
+import { browserExtension } from "./browser-extension.svelte.js";
 import { requestSecretTool } from "./request-secret.js";
 import { setVariablesTool } from "./set-variables.js";
 import { keepUnchanged } from "./runs.js";
@@ -653,6 +654,8 @@ export class ChatSession {
         // the lost delegates are told to this turn
         this.lostDelegates = [];
         this.syncJobs();
+        // the browser extension's port kept up, and the studio's tab kept, while it runs
+        const letGo = browserExtension.hold();
         const run = (async () => {
             try {
                 await body((event) => this.#apply(event));
@@ -669,6 +672,7 @@ export class ChatSession {
                 await this.#reloadAfter();
                 this.live = [];
                 this.busy = false;
+                letGo();
                 // what the person wrote after the agent's last tool call never
                 // reached it: taken back before the session is let go, so a
                 // turn starting next doesn't take it as its own note
