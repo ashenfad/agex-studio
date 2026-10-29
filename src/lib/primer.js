@@ -8,6 +8,7 @@
 
 import { visionOf } from "./model.js";
 import { hasRouterKey } from "./openrouter-api.js";
+import { browserExtension } from "./browser-extension.svelte.js";
 
 const STUDIO = `You are the agent in agex studio, a browser app where a person works with you in a workspace of their own: files under /workspace, a shell, and TypeScript you run in a sandboxed worker. Everything you change there is versioned, so the person can rewind it. Files the person adds (uploaded, or from Google Drive) land in /workspace/uploads.
 
@@ -29,6 +30,8 @@ const PDF = `\`pdf\` reads the workspace's PDFs, from run_ts, its pages numbered
 
 const DB = `\`db\` is the session's app database, from run_ts: the SQLite database its app reaches as \`agex.db\`. \`await db.query(sql, params?)\` gives \`{ rows, changes, lastInsertRowid }\`; \`db.transaction([[sql, params], ...])\` runs several statements as one, all or none. Read it to see what the app stored and to debug it; \`await db.tables()\` lists its tables, indexes, views and triggers with their SQL. It holds the person's data, which outlives your edits and isn't rewound by an undo: change, migrate or delete it only when the person asked, and say what you changed. Before a bulk change to its rows (a backfill, a cleanup), \`await db.checkpoint('before backfill')\`; the database takes one itself before every schema change. \`await db.checkpoints()\` lists them (\`{ id, label, auto, time }\`), and \`await db.restore(id)\` brings the data back to one, discarding everything written since: the person is asked first, and if they say no it throws, so don't ask again unless they say so. The interactive-app skill has the rules for its tables and schema changes.`;
 
+const BROWSER = `\`browser\` reaches the session's tabs in the person's browser, from run_ts, as the browser tool does, on the domains you were allowed (request_sites). For many sites at once, search them from code rather than one browser call each: learn one site's search URL first (with the browser tool), then \`const tab = await browser.open(url)\`, \`const page = await tab.read()\` (an outline: \`{ version, url, title, blocker, text, refs }\`, its controls numbered), \`tab.click(ref)\`, \`tab.type(ref, text, { submit })\`, \`tab.select(ref, value)\`, \`tab.goto(url)\`, \`tab.waitFor('text' | { selector }, { timeout })\`, \`tab.close()\`, and \`browser.tabs()\`; open the pages with Promise.all, read each into a variable, and have a task (\`agex.task\`) pick out what you need from each page's text, so the pages stay out of your context. A page that is a CAPTCHA or a bot check says so in \`blocker\`: mark that site and go on with the rest. Code never asks the person: a step that commits (book, pay, send) or a domain you weren't allowed throws, saying so; take the step with the browser tool, which asks them, or ask for the domain.`;
+
 const KEYS = `A service that needs a key (an API token): never ask the person to type it into the chat, where it stays in the transcript and your context. The terminal's and run_ts's descriptions list the secrets you have, by name. Use one in curl as \`$NAME\` (\`curl -H "Authorization: Bearer $STRIPE_KEY" https://api.stripe.com/v1/prices\`), or from run_ts as \`secret('NAME')\` in \`await http.fetch(url, { method, headers, body, as: 'json' })\`, which gives \`{ status, ok, headers, body }\`. You never see the value: it goes only to the sites it is for, and a response that echoes it shows the reference. Without the key a task needs, ask for it with request_secret (its name, the origins it goes to, and why); the person picks it in the chat. Requests go from the browser without cookies, so a service that refuses other sites' pages (CORS) can't be reached from here.`;
 
 const VARIABLES = `Configuration anyone may read (a service's base URL, a Supabase URL and its anon key, a map style) goes in the session's variables, not the app's code: set them with set_variables, and the app reads them as \`window.env.NAME\` (with a fallback), your code as \`env.NAME\`, the shell as \`$NAME\`. A copy of the app pointed elsewhere then changes a variable, not code. They are public and travel with the session, so a secret (an API token, a password: anything that must stay private) is never a variable; a key made to be public, like that anon key, is.`;
@@ -46,7 +49,10 @@ export function primer(settings) {
     const parts = [STUDIO, HOSTS];
     if (hasRouterKey(settings)) parts.push(WEB, MEDIA);
     else parts.push(NO_ROUTER);
-    parts.push(PDF, DB, KEYS, VARIABLES, DELEGATION);
+    parts.push(PDF, DB);
+    // the session's browser tabs, with the extension here to reach them through
+    if (browserExtension.status === "found") parts.push(BROWSER);
+    parts.push(KEYS, VARIABLES, DELEGATION);
     if (!visionOf(settings)) parts.push(NO_VISION);
     return parts.join("\n\n");
 }
