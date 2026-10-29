@@ -57,18 +57,11 @@ export const actOps = {
         const aim = await inWorld(tab, aimAt, [version, ref, submit ? "submit" : "type"]);
         refuse(aim, req);
         const started = await before(tab);
-        await inWorld(tab, focusField, [ref, clear]);
+        const { toEnd } = await inWorld(tab, focusField, [ref, clear]);
+        if (toEnd) await press(tab, { key: "End", code: "End", windowsVirtualKeyCode: 35, nativeVirtualKeyCode: 35 });
         if (text) await send(tab, "Input.insertText", { text });
-        else if (clear) {
-            const backspace = { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 };
-            await send(tab, "Input.dispatchKeyEvent", { type: "keyDown", ...backspace });
-            await send(tab, "Input.dispatchKeyEvent", { type: "keyUp", ...backspace });
-        }
-        if (submit) {
-            const enter = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
-            await send(tab, "Input.dispatchKeyEvent", { type: "keyDown", text: "\r", ...enter });
-            await send(tab, "Input.dispatchKeyEvent", { type: "keyUp", ...enter });
-        }
+        else if (clear) await press(tab, { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+        if (submit) await press(tab, { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
         return after(tab, started, aim);
     },
 
@@ -90,6 +83,13 @@ export const actOps = {
         return { ...(await after(tab, started, aim)), chosen: chosen.text };
     },
 };
+
+/** A key pressed and let go, through the debugger.
+ *  @param {number} tab @param {{ key: string, code: string, windowsVirtualKeyCode: number, nativeVirtualKeyCode: number, text?: string }} key */
+async function press(tab, { text, ...key }) {
+    await send(tab, "Input.dispatchKeyEvent", { type: "keyDown", ...key, ...(text && { text }) });
+    await send(tab, "Input.dispatchKeyEvent", { type: "keyUp", ...key });
+}
 
 /** @param {import("./protocol.js").Request} req */
 function target(req) {
@@ -161,7 +161,7 @@ async function after(tab, started, aim) {
  */
 export function aimAt(version, ref, how) {
     const COMMITS = /\b(book|reserve|pay|purchase|buy|checkout|check out|place order|order now|send|post|publish|delete|confirm)\b/i;
-    const kept = /** @type {{ version: number, refs: Element[] } | undefined} */ (/** @type {any} */ (globalThis).__agex);
+    const kept = /** @type {{ version: number, refs: Element[], names: string[] } | undefined} */ (/** @type {any} */ (globalThis).__agex);
     if (kept === undefined) return { stale: "it is another page now" };
     if (kept.version !== version) return { stale: `outline ${version} isn't its latest, ${kept.version}` };
     const el = kept.refs[ref - 1];
@@ -182,7 +182,13 @@ export function aimAt(version, ref, how) {
         return (e.getAttribute("aria-label") || labels || button || inner || f.placeholder || e.getAttribute("title") || f.name || "")
             .replace(/\s+/g, " ").trim().slice(0, 80);
     };
-    const desc = `[${ref}] ${el.tagName.toLowerCase()} ${JSON.stringify(text(el))}`;
+    // a ref's name as the outline gave it (an icon's alt, aria-labelledby),
+    // and its text now
+    const named = (/** @type {Element} */ e) => {
+        const i = kept.refs.indexOf(e);
+        return [i >= 0 ? kept.names[i] : "", text(e)].filter(Boolean).join(" / ");
+    };
+    const desc = `[${ref}] ${el.tagName.toLowerCase()} ${JSON.stringify(kept.names[ref - 1] || text(el))}`;
     if (/** @type {HTMLButtonElement} */ (el).disabled || el.getAttribute("aria-disabled") === "true") return { error: `${desc} is disabled` };
     if (!el.checkVisibility()) return { error: `${desc} isn't shown` };
     const fields = how === "type" || how === "submit";
@@ -196,14 +202,14 @@ export function aimAt(version, ref, how) {
     const isSubmit = (/** @type {Element} */ e) =>
         (e instanceof HTMLButtonElement && e.type === "submit") || (e instanceof HTMLInputElement && (e.type === "submit" || e.type === "image"));
     let submits = false;
-    let says = text(el);
+    let says = named(el);
     let step = desc;
     if (how === "click" && form && isSubmit(el)) submits = true;
     if (how === "submit" && form) {
         submits = true;
         const submitter = [...form.elements].find(isSubmit);
-        says = submitter ? text(submitter) : "";
-        if (submitter) step = `Enter in ${desc}, submitting its form by ${JSON.stringify(says)},`;
+        says = submitter ? named(submitter) : "";
+        if (submitter) step = `Enter in ${desc}, submitting its form by ${JSON.stringify(text(submitter) || says)},`;
     }
     const commits = how === "click" || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
 
@@ -223,16 +229,25 @@ export function aimAt(version, ref, how) {
 
 /**
  * The field at `ref` focused, and what it holds selected when `clear`,
- * so what is typed next replaces it. Runs in the page.
+ * so what is typed next replaces it, or the cursor put at its end; or
+ * `toEnd` when the field can't be given one (a number field), for End.
+ * Runs in the page.
  *
  * @param {number} ref @param {boolean} clear
+ * @returns {{ toEnd: boolean }}
  */
 export function focusField(ref, clear) {
     const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
     el.focus();
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         if (clear) el.select();
-        else el.setSelectionRange(el.value.length, el.value.length);
+        else {
+            try {
+                el.setSelectionRange(el.value.length, el.value.length);
+            } catch {
+                return { toEnd: true }; // a number field has no selection to set: End moves its cursor
+            }
+        }
     } else {
         const range = document.createRange();
         range.selectNodeContents(el);
@@ -241,6 +256,7 @@ export function focusField(ref, clear) {
         sel?.removeAllRanges();
         sel?.addRange(range);
     }
+    return { toEnd: false };
 }
 
 /**
@@ -255,6 +271,9 @@ export function chooseOption(ref, value) {
     const squash = (/** @type {string} */ s) => s.replace(/\s+/g, " ").trim();
     const option = [...el.options].find((o) => squash(o.text) === squash(value)) ?? [...el.options].find((o) => o.value === value);
     if (option === undefined) return { error: `no option ${JSON.stringify(value)}; its options: ${[...el.options].map((o) => squash(o.text)).join(" | ")}` };
+    // as the person couldn't choose it: a placeholder, or one sold out
+    const group = option.parentElement;
+    if (option.disabled || (group instanceof HTMLOptGroupElement && group.disabled)) return { error: `option ${JSON.stringify(squash(option.text))} is disabled` };
     el.value = option.value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
