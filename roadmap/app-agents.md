@@ -18,8 +18,8 @@ built (2026-10-28): agex-ts #167 in v0.6.6 (world 0.1.6, agex-ts
 4's check: asked to use "my token" with httpbin, the agent asked for it,
 and `curl` and `http.fetch` authenticated with the echo shown as the
 reference; a delegate asked the same was refused, named the key in its
-answer, and its session asked and delegated again. Phase 4 not
-started. This
+answer, and its session asked and delegated again. Phase 4
+planned (below). This
 takes over S6 of [rebuild.md](rebuild.md) (variables, secrets and
 services), which was designed and deferred at the switch: its shapes
 are here, sliced, and brought up to date with the app agent's meter.
@@ -277,12 +277,57 @@ Slices:
 
 ## Phase 4: variables
 
-- Configuration an app needs and anyone may read (a Supabase URL and
-  its anon key, which row-level security guards, not secrecy). Per
-  session, on the studio plane (`variables`), so they sync, fork,
-  bundle and publish with it; set in a session panel, or by the agent.
-- Given to the world as its profile's `variables` (`env` in code,
-  `$NAME` in the shell), and to the built app as `window.env`.
+Configuration an app needs that anyone may read: a Supabase URL and
+its anon key (row-level security guards it, not secrecy), a public
+API's base URL, a map style. Today the agent writes such values into
+the app's code, so pointing a copy at another project means editing
+code. Variables keep them apart, set once for the session.
+
+- **On the session's plane** (`variables`: `{ NAME: value }`), so they
+  are the session's like its files: a checkout rewinds them, a fork
+  copies them, and a bundle or a publish carries them, so a viewer who
+  opens a shared app has its values and can change them in their copy.
+- **Public by design:** in the session's history, its bundles and what
+  it publishes, readable by the agent and the app's page. A key goes in
+  the vault; the panel says so where values are typed.
+- **Names** as the world takes them (`[A-Za-z_][A-Za-z0-9_]*`), values
+  strings, at most 64 of them and 4 KB each: configuration, not data.
+- **A name is a key or a variable, not both.** Setting a variable
+  refuses a name the session's agent has as a key, and `request_secret`
+  refuses one that is a variable. A key made available to agents later
+  under a variable's name wins in that session: the variable is left
+  out of its world and the panel marks it hidden.
+- **The world reads them live** (agex-ts): a profile's `variables` may
+  be a function, called each time the shell, code's `env` or the tools'
+  descriptions need them, as its `secrets` already are. One set
+  mid-turn is there for the next tool call.
+- **In the session's world:** `env.NAME` in code, `$NAME` in the
+  shell. Its delegates have their top session's.
+- **In the app's page:** `window.env`, frozen, defined before the
+  app's own scripts, in the preview, `test_app`, a shared app and an
+  exported page alike. The preview rebuilds when they change. An app's
+  agent gets them by passing `variables: window.env` in its world's
+  profile (the app-agents skill shows it).
+- **Set by the person** in the session dialog's "Variables" section
+  (add, edit, remove; the values shown, since they aren't secret).
+- **Set by the agent** with `set_variables` (`{ NAME: value }`, `null`
+  to remove), without asking: they are public, as a file it writes is.
+  The change is on the plane, so the turn's commit carries it and
+  rewinding the turn undoes it. A delegate's is refused: it names the
+  variable and value in its answer, and its top session sets it, as
+  with `request_secret`.
+
+Slices:
+
+| # | Where | What | Needs |
+|---|---|---|---|
+| 1 | agex-ts | A profile's `variables` as a function, read at each use (the shell's environment, code's `env`, the tools' descriptions, the check against secrets' names); then a patch release | |
+| 2 | studio | Variables on the plane: the model and its checks, the session's world given them live (`profileFor`), keys and variables sharing no name; forks, checkouts and bundles carrying them, tested | 1 (released) |
+| 3 | studio | `window.env` in the app's page (preview, `test_app`, shared, exported), rebuilt on a change; interactive-app and app-agents skills | 2 |
+| 4 | studio | Setting them: the session dialog's section and `set_variables` (a delegate's refused); the dev hook | 2 |
+| 5 | studio | The primer's note and a spike: an agent builds an app against a public API with its base URL as a variable; the person changes it in the dialog and the app follows without a code edit; a fork set differently runs its own | all |
+
+(3) and (4) are independent once (2) is in.
 
 ## Decisions
 
