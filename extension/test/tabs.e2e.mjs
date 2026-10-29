@@ -1,6 +1,6 @@
 // A session's tabs, end to end: the dev build loaded into Chromium, a
 // page on localhost playing the studio, and the harness's server on two
-// origins, one granted to the sessions and one not.
+// domains, one granted to the sessions and one not.
 //
 //     pnpm extension:test
 //
@@ -25,7 +25,7 @@ describe("a session's tabs", () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
         browser = await launch({
             extension: `${ext}/dist/dev`,
-            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,turn,restart" },
+            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,subdomains,turn,restart" },
         });
     });
     after(() => browser?.close());
@@ -105,6 +105,16 @@ describe("a session's tabs", () => {
         assert.deepEqual(r.listed, [r.tab]);
         assert.match(r.blocked?.blocked?.url ?? "", /id=leak-kept/);
         assert.equal(loaded("leak-kept"), false);
+    });
+
+    it("lets a domain's grant cover its subdomains, and refuses anything that isn't a domain", async () => {
+        const r = await browser.report("subdomains", 60_000);
+        assert.notEqual(r.loaded, null, JSON.stringify(r.opened));
+        assert.equal(loaded("sub"), true);
+        assert.equal(r.refused.error.code, "not-granted");
+        assert.equal(loaded("sub-refused"), false);
+        assert.equal(r.notDomain.error.code, "bad-request");
+        assert.equal(r.topLevel.error.code, "bad-request");
     });
 
     it("keeps the studio's tab from discarding while a turn runs", async () => {

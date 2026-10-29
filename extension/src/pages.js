@@ -4,7 +4,7 @@
  * (`work`), so the page renders as if it were in front.
  */
 
-import { granted, originOf } from "./grants.js";
+import { granted, hostOf } from "./grants.js";
 import { outlinePage, pageHas } from "./outline.js";
 import { ProtocolError } from "./protocol.js";
 import { change } from "./registry.js";
@@ -50,20 +50,20 @@ export const pageOps = {
         };
     },
 
-    /** The tab sent to `url`, on an origin the session holds a grant
+    /** The tab sent to `url`, on a domain the session holds a grant
      *  for, and its load waited for. */
     async goto(req) {
-        const { tab, origins } = await ownTab(req);
+        const { tab, domains } = await ownTab(req);
         const { url } = req;
-        if (typeof url !== "string" || originOf(url) === null) throw bad("url: an http or https URL");
-        if (!granted(url, origins)) throw new ProtocolError("not-granted", `this session holds no grant for ${originOf(url)}`);
+        if (typeof url !== "string" || hostOf(url) === null) throw bad("url: an http or https URL");
+        if (!granted(url, domains)) throw new ProtocolError("not-granted", `this session holds no grant for ${hostOf(url)}`);
         await work(tab);
         const { errorText } = await send(tab, "Page.navigate", { url });
         const loaded = await settled(tab, GOTO_LOAD_MS);
         const now = await chrome.tabs.get(tab);
         if (errorText?.includes("ERR_BLOCKED_BY_CLIENT")) {
             // a redirect, on to somewhere else
-            throw new ProtocolError("not-granted", `the page went on to ${originOf(now.url ?? "") ?? now.url}, which this session holds no grant for`);
+            throw new ProtocolError("not-granted", `the page went on to ${hostOf(now.url ?? "") ?? now.url}, which this session holds no grant for`);
         }
         if (errorText) throw new ProtocolError("failed", `the page didn't load: ${errorText}`);
         await work(tab); // the new page marked
