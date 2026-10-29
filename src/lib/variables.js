@@ -37,20 +37,21 @@ export function variableNameRefusal(name) {
     return null;
 }
 
+/** Whether `value` fits in a variable. @param {string} value */
+const fits = (value) => new TextEncoder().encode(value).length <= VALUE_MAX;
+
 /**
- * The variables a plane record holds: its string values under good
- * names, anything else left out.
+ * The variables a plane record holds, held to what setting them is (a
+ * record from a bundle, a gist or a sync was written elsewhere): its
+ * string values that fit under good names, the first `MAX_VARIABLES` of
+ * them, anything else left out.
  * @param {unknown} record
  * @returns {Variables}
  */
 export function variablesOf(record) {
     if (record === null || typeof record !== "object" || Array.isArray(record)) return {};
-    /** @type {Variables} */
-    const out = {};
-    for (const [name, value] of Object.entries(record)) {
-        if (typeof value === "string" && variableNameRefusal(name) === null) out[name] = value;
-    }
-    return out;
+    const kept = Object.entries(record).filter(([name, value]) => typeof value === "string" && variableNameRefusal(name) === null && fits(value));
+    return Object.fromEntries(kept.slice(0, MAX_VARIABLES));
 }
 
 /**
@@ -66,11 +67,11 @@ export function variablesOf(record) {
 export function applyVariables(current, changes, { taken = {} } = {}) {
     /** @type {string[]} */
     const errors = [];
-    /** @type {Variables} */
-    const next = { ...current };
+    // a map: any name the pattern allows is a variable's, `__proto__` too
+    const next = new Map(Object.entries(current));
     for (const [name, value] of Object.entries(changes)) {
         if (value === null) {
-            delete next[name];
+            next.delete(name);
             continue;
         }
         const refusal = variableNameRefusal(name);
@@ -78,7 +79,7 @@ export function applyVariables(current, changes, { taken = {} } = {}) {
             errors.push(`${name}: ${refusal}`);
             continue;
         }
-        if (taken[name] !== undefined) {
+        if (Object.hasOwn(taken, name)) {
             errors.push(`${name}: ${taken[name]}; a name is a key or a variable, not both`);
             continue;
         }
@@ -86,14 +87,14 @@ export function applyVariables(current, changes, { taken = {} } = {}) {
             errors.push(`${name}: a value is a string (null removes it)`);
             continue;
         }
-        if (new TextEncoder().encode(value).length > VALUE_MAX) {
+        if (!fits(value)) {
             errors.push(`${name}: keep a value to ${VALUE_MAX} bytes or fewer; variables are configuration, not data`);
             continue;
         }
-        next[name] = value;
+        next.set(name, value);
     }
-    if (Object.keys(next).length > MAX_VARIABLES) errors.push(`a session has at most ${MAX_VARIABLES} variables`);
-    return errors.length > 0 ? { next: null, errors } : { next, errors };
+    if (next.size > MAX_VARIABLES) errors.push(`a session has at most ${MAX_VARIABLES} variables`);
+    return errors.length > 0 ? { next: null, errors } : { next: Object.fromEntries(next), errors };
 }
 
 /** Each open top session's variables, as its world reads them. @type {Map<string, Variables>} */
@@ -134,5 +135,5 @@ export function forgetLiveVariables(name) {
  * @returns {Variables}
  */
 export function withoutKeys(variables, keys) {
-    return Object.fromEntries(Object.entries(variables).filter(([name]) => !(name in keys)));
+    return Object.fromEntries(Object.entries(variables).filter(([name]) => !Object.hasOwn(keys, name)));
 }

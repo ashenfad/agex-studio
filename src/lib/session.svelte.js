@@ -958,8 +958,9 @@ export class ChatSession {
     /**
      * Set or remove variables (a value sets one, null removes it), or
      * say what is wrong with the change, a line each, changing nothing.
-     * Its world has them at its next tool call. A turn running commits
-     * them with its own; else they get a commit of their own.
+     * Its world has them at its next tool call. Committed at once, beside
+     * a turn too (as a rename is): a turn ending may have made its last
+     * commit already.
      *
      * @param {Record<string, unknown>} changes
      * @returns {Promise<string[]>} what is wrong, empty when set
@@ -976,7 +977,9 @@ export class ChatSession {
         plane.set(VARIABLES_KEY, next);
         this.variables = next;
         putLiveVariables(this.name, next);
-        if (!this.busy) await ws.autoCommit({ tool: "studio.variables" });
+        await ws.autoCommit({ tool: "studio.variables" });
+        // the studio hears of it, and sync with it
+        this.onMeta();
         return [];
     }
 
@@ -994,7 +997,9 @@ export class ChatSession {
         } catch {
             // no app/agex.json: the app declares nothing
         }
-        for (const need of parseNeeds(text).needs.secrets) taken[need.name] ??= `a secret ${NEEDS_PATH} declares`;
+        for (const need of parseNeeds(text).needs.secrets) {
+            if (!Object.hasOwn(taken, need.name)) taken[need.name] = `a secret ${NEEDS_PATH} declares`;
+        }
         return taken;
     }
 

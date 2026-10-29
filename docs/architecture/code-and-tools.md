@@ -178,8 +178,9 @@ it refuses a name the session's agent has as a key or the app declares
 as a secret (`app/agex.json`), and `request_secret` refuses a
 variable's name. A key made available to agents later under a
 variable's name wins, and the variable is left out of the world. A
-turn running commits the change with its own; else it gets a commit of
-its own (`studio.variables`).
+change is committed at once (`studio.variables`), a turn running or
+not, and the studio told, so sync takes it. A record read from the
+plane (a bundle's, a gist's, a sync's) is held to the same limits.
 
 ## Skills
 
