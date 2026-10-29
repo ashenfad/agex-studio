@@ -38,6 +38,15 @@ describe("acting in a session's pages", () => {
         assert.match(r.out, /guests 2;/);
         assert.equal(r.noOption.error.code, "failed");
         assert.match(r.noOption.error.message, /its options: 1 \| 2/);
+        // as the person couldn't choose them
+        assert.equal(r.disabledOption.error.code, "failed");
+        assert.match(r.disabledOption.error.message, /"3" is disabled/);
+        assert.match(r.disabledGroup.error.message, /"10" is disabled/);
+    });
+
+    it("types into a field that has no selection, adding to it", () => {
+        assert.equal(r.nights.value?.title, "Book a room", JSON.stringify(r.nights.error));
+        assert.match(r.out, /nights 34;/);
     });
 
     it("refuses a step that reads as committing until it is confirmed", () => {
@@ -49,6 +58,10 @@ describe("acting in a session's pages", () => {
         assert.equal(r.pay.error.code, "confirm");
         assert.match(r.pay.error.message, /Enter in \[\d+\] input "Card name", submitting its form by "Pay now"/);
         assert.doesNotMatch(r.out, /paid/);
+        // named as the outline names them: an image's alt, aria-labelledby
+        assert.equal(r.iconDelete.error?.code, "confirm", JSON.stringify(r.iconDelete));
+        assert.equal(r.labelledDelete.error?.code, "confirm", JSON.stringify(r.labelledDelete));
+        assert.doesNotMatch(r.out, /deleted|removed/);
     });
 
     it("submits a form that doesn't commit, and says where it went", () => {
