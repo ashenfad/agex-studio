@@ -57,10 +57,16 @@ export const actOps = {
         const aim = await inWorld(tab, aimAt, [version, ref, submit ? "submit" : "type"]);
         refuse(aim, req);
         const started = await before(tab);
-        const { toEnd } = await inWorld(tab, focusField, [ref, clear]);
-        if (toEnd) await press(tab, { key: "End", code: "End", windowsVirtualKeyCode: 35, nativeVirtualKeyCode: 35 });
-        if (text) await send(tab, "Input.insertText", { text });
-        else if (clear) await press(tab, { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+        const { toEnd, picker } = await inWorld(tab, focusField, [ref, clear]);
+        if (picker) {
+            // a date, time or color field takes no typing: its value is set, as its picker would
+            const set = await inWorld(tab, setPicked, [ref, text]);
+            if (set.error) throw new ProtocolError("failed", set.error);
+        } else {
+            if (toEnd) await press(tab, { key: "End", code: "End", windowsVirtualKeyCode: 35, nativeVirtualKeyCode: 35 });
+            if (text) await send(tab, "Input.insertText", { text });
+            else if (clear) await press(tab, { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
+        }
         if (submit) await press(tab, { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
         return after(tab, started, aim);
     },
@@ -237,15 +243,20 @@ export function aimAt(version, ref, how) {
 /**
  * The field at `ref` focused, and what it holds selected when `clear`,
  * so what is typed next replaces it, or the cursor put at its end; or
- * `toEnd` when the field can't be given one (a number field), for End.
- * Runs in the page.
+ * `toEnd` when the field can't be given one (a number field), for End;
+ * or `picker` for a field that takes no typing at all (a date, a time, a
+ * color, a range), whose value is set instead (`setPicked`). Runs in the
+ * page.
  *
  * @param {number} ref @param {boolean} clear
- * @returns {{ toEnd: boolean }}
+ * @returns {{ toEnd: boolean, picker?: boolean }}
  */
 export function focusField(ref, clear) {
     const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
     el.focus();
+    if (el instanceof HTMLInputElement && ["date", "datetime-local", "month", "week", "time", "color", "range"].includes(el.type)) {
+        return { toEnd: false, picker: true };
+    }
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         if (clear) el.select();
         else {
@@ -264,6 +275,34 @@ export function focusField(ref, clear) {
         sel?.addRange(range);
     }
     return { toEnd: false };
+}
+
+/**
+ * The value of a field that takes no typing (a date, a time, a color, a
+ * range) set to `text`, with the events a person's choice fires, or what
+ * it takes when it refuses that value. Runs in the page.
+ *
+ * @param {number} ref @param {string} text
+ * @returns {{ error?: string }}
+ */
+export function setPicked(ref, text) {
+    const el = /** @type {HTMLInputElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    const FORMS = /** @type {Record<string, string>} */ ({
+        date: "2026-12-03",
+        "datetime-local": "2026-12-03T14:30",
+        month: "2026-12",
+        week: "2026-W49",
+        time: "14:30",
+        color: "#ff8800",
+        range: `a number from ${el.min || 0} to ${el.max || 100}`,
+    });
+    // the element's own setter: a page that wraps the value's setter still hears of it
+    const setter = /** @type {PropertyDescriptor} */ (Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")).set;
+    setter?.call(el, text);
+    if (text !== "" && el.value === "") return { error: `a ${el.type} field takes a value like ${FORMS[el.type]}, not ${JSON.stringify(text)}` };
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return {};
 }
 
 /**

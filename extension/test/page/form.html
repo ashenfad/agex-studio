@@ -9,6 +9,7 @@
 <p><button onclick="out('deleted')"><img alt="Delete" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button>
   <span id="trash-name">Delete booking</span><button aria-labelledby="trash-name" onclick="out('removed')">🗑</button></p>
 <p><label>Nights <input type="number" id="nights" value="3"></label></p>
+<p><label>Arrive <input type="date" id="arrive"></label></p>
 <p><input id="notes" aria-label="Notes"></p>
 <div id="list"><button onclick="rebuild()">Refresh list</button></div>
 <p style="position: relative"><button>Under the banner</button><span style="position: absolute; inset: 0; background: #eee">Cookie banner</span></p>
@@ -17,6 +18,7 @@
 <script>
     const out = (t) => (document.getElementById("out").textContent += `${t}; `);
     document.getElementById("pay").addEventListener("submit", (e) => (e.preventDefault(), out("paid")));
+    document.getElementById("arrive").addEventListener("change", (e) => out(`arrive ${e.isTrusted} ${e.target.value}`));
     document.getElementById("nights").addEventListener("input", (e) => out(`nights ${e.target.value}`));
     document.getElementById("notes").addEventListener("input", (e) => out(`typed ${e.isTrusted} ${e.target.value}`));
     // as a framework re-renders: the same button, a new element
