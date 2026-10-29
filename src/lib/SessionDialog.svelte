@@ -3,8 +3,9 @@
      * One session's actions, in one place: its name; a fork of it (with
      * its conversation, its files alone, or as it is now without its
      * history; sharing its app's database or with a copy of its own); a
-     * bundle of it to keep or share; publishing it; its
-     * app's database (its size, the sessions sharing it, keeping it on
+     * bundle of it to keep or share; publishing it; its variables
+     * (configuration anyone may read: `window.env` in its app, `env` for
+     * its agent), set, changed and removed; its app's database (its size, the sessions sharing it, keeping it on
      * this device, an export, its checkpoints to restore); and deleting it (with sync on, from this
      * device or everywhere). With sync on, the database's sync too, and
      * the choice when it changed here and elsewhere in ways that don't
@@ -18,8 +19,11 @@
     import { askPersist, isPersisted } from './persist.js'
     import Dialog from './Dialog.svelte'
     import { distribution } from './distribution.svelte.js'
+    import { PLANE } from './store.js'
     import { studio } from './studio.svelte.js'
     import { sync } from './sync.svelte.js'
+    import { VARIABLES_KEY, variablesOf } from './variables.js'
+    import { vault } from './vault.svelte.js'
 
     /** @type {{ name: string, onClose: () => void, onPublish: () => void, onPicked?: () => void }} */
     let { name, onClose, onPublish, onPicked = () => {} } = $props()
@@ -55,6 +59,52 @@
             await studio.switchTo(name)
             await studio.current?.rename(next)
         })
+    }
+
+    /** The session, if this page has it open: its variables are live there. */
+    const openSession = $derived(studio.current?.name === name ? studio.current : (studio.opened(name) ?? null))
+    /** Its variables as read from its plane, when it isn't open here. @type {Record<string, string>} */
+    let readVariables = $state({})
+    const variables = $derived(openSession?.variables ?? readVariables)
+    /** The names its agent has as keys: a variable under one is left out of the agent's world. */
+    const keyNames = $derived(new Set(Object.keys(vault.agentSecrets(name))))
+    /** Values being edited, by name. @type {Record<string, string>} */
+    let edits = $state({})
+    let newName = $state('')
+    let newValue = $state('')
+    /** What the last change was refused for, a line each. @type {string[]} */
+    let variableErrors = $state([])
+
+    /** Set or remove variables (null removes), as the session's own
+     *  method checks them. @param {Record<string, string | null>} changes */
+    async function setVariables(changes) {
+        let done = false
+        await act(async () => {
+            let session = studio.opened(name)
+            if (session === undefined) {
+                await studio.switchTo(name)
+                session = studio.opened(name)
+            }
+            variableErrors = (await session?.setVariables(changes)) ?? ['the session isn\'t open']
+            done = variableErrors.length === 0
+        })
+        return done
+    }
+
+    /** Keep an edited value, if it changed. @param {string} n */
+    async function saveEdit(n) {
+        const value = edits[n]
+        if (value === undefined || value === variables[n]) return
+        if (await setVariables({ [n]: value })) delete edits[n]
+    }
+
+    async function addVariable() {
+        const n = newName.trim()
+        if (n === '') return
+        if (await setVariables({ [n]: newValue })) {
+            newName = ''
+            newValue = ''
+        }
     }
 
     /** Whether a fork takes a copy of the app's database of its own,
@@ -118,6 +168,13 @@
     }
 
     onMount(() => {
+        // a session not open here: its variables as its plane has them
+        if (studio.opened(name) === undefined) {
+            studio
+                .withWorkspace(name, async (ws) => variablesOf(await ws.plane(PLANE).get(VARIABLES_KEY)))
+                .then((v) => (readVariables = v))
+                .catch(() => {})
+        }
         // a delegate's app uses its lead's database, shown there
         if (name.includes('.')) {
             db = null
@@ -226,6 +283,43 @@
             <button disabled={working} onclick={() => exportAs('everything')} title="A bundle (.agex) with its history, so each turn can be undone">Export with its history</button>
             <button disabled={working} onclick={onPublish}>Publish…</button>
         </div>
+    </section>
+
+    <section>
+        <h3>Variables</h3>
+        <p class="hint">
+            Configuration anyone may read, like a service's URL: the app has them as <code>window.env</code>, the agent as <code>env</code>. They go with the session when
+            it's shared or published, so a key never goes here: keys are in Settings, under Keys.
+        </p>
+        {#if Object.keys(variables).length > 0}
+            <ul class="variables">
+                {#each Object.entries(variables) as [n, value] (n)}
+                    <li>
+                        <code class="name">{n}</code>
+                        <input
+                            class="input small"
+                            aria-label="Value of {n}"
+                            value={edits[n] ?? value}
+                            oninput={(e) => (edits[n] = e.currentTarget.value)}
+                            onkeydown={(e) => e.key === 'Enter' && saveEdit(n)}
+                            onblur={() => saveEdit(n)}
+                        />
+                        <button disabled={working} onclick={() => setVariables({ [n]: null })} aria-label="Remove {n}">Remove</button>
+                        {#if keyNames.has(n)}<small>Hidden from the agent: one of its keys has this name.</small>{/if}
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+        <div class="row">
+            <input class="input small name" bind:value={newName} placeholder="NAME" aria-label="New variable's name" />
+            <input class="input small" bind:value={newValue} placeholder="Value" aria-label="New variable's value" onkeydown={(e) => e.key === 'Enter' && addVariable()} />
+            <button disabled={working || newName.trim() === ''} onclick={addVariable}>Add</button>
+        </div>
+        {#if variableErrors.length > 0}
+            <ul class="failed" role="alert">
+                {#each variableErrors as e, i (i)}<li>{e}</li>{/each}
+            </ul>
+        {/if}
     </section>
 
     {#if db}
@@ -488,5 +582,43 @@
     .failed {
         color: var(--error);
         font-size: 0.8rem;
+    }
+    ul.failed {
+        margin: 0.4rem 0 0;
+        padding-left: 1rem;
+    }
+    .variables {
+        list-style: none;
+        margin: 0 0 0.5rem;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+    .variables li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .variables .name {
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        min-width: 7rem;
+        overflow-wrap: anywhere;
+    }
+    .variables small {
+        flex-basis: 100%;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+    }
+    .input.small.name {
+        flex: 0 1 9rem;
+        min-width: 6rem;
+        font-family: var(--font-mono);
+    }
+    .hint code {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
     }
 </style>

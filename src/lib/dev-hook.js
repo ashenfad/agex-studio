@@ -113,6 +113,16 @@ export function installDevHook(studio, sync) {
             const s = studio.current;
             return s === null ? null : { name: s.name, title: s.title };
         },
+        /** The current session's variables. */
+        variables() {
+            return { ...session().variables };
+        },
+        /** Set or remove the current session's variables (null removes
+         *  one), as the session dialog does; what is wrong, a line each.
+         *  @param {Record<string, string | null>} changes */
+        setVariables(changes) {
+            return session().setVariables(changes);
+        },
         async transcript() {
             return session().runs.map(flatten);
         },

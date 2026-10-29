@@ -20,6 +20,7 @@ A turn's tools come from the world (`worldTools`, inside agex-ts's
 | `sessions` | delegate: ask, list, result, cancel, keep, resume, published (see [agent-loop.md](agent-loop.md)) |
 | `test_app` | act on the app in a browser (see [app-preview.md](app-preview.md)) |
 | `request_secret` | ask the person for a key, granted to the session's agent by name (see Keys below) |
+| `set_variables` | set or remove the session's variables, configuration anyone may read (see Variables below) |
 
 Every call that changes the workspace commits, stamped with its tool,
 so the history and undo follow the tool calls.
@@ -171,7 +172,12 @@ code, `$NAME` in the shell, the tools' descriptions): a top session's,
 as `ChatSession.reload` last read them or `setVariables` set them, and
 a delegate its top session's.
 
-`setVariables(changes)` sets or removes them (a value sets, null
+The person sets them in the session dialog's Variables section
+(`SessionDialog.svelte`), the agent with `set_variables`
+(`set-variables.js`), without asking, since they are public. A
+delegate's `set_variables` is refused, telling it to say in its answer
+which to set, as `request_secret` does. Both go through
+`setVariables(changes)`, which sets or removes them (a value sets, null
 removes), checked first: names as the world takes them, values strings
 of 4 KB at most, 64 at most. A name is a key or a variable, not both:
 it refuses a name the session's agent has as a key or the app declares
