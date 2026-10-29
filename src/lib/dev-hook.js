@@ -14,6 +14,7 @@
  *     await __studio.db.announceSync(); __studio.appBusy()   // agex.busy's offer
  *     __studio.vault.add({ label, value, origins }); __studio.vault.entries()   // never values
  *     __studio.extension.status(); await __studio.extension.call('tabs', { session })
+ *     __studio.saveRuns()   // the session's runs, with usage, as a JSON download
  */
 
 import { appDbs } from "./app-db-clients.js";
@@ -184,6 +185,20 @@ export function installDevHook(studio, sync) {
         async resume() {
             await session().resume();
             return { status: session().runs.at(-1)?.status ?? null, error: session().error };
+        },
+        /** The current session's runs as they're stored (each reply with
+         *  its model and token usage), saved by the browser as a JSON file
+         *  in its downloads: what a spike reads back. @param {string} [fileName] */
+        saveRuns(fileName) {
+            const s = session();
+            const name = fileName ?? `${s.name}-runs.json`;
+            const data = JSON.stringify({ session: s.name, title: s.title, runs: s.runs }, null, 1);
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+            a.download = name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+            return { fileName: name, runs: s.runs.length, bytes: data.length };
         },
         async folds() {
             return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
