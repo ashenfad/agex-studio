@@ -11,8 +11,9 @@ beforeEach(() => {
     });
 });
 
-/** An extension found, which keeps what it's told, and opens its port on `open()`. */
-function fakeExtension(status = "found") {
+/** An extension found, which keeps what it's told (beside the sessions it
+ *  knew already), and opens its port on `open()`. */
+function fakeExtension(status = "found", knew = /** @type {string[]} */ ([])) {
     /** @type {any[]} */
     const told = [];
     /** @type {() => void} */
@@ -22,6 +23,7 @@ function fakeExtension(status = "found") {
         told,
         open: () => opened(),
         call: async (/** @type {string} */ op, /** @type {any} */ args) => {
+            if (op === "sessions") return knew.map((session) => ({ session, name: "", domains: ["old.example"] }));
             told.push({ op, ...args });
             return null;
         },
@@ -33,7 +35,25 @@ function fakeExtension(status = "found") {
     return ext;
 }
 
+/** Let what the port's opening set off finish. */
+const settled = () => new Promise((r) => setTimeout(r, 0));
+
 describe("watchSites", () => {
+    it("tells none to a session the extension kept whose sites went while it was away", async () => {
+        const vault = new Vault();
+        vault.grantSites("s1", ["marriott.com"]);
+        const ext = fakeExtension("absent", ["s1", "gone"]);
+        const sites = watchSites({ vault, extension: /** @type {any} */ (ext), titleOf: () => "Trip" });
+        ext.status = "found";
+        ext.open();
+        await settled();
+        expect(ext.told).toEqual([
+            { op: "session", session: "s1", name: "Trip", domains: ["marriott.com"] },
+            { op: "session", session: "gone", name: "Trip", domains: [] },
+        ]);
+        sites.stop();
+    });
+
     it("re-tells a session whose title changed, on sync", () => {
         const vault = new Vault();
         vault.grantSites("s1", ["marriott.com"]);
@@ -63,17 +83,18 @@ describe("watchSites", () => {
         sites.stop();
     });
 
-    it("tells it all again each time the port opens", () => {
+    it("tells it all again each time the port opens", async () => {
         const vault = new Vault();
         vault.grantSites("s1", ["marriott.com"]);
         const ext = fakeExtension();
         const sites = watchSites({ vault, extension: /** @type {any} */ (ext), titleOf: () => "Trip" });
         ext.open();
+        await settled();
         expect(ext.told.map((t) => t.domains)).toEqual([["marriott.com"], ["marriott.com"]]);
         sites.stop();
     });
 
-    it("tells nothing while the extension isn't here, and all once it opens", () => {
+    it("tells nothing while the extension isn't here, and all once it opens", async () => {
         const vault = new Vault();
         const ext = fakeExtension("absent");
         const sites = watchSites({ vault, extension: /** @type {any} */ (ext), titleOf: () => "Trip" });
@@ -81,6 +102,7 @@ describe("watchSites", () => {
         expect(ext.told).toEqual([]);
         ext.status = "found";
         ext.open();
+        await settled();
         expect(ext.told).toEqual([{ op: "session", session: "s1", name: "Trip", domains: ["marriott.com"] }]);
         sites.stop();
     });
