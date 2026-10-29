@@ -13,6 +13,7 @@
 
 import { WHY_MAX, checkKeyOrigins, secretNameRefusal } from "./app-needs.js";
 import { keyRequests as deviceRequests } from "./key-requests.svelte.js";
+import { liveVariables } from "./variables.js";
 import { vault as deviceVault } from "./vault.svelte.js";
 
 export const REQUEST_SECRET_DESCRIPTION =
@@ -30,16 +31,21 @@ const delegateRefusal = (name) =>
     `a delegate can't ask the person for a key: nobody is at the picker while it runs. Finish, and say in your answer that you need ${name || "a key"}, with the origins it goes to and why; the session that asked you can ask the person and delegate again.`;
 
 /**
- * The request's arguments checked, each thing wrong said.
+ * The request's arguments checked, each thing wrong said. `variables`
+ * are the session's variables' names, which a key can't have.
  *
  * @param {Record<string, unknown>} args
+ * @param {{ variables?: string[] }} [opts]
  * @returns {{ want: { name: string, origins: string[], why: string } | null, errors: string[] }}
  */
-export function checkRequest(args) {
+export function checkRequest(args, { variables = [] } = {}) {
     /** @type {string[]} */
     const errors = [];
     const nameWhy = secretNameRefusal(args.name);
     if (nameWhy !== null) errors.push(`name: ${nameWhy}`);
+    else if (variables.includes(/** @type {string} */ (args.name))) {
+        errors.push(`name: ${args.name} is one of this session's variables (public configuration); a name is a key or a variable, not both, so pick another`);
+    }
     const list = Array.isArray(args.origins) ? args.origins : typeof args.origins === "string" ? [args.origins] : [];
     const origins = checkKeyOrigins(list);
     errors.push(...origins.errors);
@@ -62,9 +68,9 @@ const usage = (name, origins) =>
  * The tool, for session `session` (a delegate's refuses).
  *
  * @param {{ name: string, delegate?: boolean }} session
- * @param {{ vault?: import("./vault.svelte.js").Vault, requests?: import("./key-requests.svelte.js").KeyRequests }} [deps]
+ * @param {{ vault?: import("./vault.svelte.js").Vault, requests?: import("./key-requests.svelte.js").KeyRequests, variables?: (name: string) => import("./variables.js").Variables }} [deps]
  */
-export function requestSecretTool(session, { vault = deviceVault, requests = deviceRequests } = {}) {
+export function requestSecretTool(session, { vault = deviceVault, requests = deviceRequests, variables = liveVariables } = {}) {
     return {
         name: "request_secret",
         description: REQUEST_SECRET_DESCRIPTION,
@@ -84,7 +90,7 @@ export function requestSecretTool(session, { vault = deviceVault, requests = dev
          */
         async call(args, opts = {}) {
             if (session.delegate) return { text: delegateRefusal(typeof args.name === "string" ? args.name : ""), images: [], isError: true };
-            const { want, errors } = checkRequest(args);
+            const { want, errors } = checkRequest(args, { variables: Object.keys(variables(session.name)) });
             if (want === null) return { text: errors.join("\n"), images: [], isError: true };
             const have = vault.agentSecrets(session.name)[want.name];
             if (have !== undefined && want.origins.every((o) => have.origins.includes(o))) {

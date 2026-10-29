@@ -38,6 +38,13 @@ describe("request_secret's arguments", () => {
         ]);
         expect(checkRequest({ name: "K", origins: [], why: "x" }).errors).toEqual(['origins: name where the key goes, like ["https://api.stripe.com"]']);
     });
+
+    it("can't name one of the session's variables", () => {
+        expect(checkRequest({ ...args, name: "API_URL" }, { variables: ["API_URL"] }).errors).toEqual([
+            "name: API_URL is one of this session's variables (public configuration); a name is a key or a variable, not both, so pick another",
+        ]);
+        expect(checkRequest(args, { variables: ["API_URL"] }).errors).toEqual([]);
+    });
 });
 
 describe("request_secret", () => {

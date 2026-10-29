@@ -26,6 +26,9 @@ import { PLANE, metaOf, openStore } from "./store.js";
 import { testAppTool } from "./test-app.js";
 import { generateTitle, personTurns, titleDue, transcriptText } from "./titles.js";
 import { errorText } from "./errors.js";
+import { NEEDS_PATH, parseNeeds } from "./app-needs.js";
+import { VARIABLES_KEY, applyVariables, putLiveVariables, variablesOf } from "./variables.js";
+import { vault } from "./vault.svelte.js";
 import { writeFile } from "./ws-paths.js";
 
 /** @typedef {import("agex-ts").Run} Run */
@@ -89,6 +92,9 @@ export class ChatSession {
      *  whole: what a turn's start writes over keeps every field it
      *  doesn't set (`named`, `titledAt`). @type {Record<string, unknown>} */
     #meta = {};
+    /** Its variables (`variables.js`), as last read or set here.
+     *  @type {import("./variables.js").Variables} */
+    variables = $state({});
     /** @type {Run[]} */
     runs = $state([]);
     /** @type {Fold[]} */
@@ -419,6 +425,9 @@ export class ChatSession {
         this.title = meta.title;
         this.createdAt = meta.createdAt;
         this.#meta = /** @type {Record<string, unknown> | null} */ (await ws.plane(PLANE).get("meta")) ?? {};
+        this.variables = variablesOf(await plane.get(VARIABLES_KEY));
+        // a top session's world reads them live; a delegate's has its top session's
+        if (!this.readonly) putLiveVariables(this.name, this.variables);
         await this.refreshFiles();
         this.appStamp += 1;
         this.filesStamp += 1;
@@ -944,6 +953,49 @@ export class ChatSession {
         await this.ws.autoCommit({ tool: "studio.rename" });
         this.title = title;
         this.onMeta();
+    }
+
+    /**
+     * Set or remove variables (a value sets one, null removes it), or
+     * say what is wrong with the change, a line each, changing nothing.
+     * Its world has them at its next tool call. A turn running commits
+     * them with its own; else they get a commit of their own.
+     *
+     * @param {Record<string, unknown>} changes
+     * @returns {Promise<string[]>} what is wrong, empty when set
+     */
+    async setVariables(changes) {
+        if (this.readonly) return ["a delegate's variables are its session's: set them there"];
+        await this.#gate.clearOf(["sync", "edit"]);
+        const ws = this.ws;
+        if (ws === null) return ["the session isn't open"];
+        const plane = ws.plane(PLANE);
+        const current = variablesOf(await plane.get(VARIABLES_KEY));
+        const { next, errors } = applyVariables(current, changes, { taken: await this.#keyNames(ws) });
+        if (next === null) return errors;
+        plane.set(VARIABLES_KEY, next);
+        this.variables = next;
+        putLiveVariables(this.name, next);
+        if (!this.busy) await ws.autoCommit({ tool: "studio.variables" });
+        return [];
+    }
+
+    /** The names a variable can't have, each with why: the keys this
+     *  session's agent has, and the secrets its app declares.
+     *  @param {Workspace} ws */
+    async #keyNames(ws) {
+        /** @type {Record<string, string>} */
+        const taken = {};
+        for (const name of Object.keys(vault.agentSecrets(this.name))) taken[name] = "one of this session's keys";
+        /** @type {string | null} */
+        let text = null;
+        try {
+            text = new TextDecoder().decode(await ws.files.read(`/workspace/${NEEDS_PATH}`));
+        } catch {
+            // no app/agex.json: the app declares nothing
+        }
+        for (const need of parseNeeds(text).needs.secrets) taken[need.name] ??= `a secret ${NEEDS_PATH} declares`;
+        return taken;
     }
 
     /**
