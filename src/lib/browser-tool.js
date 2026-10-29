@@ -18,6 +18,16 @@ import { errorText } from "./errors.js";
 /** The most actions one call takes. */
 export const ACTIONS_MAX = 20;
 
+/**
+ * The version of the latest outline each session's agent read of each
+ * tab with this tool, by `<session> <tab>`: what its actions on that
+ * tab's refs name. A delegate's are its own, apart from its parent's,
+ * though they share the tabs.
+ *
+ * @type {Map<string, number>}
+ */
+const readByAgent = new Map();
+
 export const BROWSER_DESCRIPTION = `Work in the session's own browser tabs: real tabs in the person's browser, in the background, signed in wherever they are, on the domains you were allowed (request_sites; each covers its subdomains).
 
 tab: the tab to work in (an id from open or tabs); actions: a list, run in order, each a plain object:
@@ -73,6 +83,7 @@ export function checkAction(action) {
     const ref = (/** @type {unknown} */ r) => Number.isInteger(r) && /** @type {number} */ (r) > 0;
     if ((kind === "open" || kind === "goto") && !url(a[kind])) return { error: `${kind}: an http or https URL` };
     if (kind === "read" && a.read !== true && (typeof a.read !== "object" || a.read === null)) return { error: "read: true, or {maxChars, hrefs}" };
+    if ((kind === "screenshot" || kind === "tabs" || kind === "close") && a[kind] !== true) return { error: `${kind}: true, {${kind}: true}` };
     if ((kind === "click" || kind === "type" || kind === "select") && !ref(a[kind])) return { error: `${kind}: a ref from the latest read, like {${kind}: 12}` };
     if (kind === "type" && typeof a.text !== "string") return { error: "type: the text to type, {type: 12, text: \"...\"}" };
     if (kind === "select" && typeof a.value !== "string") return { error: "select: the option's text or value, {select: 12, value: \"...\"}" };
@@ -136,10 +147,11 @@ export function browserTool(session, { browser = deviceBrowser } = {}) {
                     if (tab === undefined) throw new Error("no tab: name one (tab: id) or open one first");
                     if (kind === "read") {
                         const o = await browser.read(name, tab, a.read === true ? {} : pick(a.read, ["maxChars", "hrefs"]));
+                        readByAgent.set(`${name} ${tab}`, o.version);
                         lines.push(`${step} tab ${tab} (outline ${o.version}, ${o.refs} refs): ${o.title} · ${o.url}${outlineNotes(o)}`, o.text);
                     } else if (kind === "click" || kind === "type" || kind === "select") {
                         const extra = kind === "type" ? pick(a, ["text", "submit", "clear"]) : kind === "select" ? { value: a.value } : {};
-                        const r = await browser.act(name, tab, kind, a[kind], extra);
+                        const r = await browser.act(name, tab, kind, readByAgent.get(`${name} ${tab}`), a[kind], extra);
                         lines.push(`${step} [${a[kind]}]${kind === "select" ? ` ${JSON.stringify(r.chosen)}` : ""}: ${actNotes(r)}`);
                     } else if (kind === "goto") {
                         const r = await browser.goto(name, tab, a.goto);
@@ -154,6 +166,7 @@ export function browserTool(session, { browser = deviceBrowser } = {}) {
                         lines.push(`${step} tab ${tab}: image ${images.length}`);
                     } else if (kind === "close") {
                         await browser.close(name, tab);
+                        readByAgent.delete(`${name} ${tab}`);
                         lines.push(`${step} tab ${tab}`);
                         tab = undefined;
                     }
