@@ -13,7 +13,7 @@
 
 import { WHY_MAX, checkKeyOrigins, secretNameRefusal } from "./app-needs.js";
 import { keyRequests as deviceRequests } from "./key-requests.svelte.js";
-import { liveVariables } from "./variables.js";
+import { liveVariables, withoutKeys } from "./variables.js";
 import { vault as deviceVault } from "./vault.svelte.js";
 
 export const REQUEST_SECRET_DESCRIPTION =
@@ -90,7 +90,9 @@ export function requestSecretTool(session, { vault = deviceVault, requests = dev
          */
         async call(args, opts = {}) {
             if (session.delegate) return { text: delegateRefusal(typeof args.name === "string" ? args.name : ""), images: [], isError: true };
-            const { want, errors } = checkRequest(args, { variables: Object.keys(variables(session.name)) });
+            // a key under a variable's name wins: that variable is no clash
+            const shown = withoutKeys(variables(session.name), vault.agentSecrets(session.name));
+            const { want, errors } = checkRequest(args, { variables: Object.keys(shown) });
             if (want === null) return { text: errors.join("\n"), images: [], isError: true };
             const have = vault.agentSecrets(session.name)[want.name];
             if (have !== undefined && want.origins.every((o) => have.origins.includes(o))) {
