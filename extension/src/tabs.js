@@ -121,14 +121,26 @@ export function watchTabs() {
             const source = state.tabs[sourceTabId];
             if (source === undefined) return; // the person's own tab
             const { origins } = known(state, source.session);
-            if (!granted(url, origins)) {
+            let refused = granted(url, origins) ? undefined : url;
+            if (refused === undefined) {
+                await hold(tabId, origins);
+                const tab = await chrome.tabs.get(tabId).catch(() => null);
+                if (tab === null) {
+                    await release(tabId);
+                    return;
+                }
+                // a page can open a tab and send it on at once, before its
+                // rules were in place: where it is now is what counts
+                refused = [tab.url, tab.pendingUrl].find((u) => u && !granted(u, origins));
+            }
+            if (refused !== undefined) {
                 // behind first: closed in front, it would hand the front to its neighbour
                 await sendBack(state, tabId);
                 await chrome.tabs.remove(tabId).catch(() => {});
-                source.blocked = { url, at: Date.now(), newTab: true };
+                await release(tabId);
+                source.blocked = { url: refused, at: Date.now(), newTab: true };
                 return;
             }
-            await hold(tabId, origins);
             state.tabs[tabId] = { session: source.session, opened: true };
             await sendBack(state, tabId);
             const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -139,6 +151,12 @@ export function watchTabs() {
 
     chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
         void change((state) => shown(state, windowId, tabId));
+    });
+    chrome.windows.onFocusChanged.addListener((windowId) => {
+        if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+        void change((state) => {
+            state.focused = [...state.focused.filter((id) => id !== windowId), windowId].slice(-SHOWN);
+        });
     });
     chrome.windows.onRemoved.addListener((windowId) => {
         void change((state) => {
@@ -181,14 +199,38 @@ export function watchTabs() {
 const SHOWN = 10;
 
 /**
- * The tab each window shows now, as the worker starts: the browser told
- * of none shown before it ran.
+ * As the worker starts: the registry's tabs held again, since an update
+ * or a reload of the extension clears their rules and leaves the tabs
+ * open, and the ones gone since dropped; and the tab each window shows
+ * now, and the focused window, since the browser told of none before
+ * the worker ran. When the browser itself has just started, every tab
+ * id the registry kept is stale, and it starts empty.
  */
-export function seedShown() {
+export function start() {
     void change(async (state) => {
+        const rules = await chrome.declarativeNetRequest.getSessionRules();
+        for (const [key, { session }] of Object.entries(state.tabs)) {
+            const id = Number(key);
+            if ((await chrome.tabs.get(id).catch(() => null)) === null) {
+                delete state.tabs[key];
+                await release(id);
+            } else if (rulesOf(rules, id).length === 0) {
+                await hold(id, state.sessions[session]?.origins ?? []);
+            }
+        }
         for (const tab of await chrome.tabs.query({ active: true })) {
             if (tab.id !== undefined && state.windows[tab.windowId] === undefined) shown(state, tab.windowId, tab.id);
         }
+        const focused = await chrome.windows.getLastFocused().catch(() => null);
+        if (focused?.id !== undefined && state.focused.length === 0) state.focused = [focused.id];
+    });
+    chrome.runtime.onStartup.addListener(() => {
+        void change(async (state) => {
+            const rules = await chrome.declarativeNetRequest.getSessionRules();
+            await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: rules.map((r) => r.id) });
+            state.sessions = {};
+            state.tabs = {};
+        });
     });
 }
 
@@ -202,7 +244,8 @@ function shown(state, windowId, tabId) {
  * A tab a page opened, sent behind if it came to the front: the agent's
  * tabs never take the person's focus. What comes back is the latest tab
  * the window showed that is still open and that no page opened (a page
- * can open several at once, each taking the front from the one before).
+ * can open several at once, each taking the front from the one before),
+ * or for a popup in a window of its own, the window focused before it.
  *
  * @param {import("./registry.js").State} state @param {number} tabId
  */
@@ -212,6 +255,15 @@ async function sendBack(state, tabId) {
     for (const id of [...(state.windows[tab.windowId] ?? [])].reverse()) {
         if (id === tabId || state.tabs[id]?.opened) continue;
         const back = await chrome.tabs.update(id, { active: true }).catch(() => null);
+        if (back) return;
+    }
+    // alone in a window of its own (a popup): the focus goes back to the
+    // window that had it before
+    const window = await chrome.windows.get(tab.windowId, { populate: true }).catch(() => null);
+    if (window === null || !window.focused || (window.tabs?.length ?? 0) > 1) return;
+    for (const id of [...state.focused].reverse()) {
+        if (id === tab.windowId) continue;
+        const back = await chrome.windows.update(id, { focused: true }).catch(() => null);
         if (back) return;
     }
 }
