@@ -23,6 +23,8 @@
  *   been told of (kept across the studio's absences).
  * - `open { session, url }` → `{ tab }`: a tab opened for the session.
  * - `close { session, tab }`: one of its tabs closed.
+ * - `show { session, tab }`: one of its tabs brought to the front, for
+ *   the person's hands (the agent's work in it rested first).
  * - `tabs { session }` → `[{ id, url, title, working, blocked? }]`: its
  *   tabs, each with whether the agent is working in it (the debugger
  *   attached), and the last load the extension stopped in it.

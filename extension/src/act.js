@@ -32,8 +32,8 @@ const AFTER_MS = 10_000;
 export const actOps = {
     /** A click at the center of the element at `ref`. */
     async click(req) {
-        const { tab } = await ownTab(req);
-        const { version, ref } = target(req);
+        const { tab, latest } = await ownTab(req);
+        const { version, ref } = target(req, latest);
         await work(tab);
         const aim = await inWorld(tab, aimAt, [version, ref, "click"]);
         refuse(aim, req);
@@ -48,8 +48,8 @@ export const actOps = {
     /** `text` typed into the field at `ref`, in place of what it held
      *  (`clear: false` adds to it), then Enter pressed if `submit`. */
     async type(req) {
-        const { tab } = await ownTab(req);
-        const { version, ref } = target(req);
+        const { tab, latest } = await ownTab(req);
+        const { version, ref } = target(req, latest);
         const { text, submit = false, clear = true } = req;
         if (typeof text !== "string") throw bad("text: what to type");
         if (typeof submit !== "boolean" || typeof clear !== "boolean") throw bad("submit, clear: true or false");
@@ -70,8 +70,8 @@ export const actOps = {
      *  sets it as the page's own script would; a custom one (a listbox of
      *  options) is clicked instead. */
     async select(req) {
-        const { tab } = await ownTab(req);
-        const { version, ref } = target(req);
+        const { tab, latest } = await ownTab(req);
+        const { version, ref } = target(req, latest);
         const { value } = req;
         if (typeof value !== "string") throw bad("value: an option's text or value");
         await work(tab);
@@ -91,11 +91,17 @@ async function press(tab, { text, ...key }) {
     await send(tab, "Input.dispatchKeyEvent", { type: "keyUp", ...key });
 }
 
-/** @param {import("./protocol.js").Request} req */
-function target(req) {
+/**
+ * An action's outline and ref, checked: the outline must be the tab's
+ * latest (`latest`, which a read or a handoff to the person moves on).
+ *
+ * @param {import("./protocol.js").Request} req @param {number} latest
+ */
+function target(req, latest) {
     const { version, ref } = req;
     if (!Number.isInteger(version)) throw bad("version: the outline's, from read");
     if (!Number.isInteger(ref) || /** @type {number} */ (ref) < 1) throw bad("ref: a ref from that outline");
+    if (version !== latest) throw new ProtocolError("stale", `the page changed since you read it (outline ${version} isn't its latest, ${latest}); read it again`);
     return { version: /** @type {number} */ (version), ref: /** @type {number} */ (ref) };
 }
 

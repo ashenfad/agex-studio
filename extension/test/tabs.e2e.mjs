@@ -25,7 +25,7 @@ describe("a session's tabs", () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
         browser = await launch({
             extension: `${ext}/dist/dev`,
-            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,subdomains,turn,restart" },
+            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,subdomains,show,turn,restart" },
         });
     });
     after(() => browser?.close());
@@ -117,6 +117,16 @@ describe("a session's tabs", () => {
         assert.equal(r.topLevel.error.code, "bad-request");
         // and says which sessions it has been told of
         assert.deepEqual(r.known, { session: "wide-domain", name: "Domain", domains: ["localhost"] });
+    });
+
+    it("brings a tab to the front for the person, the agent's work in it rested", async () => {
+        const r = await browser.report("show", 60_000);
+        assert.equal(r.before, "visible");
+        assert.equal(r.shown.value, null);
+        assert.equal(r.after, "hidden", "the studio's page stayed in front");
+        assert.equal(r.working, false);
+        assert.equal(r.elsewhere.error.code, "not-found");
+        assert.equal(r.afterHands.error.code, "stale");
     });
 
     it("keeps the studio's tab from discarding while a turn runs", async () => {

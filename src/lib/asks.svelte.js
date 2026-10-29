@@ -13,7 +13,12 @@
 import { Questions } from "./questions.js";
 
 /** How the refusal of a second ask names the one waiting. */
-const KIND_NAMES = /** @type {Record<string, string>} */ ({ key: "a key request", sites: "a request for sites" });
+const KIND_NAMES = /** @type {Record<string, string>} */ ({
+    key: "a key request",
+    sites: "a request for sites",
+    confirm: "a step to confirm",
+    handoff: "a handoff",
+});
 
 /**
  * @typedef {{ kind: string, answer: (yes: boolean) => void } & Record<string, any>} Ask

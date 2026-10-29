@@ -14,7 +14,7 @@
 import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError } from "./protocol.js";
 import { change } from "./registry.js";
-import { MARK, isWorking, restAll, resume } from "./work.js";
+import { MARK, isWorking, rest, restAll, resume } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
 
@@ -80,6 +80,25 @@ export const tabOps = {
         });
         await chrome.tabs.update(tab, { url });
         return { tab };
+    },
+
+    /** One of the session's tabs brought to the front of its window, and
+     *  the window to the front, for the person's hands (a handoff): the
+     *  agent's work in it rests first, so the page is the person's alone,
+     *  and every outline read of it before is stale. */
+    async show(req) {
+        const session = sessionArg(req);
+        const tab = tabArg(req);
+        await change((state) => {
+            mine(state, session, tab);
+            // what anyone read of it is the page before the person's hands: read again after
+            const t = state.tabs[tab];
+            t.reads = (t.reads ?? 0) + 1;
+        });
+        await rest(tab);
+        const shown = await chrome.tabs.update(tab, { active: true });
+        if (shown?.windowId !== undefined) await chrome.windows.update(shown.windowId, { focused: true });
+        return null;
     },
 
     /** One of the session's tabs closed. */
@@ -309,18 +328,19 @@ function tabsOf(state, session) {
 
 /**
  * The session and tab a request names, checked: the tab is the
- * session's. With the session's granted domains.
+ * session's. With the session's granted domains, and the version of the
+ * tab's latest outline (none read yet, 0).
  *
  * @param {Request} req
  */
 export async function ownTab(req) {
     const session = sessionArg(req);
     const tab = tabArg(req);
-    const { domains } = await change((state) => {
+    const { domains, latest } = await change((state) => {
         mine(state, session, tab);
-        return known(state, session);
+        return { domains: known(state, session).domains, latest: state.tabs[tab].reads ?? 0 };
     });
-    return { session, tab, domains };
+    return { session, tab, domains, latest };
 }
 
 /** A tab's title without the mark of the agent working in it.

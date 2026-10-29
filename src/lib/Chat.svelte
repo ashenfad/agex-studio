@@ -18,6 +18,9 @@
     import { keepReading, readingAt } from './reading.js'
     import KeyRequest from './KeyRequest.svelte'
     import SitesRequest from './SitesRequest.svelte'
+    import ConfirmRequest from './ConfirmRequest.svelte'
+    import HandoffRequest from './HandoffRequest.svelte'
+    import { browserAsks } from './browser-asks.svelte.js'
     import { keyRequests } from './key-requests.svelte.js'
     import { siteRequests } from './site-requests.svelte.js'
     import LiveTurn from './LiveTurn.svelte'
@@ -256,10 +259,16 @@
             <!-- the one card the session's agent asks with now, by its kind -->
             {@const askedKey = keyRequests.open(session.name)}
             {@const askedSites = siteRequests.open(session.name)}
+            {@const askedConfirm = browserAsks.openConfirm(session.name)}
+            {@const askedHandoff = browserAsks.openHandoff(session.name)}
             {#if askedKey !== undefined}
                 {#key askedKey}<KeyRequest session={session.name} question={askedKey} />{/key}
             {:else if askedSites !== undefined}
                 {#key askedSites}<SitesRequest session={session.name} question={askedSites} />{/key}
+            {:else if askedConfirm !== undefined}
+                {#key askedConfirm}<ConfirmRequest session={session.name} question={askedConfirm} />{/key}
+            {:else if askedHandoff !== undefined}
+                {#key askedHandoff}<HandoffRequest session={session.name} question={askedHandoff} />{/key}
             {/if}
         {/if}
         {#each session.queued as q (q.id)}
