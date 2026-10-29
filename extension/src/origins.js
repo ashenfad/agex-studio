@@ -1,9 +1,10 @@
 /**
- * Which pages may open the port: the manifest's
- * `externally_connectable.matches`, read as origins. Chrome already
- * refuses a page they don't match; the service worker checks the
- * sender's origin again, so a manifest widened by mistake doesn't widen
- * what the extension answers.
+ * Which pages may open the port. Chrome refuses a page the manifest's
+ * `externally_connectable.matches` don't name; the service worker checks
+ * the sender's origin again, against its own list (`STUDIO_MATCHES`,
+ * `DEV_MATCHES`), and the build refuses a manifest that names a page
+ * outside it. A manifest widened by mistake fails the build rather than
+ * widening what the extension answers.
  */
 
 /**
@@ -31,4 +32,16 @@ export function originMatcher(patterns) {
         }
         return allowed.some((a) => a.scheme === url.protocol && a.host === url.hostname);
     };
+}
+
+/**
+ * The patterns in `matches` that `trusted` doesn't name, which the build
+ * refuses.
+ *
+ * @param {readonly string[]} matches the manifest's
+ * @param {readonly string[]} trusted the worker's
+ * @returns {string[]}
+ */
+export function untrusted(matches, trusted) {
+    return matches.filter((m) => !trusted.includes(m));
 }
