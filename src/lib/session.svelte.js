@@ -19,6 +19,7 @@ import { profileFor, toolOptionsNow } from "./profile.js";
 import { browserExtension } from "./browser-extension.svelte.js";
 import { requestSecretTool } from "./request-secret.js";
 import { requestSitesTool } from "./request-sites.js";
+import { browserTool } from "./browser-tool.js";
 import { setVariablesTool } from "./set-variables.js";
 import { keepUnchanged } from "./runs.js";
 import { scriptedNow } from "./scripted.js";
@@ -63,8 +64,9 @@ async function publishedNow() {
  * What a session's delegates run with: its agent (capped as a
  * delegate's), `test_app`, `request_secret`, `set_variables` and, while
  * the browser extension is here, `request_sites` (which refuse, saying to
- * name what it needs in its answer), the `sessions` tool at their depth,
- * and the chat session open on one, which follows its turns.
+ * name what it needs in its answer) and `browser` (in its top session's
+ * tabs), the `sessions` tool at their depth, and the chat session open on
+ * one, which follows its turns.
  *
  * @param {ChatSession} owner
  * @returns {import("./delegation.svelte.js").RunnerHost}
@@ -79,11 +81,14 @@ function runnerHost(owner) {
             requestSecretTool({ name: ws.session, delegate: true }),
             // refused too: the variables are its top session's
             setVariablesTool({ name: ws.session, delegate: true }),
-            ...(browserExtension.status === "found" ? [requestSitesTool({ name: ws.session, delegate: true })] : []),
+            // a delegate drives a site step by step in its top session's tabs
+            ...(browserExtension.status === "found" ? [requestSitesTool({ name: ws.session, delegate: true }), browserTool({ name: ws.session, delegate: true })] : []),
             studioSessionsTool(helper, depth, publishedNow),
         ],
         observe: (name) => owner.studio.opened(name),
         toolOptions: toolOptionsNow,
+        // a delegate's run keeps the browser extension's port up, as a turn does
+        hold: () => browserExtension.hold(),
     };
 }
 
@@ -559,7 +564,7 @@ export class ChatSession {
                 requestSecretTool(this),
                 setVariablesTool(this),
                 // the browser's tools only with the extension here to reach tabs through
-                ...(browserExtension.status === "found" ? [requestSitesTool(this)] : []),
+                ...(browserExtension.status === "found" ? [requestSitesTool(this), browserTool(this)] : []),
                 ...(helper !== null ? [studioSessionsTool(helper, depthOf(this.name), publishedNow)] : []),
             ],
             toolOptions: toolOptionsNow(),
