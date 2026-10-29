@@ -112,7 +112,7 @@ export const pageOps = {
  *
  * @param {number} tab @param {number} ms
  */
-async function settled(tab, ms) {
+export async function settled(tab, ms) {
     const until = Date.now() + ms;
     await new Promise((ok) => setTimeout(ok, 100)); // a navigation just begun may not show as loading yet
     while (Date.now() < until) {
