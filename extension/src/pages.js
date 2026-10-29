@@ -19,8 +19,11 @@ const GOTO_LOAD_MS = 30_000;
  *  and how long it must hold still to count. */
 const SETTLE_MS = 10_000;
 const STILL_MS = 1_000;
-/** How many turns of the wheel `scroll` to the bottom takes at most. */
+/** How many turns of the wheel `scroll` to the bottom takes at most, and
+ *  how long, at the bottom, it waits for the page to grow (a list whose
+ *  next batch comes over the network) before it counts as the end. */
 const SCROLLS_MAX = 25;
+const GROWTH_MS = 3_000;
 /** `waitFor`'s timeout, and the most it may be given. */
 const WAIT_MS = 10_000;
 const WAIT_MAX_MS = 60_000;
@@ -119,9 +122,15 @@ export const pageOps = {
         let at = await inWorld(tab, scrolledTo, []);
         for (let i = 0; i < (to === "bottom" ? SCROLLS_MAX : 1); i++) {
             await send(tab, "Input.dispatchMouseEvent", { type: "mouseWheel", x: at.width / 2, y: at.height / 2, deltaX: 0, deltaY: Math.round(at.height * 0.85) });
-            // what the scroll set off: a list loading more, the page growing
-            await new Promise((ok) => setTimeout(ok, 500));
-            const now = await inWorld(tab, scrolledTo, []);
+            // what the scroll set off: the page moving, and a list loading more, which may
+            // wait on the network; at the bottom, the page has to stay put a while to count
+            const until = Date.now() + (to === "bottom" ? GROWTH_MS : 500);
+            let now = at;
+            while (Date.now() < until) {
+                await new Promise((ok) => setTimeout(ok, 250));
+                now = await inWorld(tab, scrolledTo, []);
+                if (now.length !== at.length || (now.below > 0 && now.top !== at.top)) break;
+            }
             const stuck = now.top === at.top && now.length === at.length;
             at = now;
             if (to === "bottom" && stuck) break;
