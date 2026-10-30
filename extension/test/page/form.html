@@ -25,10 +25,13 @@
   <div style="position: relative; height: 100%"><button style="width: 100%; height: 100%" onclick="out('removed row')">Remove</button></div>
 </div>
 <p><span role="button" onclick="out('tag')">Tag</span></p>
+<form id="wrapped"><span role="button">Wrapped <input id="inner" aria-label="Inner code"></span> <button>Book now</button></form>
+<p><button onclick="document.getElementById('inner').focus()">Focus inside</button></p>
 <p><a id="away">Elsewhere</a></p>
 <p>Out: <span id="out"></span></p>
 <script>
     const out = (t) => (document.getElementById("out").textContent += `${t}; `);
+    document.getElementById("wrapped").addEventListener("submit", (e) => (e.preventDefault(), out("booked")));
     document.getElementById("pay").addEventListener("submit", (e) => (e.preventDefault(), out("paid")));
     document.getElementById("arrive").addEventListener("change", (e) => out(`arrive ${e.isTrusted} ${e.target.value}`));
     document.getElementById("nights").addEventListener("input", (e) => out(`nights ${e.target.value}`));

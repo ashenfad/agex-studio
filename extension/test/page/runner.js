@@ -243,6 +243,9 @@ const SCENARIOS = {
             pressPay: await c.call("press", { ...on(first, "Card name"), key: "Enter" }),
             pressBadKey: await c.call("press", { ...on(first, "Tag"), key: "F5" }),
             pressTag: await c.call("press", { ...on(first, "Tag"), key: "Enter" }),
+            // a field inside it focused already: the key would reach that (submitting by "Book now"), not the ref
+            innerFocused: await c.call("click", on(first, "Focus inside")),
+            pressWrapper: await c.call("press", { ...on(first, "Wrapped"), key: "Enter" }),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
         };
