@@ -295,12 +295,45 @@ answers a question about it. The card said where what it reads goes,
 and, in a session that holds grants for other sites, that what it reads
 can reach them.
 
+Planned (2026-10-30):
+
+- **Two ways in.** The person shares the tab in front from the
+  extension's toolbar button, or the agent asks with `request_tab` and
+  the person picks one of their open tabs in its `tab` card. Either
+  way the studio says which session gets it: the toolbar's share
+  brings the studio to the front, where a card asks which session
+  (the open one first), so the extension never holds sessions' names.
+- **A share is the tab on its site.** It covers the domain the tab was
+  on when shared (its subdomains with it, as a grant does). Once the
+  person takes the tab elsewhere, a read is refused (`moved`: "the tab
+  has gone to another site; ask the person to share it again"), so a
+  tab shared for one site never shows the agent another. Back on the
+  site, it reads again.
+- **The tab stays the person's.** It isn't moved into the session's
+  group or held to its grants, and reading it needs no grant: sharing
+  it approved that much. The toolbar button's badge says the tab is
+  shared, and its popup stops sharing it; closing the tab ends the
+  share, and so does Stop sharing in the session's settings. A fork
+  doesn't copy a share: a tab is one session's.
+- **Read only:** `read`, `screenshot`, `waitFor` and `scroll` (which
+  loads a list that grows as it's scrolled, and submits nothing).
+  `click`, `type`, `select`, `press` and `goto` are refused
+  (`read-only`) until phase 3. The debugger attaches while the agent
+  reads, as in its own tabs, so Chrome's bar shows then.
+- **The session's agent asks; its delegates read.** A shared tab is
+  the top session's, so a delegate reads it as it does the session's
+  own tabs; `request_tab` is refused to a delegate, which names the tab
+  it needs in its answer.
+- **The cards say where it goes:** to the person's model provider, and
+  into the session's history, which syncs and publishes with the rest;
+  and, when the session holds grants for other sites, that what the
+  agent reads there can reach them.
+
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | Share from the toolbar (`activeTab`), naming a session: the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front, whose return reconnects the port; the open tabs listed to the studio for its picker, the one chosen given to the session | phase 1 |
-| 2 | studio | Shares taken on each connect, a share held until its session takes it; the `tab` card and its picker, saying where what the agent reads goes, and that it can reach the session's other sites when there are any; a tab shared from the toolbar arriving in the session's inbox ("the person shared *title*, *url*") | 1 |
-
-A shared tab is read-only in this phase.
+| 1 | extension | A toolbar action and its popup: Share (the tab in front, its domain kept) and Stop sharing, a badge on a shared tab; the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front (or agex.studio opened), whose return reconnects the port; ops to list shares waiting and give one to a session, to list the person's open tabs for a picker (not the sessions' own, nor the studio's) and share the one chosen, and to stop a share; a shared tab in the registry with its domain, listed in `tabs` as shared, read only on its domain (`moved`), refused anything but reading (`read-only`), its loads never held; the share ended when the tab closes | phase 1 |
+| 2 | studio | Shares taken on each connect: a card asking which session gets one (the open session first, or not now), saying where what the agent reads goes; the tab arriving in that session's inbox ("the person shared *title*, *url*"); `moved` and `read-only` explained in the browser tool's and host's refusals; the session's shared tabs in its settings, with Stop sharing; the skill and the primer's note on shared tabs | 1 |
+| 3 | studio | `request_tab` (the session's agent only; a delegate is refused and names the tab in its answer) and the `tab` card: a picker of the person's open tabs, or not now, with the same words on where it goes and on the session's other grants; then the spike: the exit, from a tab shared both ways | 2 |
 
 ## Phase 3: acting in a shared tab
 
