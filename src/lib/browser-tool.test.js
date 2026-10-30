@@ -99,6 +99,25 @@ describe("the browser tool", () => {
         expect(ext.calls.at(-1)).toEqual({ op: "press", args: { session: "s1", tab: 7, version: 4, ref: 2, key: "Enter" } });
     });
 
+    it("acts on a ref named by name, found in the agent's latest read", async () => {
+        const calendar = {
+            ...outline,
+            text: "## January 2027\n[1] button \"24\"\n## February 2027\n[2] button \"23\" [3] button \"24\"",
+            refs: [{ ref: 1, kind: "button", name: "24" }, { ref: 2, kind: "button", name: "23" }, { ref: 3, kind: "button", name: "24" }],
+        };
+        const { tool, ext } = setup({ read: calendar });
+        const out = await tool.call({ tab: 7, actions: [{ read: true }, { click: { name: "24", after: "February 2027" } }] });
+        expect(out.text.split("\n").at(-1)).toBe('2. click [3] "24": done, still at https://www.hyatt.com/search');
+        expect(ext.calls.at(-1)?.args).toMatchObject({ version: 4, ref: 3 });
+
+        const none = await tool.call({ tab: 7, actions: [{ click: { name: "31", after: "February 2027" } }] });
+        expect(none).toMatchObject({ isError: true, text: '1. click failed: no ref named "31" (after "February 2027") in your latest read of tab 7: read it again, or name the ref by its number' });
+        const unread = await tool.call({ tab: 8, actions: [{ click: { name: "24" } }] });
+        expect(unread.text).toBe("1. click failed: tab 8 hasn't been read here yet: read it, then name a ref");
+        expect(checkAction({ click: { name: "" } })).toMatchObject({ error: expect.stringMatching(/or one by name/) });
+        expect(checkAction({ type: { name: "Where", kind: "textbox" }, text: "Lisbon" })).toMatchObject({ kind: "type" });
+    });
+
     it("gives a screenshot as an image", async () => {
         const out = await setup({ screenshot: { mime: "image/jpeg", data: "AAAA" } }).tool.call({ tab: 7, actions: [{ screenshot: true }] });
         expect(out.images).toEqual([{ data: "AAAA", format: "jpeg" }]);

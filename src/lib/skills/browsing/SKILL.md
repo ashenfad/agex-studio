@@ -58,6 +58,14 @@ ignore a parameter, or count differently (IHG's month is zero-based:
 form (`type`, `select`, `click` on the refs of a read) when there is no
 link, and read the URL it lands on.
 
+**A site's own date picker isn't a date field.** `type` sets a real date
+field (`date field "Check-in"` in a read) from `2026-12-03`, but a
+textbox a site draws its calendar over often ignores typed text: it
+shows what you typed and searches the old dates. Click it, read, and
+click the days in its calendar, naming them so a reused day cell can't
+be the wrong one (`{click: {name: "24", after: "February 2027"}}`); or
+type and `press` Enter or Tab. Then read the dates the page shows.
+
 ## 3. Search the rest from code
 
 With each site's pattern, open them all at once from run_ts. Read each

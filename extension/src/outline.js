@@ -26,6 +26,8 @@
  *   `blocker`: the page is a CAPTCHA or a bot check, not the site: a
  *   challenge frame that shows, on a page with little else (a site that
  *   only carries a challenge's badge, or an invisible one, isn't one).
+ *   A cookie or consent notice comes last in the text, after the page's
+ *   own, so a short read is the page.
  *   `refs`: each ref's kind and name, as its line in the text starts
  *   (`button`, `"Reserve"`), for code to find a ref by.
  *   `cut`: the text's full length, when it was cut to `maxChars`.
@@ -58,6 +60,9 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         "[role=button]", "[role=link]", "[role=option]", "[role=tab]", "[role=checkbox]", "[role=radio]",
         "[role=switch]", "[role=menuitem]", "[role=combobox]", "[contenteditable=''], [contenteditable=true]",
     ].join(", ");
+    // a cookie or consent notice, by its text, and by its element's name or its pinning over the page
+    const NOTICE_TEXT = /cookie|consent|privacy (policy|settings|choices|preferences)|personal data/i;
+    const NOTICE_NAME = /cookie|consent|gdpr|onetrust|cookiebot|\bcmp\b|privacy-banner/i;
     const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "CANVAS", "VIDEO", "AUDIO"]);
     const squash = (/** @type {string} */ s) => s.replace(/\s+/g, " ").trim();
     const cap = (/** @type {string} */ s, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -68,7 +73,10 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
      *  for a step that commits @type {string[]} */
     const names = [];
     /** @type {string[]} */
-    const lines = [];
+    let lines = [];
+    // a cookie or consent notice's lines, which go after the page's own: a short read is the page
+    /** @type {string[]} */
+    const notices = [];
     let line = "";
     // refs alike in a row (a row of "Save to list"): the first, and a count
     let run = { desc: "", more: 0 };
@@ -145,6 +153,14 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     /** @param {Element} el */
     const display = (el) => getComputedStyle(el).display;
 
+    /** whether `el` is a cookie or consent notice, pinned over the page or named as one @param {Element} el */
+    const notice = (el) => {
+        const named = NOTICE_NAME.test(`${el.id} ${typeof el.className === "string" ? el.className : ""} ${el.getAttribute("aria-label") ?? ""}`);
+        const pinned = ["fixed", "sticky"].includes(getComputedStyle(el).position);
+        // short, as a notice is: a page whose whole app is pinned isn't one
+        return (named || pinned) && el instanceof HTMLElement && el.innerText.length < 3000 && NOTICE_TEXT.test(el.innerText.slice(0, 600));
+    };
+
     /** @param {Node} node @param {boolean} quiet inside a carousel: its text, none of its controls */
     const walk = (node, quiet) => {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -165,6 +181,15 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         if (el.tagName.toUpperCase() === "SVG" && !el.matches(INTERACTIVE)) return;
         const block = !shown.startsWith("inline");
         if (block) flush();
+        if (block && !el.matches(INTERACTIVE) && notice(el)) {
+            const page = lines;
+            lines = [];
+            for (const c of el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes) walk(c, quiet);
+            flush();
+            notices.push(...lines);
+            lines = page;
+            return;
+        }
         const carousel = quiet || CAROUSEL.test(el.getAttribute("aria-roledescription") ?? "") ||
             CAROUSEL.test(typeof el.className === "string" ? el.className : "");
         const children = el.shadowRoot
@@ -207,6 +232,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     };
     if (document.body) walk(document.body, false);
     flush();
+    if (notices.length > 0) lines.push("(a cookie or consent notice, over the page:)", ...notices);
 
     // a run of lines alike but for their refs (a row of photo buttons) is
     // one line, and a count
