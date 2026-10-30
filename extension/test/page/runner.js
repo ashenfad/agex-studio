@@ -333,6 +333,11 @@ const SCENARIOS = {
             badge: await read("badge.html"), resort: await read("resort.html"),
             overlay: await read("overlay.html"), wall: await read("wall.html"),
         };
+        // a consent notice, read after the page's own text
+        const { value: { tab: consent } } = await c.call("open", { session: "blockers", url: `${GRANTED}/test/page/consent.html` });
+        const short = (await c.call("read", { session: "blockers", tab: consent, maxChars: 150 })).value;
+        const whole = (await c.call("read", { session: "blockers", tab: consent })).value;
+        report.notice = { short: short.text, whole: whole.text, accept: whole.refs.find((x) => x.name === "Accept all")?.kind };
         await c.call("turn", { running: false });
         c.port.disconnect();
         return report;

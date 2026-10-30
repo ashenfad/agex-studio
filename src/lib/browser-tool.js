@@ -11,7 +11,7 @@
  * (`request_sites`): a page that goes on to another is stopped.
  */
 
-import { browser as deviceBrowser } from "./browser.js";
+import { browser as deviceBrowser, findRefs } from "./browser.js";
 import { browserAsks as deviceAsks } from "./browser-asks.svelte.js";
 import { ExtensionError } from "./browser-extension.svelte.js";
 import { errorText } from "./errors.js";
@@ -20,12 +20,13 @@ import { errorText } from "./errors.js";
 export const ACTIONS_MAX = 20;
 
 /**
- * The version of the latest outline each session's agent read of each
- * tab with this tool, by `<session> <tab>`: what its actions on that
- * tab's refs name. A delegate's are its own, apart from its parent's,
- * though they share the tabs.
+ * The latest outline each session's agent read of each tab with this
+ * tool, by `<session> <tab>`: its version, which its actions on that
+ * tab's refs name, and its text and refs, which a ref named by name is
+ * found in. A delegate's are its own, apart from its parent's, though
+ * they share the tabs.
  *
- * @type {Map<string, number>}
+ * @type {Map<string, Pick<import("./browser.js").Outline, "version" | "text" | "refs">>}
  */
 const readByAgent = new Map();
 
@@ -39,6 +40,7 @@ tab: the tab to work in (an id from open or tabs); actions: a list, run in order
 - {read: true} or {read: {maxChars, hrefs: true, settle: true}}: the page as an outline: its text, a line per block, with a numbered ref on each thing to click or type into, like [12] button "Reserve", and its state (a field's value, a box checked, a select's options). hrefs adds where links go; settle first waits until the page's text stops changing (for a page that draws its results after it loads). A read says when the page is a CAPTCHA or a bot check (blocker), and when the page goes on below (a list there may load more as it's scrolled)
 - {scroll: "down"} or {scroll: "bottom"}: the page scrolled as a person's wheel would, a screenful or until it stops growing, so a list that loads as it's scrolled loads; read it again after
 - {click: 12} · {type: 12, text: "Lisbon", submit?: true, clear?: false} · {select: 12, value: "2"}: on the ref of the latest read of the tab. A page that changed since (a new page, the element re-rendered, or reading otherwise now) refuses it: read again. submit presses Enter; clear: false adds to what the field holds; a date field takes 2026-12-03, a time 14:30
+- a ref by name, in place of its number: {click: {name: "24", after: "February 2027"}} is the first ref whose name holds "24" shown after "February 2027" in your latest read (kind: "button" narrows it to one kind), so it can't be the wrong number
 - {press: 12, key: "Enter"}: a key pressed with that ref focused (Enter, Space, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Home, End, PageDown, PageUp): for a control a click doesn't reach, a list to move through, a menu to close
 - {goto: "https://..."} · {waitFor: "text on the page"} or {waitFor: {selector: "css"}, timeout: ms} (10s by default, up to 60s)
 - {screenshot: true}: an image of the tab as it renders
@@ -89,12 +91,14 @@ export function checkAction(action) {
     if (kinds.length !== 1) return { error: `an action does one thing: one of ${KINDS.join(", ")} (got ${JSON.stringify(action)})` };
     const kind = kinds[0];
     const url = (/** @type {unknown} */ u) => typeof u === "string" && /^https?:\/\//.test(u);
-    const ref = (/** @type {unknown} */ r) => Number.isInteger(r) && /** @type {number} */ (r) > 0;
+    const ref = (/** @type {unknown} */ r) => (Number.isInteger(r) && /** @type {number} */ (r) > 0) || byName(r);
     if ((kind === "open" || kind === "goto") && !url(a[kind])) return { error: `${kind}: an http or https URL` };
     if (kind === "read" && a.read !== true && (typeof a.read !== "object" || a.read === null)) return { error: "read: true, or {maxChars, hrefs}" };
     if ((kind === "screenshot" || kind === "tabs" || kind === "close") && a[kind] !== true) return { error: `${kind}: true, {${kind}: true}` };
     if (kind === "scroll" && a.scroll !== true && a.scroll !== "down" && a.scroll !== "bottom") return { error: 'scroll: "down" (a screenful) or "bottom"' };
-    if ((kind === "click" || kind === "type" || kind === "select" || kind === "press") && !ref(a[kind])) return { error: `${kind}: a ref from the latest read, like {${kind}: 12}` };
+    if ((kind === "click" || kind === "type" || kind === "select" || kind === "press") && !ref(a[kind])) {
+        return { error: `${kind}: a ref from the latest read, like {${kind}: 12}, or one by name, like {${kind}: {name: "Search", after: "Where"}}` };
+    }
     if (kind === "type" && typeof a.text !== "string") return { error: "type: the text to type, {type: 12, text: \"...\"}" };
     if (kind === "select" && typeof a.value !== "string") return { error: "select: the option's text or value, {select: 12, value: \"...\"}" };
     if (kind === "press" && typeof a.key !== "string") return { error: "press: the key, {press: 12, key: \"Enter\"}" };
@@ -179,16 +183,18 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                     if (tab === undefined) throw new Error("no tab: name one (tab: id) or open one first");
                     if (kind === "read") {
                         const o = await browser.read(name, tab, a.read === true ? {} : pick(a.read, ["maxChars", "hrefs", "settle"]));
-                        readByAgent.set(`${name} ${tab}`, o.version);
+                        readByAgent.set(`${name} ${tab}`, { version: o.version, text: o.text, refs: o.refs });
                         lines.push(`${step} tab ${tab} (outline ${o.version}, ${o.refs.length} refs): ${o.title} · ${o.url}${outlineNotes(o)}`, o.text);
                     } else if (kind === "click" || kind === "type" || kind === "select" || kind === "press") {
                         const extra = kind === "type" ? pick(a, ["text", "submit", "clear"]) : kind === "select" ? { value: a.value } : kind === "press" ? { key: a.key } : {};
-                        const at = `${step} [${a[kind]}]`;
-                        const version = readByAgent.get(`${name} ${tab}`);
+                        const read = readByAgent.get(`${name} ${tab}`);
+                        const ref = byName(a[kind]) ? refNamed(read, a[kind], tab) : a[kind];
+                        const at = `${step} [${ref}]${byName(a[kind]) ? ` ${JSON.stringify(a[kind].name)}` : ""}`;
+                        const version = read?.version;
                         /** @type {import("./browser.js").ActResult} */
                         let r;
                         try {
-                            r = await browser.act(name, tab, kind, version, a[kind], extra);
+                            r = await browser.act(name, tab, kind, version, ref, extra);
                         } catch (e) {
                             if (delegate || !(e instanceof ExtensionError) || e.code !== "confirm") throw e;
                             // a step that commits: the person's yes, or it isn't taken
@@ -197,7 +203,7 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                                 lines.push(`${at}: the person said no to it (${e.message}). Don't take it another way; ask them what they'd like instead.`);
                                 return { text: lines.join("\n"), images, isError: false };
                             }
-                            r = await browser.act(name, tab, kind, version, a[kind], extra, { confirmed: true });
+                            r = await browser.act(name, tab, kind, version, ref, extra, { confirmed: true });
                             lines.push(`${at}: the person confirmed it`);
                         }
                         lines.push(`${at}${kind === "select" ? ` ${JSON.stringify(r.chosen)}` : kind === "press" ? ` ${a.key}` : ""}: ${actNotes(r)}`);
@@ -273,6 +279,31 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
 export function stepText(refusal) {
     const step = refusal.replace(/ reads as a step that commits \(.*\)$/, "").replace(/\[\d+\] /, "").replace(/,$/, "");
     return /^(Enter|Space) (in|on) /.test(step) ? `Press ${step}` : `Click ${step}`;
+}
+
+/** Whether an action's target is a ref by name: `{name, after?, kind?}`. @param {unknown} t
+ *  @returns {t is { name: string, after?: string, kind?: string }} */
+function byName(t) {
+    if (t === null || typeof t !== "object") return false;
+    const n = /** @type {Record<string, unknown>} */ (t);
+    return typeof n.name === "string" && n.name !== "" && ["after", "kind"].every((k) => n[k] === undefined || typeof n[k] === "string");
+}
+
+/**
+ * The ref a name names in the agent's latest read of the tab, or why
+ * there's none.
+ *
+ * @param {Pick<import("./browser.js").Outline, "version" | "text" | "refs"> | undefined} read
+ * @param {{ name: string, after?: string, kind?: string }} target @param {number} tab
+ */
+function refNamed(read, target, tab) {
+    if (read === undefined) throw new Error(`tab ${tab} hasn't been read here yet: read it, then name a ref`);
+    const [ref] = findRefs(read, target.name, pick(target, ["kind", "after"]));
+    if (ref === undefined) {
+        const where = [target.kind && `a ${target.kind}`, target.after !== undefined && `after ${JSON.stringify(target.after)}`].filter(Boolean).join(", ");
+        throw new Error(`no ref named ${JSON.stringify(target.name)}${where ? ` (${where})` : ""} in your latest read of tab ${tab}: read it again, or name the ref by its number`);
+    }
+    return ref;
 }
 
 /** @param {Record<string, any>} o @param {string[]} keys */

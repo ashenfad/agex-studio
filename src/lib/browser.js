@@ -25,6 +25,28 @@ export const topOf = (session) => session.split(".")[0];
  * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
  */
 
+/**
+ * The refs of an outline whose names match `match` (a string, ignoring
+ * case, or a RegExp), of a `kind`, shown in its text after the first
+ * place it says `after` (a row's price, a month's heading), in the
+ * page's order: for code's `page.find` and the browser tool's ref by
+ * name alike. Self-contained, as the browser host's stub carries its
+ * source.
+ *
+ * @param {{ text: string, refs: Ref[] }} page @param {string | RegExp} match
+ * @param {{ kind?: string, after?: string }} [opts] @returns {number[]}
+ */
+export function findRefs(page, match, { kind, after } = {}) {
+    const from = after === undefined ? 0 : page.text.indexOf(after);
+    if (from < 0) return [];
+    const named = typeof match === "string"
+        ? (/** @type {string} */ name) => name.toLowerCase().includes(match.toLowerCase())
+        : (/** @type {string} */ name) => name.search(match) >= 0;
+    return page.refs
+        .filter((r) => named(r.name) && (kind === undefined || r.kind === kind) && (after === undefined || page.text.indexOf(`[${r.ref}]`) > from))
+        .map((r) => r.ref);
+}
+
 export class Browser {
     /** @param {import("./browser-extension.svelte.js").BrowserExtension} extension */
     constructor(extension) {

@@ -22,7 +22,7 @@
 
 import { hostFactory, typedHost, withStub } from "@agex-ts/world";
 import { z } from "zod";
-import { browser as deviceBrowser } from "./browser.js";
+import { browser as deviceBrowser, findRefs } from "./browser.js";
 import { ExtensionError } from "./browser-extension.svelte.js";
 import { errorText } from "./errors.js";
 
@@ -128,18 +128,7 @@ export class BrowserHost {
 /** Code's half: tabs as objects, their methods the host's with the tab's id;
  *  a page read, its refs found by name. */
 export const STUB = `(remote) => {
-    // a page's refs whose names match (a string, ignoring case, or a RegExp), of a kind,
-    // shown in its text after the first place it says \`after\` (a row's price, a heading)
-    const findAll = (page, match, { kind, after } = {}) => {
-        const from = after === undefined ? 0 : page.text.indexOf(after);
-        if (from < 0) return [];
-        const named = typeof match === "string"
-            ? (name) => name.toLowerCase().includes(match.toLowerCase())
-            : (name) => name.search(match) >= 0;
-        return page.refs
-            .filter((r) => named(r.name) && (kind === undefined || r.kind === kind) && (after === undefined || page.text.indexOf("[" + r.ref + "]") > from))
-            .map((r) => r.ref);
-    };
+    const findAll = ${findRefs};
     const find = (page, match, opts = {}) => {
         const [ref] = findAll(page, match, opts);
         if (ref === undefined) {

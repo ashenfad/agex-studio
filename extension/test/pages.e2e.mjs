@@ -128,9 +128,19 @@ describe("a session's pages", () => {
     });
 
     it("says when a page is a CAPTCHA or a bot check", async () => {
-        const r = await browser.report("blockers", 60_000);
+        const { notice, ...r } = await browser.report("blockers", 60_000);
         // a challenge's badge, or a frame on a page with much else to read, isn't a blocker;
         // a challenge over such a page is
         assert.deepEqual(r, { captcha: "captcha", checking: "bot-check", hotel: null, badge: null, resort: null, overlay: "captcha", wall: "captcha" });
+    });
+
+    it("reads a cookie notice after the page's own text, so a short read is the page", async () => {
+        const { notice } = await browser.report("blockers", 60_000);
+        assert.match(notice.short, /^# Rooms\nOcean view king/);
+        assert.doesNotMatch(notice.short, /cookies/);
+        assert.match(notice.whole, /\(a cookie or consent notice, over the page:\)\nWe and our partners use cookies[^\n]*\n\[\d+\] button "Accept all"/);
+        // its controls are refs still, and a sticky header that links the privacy policy is the page's
+        assert.equal(notice.accept, "button");
+        assert.ok(notice.whole.indexOf('"Privacy"') < notice.whole.indexOf("(a cookie or consent notice"), notice.whole);
     });
 });
