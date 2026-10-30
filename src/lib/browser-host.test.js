@@ -109,6 +109,22 @@ describe("the browser stub", () => {
         expect(() => p.find("Book", { after: "$706" })).toThrow('no ref named "Book" (after "$706") in https://www.google.com/travel/flights');
     });
 
+    it("finds refs in the order the text shows them, not the refs' order", async () => {
+        // a consent notice first in the page, read after it
+        const page = {
+            version: 2,
+            url: "https://hotel.example/trips",
+            text: '# Trips\n[2] button "Manage booking"\n(a cookie or consent notice, over the page:)\n[1] button "Manage choices"',
+            refs: [{ ref: 1, kind: "button", name: "Manage choices" }, { ref: 2, kind: "button", name: "Manage booking" }, { ref: 3, kind: "button", name: "Manage more" }],
+        };
+        const remote = { read: async () => page };
+        // eslint-disable-next-line no-eval
+        const p = await (0, eval)(STUB)(remote).tab(2).read();
+        expect(p.find("Manage", { after: "Trips" })).toBe(2);
+        // ref 3, cut from the text, comes last
+        expect(p.findAll("Manage")).toEqual([2, 1, 3]);
+    });
+
     it("lists the tabs as tabs, with what the host says of each", async () => {
         const { code } = stubbed();
         const [tab] = await code.tabs();
