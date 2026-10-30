@@ -44,8 +44,12 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     // a challenge that shows only when it suspects a bot: its frame is the badge in a corner
     const INVISIBLE = /size=invisible|checkbox-invisible/i;
     // a challenge page is little but the challenge: a page with more to read is the site, its
-    // challenge on a form further on
+    // challenge on a form further on, unless the challenge is over it
     const CHALLENGE_PAGE_CHARS = 2000;
+    // a challenge over the page: its frame takes this share of the view, or sits in a fixed
+    // overlay that takes OVERLAY_SHARE
+    const CHALLENGE_SHARE = 0.2;
+    const OVERLAY_SHARE = 0.5;
     const CHECK_TEXT = /just a moment|access denied|attention required|pardon our interruption|are you a (human|robot)|verify (that )?you are (a )?human|request unsuccessful|press (&|and) hold/i;
     // photo carousels: their controls are many and say little
     const CAROUSEL = /carousel|swiper|slick|splide|glide/i;
@@ -223,9 +227,24 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
 
     const full = out.join("\n");
 
+    /** the share of the view `el` covers @param {Element} el */
+    const share = (el) => {
+        const b = el.getBoundingClientRect();
+        const w = Math.min(b.right, innerWidth) - Math.max(b.left, 0);
+        const h = Math.min(b.bottom, innerHeight) - Math.max(b.top, 0);
+        return w > 0 && h > 0 ? (w * h) / Math.max(innerWidth * innerHeight, 1) : 0;
+    };
+    /** whether `el` is in a fixed overlay over most of the view @param {Element} el */
+    const overlaid = (el) => {
+        for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+            if (getComputedStyle(a).position === "fixed" && share(a) >= OVERLAY_SHARE) return true;
+        }
+        return false;
+    };
     let blocker = /** @type {Outline["blocker"]} */ (null);
     for (const f of document.querySelectorAll("iframe")) {
-        if (CHALLENGE.test(f.src) && !INVISIBLE.test(f.src) && f.checkVisibility() && full.length < CHALLENGE_PAGE_CHARS) blocker = "captcha";
+        if (!CHALLENGE.test(f.src) || INVISIBLE.test(f.src) || !f.checkVisibility({ visibilityProperty: true })) continue;
+        if (full.length < CHALLENGE_PAGE_CHARS || share(f) >= CHALLENGE_SHARE || overlaid(f)) blocker = "captcha";
     }
     if (blocker === null && (CHECK_TEXT.test(document.title) || CHECK_TEXT.test(document.body?.innerText.slice(0, 500) ?? ""))) {
         blocker = "bot-check";

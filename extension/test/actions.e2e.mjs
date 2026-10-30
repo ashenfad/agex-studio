@@ -133,6 +133,8 @@ describe("acting in a session's pages", () => {
 
     it("takes a tab as a choice, not a step that commits, whatever it's named", () => {
         assert.equal(r.bookTab.value?.title, "Book a room", JSON.stringify(r.bookTab.error));
+        // a switch may save as it's flipped: asked, as a button named so is
+        assert.equal(r.publishSwitch.error?.code, "confirm", JSON.stringify(r.publishSwitch));
         assert.match(r.out, /hotel only;/);
     });
 

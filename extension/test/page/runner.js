@@ -244,6 +244,7 @@ const SCENARIOS = {
             pressBadKey: await c.call("press", { ...on(first, "Tag"), key: "F5" }),
             pressTag: await c.call("press", { ...on(first, "Tag"), key: "Enter" }),
             bookTab: await c.call("click", on(first, "Book hotel")),
+            publishSwitch: await c.call("click", on(first, "Publish")),
             day23: await c.call("click", on(first, "23")),
             day24: await c.call("click", on(first, "24")),
             // a field inside it focused already: the key would reach that (submitting by "Book now"), not the ref
@@ -330,6 +331,7 @@ const SCENARIOS = {
         const report = {
             captcha: await read("captcha.html"), checking: await read("checking.html"), hotel: await read("hotel.html"),
             badge: await read("badge.html"), resort: await read("resort.html"),
+            overlay: await read("overlay.html"), wall: await read("wall.html"),
         };
         await c.call("turn", { running: false });
         c.port.disconnect();
