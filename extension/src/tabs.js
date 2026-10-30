@@ -268,6 +268,8 @@ export function watchTabs() {
             await release(removed);
             delete state.tabs[removed];
             state.tabs[added] = tab;
+            // the tabs its pages opened are from it still
+            for (const t of Object.values(state.tabs)) if (t.opener === removed) t.opener = added;
         });
     });
 }

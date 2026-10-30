@@ -144,6 +144,16 @@ describe("a tab a page opens", () => {
         expect(fake.chrome.declarativeNetRequest.rules.filter((r) => r.condition.tabIds?.includes(20))).toEqual([]);
     });
 
+    it("marks its opener blocked under the opener's new id, once a prerendered page has swapped it in", async () => {
+        on.replaced(30, 7);
+        await settle();
+        on.committed({ tabId: 20, frameId: 0, url: "https://elsewhere.example/" });
+        await settle();
+        expect(removed).toEqual([20]);
+        expect(kept().tabs[7]).toBeUndefined();
+        expect(kept().tabs[30].blocked).toMatchObject({ url: "https://elsewhere.example/", newTab: true });
+    });
+
     it("is kept when it gets somewhere granted, in a frame, or to the error page of a load its rules stopped", async () => {
         on.committed({ tabId: 20, frameId: 0, url: "https://www.hyatt.com/rooms" });
         on.committed({ tabId: 20, frameId: 3, url: "https://ads.example/" });
