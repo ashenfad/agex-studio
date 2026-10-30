@@ -141,6 +141,7 @@ describe("a session's pages", () => {
         assert.match(notice.whole, /\(a cookie or consent notice, over the page:\)\nWe and our partners use cookies[^\n]*\n\[\d+\] button "Accept all"/);
         // its controls are refs still, and a sticky header that links the privacy policy is the page's
         assert.equal(notice.accept, "button");
-        assert.ok(notice.whole.indexOf('"Privacy"') < notice.whole.indexOf("(a cookie or consent notice"), notice.whole);
+        assert.ok(notice.whole.indexOf('"Privacy Policy"') < notice.whole.indexOf("(a cookie or consent notice"), notice.whole);
+        assert.ok(notice.whole.indexOf('"Cookie settings"') < notice.whole.indexOf("(a cookie or consent notice"), notice.whole);
     });
 });

@@ -29,9 +29,9 @@ export const topOf = (session) => session.split(".")[0];
  * The refs of an outline whose names match `match` (a string, ignoring
  * case, or a RegExp), of a `kind`, shown in its text after the first
  * place it says `after` (a row's price, a month's heading), in the
- * page's order: for code's `page.find` and the browser tool's ref by
- * name alike. Self-contained, as the browser host's stub carries its
- * source.
+ * order its text shows them (a notice read last, its refs too): for
+ * code's `page.find` and the browser tool's ref by name alike.
+ * Self-contained, as the browser host's stub carries its source.
  *
  * @param {{ text: string, refs: Ref[] }} page @param {string | RegExp} match
  * @param {{ kind?: string, after?: string }} [opts] @returns {number[]}
@@ -42,8 +42,15 @@ export function findRefs(page, match, { kind, after } = {}) {
     const named = typeof match === "string"
         ? (/** @type {string} */ name) => name.toLowerCase().includes(match.toLowerCase())
         : (/** @type {string} */ name) => name.search(match) >= 0;
+    // a ref the text doesn't show (cut short) comes last
+    const at = (/** @type {Ref} */ r) => {
+        const i = page.text.indexOf(`[${r.ref}]`);
+        return i < 0 ? Infinity : i;
+    };
     return page.refs
         .filter((r) => named(r.name) && (kind === undefined || r.kind === kind) && (after === undefined || page.text.indexOf(`[${r.ref}]`) > from))
+        .map((r) => ({ ref: r.ref, at: at(r) }))
+        .sort((a, b) => (a.at === b.at ? 0 : a.at - b.at))
         .map((r) => r.ref);
 }
 

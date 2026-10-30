@@ -62,6 +62,10 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     ].join(", ");
     // a cookie or consent notice, by its text, and by its element's name or its pinning over the page
     const NOTICE_TEXT = /cookie|consent|privacy (policy|settings|choices|preferences)|personal data/i;
+    // one pinned and not named so needs more: it asks about cookies and offers an answer (a
+    // sticky header that links the privacy policy or cookie settings is the page's)
+    const PINNED_NOTICE_TEXT = /cookie|consent/i;
+    const NOTICE_ANSWER = /\b(accept|agree|allow|reject|decline|refuse|deny|got it|ok|okay|dismiss|close)\b/i;
     const NOTICE_NAME = /cookie|consent|gdpr|onetrust|cookiebot|\bcmp\b|privacy-banner/i;
     const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "CANVAS", "VIDEO", "AUDIO"]);
     const squash = (/** @type {string} */ s) => s.replace(/\s+/g, " ").trim();
@@ -155,10 +159,15 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
 
     /** whether `el` is a cookie or consent notice, pinned over the page or named as one @param {Element} el */
     const notice = (el) => {
+        if (!(el instanceof HTMLElement)) return false;
         const named = NOTICE_NAME.test(`${el.id} ${typeof el.className === "string" ? el.className : ""} ${el.getAttribute("aria-label") ?? ""}`);
-        const pinned = ["fixed", "sticky"].includes(getComputedStyle(el).position);
+        if (!named && !["fixed", "sticky"].includes(getComputedStyle(el).position)) return false;
         // short, as a notice is: a page whose whole app is pinned isn't one
-        return (named || pinned) && el instanceof HTMLElement && el.innerText.length < 3000 && NOTICE_TEXT.test(el.innerText.slice(0, 600));
+        if (el.innerText.length >= 3000) return false;
+        const says = el.innerText.slice(0, 600);
+        if (named) return NOTICE_TEXT.test(says);
+        return PINNED_NOTICE_TEXT.test(says) && [...el.querySelectorAll("button, [role=button], input[type=button], input[type=submit]")]
+            .some((b) => NOTICE_ANSWER.test(`${b.textContent} ${b.getAttribute("aria-label") ?? ""} ${b instanceof HTMLInputElement ? b.value : ""}`));
     };
 
     /** @param {Node} node @param {boolean} quiet inside a carousel: its text, none of its controls */
