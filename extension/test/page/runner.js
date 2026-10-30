@@ -243,6 +243,9 @@ const SCENARIOS = {
             pressPay: await c.call("press", { ...on(first, "Card name"), key: "Enter" }),
             pressBadKey: await c.call("press", { ...on(first, "Tag"), key: "F5" }),
             pressTag: await c.call("press", { ...on(first, "Tag"), key: "Enter" }),
+            bookTab: await c.call("click", on(first, "Book hotel")),
+            day23: await c.call("click", on(first, "23")),
+            day24: await c.call("click", on(first, "24")),
             // a field inside it focused already: the key would reach that (submitting by "Book now"), not the ref
             innerFocused: await c.call("click", on(first, "Focus inside")),
             pressWrapper: await c.call("press", { ...on(first, "Wrapped"), key: "Enter" }),
@@ -324,7 +327,10 @@ const SCENARIOS = {
             const { value } = await c.call("open", { session: "blockers", url: `${GRANTED}/test/page/${page}` });
             return (await c.call("read", { session: "blockers", tab: value.tab })).value?.blocker;
         };
-        const report = { captcha: await read("captcha.html"), checking: await read("checking.html"), hotel: await read("hotel.html") };
+        const report = {
+            captcha: await read("captcha.html"), checking: await read("checking.html"), hotel: await read("hotel.html"),
+            badge: await read("badge.html"), resort: await read("resort.html"),
+        };
         await c.call("turn", { running: false });
         c.port.disconnect();
         return report;

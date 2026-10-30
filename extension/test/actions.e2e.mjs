@@ -124,6 +124,18 @@ describe("acting in a session's pages", () => {
         assert.doesNotMatch(r.out, /booked/);
     });
 
+    it("refuses a click on an element that reads otherwise than it did, as stale", () => {
+        assert.equal(r.day23.value?.title, "Book a room", JSON.stringify(r.day23.error));
+        assert.equal(r.day24.error?.code, "stale");
+        assert.match(r.day24.error.message, /reads "23" now, not "24"/);
+        assert.equal((r.out.match(/picked/g) ?? []).length, 1, "the drifted click never reached the page");
+    });
+
+    it("takes a tab as a choice, not a step that commits, whatever it's named", () => {
+        assert.equal(r.bookTab.value?.title, "Book a room", JSON.stringify(r.bookTab.error));
+        assert.match(r.out, /hotel only;/);
+    });
+
     it("lists each ref's kind and name, as its line in the text starts", () => {
         assert.deepEqual(r.kinds, { Arrive: "date field", "From 583 to Lisbon": "link", Reserve: "button", Guests: "select" });
         assert.equal(r.refsListed, true);

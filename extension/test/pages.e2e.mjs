@@ -129,6 +129,7 @@ describe("a session's pages", () => {
 
     it("says when a page is a CAPTCHA or a bot check", async () => {
         const r = await browser.report("blockers", 60_000);
-        assert.deepEqual(r, { captcha: "captcha", checking: "bot-check", hotel: null });
+        // a challenge's badge, or a frame on a page with much else to read, isn't a blocker
+        assert.deepEqual(r, { captcha: "captcha", checking: "bot-check", hotel: null, badge: null, resort: null });
     });
 });
