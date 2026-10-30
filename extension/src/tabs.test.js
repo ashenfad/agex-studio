@@ -90,3 +90,69 @@ describe("the worker's start", () => {
         expect(fake.areas.local.get("registry")).toEqual({ sessions: {}, tabs: {} });
     });
 });
+
+describe("a tab a page opens", () => {
+    /** @type {ReturnType<typeof fakeChrome>} */
+    let fake;
+    /** @type {Record<string, (e: any) => void>} */
+    let on;
+    /** @type {number[]} */
+    let removed;
+    /** whether the tab's last load ended in an error page */
+    let errorPage = false;
+    beforeEach(async () => {
+        fake = fakeChrome({ registry: { sessions: registry.sessions, tabs: { 7: { session: "s" } } } });
+        on = {};
+        removed = [];
+        errorPage = false;
+        const event = (/** @type {string} */ name) => ({ addListener: (/** @type {(e: any) => void} */ f) => (on[name] = f) });
+        const chrome = /** @type {any} */ (fake.chrome);
+        Object.assign(chrome.tabs, {
+            // still where it started, on a grant, though a redirect has sent it on
+            get: async (/** @type {number} */ id) => ({ id, windowId: 1, active: false, url: "https://www.hyatt.com/go", groupId: -1 }),
+            remove: async (/** @type {number} */ id) => void removed.push(id),
+            group: async () => 1,
+            onActivated: event("activated"),
+            onRemoved: event("tabRemoved"),
+            onReplaced: event("replaced"),
+        });
+        chrome.windows = { ...chrome.windows, onFocusChanged: event("focus"), onRemoved: event("windowRemoved") };
+        chrome.tabGroups = { TAB_GROUP_ID_NONE: -1, get: async () => ({ title: "Hotels" }), update: async () => {} };
+        chrome.webNavigation = {
+            onCreatedNavigationTarget: event("created"),
+            onCommitted: event("committed"),
+            onErrorOccurred: event("error"),
+            getFrame: async () => ({ errorOccurred: errorPage }),
+        };
+        Object.assign(globalThis, { chrome });
+        const { watchTabs } = await import("./tabs.js");
+        watchTabs();
+        on.created({ sourceTabId: 7, tabId: 20, url: "https://www.hyatt.com/go" });
+        await settle();
+    });
+
+    /** @returns {any} */
+    const kept = () => fake.areas.local.get("registry");
+
+    it("is closed when it gets somewhere without a grant its rules were too late for", async () => {
+        expect(kept().tabs[20]).toMatchObject({ session: "s", opened: true, opener: 7 });
+        on.committed({ tabId: 20, frameId: 0, url: "https://elsewhere.example/" });
+        await settle();
+        expect(removed).toEqual([20]);
+        expect(kept().tabs[20]).toBeUndefined();
+        expect(kept().tabs[7].blocked).toMatchObject({ url: "https://elsewhere.example/", newTab: true });
+        expect(fake.chrome.declarativeNetRequest.rules.filter((r) => r.condition.tabIds?.includes(20))).toEqual([]);
+    });
+
+    it("is kept when it gets somewhere granted, in a frame, or to the error page of a load its rules stopped", async () => {
+        on.committed({ tabId: 20, frameId: 0, url: "https://www.hyatt.com/rooms" });
+        on.committed({ tabId: 20, frameId: 3, url: "https://ads.example/" });
+        await settle();
+        errorPage = true;
+        on.committed({ tabId: 20, frameId: 0, url: "https://elsewhere.example/" });
+        await settle();
+        expect(removed).toEqual([]);
+        expect(kept().tabs[20]).toMatchObject({ opener: 7 });
+        expect(kept().tabs[7].blocked).toBeUndefined();
+    });
+});
