@@ -302,7 +302,11 @@ Planned (2026-10-30):
   the person picks one of their open tabs in its `tab` card. Either
   way the studio says which session gets it: the toolbar's share
   brings the studio to the front, where a card asks which session
-  (the open one first), so the extension never holds sessions' names.
+  (the open one first), so the popup needn't list them.
+- **Only the person's own web pages are shared:** an http or https
+  tab, not one of a session's own (which is already that session's,
+  held to its grants) nor the studio's. On those the popup says why
+  it can't share them, and the picker leaves them out.
 - **A share is the tab on its site.** It covers the domain the tab was
   on when shared (its subdomains with it, as a grant does). Once the
   person takes the tab elsewhere, a read is refused (`moved`: "the tab
@@ -331,7 +335,7 @@ Planned (2026-10-30):
 
 | # | Where | What | Needs |
 |---|---|---|---|
-| 1 | extension | A toolbar action and its popup: Share (the tab in front, its domain kept) and Stop sharing, a badge on a shared tab; the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front (or agex.studio opened), whose return reconnects the port; ops to list shares waiting and give one to a session, to list the person's open tabs for a picker (not the sessions' own, nor the studio's) and share the one chosen, and to stop a share; a shared tab in the registry with its domain, listed in `tabs` as shared, read only on its domain (`moved`), refused anything but reading (`read-only`), its loads never held; the share ended when the tab closes | phase 1 |
+| 1 | extension | A toolbar action and its popup: Share (the tab in front, its domain kept, when it's an http or https tab and not a session's own or the studio's) and Stop sharing, a badge on a shared tab; the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front (or agex.studio opened), whose return reconnects the port; ops to list shares waiting and give one to a session, to list the person's open tabs for a picker (http and https only, not the sessions' own, nor the studio's) and share the one chosen, and to stop a share; a shared tab in the registry with its domain, listed in `tabs` as shared, read only on its domain (`moved`), refused anything but reading (`read-only`), its loads never held; the share ended when the tab closes | phase 1 |
 | 2 | studio | Shares taken on each connect: a card asking which session gets one (the open session first, or not now), saying where what the agent reads goes; the tab arriving in that session's inbox ("the person shared *title*, *url*"); `moved` and `read-only` explained in the browser tool's and host's refusals; the session's shared tabs in its settings, with Stop sharing; the skill and the primer's note on shared tabs | 1 |
 | 3 | studio | `request_tab` (the session's agent only; a delegate is refused and names the tab in its answer) and the `tab` card: a picker of the person's open tabs, or not now, with the same words on where it goes and on the session's other grants; then the spike: the exit, from a tab shared both ways | 2 |
 
