@@ -1,6 +1,6 @@
 /**
- * Acting in a session's tab, by the refs of an outline: `click`, `type`
- * and `select`.
+ * Acting in a session's tab, by the refs of an outline: `click`, `type`,
+ * `select` and `press`.
  *
  * - **An action names the outline it was read from** (`version`), and is
  *   refused when that isn't the page's latest, or when the page has gone
@@ -9,14 +9,20 @@
  *   an element, not a place, so an element that has only moved is still
  *   the one the agent read.
  * - **Input is trusted:** a click is the debugger's mouse events at the
- *   element's center, typing its `Input.insertText`, so a site sees what a
- *   person's hand would do. An element something else covers at its
- *   center (a cookie banner) is refused, naming what covers it.
+ *   element's center, typing its `Input.insertText`, a key its key
+ *   events, so a site sees what a person's hand would do. A click goes
+ *   where the element shows: its center, or another point in it when its
+ *   center is covered. An element covered all over (a cookie banner) is
+ *   refused, naming what covers it, unless what covers it is its own
+ *   row's content: an element that fills its parent, drawn under the
+ *   rest of its parent (a result row's link), takes a click on that
+ *   content, where no other control is.
  * - **Steps that commit are refused unless confirmed:** a click on a
- *   control, or a form submit whose submitting control, reads as
- *   committing (book, reserve, pay, ...). The agent asks the person, and
- *   calls again with `confirmed: true`. It is a guard rail: a control
- *   labelled otherwise ("Continue", an icon, another language) gets past.
+ *   control (or Enter or Space on it), or a form submit whose submitting
+ *   control, reads as committing (book, reserve, pay, ...). The agent
+ *   asks the person, and calls again with `confirmed: true`. It is a
+ *   guard rail: a control labelled otherwise ("Continue", an icon,
+ *   another language) gets past.
  */
 
 import { ProtocolError } from "./protocol.js";
@@ -28,9 +34,29 @@ import { inWorld, send, work } from "./work.js";
 /** How long an action waits for the page to settle after it. */
 const AFTER_MS = 10_000;
 
+/** The keys `press` takes, as the debugger's key events name them. */
+const KEYS = /** @type {Record<string, { key: string, code: string, windowsVirtualKeyCode: number, nativeVirtualKeyCode: number, text?: string }>} */ (
+    Object.fromEntries(
+        /** @type {[string, string, number, string?][]} */ ([
+            ["Enter", "Enter", 13, "\r"],
+            ["Space", " ", 32, " "],
+            ["Escape", "Escape", 27],
+            ["Tab", "Tab", 9],
+            ["ArrowDown", "ArrowDown", 40],
+            ["ArrowUp", "ArrowUp", 38],
+            ["ArrowLeft", "ArrowLeft", 37],
+            ["ArrowRight", "ArrowRight", 39],
+            ["Home", "Home", 36],
+            ["End", "End", 35],
+            ["PageDown", "PageDown", 34],
+            ["PageUp", "PageUp", 33],
+        ]).map(([name, key, vk, text]) => [name, { key, code: name, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, ...(text && { text }) }]),
+    )
+);
+
 /** @type {Record<string, import("./port.js").Op>} */
 export const actOps = {
-    /** A click at the center of the element at `ref`. */
+    /** A click on the element at `ref`, where it shows. */
     async click(req) {
         const { tab, latest } = await ownTab(req);
         const { version, ref } = target(req, latest);
@@ -68,6 +94,23 @@ export const actOps = {
             else if (clear) await press(tab, { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8 });
         }
         if (submit) await press(tab, { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
+        return after(tab, started, aim);
+    },
+
+    /** `key` pressed with the element at `ref` focused: Enter or Space on
+     *  a control a click doesn't reach, Escape, Tab, the arrows. */
+    async press(req) {
+        const { tab, latest } = await ownTab(req);
+        const { version, ref } = target(req, latest);
+        const key = typeof req.key === "string" && Object.hasOwn(KEYS, req.key) ? KEYS[req.key] : undefined;
+        if (key === undefined) throw bad(`key: one of ${Object.keys(KEYS).join(", ")}`);
+        await work(tab);
+        const aim = await inWorld(tab, aimAt, [version, ref, "press", /** @type {string} */ (req.key)]);
+        refuse(aim, req);
+        const started = await before(tab);
+        const focused = await inWorld(tab, focusOn, [ref]);
+        if (focused.error) throw new ProtocolError("failed", focused.error);
+        await press(tab, key);
         return after(tab, started, aim);
     },
 
@@ -169,10 +212,11 @@ async function after(tab, started, aim) {
  * page, in the extension's isolated world, as the outline does.
  *
  * @param {number} version @param {number} ref
- * @param {"click" | "type" | "submit" | "select"} how
+ * @param {"click" | "type" | "submit" | "select" | "press"} how
+ * @param {string} [key] the key, for `press`
  * @returns {Aim}
  */
-export function aimAt(version, ref, how) {
+export function aimAt(version, ref, how, key) {
     const COMMITS = /\b(book|reserve|pay|purchase|buy|checkout|check out|place order|order now|send|post|publish|delete|confirm)\b/i;
     const kept = /** @type {{ version: number, refs: Element[], names: string[] } | undefined} */ (/** @type {any} */ (globalThis).__agex);
     if (kept === undefined) return { stale: "it is another page now" };
@@ -218,30 +262,73 @@ export function aimAt(version, ref, how) {
     const form = /** @type {HTMLInputElement} */ (el).form ?? el.closest("form");
     const isSubmit = (/** @type {Element} */ e) =>
         (e instanceof HTMLButtonElement && e.type === "submit") || (e instanceof HTMLInputElement && (e.type === "submit" || e.type === "image"));
+    // Enter in a field that takes a line submits its form, as typing with submit does;
+    // Enter or Space on a control does what a click on it would
+    const entersField = how === "press" && key === "Enter" && el instanceof HTMLInputElement && !isSubmit(el) && !["checkbox", "radio", "button", "reset"].includes(el.type);
+    const activates = how === "click" || (how === "press" && (key === "Enter" || key === "Space") && !entersField);
     let submits = false;
     let says = named(el);
-    let step = desc;
-    if (how === "click" && form && isSubmit(el)) submits = true;
-    if (how === "submit" && form) {
+    let step = how === "press" ? `${key} on ${desc}` : desc;
+    if (activates && form && isSubmit(el)) submits = true;
+    if ((how === "submit" || entersField) && form) {
         submits = true;
         const submitter = [...form.elements].find(isSubmit);
         says = submitter ? named(submitter) : "";
         if (submitter) step = `Enter in ${desc}, submitting its form by ${JSON.stringify(text(submitter) || says)},`;
     }
-    const commits = how === "click" || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
+    const commits = activates || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
 
     el.scrollIntoView({ block: "center", inline: "center" });
     const box = el.getBoundingClientRect();
     const x = box.left + box.width / 2;
     const y = box.top + box.height / 2;
     if (how === "click") {
-        // a click lands on whatever is on top there
+        // a click lands on whatever is on top there: the center, or else another point the element shows at
+        /** @param {Element | null} hit */
+        const ours = (hit) => {
+            const label = hit?.closest("label");
+            return hit !== null && (hit === el || el.contains(hit) || hit.contains(el) || (label !== null && label?.control === el));
+        };
+        // whether `hit`, on top of the element where it would be clicked, is its own row's content:
+        // inside the parent the element fills (a result row whose link is drawn under the row's
+        // text), and no other control
+        const CONTROLS = "a[href], button, input, select, textarea, summary, [contenteditable=''], [contenteditable=true], " +
+            "[role=button], [role=link], [role=option], [role=tab], [role=checkbox], [role=radio], [role=switch], [role=menuitem], [role=combobox]";
+        const rowContent = (/** @type {Element} */ hit) => {
+            const row = el.parentElement;
+            if (row === null || row === document.body || row === document.documentElement || !row.contains(hit)) return false;
+            const area = (/** @type {DOMRect} */ b) => b.width * b.height;
+            const rowBox = row.getBoundingClientRect();
+            if (area(rowBox) === 0 || area(el.getBoundingClientRect()) < 0.9 * area(rowBox)) return false;
+            const other = hit.closest(CONTROLS);
+            return other === null || other === el || !row.contains(other);
+        };
+        const points = [[0.5, 0.5], [0.25, 0.5], [0.75, 0.5], [0.5, 0.25], [0.5, 0.75], [0.1, 0.5], [0.9, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]
+            .map(([fx, fy]) => ({ x: box.left + box.width * fx, y: box.top + box.height * fy }))
+            .filter((p) => p.x >= 0 && p.y >= 0 && p.x < innerWidth && p.y < innerHeight);
+        const shown = points.find((p) => ours(document.elementFromPoint(p.x, p.y)));
+        if (shown) return { ...shown, desc: step, commits, submits };
         const hit = document.elementFromPoint(x, y);
-        const label = hit?.closest("label");
-        const ours = hit !== null && (hit === el || el.contains(hit) || hit.contains(el) || (label !== null && label?.control === el));
-        if (!ours) return { error: `${desc} is covered by ${hit ? `${hit.tagName.toLowerCase()} ${JSON.stringify(text(hit))}` : "nothing the page shows"}` };
+        if (!(hit !== null && rowContent(hit))) {
+            return { error: `${desc} is covered by ${hit ? `${hit.tagName.toLowerCase()} ${JSON.stringify(text(hit))}` : "nothing the page shows"}` };
+        }
     }
     return { x, y, desc: step, commits, submits };
+}
+
+/**
+ * The element at `ref` focused, for a key pressed in it, or what's wrong
+ * when it can't be. Runs in the page.
+ *
+ * @param {number} ref
+ * @returns {{ error?: string }}
+ */
+export function focusOn(ref) {
+    const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    el.focus();
+    const at = document.activeElement;
+    if (at !== el && !(at !== null && el.contains(at))) return { error: `[${ref}] ${el.tagName.toLowerCase()} can't take the keyboard's focus: click it` };
+    return {};
 }
 
 /**

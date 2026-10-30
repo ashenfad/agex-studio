@@ -17,12 +17,14 @@
  *   url: string,
  *   title: string,
  *   blocker: "captcha" | "bot-check" | null,
- *   refs: number,
+ *   refs: { ref: number, kind: string, name: string }[],
  *   text: string,
  *   cut?: number,
  *   below?: number,
  * }} Outline
  *   `blocker`: the page is a CAPTCHA or a bot check, not the site.
+ *   `refs`: each ref's kind and name, as its line in the text starts
+ *   (`button`, `"Reserve"`), for code to find a ref by.
  *   `cut`: the text's full length, when it was cut to `maxChars`.
  *   `below`: how far the page goes on below what shows, in screenfuls,
  *   when it does: a list there may load more as it is scrolled.
@@ -92,9 +94,23 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         ));
     };
 
+    /** what a ref is, as its line starts: a button, a link, a textbox, ... @param {Element} el */
+    const kindOf = (el) => {
+        const role = el.getAttribute("role");
+        if (el instanceof HTMLSelectElement) return "select";
+        if (el instanceof HTMLInputElement) {
+            if (el.type === "checkbox" || el.type === "radio") return el.type;
+            if (["submit", "button", "reset", "image"].includes(el.type)) return "button";
+            return el.type === "text" ? "textbox" : `${el.type} field`;
+        }
+        if (el instanceof HTMLTextAreaElement) return "textbox";
+        if (el instanceof HTMLAnchorElement && !role) return "link";
+        return role ?? (el.tagName === "SUMMARY" ? "button" : el.tagName.toLowerCase());
+    };
+
     /** @param {Element} el */
     const describe = (el) => {
-        const role = el.getAttribute("role");
+        const kind = kindOf(el);
         const name = JSON.stringify(label(el));
         const disabled = /** @type {HTMLButtonElement} */ (el).disabled || el.getAttribute("aria-disabled") === "true" ? " (disabled)" : "";
         if (el instanceof HTMLSelectElement) {
@@ -103,15 +119,15 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
             return `select ${name} = ${JSON.stringify(squash(el.selectedOptions[0]?.text ?? ""))} (options: ${shownOptions.join(" | ")})${disabled}`;
         }
         if (el instanceof HTMLInputElement) {
-            if (el.type === "checkbox" || el.type === "radio") return `${el.type} ${name}${el.checked ? " (checked)" : ""}${disabled}`;
-            if (["submit", "button", "reset", "image"].includes(el.type)) return `button ${name}${disabled}`;
+            if (el.type === "checkbox" || el.type === "radio") return `${kind} ${name}${el.checked ? " (checked)" : ""}${disabled}`;
+            if (kind === "button") return `${kind} ${name}${disabled}`;
             const value = el.type === "password" ? (el.value ? " = (filled)" : "") : el.value ? ` = ${JSON.stringify(cap(el.value, 40))}` : "";
-            return `${el.type === "text" ? "textbox" : `${el.type} field`} ${name}${value}${disabled}`;
+            return `${kind} ${name}${value}${disabled}`;
         }
-        if (el instanceof HTMLTextAreaElement) return `textbox ${name}${el.value ? ` = ${JSON.stringify(cap(el.value, 40))}` : ""}${disabled}`;
-        if (el instanceof HTMLAnchorElement && !role) return `link ${name}${hrefs ? ` → ${el.href}` : ""}`;
+        if (el instanceof HTMLTextAreaElement) return `${kind} ${name}${el.value ? ` = ${JSON.stringify(cap(el.value, 40))}` : ""}${disabled}`;
+        if (el instanceof HTMLAnchorElement && kind === "link") return `${kind} ${name}${hrefs ? ` → ${el.href}` : ""}`;
         const checked = el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true" ? " (checked)" : "";
-        return `${role ?? (el.tagName === "SUMMARY" ? "button" : el.tagName.toLowerCase())} ${name}${checked}${disabled}`;
+        return `${kind} ${name}${checked}${disabled}`;
     };
 
     /** @param {Element} el */
@@ -149,9 +165,8 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
             const field = el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement;
             if (!field && el instanceof HTMLElement && el.innerText.length > 80) {
                 // a card that is one link or button: its ref, then its text
-                const kind = el.getAttribute("role") ?? (el instanceof HTMLAnchorElement ? "link" : el.tagName.toLowerCase());
                 endRun();
-                line += ` [${refs.length}] ${kind}${hrefs && el instanceof HTMLAnchorElement ? ` → ${el.href}` : ""}: `;
+                line += ` [${refs.length}] ${kindOf(el)}${hrefs && el instanceof HTMLAnchorElement ? ` → ${el.href}` : ""}: `;
                 for (const c of children) walk(c, quiet);
             } else {
                 const desc = describe(el);
@@ -215,7 +230,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         url: location.href,
         title: document.title,
         blocker,
-        refs: refs.length,
+        refs: refs.map((el, i) => ({ ref: i + 1, kind: kindOf(el), name: names[i] })),
         text: full.length > maxChars ? full.slice(0, maxChars) : full,
         ...(full.length > maxChars && { cut: full.length }),
         ...(below >= 0.5 && { below }),

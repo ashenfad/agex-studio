@@ -31,7 +31,7 @@
  *   attached), and the last load the extension stopped in it.
  * - `read { session, tab, maxChars?, hrefs?, settle? }` → an outline: the
  *   page's text, with numbered refs on what can be clicked or typed into,
- *   its `version`, a `blocker` when the page is a CAPTCHA or bot check,
+ *   each ref's `{ ref, kind, name }` (`refs`), its `version`, a `blocker` when the page is a CAPTCHA or bot check,
  *   and how many screenfuls go on `below`; `settle` first waits for the
  *   page's text to stop changing.
  * - `scroll { session, tab, to? }` → `{ top, below }`: "down" a screenful
@@ -40,7 +40,8 @@
  * - `waitFor { session, tab, text | selector, timeout? }` → `{ ms }`.
  * - `screenshot { session, tab }` → `{ mime, data }`: a JPEG, base64.
  * - `click { session, tab, version, ref, confirmed? }`,
- *   `type { ..., text, submit?, clear? }`, `select { ..., value }` →
+ *   `type { ..., text, submit?, clear? }`, `select { ..., value }`,
+ *   `press { ..., key }` (Enter, Space, Escape, Tab, the arrows, ...) →
  *   `{ url, title, navigated?, submitted?, blocked? }`: an action on the
  *   element at `ref` in outline `version`. Refused as `stale` when the
  *   page has changed since, and as `confirm` when the step reads as

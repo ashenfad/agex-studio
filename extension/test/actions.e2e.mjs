@@ -93,6 +93,38 @@ describe("acting in a session's pages", () => {
         assert.match(r.covered.error.message, /covered by span "Cookie banner"/);
     });
 
+    it("clicks where an element shows, its center covered", () => {
+        assert.equal(r.half.value?.title, "Book a room", JSON.stringify(r.half.error));
+        assert.match(r.out, /half;/);
+    });
+
+    it("clicks a row's link through the row's own content, but not through another control", () => {
+        assert.equal(r.rowClick.value?.title, "Book a room", JSON.stringify(r.rowClick.error));
+        assert.match(r.out, /row true;/);
+        assert.equal(r.rowCovered.error?.code, "failed");
+        assert.match(r.rowCovered.error.message, /covered by button "Remove"/);
+        assert.doesNotMatch(r.out, /row 706|removed row/);
+    });
+
+    it("presses a key on a ref, held to the same check for a step that commits", () => {
+        assert.equal(r.rowKey.value?.title, "Book a room", JSON.stringify(r.rowKey.error));
+        assert.match(r.out, /row key true;/);
+        assert.equal(r.pressReserve.error?.code, "confirm");
+        assert.match(r.pressReserve.error.message, /^Enter on \[\d+\] button "Reserve"/);
+        assert.equal(r.pressPay.error?.code, "confirm");
+        assert.match(r.pressPay.error.message, /Enter in \[\d+\] input "Card name", submitting its form by "Pay now"/);
+        assert.equal(r.pressBadKey.error?.code, "bad-request");
+        assert.match(r.pressBadKey.error.message, /key: one of Enter, Space/);
+        assert.equal(r.pressTag.error?.code, "failed");
+        assert.match(r.pressTag.error.message, /can't take the keyboard's focus: click it/);
+        assert.doesNotMatch(r.out, /tag;/);
+    });
+
+    it("lists each ref's kind and name, as its line in the text starts", () => {
+        assert.deepEqual(r.kinds, { Arrive: "date field", "From 583 to Lisbon": "link", Reserve: "button", Guests: "select" });
+        assert.equal(r.refsListed, true);
+    });
+
     it("refuses an action on an outline the page has changed since", () => {
         assert.equal(r.refresh.value.title, "Book a room");
         assert.equal(r.refreshAgain.error.code, "stale");
