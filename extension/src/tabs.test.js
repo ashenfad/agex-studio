@@ -72,6 +72,16 @@ describe("the worker's start", () => {
         expect(Object.keys(/** @type {any} */ (fake.areas.local.get("registry")).tabs)).toEqual(["7"]);
     });
 
+    it("leaves a tab the person shared unheld: its loads are theirs", async () => {
+        fake = fakeChrome({ open: [7, 9], registry: { ...registry, tabs: { ...registry.tabs, 9: { session: "s", shared: { domain: "mail.example", at: 1 } } } } });
+        Object.assign(globalThis, { chrome: fake.chrome });
+        const { start } = await import("./tabs.js");
+        start();
+        await settle();
+        expect(fake.chrome.declarativeNetRequest.rules.map((r) => r.condition.tabIds)).toEqual([[7], [7]]);
+        expect(Object.keys(/** @type {any} */ (fake.areas.local.get("registry")).tabs)).toEqual(["7", "9"]);
+    });
+
     it("leaves a tab's rules as they are when it still has them", async () => {
         const kept = [{ id: 3, priority: 1, action: { type: "block" }, condition: { tabIds: [7], resourceTypes: ["main_frame"] } }];
         fake.chrome.declarativeNetRequest.rules = structuredClone(kept);

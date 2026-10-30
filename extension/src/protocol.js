@@ -26,9 +26,21 @@
  * - `resume`: the person's cancel (Chrome's debugging bar) lifted.
  * - `show { session, tab }`: one of its tabs brought to the front, for
  *   the person's hands (the agent's work in it rested first).
- * - `tabs { session }` → `[{ id, url, title, working, blocked? }]`: its
- *   tabs, each with whether the agent is working in it (the debugger
- *   attached), and the last load the extension stopped in it.
+ * - `tabs { session }` → `[{ id, url, title, working, blocked?, shared? }]`:
+ *   its tabs, each with whether the agent is working in it (the debugger
+ *   attached), the last load the extension stopped in it, and for one the
+ *   person shared, the domain it was shared on.
+ * - `browsable` → `[{ id, url, title }]`: the person's open tabs that
+ *   could be shared, for the studio's picker (http and https pages, not
+ *   a session's nor the studio's), the latest used first.
+ * - `share { session, tab }` → `{ tab, domain }`: one of them shared
+ *   with the session, on the domain it's on now (its subdomains with
+ *   it). A shared tab stays the person's: its loads aren't held, and
+ *   it's only read (`read`, `scroll`, `waitFor`, `screenshot`; anything
+ *   else is refused as `read-only`), and only while it's on that domain
+ *   (else `moved`).
+ * - `unshare { session, tab }`: a shared tab the session's no longer,
+ *   left open.
  * - `read { session, tab, maxChars?, hrefs?, settle? }` → an outline: the
  *   page's text, with numbered refs on what can be clicked or typed into,
  *   each ref's `{ ref, kind, name }` (`refs`), its `version`, a `blocker` when the page is a CAPTCHA or bot check,
@@ -82,7 +94,7 @@ export const HEARTBEAT_MS = 20_000;
  * @typedef {{ id: number, op: string, [arg: string]: unknown }} Request
  * @typedef {{ code: ErrorCode, message: string }} ReplyError
  * @typedef {{ id: number, value: unknown } | { id: number, error: ReplyError }} Reply
- * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "not-found" | "not-granted" | "timeout" | "stopped" | "stale" | "confirm" | "failed"} ErrorCode
+ * @typedef {"protocol" | "hello-first" | "unknown-op" | "bad-request" | "not-found" | "not-granted" | "timeout" | "stopped" | "stale" | "confirm" | "read-only" | "moved" | "failed"} ErrorCode
  */
 
 /** What `hello` answers. @typedef {{ protocol: number, version: string }} Hello */

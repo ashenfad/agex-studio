@@ -18,10 +18,14 @@
  * @typedef {{ url: string, at: number, newTab?: boolean }} Blocked
  *   The last load the extension stopped in a tab: a page load to an
  *   domain without a grant, or a tab the page opened there, closed.
- * @typedef {{ session: string, opened?: boolean, opener?: number, blocked?: Blocked, reads?: number }} Tab
+ * @typedef {{ session: string, opened?: boolean, opener?: number, shared?: Shared, blocked?: Blocked, reads?: number }} Tab
  *   `opened`: a tab one of the session's pages opened, from the tab
- *   `opener`. `reads`: how many outlines of it have been read, the last
- *   one's version.
+ *   `opener`. `shared`: a tab of the person's they shared with the
+ *   session, to read. `reads`: how many outlines of it have been read,
+ *   the last one's version.
+ * @typedef {{ domain: string, at: number }} Shared
+ *   A share covers the domain the tab was on when shared (its
+ *   subdomains with it, as a grant does): elsewhere, it isn't read.
  * @typedef {{
  *   sessions: Record<string, Session>,
  *   tabs: Record<string, Tab>,
