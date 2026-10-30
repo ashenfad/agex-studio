@@ -110,6 +110,15 @@ console.log(JSON.stringify({
 - **A read is an outline**: `{ version, url, title, blocker, text, refs }`,
   the text a line per block with numbered controls. `blocker` is
   `"captcha"` or `"bot-check"` when the page is one rather than the site.
+  `refs` lists every control as `{ ref, kind, name }`; find one by its
+  name rather than picking numbers out of the text:
+  `await tab.click(page.find('Select flight', { after: '$706' }))` clicks
+  the first "Select flight" shown after "$706" (that result's row).
+  `find` throws when there's none; `findAll` gives every match. Refs
+  are the read's: after a click that changes the page, read it again.
+- **A control a click doesn't reach** (a row the page draws over its own
+  link, a custom widget): `tab.press(ref, 'Enter')` presses the key with
+  it focused, as a person's keyboard would.
 - **Pages render in the background** as if in front, but many draw
   their results after the page loads: `tab.read({ settle: true })` waits
   until the page's text stops changing, or `waitFor` what every results

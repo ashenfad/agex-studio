@@ -235,9 +235,19 @@ const SCENARIOS = {
             departReadOnly: await c.call("type", { ...on(first, "Depart"), text: "2026-12-07" }),
             colourBad: await c.call("type", { ...on(first, "Colour"), text: "red" }),
             covered: await c.call("click", on(first, "Under the banner")),
+            half: await c.call("click", on(first, "Half covered")),
+            rowClick: await c.call("click", on(first, "From 583 to Lisbon")),
+            rowKey: await c.call("press", { ...on(first, "From 583 to Lisbon"), key: "Enter" }),
+            rowCovered: await c.call("click", on(first, "From 706 to Lisbon")),
+            pressReserve: await c.call("press", { ...on(first, "Reserve"), key: "Enter" }),
+            pressPay: await c.call("press", { ...on(first, "Card name"), key: "Enter" }),
+            pressBadKey: await c.call("press", { ...on(first, "Tag"), key: "F5" }),
+            pressTag: await c.call("press", { ...on(first, "Tag"), key: "Enter" }),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
         };
+        r.kinds = Object.fromEntries(["Arrive", "From 583 to Lisbon", "Reserve", "Guests"].map((name) => [name, first.refs.find((x) => x.name === name)?.kind]));
+        r.refsListed = first.refs.every((x, i) => x.ref === i + 1);
         const second = (await c.call("read", at)).value;
         r.out = /Out: (.*)$/m.exec(second.text)?.[1];
         // what the refused values left in their fields

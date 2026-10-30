@@ -14,6 +14,17 @@
 <p><input id="notes" aria-label="Notes"></p>
 <div id="list"><button onclick="rebuild()">Refresh list</button></div>
 <p style="position: relative"><button>Under the banner</button><span style="position: absolute; inset: 0; background: #eee">Cookie banner</span></p>
+<p style="position: relative; width: 300px"><button style="width: 300px" onclick="out('half')">Half covered</button><span style="position: absolute; left: 100px; width: 100px; top: 0; bottom: 0; background: #eee">Badge</span></p>
+<!-- result rows whose link lies under the row's own content, as some search pages draw them -->
+<div style="position: relative; width: 420px; height: 48px" onclick="out(`row ${event.isTrusted}`)">
+  <div role="link" tabindex="0" aria-label="From 583 to Lisbon" style="position: absolute; inset: 0" onkeydown="if (event.key === 'Enter') out(`row key ${event.isTrusted}`)"></div>
+  <div style="position: relative; height: 100%">Total duration 11 hr 50 min · From $583</div>
+</div>
+<div style="position: relative; width: 420px; height: 48px">
+  <div role="link" aria-label="From 706 to Lisbon" style="position: absolute; inset: 0" onclick="out('row 706')"></div>
+  <div style="position: relative; height: 100%"><button style="width: 100%; height: 100%" onclick="out('removed row')">Remove</button></div>
+</div>
+<p><span role="button" onclick="out('tag')">Tag</span></p>
 <p><a id="away">Elsewhere</a></p>
 <p>Out: <span id="out"></span></p>
 <script>

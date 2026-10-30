@@ -30,7 +30,7 @@ export const ACTIONS_MAX = 20;
 const readByAgent = new Map();
 
 /** What an action can be. */
-const KINDS = ["open", "read", "click", "type", "select", "scroll", "goto", "waitFor", "screenshot", "tabs", "close", "handoff"];
+const KINDS = ["open", "read", "click", "type", "select", "press", "scroll", "goto", "waitFor", "screenshot", "tabs", "close", "handoff"];
 
 export const BROWSER_DESCRIPTION = `Work in the session's own browser tabs: real tabs in the person's browser, in the background, signed in wherever they are, on the domains you were allowed (request_sites; each covers its subdomains).
 
@@ -39,6 +39,7 @@ tab: the tab to work in (an id from open or tabs); actions: a list, run in order
 - {read: true} or {read: {maxChars, hrefs: true, settle: true}}: the page as an outline: its text, a line per block, with a numbered ref on each thing to click or type into, like [12] button "Reserve", and its state (a field's value, a box checked, a select's options). hrefs adds where links go; settle first waits until the page's text stops changing (for a page that draws its results after it loads). A read says when the page is a CAPTCHA or a bot check (blocker), and when the page goes on below (a list there may load more as it's scrolled)
 - {scroll: "down"} or {scroll: "bottom"}: the page scrolled as a person's wheel would, a screenful or until it stops growing, so a list that loads as it's scrolled loads; read it again after
 - {click: 12} · {type: 12, text: "Lisbon", submit?: true, clear?: false} · {select: 12, value: "2"}: on the ref of the latest read of the tab. A page that changed since (a new page, the element re-rendered) refuses it: read again. submit presses Enter; clear: false adds to what the field holds; a date field takes 2026-12-03, a time 14:30
+- {press: 12, key: "Enter"}: a key pressed with that ref focused (Enter, Space, Escape, Tab, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Home, End, PageDown, PageUp): for a control a click doesn't reach, a list to move through, a menu to close
 - {goto: "https://..."} · {waitFor: "text on the page"} or {waitFor: {selector: "css"}, timeout: ms} (10s by default, up to 60s)
 - {screenshot: true}: an image of the tab as it renders
 - {tabs: true}: the session's tabs · {close: true}: close the tab
@@ -93,9 +94,10 @@ export function checkAction(action) {
     if (kind === "read" && a.read !== true && (typeof a.read !== "object" || a.read === null)) return { error: "read: true, or {maxChars, hrefs}" };
     if ((kind === "screenshot" || kind === "tabs" || kind === "close") && a[kind] !== true) return { error: `${kind}: true, {${kind}: true}` };
     if (kind === "scroll" && a.scroll !== true && a.scroll !== "down" && a.scroll !== "bottom") return { error: 'scroll: "down" (a screenful) or "bottom"' };
-    if ((kind === "click" || kind === "type" || kind === "select") && !ref(a[kind])) return { error: `${kind}: a ref from the latest read, like {${kind}: 12}` };
+    if ((kind === "click" || kind === "type" || kind === "select" || kind === "press") && !ref(a[kind])) return { error: `${kind}: a ref from the latest read, like {${kind}: 12}` };
     if (kind === "type" && typeof a.text !== "string") return { error: "type: the text to type, {type: 12, text: \"...\"}" };
     if (kind === "select" && typeof a.value !== "string") return { error: "select: the option's text or value, {select: 12, value: \"...\"}" };
+    if (kind === "press" && typeof a.key !== "string") return { error: "press: the key, {press: 12, key: \"Enter\"}" };
     if (kind === "waitFor" && typeof a.waitFor !== "string" && (typeof a.waitFor !== "object" || a.waitFor === null)) return { error: "waitFor: text, or {selector} or {text}" };
     if (kind === "handoff" && (typeof a.handoff !== "string" || a.handoff.trim() === "")) return { error: "handoff: say what the person should do there, in a sentence" };
     return { kind, a };
@@ -178,9 +180,9 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                     if (kind === "read") {
                         const o = await browser.read(name, tab, a.read === true ? {} : pick(a.read, ["maxChars", "hrefs", "settle"]));
                         readByAgent.set(`${name} ${tab}`, o.version);
-                        lines.push(`${step} tab ${tab} (outline ${o.version}, ${o.refs} refs): ${o.title} · ${o.url}${outlineNotes(o)}`, o.text);
-                    } else if (kind === "click" || kind === "type" || kind === "select") {
-                        const extra = kind === "type" ? pick(a, ["text", "submit", "clear"]) : kind === "select" ? { value: a.value } : {};
+                        lines.push(`${step} tab ${tab} (outline ${o.version}, ${o.refs.length} refs): ${o.title} · ${o.url}${outlineNotes(o)}`, o.text);
+                    } else if (kind === "click" || kind === "type" || kind === "select" || kind === "press") {
+                        const extra = kind === "type" ? pick(a, ["text", "submit", "clear"]) : kind === "select" ? { value: a.value } : kind === "press" ? { key: a.key } : {};
                         const at = `${step} [${a[kind]}]`;
                         const version = readByAgent.get(`${name} ${tab}`);
                         /** @type {import("./browser.js").ActResult} */
@@ -198,7 +200,7 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
                             r = await browser.act(name, tab, kind, version, a[kind], extra, { confirmed: true });
                             lines.push(`${at}: the person confirmed it`);
                         }
-                        lines.push(`${at}${kind === "select" ? ` ${JSON.stringify(r.chosen)}` : ""}: ${actNotes(r)}`);
+                        lines.push(`${at}${kind === "select" ? ` ${JSON.stringify(r.chosen)}` : kind === "press" ? ` ${a.key}` : ""}: ${actNotes(r)}`);
                     } else if (kind === "scroll") {
                         const r = await browser.scroll(name, tab, a.scroll === true ? "down" : a.scroll);
                         lines.push(`${step} tab ${tab}: ${r.below > 0 ? `${Math.round(r.below)}px more below` : "at the bottom"}. Read it again to see what loaded.`);
@@ -262,14 +264,15 @@ export function browserTool(session, { browser = deviceBrowser, asks = deviceAsk
 /**
  * A step the extension refused as committing, as the person reads it:
  * `[5] button "Reserve" reads as a step that commits ("Reserve")` is
- * `Click button "Reserve"`, and Enter in a field that submits its form is
+ * `Click button "Reserve"`, Enter on it `Press Enter on button "Reserve"`,
+ * and Enter in a field that submits its form is
  * `Press Enter in ..., submitting its form by "Pay now"`.
  *
  * @param {string} refusal
  */
 export function stepText(refusal) {
     const step = refusal.replace(/ reads as a step that commits \(.*\)$/, "").replace(/\[\d+\] /, "").replace(/,$/, "");
-    return step.startsWith("Enter in ") ? `Press ${step}` : `Click ${step}`;
+    return /^(Enter|Space) (in|on) /.test(step) ? `Press ${step}` : `Click ${step}`;
 }
 
 /** @param {Record<string, any>} o @param {string[]} keys */

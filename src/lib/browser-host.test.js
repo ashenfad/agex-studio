@@ -75,6 +75,7 @@ describe("the browser stub", () => {
         await tab.waitFor("Rates", { timeout: 5000 });
         await tab.waitFor({ selector: ".rates" });
         await tab.scroll("bottom");
+        await tab.press(3, "Enter");
         await tab.read({ settle: true });
         expect(calls).toEqual([
             ["open", "https://www.hyatt.com/"],
@@ -84,8 +85,28 @@ describe("the browser stub", () => {
             ["waitFor", 4, { text: "Rates", timeout: 5000 }],
             ["waitFor", 4, { selector: ".rates" }],
             ["scroll", 4, "bottom"],
+            ["press", 4, 6, 3, "Enter"],
             ["read", 4, { settle: true }],
         ]);
+    });
+
+    it("finds a page's refs by name, of a kind, after some text", async () => {
+        const page = {
+            version: 6,
+            url: "https://www.google.com/travel/flights",
+            text: 'From $583 [1] button "Select flight" [2] link "Details"\nFrom $706 [3] button "Select flight" [4] link "Details"\nFrom $990 [5] button "Select flight"',
+            refs: [1, 2, 3, 4, 5].map((ref) => ({ ref, kind: ref % 2 ? "button" : "link", name: ref % 2 ? "Select flight" : "Details" })),
+        };
+        const remote = { read: async () => page };
+        // eslint-disable-next-line no-eval
+        const p = await (0, eval)(STUB)(remote).tab(4).read();
+        expect(p.find("select FLIGHT")).toBe(1);
+        expect(p.find("Select flight", { after: "$706" })).toBe(3);
+        expect(p.findAll("Select flight", { after: "$706" })).toEqual([3, 5]);
+        expect(p.findAll(/^Det/, { kind: "link" })).toEqual([2, 4]);
+        expect(p.findAll("Details", { kind: "button" })).toEqual([]);
+        expect(p.findAll("Details", { after: "nowhere" })).toEqual([]);
+        expect(() => p.find("Book", { after: "$706" })).toThrow('no ref named "Book" (after "$706") in https://www.google.com/travel/flights');
     });
 
     it("lists the tabs as tabs, with what the host says of each", async () => {

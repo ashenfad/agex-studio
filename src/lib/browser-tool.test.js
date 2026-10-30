@@ -27,7 +27,7 @@ function fakeExtension(answers) {
     };
 }
 
-const outline = { version: 4, url: "https://www.hyatt.com/search", title: "Hyatt", blocker: null, refs: 2, text: "# Results\n[1] button \"Book\" [2] link \"Next\"" };
+const outline = { version: 4, url: "https://www.hyatt.com/search", title: "Hyatt", blocker: null, refs: [{ ref: 1, kind: "button", name: "Book" }, { ref: 2, kind: "link", name: "Next" }], text: "# Results\n[1] button \"Book\" [2] link \"Next\"" };
 
 /** The tool over a fake extension, for session s1 (or a delegate of it). */
 function setup(answers = {}, delegate = false) {
@@ -60,6 +60,7 @@ describe("browser's actions", () => {
         expect(checkAction("read")).toEqual({ error: "an action is a plain object, like {read: true}" });
         expect(checkAction({ close: false })).toEqual({ error: "close: true, {close: true}" });
         expect(checkAction({ tabs: "yes" })).toEqual({ error: "tabs: true, {tabs: true}" });
+        expect(checkAction({ press: 3 })).toEqual({ error: 'press: the key, {press: 12, key: "Enter"}' });
     });
 });
 
@@ -89,6 +90,13 @@ describe("the browser tool", () => {
     it("refuses a step without a tab to work in", async () => {
         const out = await setup().tool.call({ actions: [{ read: true }] });
         expect(out).toMatchObject({ isError: true, text: "1. read failed: no tab: name one (tab: id) or open one first" });
+    });
+
+    it("presses a key on a ref, on the latest read", async () => {
+        const { tool, ext } = setup({ press: { url: "https://www.hyatt.com/search", title: "Hyatt" } });
+        const out = await tool.call({ tab: 7, actions: [{ read: true }, { press: 2, key: "Enter" }] });
+        expect(out.text.split("\n").at(-1)).toBe("2. press [2] Enter: done, still at https://www.hyatt.com/search");
+        expect(ext.calls.at(-1)).toEqual({ op: "press", args: { session: "s1", tab: 7, version: 4, ref: 2, key: "Enter" } });
     });
 
     it("gives a screenshot as an image", async () => {
@@ -196,8 +204,9 @@ describe("a committing step", () => {
 });
 
 describe("a committing step, as the person reads it", () => {
-    it("is a click, or Enter in a field that submits its form", () => {
+    it("is a click, a key on a control, or Enter in a field that submits its form", () => {
         expect(stepText('[5] button "Reserve" reads as a step that commits ("Reserve")')).toBe('Click button "Reserve"');
+        expect(stepText('Space on [5] button "Reserve" reads as a step that commits ("Reserve")')).toBe('Press Space on button "Reserve"');
         expect(stepText('Enter in [3] input "Card name", submitting its form by "Pay now", reads as a step that commits ("Pay")')).toBe(
             'Press Enter in input "Card name", submitting its form by "Pay now"',
         );

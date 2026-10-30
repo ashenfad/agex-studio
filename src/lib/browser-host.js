@@ -11,10 +11,13 @@
  * the browser tool, whose card asks for the person's yes).
  *
  * Code gets tabs from the stub: `await browser.open(url)` is a tab with
- * `read`, `click`, `type`, `select`, `scroll`, `goto`, `waitFor` and `close`, each
- * a call of the host's with the tab's id. A tab object keeps the version
- * of its latest read, which its actions name: an action on a page read
- * since by anyone else, or changed, is refused as stale.
+ * `read`, `click`, `type`, `select`, `press`, `scroll`, `goto`, `waitFor`
+ * and `close`, each a call of the host's with the tab's id. A tab object
+ * keeps the version of its latest read, which its actions name: an action
+ * on a page read since by anyone else, or changed, is refused as stale.
+ * A page it reads lists its refs (`{ ref, kind, name }`), with `find` and
+ * `findAll` for a ref by its name, so code needn't pick refs out of the
+ * text.
  */
 
 import { hostFactory, typedHost, withStub } from "@agex-ts/world";
@@ -96,6 +99,11 @@ export class BrowserHost {
         return this._call(() => this._browser.act(this._session, tab, "select", version, ref, { value }));
     }
 
+    /** @param {number} tab @param {number | undefined} version @param {number} ref @param {string} key */
+    press(tab, version, ref, key) {
+        return this._call(() => this._browser.act(this._session, tab, "press", version, ref, { key }));
+    }
+
     /** @param {number} tab @param {"down" | "bottom"} [to] */
     scroll(tab, to) {
         return this._call(() => this._browser.scroll(this._session, tab, to ?? "down"));
@@ -117,8 +125,29 @@ export class BrowserHost {
     }
 }
 
-/** Code's half: tabs as objects, their methods the host's with the tab's id. */
+/** Code's half: tabs as objects, their methods the host's with the tab's id;
+ *  a page read, its refs found by name. */
 export const STUB = `(remote) => {
+    // a page's refs whose names match (a string, ignoring case, or a RegExp), of a kind,
+    // shown in its text after the first place it says \`after\` (a row's price, a heading)
+    const findAll = (page, match, { kind, after } = {}) => {
+        const from = after === undefined ? 0 : page.text.indexOf(after);
+        if (from < 0) return [];
+        const named = typeof match === "string"
+            ? (name) => name.toLowerCase().includes(match.toLowerCase())
+            : (name) => name.search(match) >= 0;
+        return page.refs
+            .filter((r) => named(r.name) && (kind === undefined || r.kind === kind) && (after === undefined || page.text.indexOf("[" + r.ref + "]") > from))
+            .map((r) => r.ref);
+    };
+    const find = (page, match, opts = {}) => {
+        const [ref] = findAll(page, match, opts);
+        if (ref === undefined) {
+            const where = [opts.kind && "a " + opts.kind, opts.after !== undefined && "after " + JSON.stringify(opts.after)].filter(Boolean).join(", ");
+            throw new Error("no ref named " + (typeof match === "string" ? JSON.stringify(match) : String(match)) + (where ? " (" + where + ")" : "") + " in " + page.url);
+        }
+        return ref;
+    };
     const tab = (id, info) => {
         // the version of this tab object's latest read: its actions' refs are that outline's
         let version;
@@ -128,11 +157,12 @@ export const STUB = `(remote) => {
             read: async (opts) => {
                 const page = await remote.read(id, opts);
                 version = page.version;
-                return page;
+                return { ...page, find: (match, o) => find(page, match, o), findAll: (match, o) => findAll(page, match, o) };
             },
             click: (ref) => remote.click(id, version, ref),
             type: (ref, text, opts) => remote.type(id, version, ref, text, opts),
             select: (ref, value) => remote.select(id, version, ref, value),
+            press: (ref, key) => remote.press(id, version, ref, key),
             scroll: (to) => remote.scroll(id, to),
             goto: (url) => remote.goto(id, url),
             waitFor: (what, opts) => remote.waitFor(id, { ...(typeof what === "string" ? { text: what } : what), ...opts }),
@@ -174,6 +204,7 @@ export function browserHost({ browser = deviceBrowser } = {}) {
                 click: { args: { tab: id, version, ref } },
                 type: { args: { tab: id, version, ref, text: z.string(), opts: z.strictObject({ submit: z.boolean().optional(), clear: z.boolean().optional() }).optional() } },
                 select: { args: { tab: id, version, ref, value: z.string() } },
+                press: { args: { tab: id, version, ref, key: z.string() } },
                 goto: { args: { tab: id, url } },
                 waitFor: {
                     args: {

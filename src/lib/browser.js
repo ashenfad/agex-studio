@@ -20,7 +20,8 @@ export const topOf = (session) => session.split(".")[0];
 
 /**
  * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean } }} TabInfo
- * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: number, text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
+ * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: Ref[], text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
+ * @typedef {{ ref: number, kind: string, name: string }} Ref a ref of an outline: what it is (`button`, `link`, `textbox`, ...) and its name
  * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
  */
 
@@ -99,10 +100,10 @@ export class Browser {
     /**
      * An action on the element at `ref` of outline `version` of the tab
      * (the caller's own latest read): `click`, `type` (`text`, `submit`,
-     * `clear`) or `select` (`value`). `confirmed` only for a step the
+     * `clear`), `select` (`value`) or `press` (`key`). `confirmed` only for a step the
      * person has confirmed.
      *
-     * @param {string} session @param {number} tab @param {"click" | "type" | "select"} op
+     * @param {string} session @param {number} tab @param {"click" | "type" | "select" | "press"} op
      * @param {number | undefined} version @param {number} ref @param {Record<string, unknown>} [args]
      * @param {{ confirmed?: boolean }} [opts]
      * @returns {Promise<ActResult>}
