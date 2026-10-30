@@ -199,11 +199,30 @@ export function watchTabs() {
                 source.blocked = { url: refused, at: Date.now(), newTab: true };
                 return;
             }
-            state.tabs[tabId] = { session: source.session, opened: true };
+            state.tabs[tabId] = { session: source.session, opened: true, opener: sourceTabId };
             await sendBack(state, tabId);
             const tab = await chrome.tabs.get(tabId).catch(() => null);
             // a popup window takes no group; the tab is the session's all the same
             if (tab !== null) await group(state, source.session, tabId, tab.windowId).catch(() => {});
+        });
+    });
+
+    // a tab a page opened can be sent on before its rules are in place, and still say
+    // where it started when it's looked at: where it gets to is checked as it gets there
+    chrome.webNavigation.onCommitted.addListener(({ tabId, frameId, url }) => {
+        if (frameId !== 0) return;
+        void change(async (state) => {
+            const tab = state.tabs[tabId];
+            if (!tab?.opened || granted(url, known(state, tab.session).domains)) return;
+            // a load the rules stopped shows its error page, and the tab is held, not closed
+            const frame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 }).catch(() => null);
+            if (frame?.errorOccurred) return;
+            await sendBack(state, tabId);
+            await chrome.tabs.remove(tabId).catch(() => {});
+            delete state.tabs[tabId];
+            await release(tabId);
+            const source = tab.opener === undefined ? undefined : state.tabs[tab.opener];
+            if (source !== undefined) source.blocked = { url, at: Date.now(), newTab: true };
         });
     });
 
