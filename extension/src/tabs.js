@@ -8,11 +8,14 @@
  * grant.
  *
  * Only tabs the extension opened for a session, and the tabs their pages
- * open, are in the registry. The person's own tabs are never held.
+ * open, are in the registry, and the tabs the person shared with one:
+ * those stay the person's, never held, grouped or closed, and are only
+ * read, while they're on the site they were shared on.
  */
 
 import { granted, hostOf, isDomain, pageRules } from "./grants.js";
-import { ProtocolError } from "./protocol.js";
+import { ProtocolError, STUDIO_MATCHES } from "./protocol.js";
+import { originMatcher } from "./origins.js";
 import { change } from "./registry.js";
 import { MARK, isWorking, rest, restAll, resume } from "./work.js";
 
@@ -24,6 +27,9 @@ import { MARK, isWorking, rest, restAll, resume } from "./work.js";
 const turning = new Set();
 /** @type {WeakSet<chrome.runtime.Port>} */
 const watched = new WeakSet();
+/** agex.studio's own pages, which are never shared (a dev build's studio
+ *  on localhost is known by its port instead) */
+const studioPage = originMatcher(STUDIO_MATCHES);
 
 /** @type {Record<string, import("./port.js").Op>} */
 export const tabOps = {
@@ -40,7 +46,7 @@ export const tabOps = {
         await change(async (state) => {
             const before = state.sessions[session];
             state.sessions[session] = { name, domains: [...new Set(domains)] };
-            for (const tab of tabsOf(state, session)) await hold(tab, domains);
+            for (const tab of ownedOf(state, session)) await hold(tab, domains);
             if (before !== undefined && before.name !== name) await renameGroups(state, session, before.name, name);
         });
         return null;
@@ -114,6 +120,7 @@ export const tabOps = {
         const tab = tabArg(req);
         await change(async (state) => {
             mine(state, session, tab);
+            if (state.tabs[tab].shared) throw readOnly(tab);
             await chrome.tabs.remove(tab).catch(() => {}); // already gone is closed too
             delete state.tabs[tab];
             await release(tab);
@@ -135,11 +142,66 @@ export const tabOps = {
                     await release(id);
                     continue;
                 }
-                const { blocked } = state.tabs[id];
-                listed.push({ id, url: tab.url ?? "", title: unmarked(tab.title ?? ""), working: isWorking(id), ...(blocked && { blocked }) });
+                const { blocked, shared } = state.tabs[id];
+                listed.push({
+                    id,
+                    url: tab.url ?? "",
+                    title: unmarked(tab.title ?? ""),
+                    working: isWorking(id),
+                    ...(blocked && { blocked }),
+                    ...(shared && { shared: shared.domain }),
+                });
             }
             return listed;
         });
+    },
+
+    /** The person's open tabs that could be shared, for the studio's
+     *  picker, the latest used first: http and https pages, not a
+     *  session's (its own or shared already) nor the studio's. */
+    async browsable(req, port) {
+        const studio = port.sender?.tab?.id;
+        return change(async (state) => {
+            const open = await chrome.tabs.query({});
+            return open
+                .filter((t) => t.id !== undefined && shareable(state, t, studio))
+                .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))
+                .map((t) => ({ id: /** @type {number} */ (t.id), url: t.url ?? "", title: t.title ?? "" }));
+        });
+    },
+
+    /** One of the person's tabs shared with the session, to read, on the
+     *  domain it's on now: the one the person chose in the studio. */
+    async share(req, port) {
+        const session = sessionArg(req);
+        const tab = tabArg(req);
+        const studio = port.sender?.tab?.id;
+        const domain = await change(async (state) => {
+            known(state, session);
+            const t = await chrome.tabs.get(tab).catch(() => null);
+            if (t === null) throw new ProtocolError("not-found", `no tab ${tab}`);
+            if (!shareable(state, t, studio)) {
+                throw new ProtocolError("bad-request", `tab ${tab} can't be shared: only one of the person's own http or https pages can, not a session's tab or the studio's`);
+            }
+            const d = siteOf(/** @type {string} */ (t.url));
+            state.tabs[tab] = { session, shared: { domain: d, at: Date.now() } };
+            return d;
+        });
+        return { tab, domain };
+    },
+
+    /** A tab the person shared, the session's no longer: it's left open,
+     *  as it always was the person's. */
+    async unshare(req) {
+        const session = sessionArg(req);
+        const tab = tabArg(req);
+        await change((state) => {
+            mine(state, session, tab);
+            if (!state.tabs[tab].shared) throw new ProtocolError("bad-request", `tab ${tab} is the session's own: close it instead`);
+            delete state.tabs[tab];
+        });
+        await rest(tab);
+        return null;
     },
 
     /** While a turn runs, the studio's tab isn't discarded to save
@@ -177,7 +239,8 @@ export function watchTabs() {
     chrome.webNavigation.onCreatedNavigationTarget.addListener(({ sourceTabId, tabId, url }) => {
         void change(async (state) => {
             const source = state.tabs[sourceTabId];
-            if (source === undefined) return; // the person's own tab
+            // the person's own tab, shared or not: what its pages open is theirs
+            if (source === undefined || source.shared) return;
             const { domains } = known(state, source.session);
             let refused = granted(url, domains) ? undefined : url;
             if (refused === undefined) {
@@ -246,7 +309,8 @@ export function watchTabs() {
         if (frameId !== 0 || !error.includes("ERR_BLOCKED_BY_CLIENT")) return;
         void change((state) => {
             const tab = state.tabs[tabId];
-            if (tab === undefined || granted(url, state.sessions[tab.session]?.domains ?? [])) return;
+            // a shared tab's loads aren't held: another extension stopped that one
+            if (tab === undefined || tab.shared || granted(url, state.sessions[tab.session]?.domains ?? [])) return;
             tab.blocked = { url, at: Date.now() };
         });
     });
@@ -264,7 +328,7 @@ export function watchTabs() {
         void change(async (state) => {
             const tab = state.tabs[removed];
             if (tab === undefined) return;
-            await hold(added, known(state, tab.session).domains);
+            if (!tab.shared) await hold(added, known(state, tab.session).domains);
             await release(removed);
             delete state.tabs[removed];
             state.tabs[added] = tab;
@@ -288,12 +352,12 @@ const SHOWN = 10;
 export function start() {
     void change(async (state) => {
         const rules = await chrome.declarativeNetRequest.getSessionRules();
-        for (const [key, { session }] of Object.entries(state.tabs)) {
+        for (const [key, { session, shared }] of Object.entries(state.tabs)) {
             const id = Number(key);
             if ((await chrome.tabs.get(id).catch(() => null)) === null) {
                 delete state.tabs[key];
                 await release(id);
-            } else if (rulesOf(rules, id).length === 0) {
+            } else if (!shared && rulesOf(rules, id).length === 0) {
                 await hold(id, state.sessions[session]?.domains ?? []);
             }
         }
@@ -354,21 +418,81 @@ function tabsOf(state, session) {
         .map(([id]) => Number(id));
 }
 
+/** The session's own tabs, held to its grants and in its groups: not the
+ *  ones the person shared. @param {import("./registry.js").State} state @param {string} session */
+function ownedOf(state, session) {
+    return tabsOf(state, session).filter((id) => !state.tabs[id].shared);
+}
+
+/**
+ * Whether `tab` is one the person could share: an http or https page,
+ * not a session's (its own or shared already), nor the studio's (the
+ * tab whose port asks, or any agex.studio page).
+ *
+ * @param {import("./registry.js").State} state @param {chrome.tabs.Tab} tab
+ * @param {number | undefined} studio
+ */
+function shareable(state, tab, studio) {
+    const url = tab.url ?? "";
+    return tab.id !== undefined && tab.id !== studio && !(tab.id in state.tabs) && hostOf(url) !== null && !studioPage(url);
+}
+
+/** The domain a share of a page at `url` covers: its host, without a
+ *  leading `www.`, as a grant names it. @param {string} url */
+function siteOf(url) {
+    return /** @type {string} */ (hostOf(url)).replace(/^www\./, "");
+}
+
+/**
+ * Whether a shared tab at `url` is on the site it was shared on.
+ *
+ * @param {string} url @param {string} domain
+ */
+function onSite(url, domain) {
+    return hostOf(url) !== null && granted(url, [domain]);
+}
+
 /**
  * The session and tab a request names, checked: the tab is the
- * session's. With the session's granted domains, and the version of the
- * tab's latest outline (none read yet, 0).
+ * session's. With the session's granted domains, the version of the
+ * tab's latest outline (none read yet, 0), and for a tab the person
+ * shared, the domain it was shared on.
  *
- * @param {Request} req
+ * A shared tab is only read (`reading`, else `read-only`), and only on
+ * its site (else `moved`); a reading op checks it again once it has read
+ * (`stillOn`), as the person may have taken it elsewhere meanwhile.
+ *
+ * @param {Request} req @param {{ reading?: boolean }} [opts]
  */
-export async function ownTab(req) {
+export async function ownTab(req, { reading = false } = {}) {
     const session = sessionArg(req);
     const tab = tabArg(req);
-    const { domains, latest } = await change((state) => {
+    const { domains, latest, shared } = await change((state) => {
         mine(state, session, tab);
-        return { domains: known(state, session).domains, latest: state.tabs[tab].reads ?? 0 };
+        const t = state.tabs[tab];
+        return { domains: known(state, session).domains, latest: t.reads ?? 0, shared: t.shared?.domain };
     });
-    return { session, tab, domains, latest };
+    if (shared !== undefined) {
+        if (!reading) throw readOnly(tab);
+        await stillOn(tab, shared);
+    }
+    return { session, tab, domains, latest, shared };
+}
+
+/**
+ * Refused as `moved` when a shared tab has gone off the site it was
+ * shared on: what it shows there wasn't shared. `url`, where a read
+ * found it; else where the browser says it is.
+ *
+ * @param {number} tab @param {string | undefined} shared its domain, or undefined for the session's own tab
+ * @param {string} [url]
+ */
+export async function stillOn(tab, shared, url) {
+    if (shared === undefined) return;
+    const at = url ?? (await chrome.tabs.get(tab).catch(() => null))?.url ?? "";
+    if (!onSite(at, shared)) {
+        throw new ProtocolError("moved", `tab ${tab} was shared on ${shared}, and has gone to ${hostOf(at) ?? "another page"}: what it shows there wasn't shared; ask the person to share it again`);
+    }
 }
 
 /** A tab's title without the mark of the agent working in it.
@@ -451,7 +575,7 @@ async function renameGroups(state, session, from, to) {
  */
 async function groupsOf(state, session, title) {
     const ids = new Set();
-    for (const id of tabsOf(state, session)) {
+    for (const id of ownedOf(state, session)) {
         const tab = await chrome.tabs.get(id).catch(() => null);
         if (tab !== null && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) ids.add(tab.groupId);
     }
@@ -473,6 +597,11 @@ function sessionArg(req) {
 function tabArg(req) {
     if (!Number.isInteger(req.tab)) throw bad("tab: a tab's id, from open or tabs");
     return /** @type {number} */ (req.tab);
+}
+
+/** @param {number} tab */
+function readOnly(tab) {
+    return new ProtocolError("read-only", `tab ${tab} is the person's, shared to read: read it, scroll it, wait on it or screenshot it; it can't be acted in, sent elsewhere or closed`);
 }
 
 /** @param {string} message */

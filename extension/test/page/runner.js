@@ -136,6 +136,66 @@ const SCENARIOS = {
         return { refused, allowed, raced, source, child, racedSource, tabs: list.value, shown };
     },
 
+    /** a tab of the person's shared with a session: listed for the picker,
+     *  read on its site and nowhere else, never acted in, and never held */
+    async shared() {
+        const c = await greeted();
+        // the session holds a grant for the other domain only: reading what the person shared needs none
+        await c.call("session", { session: "sharing", name: "Sharing", domains: [OTHER_DOMAIN] });
+        const own = await c.call("open", { session: "sharing", url: `${OTHER}/test/page/site.html?id=own` });
+        await tabWhere(c, "sharing", (t) => t.title === "site own");
+        // the person's own tab, which this page opens as the person would
+        const person = window.open(site("person"), "_blank");
+        const offered = await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site person"));
+        const browsable = (await c.call("browsable")).value ?? [];
+        const tab = offered?.id;
+        const refusedOwn = await c.call("share", { session: "sharing", tab: own.value?.tab });
+        const shared = await c.call("share", { session: "sharing", tab });
+        const twice = await c.call("share", { session: "sharing", tab });
+        const listed = (await c.call("tabs", { session: "sharing" })).value?.find((t) => t.id === tab);
+        const read = await c.call("read", { session: "sharing", tab });
+        const at = { session: "sharing", tab, version: read.value?.version };
+        const refused = {
+            click: await c.call("click", { ...at, ref: 1 }),
+            type: await c.call("type", { ...at, ref: 1, text: "x" }),
+            press: await c.call("press", { ...at, ref: 1, key: "Enter" }),
+            goto: await c.call("goto", { session: "sharing", tab, url: `${OTHER}/test/page/site.html?id=sent` }),
+            close: await c.call("close", { session: "sharing", tab }),
+        };
+        const waited = await c.call("waitFor", { session: "sharing", tab, text: "A page for the tab tests" });
+        const scrolled = await c.call("scroll", { session: "sharing", tab });
+        const shot = await c.call("screenshot", { session: "sharing", tab });
+        // a new grant for the session holds its own tabs, not the person's
+        await c.call("session", { session: "sharing", name: "Sharing", domains: [] });
+        // the person goes on to another page of the site: not held, and read
+        person.location.href = site("person-next");
+        const next = await tabWhere(c, "sharing", (t) => t.id === tab && t.title === "site person-next");
+        const readNext = await c.call("read", { session: "sharing", tab });
+        // and on to another site, where a page opens a tab: neither stopped, and not read there
+        person.location.href = `${OTHER}/test/page/site.html?${new URLSearchParams({ id: "person-away", open: site("person-opened") })}`;
+        const away = await tabWhere(c, "sharing", (t) => t.id === tab && t.title === "site person-away");
+        const opened = await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site person-opened"));
+        const moved = {
+            read: await c.call("read", { session: "sharing", tab }),
+            waitFor: await c.call("waitFor", { session: "sharing", tab, text: "A page" }),
+            screenshot: await c.call("screenshot", { session: "sharing", tab }),
+        };
+        // back on the site, it reads again
+        person.location.href = site("person-back");
+        await tabWhere(c, "sharing", (t) => t.id === tab && t.title === "site person-back");
+        const back = await c.call("read", { session: "sharing", tab });
+        const unshared = await c.call("unshare", { session: "sharing", tab });
+        const after = await c.call("read", { session: "sharing", tab });
+        const stillOpen = (await c.call("browsable")).value?.some((t) => t.id === tab);
+        const ownTabs = (await c.call("tabs", { session: "sharing" })).value?.map((t) => t.id);
+        person.close();
+        c.port.disconnect();
+        return {
+            own: own.value?.tab, offered, browsable, refusedOwn, shared, twice, listed, read, refused, waited, scrolled,
+            shot: typeof shot.value?.data, next, readNext, away, opened, moved, back, unshared, after, stillOpen, ownTabs,
+        };
+    },
+
     /** a popup window a page opens, which takes no tab group */
     async popup() {
         const c = await greeted();
@@ -411,6 +471,17 @@ async function greeted() {
     const c = connect();
     await c.call("hello", { protocol: PROTOCOL });
     return c;
+}
+
+/** What `get` resolves to once it's something, polled for up to 15 s, or null. */
+async function until(get, ms = 15_000) {
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+        const found = await get();
+        if (found) return found;
+        await sleep(100);
+    }
+    return null;
 }
 
 /** The first of a session's tabs that `test` takes, polled for up to 15 s, or null. */
