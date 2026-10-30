@@ -6,9 +6,10 @@
  * `outlinePage` runs in the page, in the extension's isolated world (it
  * sees the page's DOM, not its scripts' globals), so it is
  * self-contained: it is sent as its source text. It keeps the elements
- * its refs name in that world, and their names, under the outline's
- * version, for the actions that follow; a new document starts a new
- * world, without them.
+ * its refs name in that world, their names, and how it names them,
+ * under the outline's version, for the actions that follow (an element
+ * that reads otherwise now is no longer the one the agent read); a new
+ * document starts a new world, without them.
  */
 
 /**
@@ -22,7 +23,9 @@
  *   cut?: number,
  *   below?: number,
  * }} Outline
- *   `blocker`: the page is a CAPTCHA or a bot check, not the site.
+ *   `blocker`: the page is a CAPTCHA or a bot check, not the site: a
+ *   challenge frame that shows, on a page with little else (a site that
+ *   only carries a challenge's badge, or an invisible one, isn't one).
  *   `refs`: each ref's kind and name, as its line in the text starts
  *   (`button`, `"Reserve"`), for code to find a ref by.
  *   `cut`: the text's full length, when it was cut to `maxChars`.
@@ -38,6 +41,11 @@
 export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) {
     // challenge frames, as their sources name them
     const CHALLENGE = /recaptcha|hcaptcha|challenges\.cloudflare\.com|turnstile|captcha-delivery|px-captcha|perimeterx|arkoselabs|funcaptcha/i;
+    // a challenge that shows only when it suspects a bot: its frame is the badge in a corner
+    const INVISIBLE = /size=invisible|checkbox-invisible/i;
+    // a challenge page is little but the challenge: a page with more to read is the site, its
+    // challenge on a form further on
+    const CHALLENGE_PAGE_CHARS = 2000;
     const CHECK_TEXT = /just a moment|access denied|attention required|pardon our interruption|are you a (human|robot)|verify (that )?you are (a )?human|request unsuccessful|press (&|and) hold/i;
     // photo carousels: their controls are many and say little
     const CAROUSEL = /carousel|swiper|slick|splide|glide/i;
@@ -213,18 +221,19 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
     }
     if (alike > 0) out[out.length - 1] += ` (and ${alike} more like it)`;
 
+    const full = out.join("\n");
+
     let blocker = /** @type {Outline["blocker"]} */ (null);
     for (const f of document.querySelectorAll("iframe")) {
-        if (CHALLENGE.test(f.src) && f.checkVisibility()) blocker = "captcha";
+        if (CHALLENGE.test(f.src) && !INVISIBLE.test(f.src) && f.checkVisibility() && full.length < CHALLENGE_PAGE_CHARS) blocker = "captcha";
     }
     if (blocker === null && (CHECK_TEXT.test(document.title) || CHECK_TEXT.test(document.body?.innerText.slice(0, 500) ?? ""))) {
         blocker = "bot-check";
     }
 
-    const full = out.join("\n");
     const scroller = document.scrollingElement ?? document.documentElement;
     const below = Math.round(((scroller.scrollHeight - scroller.scrollTop - innerHeight) / Math.max(innerHeight, 1)) * 10) / 10;
-    /** @type {typeof globalThis & { __agex?: unknown }} */ (globalThis).__agex = { version, refs, names };
+    /** @type {typeof globalThis & { __agex?: unknown }} */ (globalThis).__agex = { version, refs, names, label };
     return {
         version,
         url: location.href,

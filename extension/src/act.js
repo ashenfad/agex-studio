@@ -5,9 +5,10 @@
  * - **An action names the outline it was read from** (`version`), and is
  *   refused when that isn't the page's latest, or when the page has gone
  *   on to another document, or when the element at its ref has left the
- *   page (re-rendered): "the page changed since you read it". A ref names
- *   an element, not a place, so an element that has only moved is still
- *   the one the agent read.
+ *   page (re-rendered), or a click's or a key's element reads otherwise
+ *   now (a calendar that reuses its day cells, "24" now "23"): "the page
+ *   changed since you read it". A ref names an element, not a place, so
+ *   an element that has only moved is still the one the agent read.
  * - **Input is trusted:** a click is the debugger's mouse events at the
  *   element's center, typing its `Input.insertText`, a key its key
  *   events, so a site sees what a person's hand would do. A click goes
@@ -19,7 +20,8 @@
  *   content, where no other control is.
  * - **Steps that commit are refused unless confirmed:** a click on a
  *   control (or Enter or Space on it), or a form submit whose submitting
- *   control, reads as committing (book, reserve, pay, ...). The agent
+ *   control, reads as committing (book, reserve, pay, ...); a choice
+ *   among options (a tab, a radio, a box to tick) doesn't commit. The agent
  *   asks the person, and calls again with `confirmed: true`. It is a
  *   guard rail: a control labelled otherwise ("Continue", an icon,
  *   another language) gets past.
@@ -218,12 +220,17 @@ async function after(tab, started, aim) {
  */
 export function aimAt(version, ref, how, key) {
     const COMMITS = /\b(book|reserve|pay|purchase|buy|checkout|check out|place order|order now|send|post|publish|delete|confirm)\b/i;
-    const kept = /** @type {{ version: number, refs: Element[], names: string[] } | undefined} */ (/** @type {any} */ (globalThis).__agex);
+    const kept = /** @type {{ version: number, refs: Element[], names: string[], label: (e: Element) => string } | undefined} */ (/** @type {any} */ (globalThis).__agex);
     if (kept === undefined) return { stale: "it is another page now" };
     if (kept.version !== version) return { stale: `outline ${version} isn't its latest, ${kept.version}` };
     const el = kept.refs[ref - 1];
     if (el === undefined) return { error: `outline ${version} has no ref ${ref}` };
     if (!el.isConnected) return { stale: `ref ${ref} has left the page` };
+    // what a field holds isn't its name, but a contenteditable's text is: typing changes it
+    if ((how === "click" || how === "press") && !(/** @type {HTMLElement} */ (el).isContentEditable)) {
+        const now = kept.label(el);
+        if (now !== kept.names[ref - 1]) return { stale: `ref ${ref} reads ${JSON.stringify(now)} now, not ${JSON.stringify(kept.names[ref - 1])}` };
+    }
     /** @param {Element} e */
     const text = (e) => {
         const f = /** @type {HTMLInputElement} */ (e);
@@ -276,7 +283,11 @@ export function aimAt(version, ref, how, key) {
         says = submitter ? named(submitter) : "";
         if (submitter) step = `Enter in ${desc}, submitting its form by ${JSON.stringify(text(submitter) || says)},`;
     }
-    const commits = activates || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
+    // choosing among options (a tab, a radio, a box to tick) never commits, whatever it's
+    // named ("Book hotel" beside "Book flight + hotel"): a step after it does
+    const chooses = ["tab", "radio", "checkbox", "option", "switch", "menuitemradio", "menuitemcheckbox"].includes(el.getAttribute("role") ?? "") ||
+        (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox"));
+    const commits = (activates && !chooses) || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
 
     el.scrollIntoView({ block: "center", inline: "center" });
     const box = el.getBoundingClientRect();
