@@ -283,10 +283,11 @@ export function aimAt(version, ref, how, key) {
         says = submitter ? named(submitter) : "";
         if (submitter) step = `Enter in ${desc}, submitting its form by ${JSON.stringify(text(submitter) || says)},`;
     }
-    // choosing among options (a tab, a radio, a box to tick) never commits, whatever it's
-    // named ("Book hotel" beside "Book flight + hotel"): a step after it does
-    const chooses = ["tab", "radio", "checkbox", "option", "switch", "menuitemradio", "menuitemcheckbox"].includes(el.getAttribute("role") ?? "") ||
-        (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox"));
+    // picking one of several (a tab, a radio, an option) never commits, whatever it's
+    // named ("Book hotel" beside "Book flight + hotel"): a step after it does. A toggle
+    // (a box to tick, a switch) may save as it's flipped, so it's asked like a button
+    const chooses = ["tab", "radio", "option"].includes(el.getAttribute("role") ?? "") ||
+        (el instanceof HTMLInputElement && el.type === "radio");
     const commits = (activates && !chooses) || submits ? (COMMITS.exec(says)?.[0] ?? null) : null;
 
     el.scrollIntoView({ block: "center", inline: "center" });
