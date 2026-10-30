@@ -1,10 +1,11 @@
 # Agents in the person's browser
 
-Status: proposed (2026-10-28). A spike settled how the session's tabs
-run (below; its harness and numbers are on the `spike/browser-tabs`
-branch, `spike/browser/FINDINGS.md`). Three phases, each adding to a
-browser extension (Chrome first) and the studio's tools; nothing in
-agex-ts is needed to begin.
+Status: phase 1 built (2026-10-30), on the integration branch
+`feat/browser-tabs` (below). Proposed 2026-10-28; a spike settled how
+the session's tabs run (below; its harness and numbers are on the
+`spike/browser-tabs` branch, `spike/browser/FINDINGS.md`). Three
+phases, each adding to a browser extension (Chrome first) and the
+studio's tools; nothing in agex-ts is needed.
 
 ## Why
 
@@ -258,6 +259,34 @@ against the first spike's 1,500 to 4,800 an outline.
 | 3 | studio | The extension found or not; `request_secret`'s card made the first of a family; site grants per session (the `sites` card, the vault's `agent:<session>`, settings and revoke), given to the extension for the session's tabs | 1 |
 | 4 | studio | The browser tools and the `browser` host object (tabs, open, act, read, close), checked against grants and the registry; the `handoff` and `confirm` cards, for the session's own agent only | 2, 3 |
 | 5 | studio | A `browsing` skill (one site by hand, the rest from code; helper tasks to read the pages; delegates for sites driven step by step, each given its own tabs; one `sites` card up front; a blocker reported, handed off, rerun or resumed) and the spike | all |
+
+Built (2026-10-30): slice 1 in #182 and #183; 2 in #184 and #185; 3
+in #187, #189 and #190; 4 in #192 to #194; 5 in #198 (the skill),
+#201 (date fields) and #203 (`scroll`, `read { settle }`, a card to go
+on after the debugging bar's Cancel). Then a round from agents' own
+notes on real sites (a flight search, a hotel's booking flow), #205 to
+#207 and #209: a key press by ref (`press`); a click through a row's
+own content when its center is covered; refs listed with their kind
+and name, and found by name (`page.find`, and the tool's `{ name,
+after }`); a ref whose name has changed since the read refused as
+stale; a challenge's badge not taken for a CAPTCHA, and one over the
+page taken for one; a cookie notice read after the page; a tab, radio
+or option never asking `confirm`, a toggle asking as a button does;
+and a tab a page opened closed when a redirect got there before its
+rules.
+
+The exit spike, in the person's own Chrome: the five hotel sites and
+two of the spike's own (one a bot check the agent can't see, one a
+search by form alone) for one date range, the sites asked for up front.
+All five real sites gave prices for the dates, every results page
+checked to show them, and nothing was booked. The bot check was
+reported from code, cleared by the person, and the site rerun; on a
+rerun, a delegate blocked on the other reported it, and resumed once
+it was cleared. What reached the agent from the pages, read from code,
+was about 4,500 tokens for the seven sites, some 650 a site, against
+1,500 to 4,800 for each outline read into its context. Two sites'
+lists were read short (10 of Marriott's 15 hotels, 3 of IHG's 16),
+since the rest load as the page scrolls: `scroll` came of it.
 
 ## Phase 2: tabs the person shares, to read
 
