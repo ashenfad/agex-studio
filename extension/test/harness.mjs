@@ -95,10 +95,21 @@ export async function launch({ extension, query }) {
     ];
     // a process group of its own, so closing it stops its helper processes too
     const browser = spawn(await chromiumPath(), args, { stdio: ["ignore", "ignore", "pipe"], detached: true });
+    // what Chromium said last, and the head of a crash's report, which a long
+    // stack and the noise after it would push out of the tail
     let stderr = "";
+    let crash = "";
     browser.stderr.on("data", (d) => {
-        stderr = (stderr + d).slice(-4000);
+        const joined = stderr + d;
+        stderr = joined.slice(-4000);
+        if (crash === "") {
+            const at = joined.search(/Received signal|Check failed|FATAL:/);
+            if (at >= 0) crash = joined.slice(at, at + 6000);
+        } else if (crash.length < 6000) {
+            crash = (crash + d).slice(0, 6000);
+        }
     });
+    const said = () => (crash === "" ? stderr : `${crash}\n...\n${stderr}`);
 
     return {
         port,
@@ -111,7 +122,7 @@ export async function launch({ extension, query }) {
         report(name, ms = 20_000) {
             if (reports.has(name)) return Promise.resolve(reports.get(name));
             return new Promise((ok, no) => {
-                const timer = setTimeout(() => no(new Error(`no "${name}" report in ${ms}ms; Chromium said:\n${stderr}`)), ms);
+                const timer = setTimeout(() => no(new Error(`no "${name}" report in ${ms}ms; Chromium said:\n${said()}`)), ms);
                 waiting.set(name, (r) => {
                     clearTimeout(timer);
                     ok(r);
