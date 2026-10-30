@@ -318,7 +318,8 @@ export function aimAt(version, ref, how, key) {
 
 /**
  * The element at `ref` focused, for a key pressed in it, or what's wrong
- * when it can't be. Runs in the page.
+ * when it can't be: the focus on it, not on a control inside it, which
+ * the step's checks weren't of. Runs in the page.
  *
  * @param {number} ref
  * @returns {{ error?: string }}
@@ -326,8 +327,8 @@ export function aimAt(version, ref, how, key) {
 export function focusOn(ref) {
     const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
     el.focus();
-    const at = document.activeElement;
-    if (at !== el && !(at !== null && el.contains(at))) return { error: `[${ref}] ${el.tagName.toLowerCase()} can't take the keyboard's focus: click it` };
+    // a shadow host that hands its focus inward is the document's active element still
+    if (document.activeElement !== el) return { error: `[${ref}] ${el.tagName.toLowerCase()} can't take the keyboard's focus: click it` };
     return {};
 }
 

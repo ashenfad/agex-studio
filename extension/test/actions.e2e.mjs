@@ -118,6 +118,10 @@ describe("acting in a session's pages", () => {
         assert.equal(r.pressTag.error?.code, "failed");
         assert.match(r.pressTag.error.message, /can't take the keyboard's focus: click it/);
         assert.doesNotMatch(r.out, /tag;/);
+        assert.equal(r.innerFocused.value?.title, "Book a room", JSON.stringify(r.innerFocused.error));
+        assert.equal(r.pressWrapper.error?.code, "failed", JSON.stringify(r.pressWrapper));
+        assert.match(r.pressWrapper.error.message, /can't take the keyboard's focus/);
+        assert.doesNotMatch(r.out, /booked/);
     });
 
     it("lists each ref's kind and name, as its line in the text starts", () => {
