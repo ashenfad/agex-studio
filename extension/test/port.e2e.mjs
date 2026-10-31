@@ -1,5 +1,5 @@
-// The extension's port, end to end: the dev and store builds loaded into
-// Chromium, a page on localhost playing the studio.
+// The extension's port, end to end: the dev, store and site builds loaded
+// into Chromium, a page on localhost playing the studio.
 //
 //     pnpm extension:test
 //
@@ -58,14 +58,16 @@ describe("the dev build", () => {
     });
 });
 
-describe("the store build", () => {
-    it("can't be reached from localhost", async () => {
-        build();
-        const browser = await launch({ extension: `${ext}/dist/prod`, query: { ext: "", scenarios: "reachable" } });
-        try {
-            assert.deepEqual(await browser.report("reachable"), { connect: false });
-        } finally {
-            await browser.close();
-        }
+for (const [name, mode, flags] of [["store", "prod", []], ["site", "site", ["--site"]]]) {
+    describe(`the ${name} build`, () => {
+        it("can't be reached from localhost", async () => {
+            build(...flags);
+            const browser = await launch({ extension: `${ext}/dist/${mode}`, query: { ext: "", scenarios: "reachable" } });
+            try {
+                assert.deepEqual(await browser.report("reachable"), { connect: false });
+            } finally {
+                await browser.close();
+            }
+        });
     });
-});
+}

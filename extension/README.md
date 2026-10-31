@@ -75,14 +75,25 @@ starts, the registry is cleared, since tab ids don't outlive it.
 
 ```bash
 pnpm extension:build             # dist/prod: the store's, agex.studio only
+pnpm extension:build --site      # dist/site: the studio's download, a fixed id
 pnpm extension:build --dev       # dist/dev: a fixed id, and local dev servers
 ```
 
 The sources are plain modules, copied as they are; only the manifest
-differs. The dev build carries the public key in `dev-key.pub`, which
-fixes its id (`nmkolhlloohlmpklcknknipkaedblgbe`, `DEV_EXTENSION_ID`),
-and answers `http://localhost` and `http://127.0.0.1` on any port beside
-agex.studio.
+differs. The site and dev builds each carry a public key, which fixes
+the id an unpacked copy has: `site-key.pub` gives
+`odphfgepbkbbiognjbkdjllabphmdhhg` (`SITE_EXTENSION_ID`), `dev-key.pub`
+`nmkolhlloohlmpklcknknipkaedblgbe` (`DEV_EXTENSION_ID`). Neither needs
+its private key, and neither's is kept. The dev build also answers
+`http://localhost` and `http://127.0.0.1` on any port beside
+agex.studio, and has the dev-only ops.
+
+The studio's build zips the site build into its download,
+`dist/extension/agex-studio-extension.zip` (`EXTENSION_DOWNLOAD`), one
+`agex-studio` folder to load unpacked, as its help page says
+([`public/docs/browser.md`](../public/docs/browser.md)); its dev server
+builds it afresh for each request. It doesn't update itself: the studio
+tells the person when the version it offers is newer than theirs.
 
 To try it: `chrome://extensions`, Developer mode, **Load unpacked**, and
 choose `extension/dist/dev`. After a rebuild, its ↻ reloads it.

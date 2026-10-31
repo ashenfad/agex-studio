@@ -16,6 +16,7 @@
     const SECTIONS = [
         { slug: 'getting-started', title: 'Getting started' },
         { slug: 'the-agent', title: 'The agent' },
+        { slug: 'browser', title: 'Browser tabs' },
         { slug: 'sessions', title: 'Sessions & files' },
         { slug: 'sharing', title: 'Sharing' },
         { slug: 'about', title: 'About' },

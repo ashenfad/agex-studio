@@ -15,7 +15,7 @@
  * `absent`, and the tools that would need it aren't offered.
  */
 
-import { DEV_EXTENSION_ID, HEARTBEAT_MS, PROTOCOL, STORE_EXTENSION_ID } from "../../extension/src/protocol.js";
+import { DEV_EXTENSION_ID, HEARTBEAT_MS, PROTOCOL, SITE_EXTENSION_ID, STORE_EXTENSION_ID } from "../../extension/src/protocol.js";
 
 /** A refusal from the extension, or the port failing: `code` as the
  *  protocol's (`not-granted`, `stale`, ...), or `absent` and
@@ -35,8 +35,9 @@ export const ID_KEY = "agex-studio-extension-id";
 
 /**
  * The ids the extension may have here, in the order tried: one the
- * person set, the store's, then the dev build's (whose fixed id answers
- * agex.studio and local dev servers alike).
+ * person set, the store's, the studio's download's, then the dev
+ * build's (whose fixed id answers agex.studio and local dev servers
+ * alike).
  *
  * @param {Storage | undefined} storage
  * @returns {string[]}
@@ -48,7 +49,20 @@ export function candidateIds(storage) {
     } catch {
         // storage refused: no id of the person's
     }
-    return [...new Set([set, STORE_EXTENSION_ID, DEV_EXTENSION_ID].filter((id) => typeof id === "string" && id !== ""))];
+    return [...new Set([set, STORE_EXTENSION_ID, SITE_EXTENSION_ID, DEV_EXTENSION_ID].filter((id) => typeof id === "string" && id !== ""))];
+}
+
+/**
+ * Whether version `a` comes before `b`, each dotted numbers (`0.1.2`).
+ *
+ * @param {string} a @param {string} b
+ */
+export function olderThan(a, b) {
+    const [x, y] = [a, b].map((v) => v.split(".").map((n) => Number.parseInt(n, 10) || 0));
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+        if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
+    }
+    return false;
 }
 
 /**
@@ -64,6 +78,9 @@ export class BrowserExtension {
     version = $state(null);
     /** Why it isn't usable, when `outdated`. @type {string | null} */
     problem = $state(null);
+    /** The version of the extension the studio offers for download, when
+     *  the one found is older: it doesn't update itself, loaded unpacked. */
+    newer = $derived(this.version !== null && olderThan(this.version, this.offered) ? this.offered : null);
 
     /** @type {{ port: chrome.runtime.Port, id: string } | null} */
     #open = null;
@@ -82,11 +99,13 @@ export class BrowserExtension {
     #onEvent = new Set();
 
     /**
-     * @param {{ runtime?: Runtime | null, ids?: string[], heartbeatMs?: number }} opts
+     * @param {{ runtime?: Runtime | null, ids?: string[], heartbeatMs?: number, offered?: string }} opts
      *   `runtime` is `chrome.runtime` as the page has it: undefined when
-     *   no extension answers this page at all.
+     *   no extension answers this page at all. `offered` is the version
+     *   of the studio's download.
      */
-    constructor({ runtime, ids = [], heartbeatMs = HEARTBEAT_MS }) {
+    constructor({ runtime, ids = [], heartbeatMs = HEARTBEAT_MS, offered = __EXTENSION_VERSION__ }) {
+        this.offered = offered;
         this.runtime = runtime ?? null;
         this.ids = ids;
         this.heartbeatMs = heartbeatMs;
