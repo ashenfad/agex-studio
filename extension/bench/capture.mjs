@@ -8,7 +8,7 @@
  *     node extension/bench/capture.mjs udisc ihg    # some
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { launch, settle } from "./browser.mjs";
@@ -35,6 +35,8 @@ for (const site of SITES) {
         index[site.name] = { url: site.url, landed: page.url(), title: await page.title(), at: new Date().toISOString(), bytes: data.length };
         console.log(`${site.name.padEnd(12)} ${Math.round(data.length / 1024)} KB  ${await page.title()}`);
     } catch (e) {
+        // a capture from before isn't this one: the compare reads none rather than an old page
+        rmSync(join(out, `${site.name}.mhtml`), { force: true });
         index[site.name] = { url: site.url, landed: page.url(), title: "", at: new Date().toISOString(), error: String(e).slice(0, 300) };
         console.log(`${site.name.padEnd(12)} failed: ${String(e).slice(0, 120)}`);
     }
