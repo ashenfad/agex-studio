@@ -197,6 +197,42 @@ const SCENARIOS = {
         };
     },
 
+    /** a tab shared from the toolbar: kept until the studio takes it,
+     *  the studio brought to the front to ask, and turned down or taken */
+    async toolbar() {
+        const c = await greeted();
+        await c.call("session", { session: "toolbar", name: "Toolbar", domains: [] });
+        const person = window.open(site("toolbar-person"), "_blank");
+        const tab = (await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site toolbar-person")))?.id;
+        await until(async () => document.visibilityState === "hidden");
+        const hidden = document.visibilityState;
+        // the popup's Share, as the dev build stands in for it
+        const offered = await c.call("offer", { tab });
+        const front = await until(async () => document.visibilityState === "visible");
+        const waiting = (await c.call("shares")).value;
+        const offeredOwn = await c.call("offer", { tab: (await c.call("open", { session: "toolbar", url: site("toolbar-own") })).value?.tab });
+        const dropped = await c.call("drop", { tab });
+        const afterDrop = (await c.call("shares")).value;
+        await c.call("offer", { tab });
+        const taken = await c.call("take", { session: "toolbar", tab });
+        const takenTwice = await c.call("take", { session: "toolbar", tab });
+        const afterTake = (await c.call("shares")).value;
+        const listed = (await c.call("tabs", { session: "toolbar" })).value?.find((t) => t.id === tab);
+        const read = await c.call("read", { session: "toolbar", tab });
+        // a share waiting for a tab since closed isn't listed
+        const gone = window.open(site("toolbar-gone"), "_blank");
+        const goneTab = (await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site toolbar-gone")))?.id;
+        await c.call("offer", { tab: goneTab });
+        gone.close();
+        const afterClose = await until(async () => {
+            const w = (await c.call("shares")).value;
+            return w && !w.some((s) => s.tab === goneTab) ? w : null;
+        });
+        person.close();
+        c.port.disconnect();
+        return { tab, hidden, offered, front, waiting, offeredOwn, dropped, afterDrop, taken, takenTwice, afterTake, listed, read: read.value?.title ?? read.error, afterClose };
+    },
+
     /** a popup window a page opens, which takes no tab group */
     async popup() {
         const c = await greeted();

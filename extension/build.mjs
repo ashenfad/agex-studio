@@ -6,7 +6,7 @@
  *     node extension/build.mjs          # the store's: agex.studio only
  *     node extension/build.mjs --dev    # a fixed id, and local dev servers
  *
- * The sources are plain modules, copied as they are (tests left out);
+ * The sources are plain modules and pages, copied as they are (tests left out);
  * only the manifest differs. The dev build carries the public key in
  * `dev-key.pub`, which fixes its id (`DEV_EXTENSION_ID`), and answers
  * `http://localhost` and `http://127.0.0.1` on any port beside
@@ -41,7 +41,7 @@ originMatcher(trusted); // every pattern one the worker can read
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 for (const file of readdirSync(join(here, "src"))) {
-    if (file.endsWith(".js") && !file.endsWith(".test.js")) cpSync(join(here, "src", file), join(out, file));
+    if ((file.endsWith(".js") && !file.endsWith(".test.js")) || file.endsWith(".html")) cpSync(join(here, "src", file), join(out, file));
 }
 writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 if (dev) writeFileSync(join(out, "build-info.js"), readFileSync(join(here, "src", "build-info.js"), "utf8").replace("DEV = false", "DEV = true"));

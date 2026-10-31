@@ -3,12 +3,12 @@
  * about (its name and granted domains), the tabs that are its, and the
  * tabs and windows the person has had in front.
  *
- * Sessions and tabs are kept in `chrome.storage.local`, which outlives
- * the service worker's stops (it stops whenever it's idle) and the
- * extension's own updates and reloads, which leave its tabs open; the
- * worker clears them when the browser starts, since tab ids don't
- * outlive it. What was in front is only a guide to giving the front
- * back, so it stays in `chrome.storage.session`. Every change goes
+ * Sessions, tabs and shares are kept in `chrome.storage.local`, which
+ * outlives the service worker's stops (it stops whenever it's idle) and
+ * the extension's own updates and reloads, which leave its tabs open;
+ * the worker clears them when the browser starts, since tab ids don't
+ * outlive it. What was in front, and the studio's tab, are only guides
+ * to giving the front back, so they stay in `chrome.storage.session`. Every change goes
  * through `change`, one at a time, so two calls never read the same
  * state and write over each other.
  */
@@ -27,14 +27,19 @@
  *   A share covers the host the tab was on when shared (its subdomains
  *   with it, and for a `www.` host the bare one): elsewhere, it isn't
  *   read. `at`, when it was shared, tells this share from a later one.
+ *   A share from the toolbar waits in `shares`, by tab, until the studio
+ *   says which session takes it.
  * @typedef {{
  *   sessions: Record<string, Session>,
  *   tabs: Record<string, Tab>,
+ *   shares: Record<string, Shared>,
  *   windows: Record<string, number[]>,
  *   focused: number[],
+ *   studio: number | null,
  * }} State
  *   `windows`: the tabs each window has shown in front, the latest last.
  *   `focused`: the windows that have had the focus, the latest last.
+ *   `studio`: the tab the studio last connected from.
  */
 
 const KEY = "registry";
@@ -45,18 +50,20 @@ export async function read() {
     return {
         sessions: {},
         tabs: {},
+        shares: {},
         windows: {},
         focused: [],
+        studio: null,
         .../** @type {Partial<State> | undefined} */ (kept[KEY]),
         .../** @type {Partial<State> | undefined} */ (shown[KEY]),
     };
 }
 
 /** @param {State} state */
-async function write({ sessions, tabs, windows, focused }) {
+async function write({ sessions, tabs, shares, windows, focused, studio }) {
     await Promise.all([
-        chrome.storage.local.set({ [KEY]: { sessions, tabs } }),
-        chrome.storage.session.set({ [KEY]: { windows, focused } }),
+        chrome.storage.local.set({ [KEY]: { sessions, tabs, shares } }),
+        chrome.storage.session.set({ [KEY]: { windows, focused, studio } }),
     ]);
 }
 

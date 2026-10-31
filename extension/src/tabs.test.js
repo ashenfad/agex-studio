@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 /**
  * Enough of `chrome` for the worker's start: storage, session rules,
- * the open tabs and windows, and `onStartup`. An extension's update or
+ * the open tabs and windows, `onStartup`, and the toolbar's badge. An extension's update or
  * reload clears its session rules and leaves its tabs open, which an
  * end-to-end test can't stage (Chromium won't reload an extension loaded
  * from the command line).
@@ -36,6 +36,7 @@ function fakeChrome({ open = /** @type {number[]} */ ([]), rules = /** @type {an
         },
         windows: { getLastFocused: async () => ({ id: 1 }) },
         runtime: { onStartup: { addListener: (/** @type {() => void} */ f) => startup.push(f) } },
+        action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {}, setTitle: async () => {} },
     };
     return { chrome, areas, startup };
 }
@@ -73,7 +74,7 @@ describe("the worker's start", () => {
     });
 
     it("leaves a tab the person shared unheld: its loads are theirs", async () => {
-        fake = fakeChrome({ open: [7, 9], registry: { ...registry, tabs: { ...registry.tabs, 9: { session: "s", shared: { domain: "mail.example", at: 1 } } } } });
+        fake = fakeChrome({ open: [7, 9], registry: { ...registry, tabs: { ...registry.tabs, 9: { session: "s", shared: { domain: "www.mail.example", at: 1 } } } } });
         Object.assign(globalThis, { chrome: fake.chrome });
         const { start } = await import("./tabs.js");
         start();
@@ -97,14 +98,14 @@ describe("the worker's start", () => {
         for (const f of fake.startup) f();
         await settle();
         expect(fake.chrome.declarativeNetRequest.rules).toEqual([]);
-        expect(fake.areas.local.get("registry")).toEqual({ sessions: {}, tabs: {} });
+        expect(fake.areas.local.get("registry")).toEqual({ sessions: {}, tabs: {}, shares: {} });
     });
 });
 
 describe("a tab a page opens", () => {
     /** @type {ReturnType<typeof fakeChrome>} */
     let fake;
-    /** @type {Record<string, (e: any) => void>} */
+    /** @type {Record<string, (...a: any[]) => void>} */
     let on;
     /** @type {number[]} */
     let removed;
@@ -115,7 +116,16 @@ describe("a tab a page opens", () => {
         on = {};
         removed = [];
         errorPage = false;
-        const event = (/** @type {string} */ name) => ({ addListener: (/** @type {(e: any) => void} */ f) => (on[name] = f) });
+        // every listener an event has, called in turn
+        const event = (/** @type {string} */ name) => ({
+            addListener: (/** @type {(...a: any[]) => void} */ f) => {
+                const before = on[name];
+                on[name] = (/** @type {any[]} */ ...a) => {
+                    before?.(...a);
+                    f(...a);
+                };
+            },
+        });
         const chrome = /** @type {any} */ (fake.chrome);
         Object.assign(chrome.tabs, {
             // still where it started, on a grant, though a redirect has sent it on
@@ -206,5 +216,73 @@ describe("a read of a shared tab, checked before it's given", () => {
         await expect(stillOn("s", 9, share, url)).rejects.toMatchObject({ code: "not-found" });
         fake.areas.local.set("registry", { sessions: {}, tabs: {} });
         await expect(stillOn("s", 9, share, url)).rejects.toMatchObject({ code: "not-found" });
+    });
+});
+
+describe("the toolbar's popup", () => {
+    /** @type {ReturnType<typeof fakeChrome>} */
+    let fake;
+    /** @type {Record<number, string>} */
+    const urls = { 7: "https://hotel.example/rooms", 8: "https://www.mail.example/inbox", 9: "chrome://settings/", 10: "https://agex.studio/", 11: "http://localhost:4173/", 12: "https://news.example/" };
+    /** @type {Record<number, { text?: string, title?: string }>} */
+    let badges;
+    /** @type {any[]} */
+    let fronted;
+    beforeEach(() => {
+        fake = fakeChrome({
+            open: Object.keys(urls).map(Number),
+            registry: {
+                sessions: { s: { name: "Hotels", domains: ["hotel.example"] } },
+                tabs: { 7: { session: "s" }, 12: { session: "s", shared: { domain: "news.example", at: 1 } } },
+            },
+        });
+        // the studio last connected from tab 11, a dev server's
+        fake.areas.session.set("registry", { windows: {}, focused: [], studio: 11 });
+        badges = {};
+        fronted = [];
+        const chrome = /** @type {any} */ (fake.chrome);
+        Object.assign(chrome.tabs, {
+            get: async (/** @type {number} */ id) => {
+                if (!(id in urls)) throw new Error(`No tab with id: ${id}`);
+                return { id, windowId: 1, active: false, url: urls[id], title: `tab ${id}` };
+            },
+            update: async (/** @type {number} */ id, /** @type {any} */ props) => void fronted.push(["tab", id, props]),
+        });
+        chrome.windows = { ...chrome.windows, update: async (/** @type {number} */ id) => void fronted.push(["window", id]) };
+        chrome.action = {
+            setBadgeText: async ({ tabId, text }) => void (badges[tabId] = { ...badges[tabId], text }),
+            setBadgeBackgroundColor: async () => {},
+            setTitle: async ({ tabId, title }) => void (badges[tabId] = { ...badges[tabId], title }),
+        };
+        Object.assign(globalThis, { chrome });
+    });
+
+    it("says what each tab is: shareable, a session's own or shared, the studio, or another kind of page", async () => {
+        const { popupState } = await import("./tabs.js");
+        expect(await popupState(8)).toEqual({ kind: "share", domain: "www.mail.example" });
+        expect(await popupState(7)).toEqual({ kind: "session", name: "Hotels" });
+        expect(await popupState(12)).toEqual({ kind: "shared", name: "Hotels", domain: "news.example" });
+        expect(await popupState(9)).toEqual({ kind: "page" });
+        expect(await popupState(10)).toEqual({ kind: "studio" });
+        expect(await popupState(11)).toEqual({ kind: "studio" });
+    });
+
+    it("keeps a share, badged as waiting, brings the studio's tab to the front, and badges it shared once taken", async () => {
+        const { offer, popupState, stopSharing, tabOps } = await import("./tabs.js");
+        await offer(8);
+        expect(await popupState(8)).toEqual({ kind: "waiting", domain: "www.mail.example" });
+        expect(badges[8]).toEqual({ text: "…", title: "Waiting for agex.studio to say which session takes this tab" });
+        expect(fronted).toEqual([["tab", 11, { active: true }], ["window", 1]]);
+        await tabOps.take(/** @type {any} */ ({ id: 1, op: "take", session: "s", tab: 8 }), /** @type {any} */ ({}));
+        expect(badges[8]).toEqual({ text: "on", title: "Shared with Hotels, to read while it's on www.mail.example" });
+        await stopSharing(8);
+        expect(badges[8]).toEqual({ text: "", title: "Share this tab with agex.studio" });
+        expect(await popupState(8)).toEqual({ kind: "share", domain: "www.mail.example" });
+    });
+
+    it("refuses to share a session's tab, the studio's, or a browser page", async () => {
+        const { offer } = await import("./tabs.js");
+        for (const tab of [7, 9, 10, 11, 12]) await expect(offer(tab), String(tab)).rejects.toThrow("can't be shared");
+        expect(fronted).toEqual([]);
     });
 });
