@@ -115,7 +115,7 @@ describe("a session's pages", () => {
         assert.equal(r.all.below, 0);
         assert.equal(r.badTo.error.code, "bad-request");
         // a turn of the wheel the page never got isn't taken for the bottom
-        assert.equal(r.swallowed?.below, 0, JSON.stringify(r.swallowed));
+        assert.equal(r.swallowed.value?.below, 0, JSON.stringify(r.swallowed));
     });
 
     it("waits, with settle, for a page that draws its results late", async () => {

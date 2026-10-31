@@ -306,7 +306,7 @@ const SCENARIOS = {
         const badTo = await c.call("scroll", { ...at, to: "sideways" });
         const swallow = (await c.call("open", { session: "loading", url: `${GRANTED}/test/page/swallow.html` })).value.tab;
         await tabWhere(c, "loading", (t) => t.id === swallow && t.title === "A long page");
-        const swallowed = (await c.call("scroll", { session: "loading", tab: swallow, to: "bottom" })).value;
+        const swallowed = await c.call("scroll", { session: "loading", tab: swallow, to: "bottom" });
         const slow = (await c.call("open", { session: "loading", url: `${GRANTED}/test/page/slow.html` })).value.tab;
         const early = (await c.call("read", { session: "loading", tab: slow })).value;
         const late = (await c.call("read", { session: "loading", tab: slow, settle: true })).value;
