@@ -133,6 +133,10 @@ describe("acting in a session's pages", () => {
 
     it("takes a tab as a choice, not a step that commits, whatever it's named", () => {
         assert.equal(r.bookTab.value?.title, "Book a room", JSON.stringify(r.bookTab.error));
+        // a combobox's box takes typing into its field; one with no field yet says how to open it
+        assert.equal(r.comboType.error, undefined, JSON.stringify(r.comboType));
+        assert.match(r.comboValue ?? "", /combobox "Course search" = "Corvallis"/, r.comboValue);
+        assert.match(r.comboEmpty.error?.message ?? "", /isn't a field to type into: if it opens one when clicked, click it, read again/);
         // a switch may save as it's flipped: asked, as a button named so is
         assert.equal(r.publishSwitch.error?.code, "confirm", JSON.stringify(r.publishSwitch));
         assert.match(r.out, /hotel only;/);

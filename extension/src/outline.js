@@ -151,7 +151,11 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         if (el instanceof HTMLTextAreaElement) return `${kind} ${name}${el.value ? ` = ${JSON.stringify(cap(el.value, 40))}` : ""}${disabled}`;
         if (el instanceof HTMLAnchorElement && kind === "link") return `${kind} ${name}${hrefs ? ` → ${el.href}` : ""}`;
         const checked = el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true" ? " (checked)" : "";
-        return `${kind} ${name}${checked}${disabled}`;
+        // a box drawn around its one field (a combobox's): what that field holds, which typing into the box changes
+        const inner = el.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea");
+        const held = inner.length === 1 ? /** @type {HTMLInputElement} */ (inner[0]).value : "";
+        const value = held && /** @type {HTMLInputElement} */ (inner[0]).type !== "password" ? ` = ${JSON.stringify(cap(held, 40))}` : "";
+        return `${kind} ${name}${value}${checked}${disabled}`;
     };
 
     /** @param {Element} el */

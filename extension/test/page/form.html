@@ -29,6 +29,9 @@
 <p role="tablist"><span role="tab" tabindex="0" onclick="out('hotel only')">Book hotel</span> <span role="tab" tabindex="0">Book flight + hotel</span></p>
 <!-- a calendar that reuses its day cells when it moves on: the cell that read 24 reads 23 -->
 <p id="cal"><button>23</button> <button>24</button></p>
+<!-- a combobox drawn as a box around its field; and one that opens its field only once clicked -->
+<p><span role="combobox" tabindex="0" aria-label="Course search" aria-expanded="false"><span>Search</span> <input placeholder="Type a place" style="border: 0"></span></p>
+<p><span role="combobox" tabindex="0" aria-label="Empty picker" aria-expanded="false">Nearby courses</span></p>
 <form id="wrapped"><span role="button">Wrapped <input id="inner" aria-label="Inner code"></span> <button>Book now</button></form>
 <p><button onclick="document.getElementById('inner').focus()">Focus inside</button></p>
 <p><a id="away">Elsewhere</a></p>

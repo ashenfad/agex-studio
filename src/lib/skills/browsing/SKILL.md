@@ -47,9 +47,13 @@ browser({ actions: [{ open: "https://www.hyatt.com/search/hotels/en-US/Lisbon,%2
                     { read: true }] })
 ```
 
-Sites change their links: a pattern that worked before, or that you
-remember, may land on "Page Not Found" now. Search by hand once, each
-task.
+**Never guess a site's parameter names.** A guessed `?lat=…&lng=…` or
+`?search=…` is often ignored, and the page shows its default place as
+if it worked. Sites change their links too: a pattern that worked
+before, or that you remember, may land on "Page Not Found" now. Search
+by hand once, each task, and copy what the URL says. A map often keeps
+its place in the URL's hash (`#map=10/44.6/-123.1`): move it there and
+the hash is the pattern.
 
 **Check the page, not the URL.** Read that the dates, guests and place
 you asked for show on the page before you trust a pattern: a site may
@@ -57,6 +61,10 @@ ignore a parameter, or count differently (IHG's month is zero-based:
 `qCiMy=112026` is December). Prefer a link over filling a form; fill the
 form (`type`, `select`, `click` on the refs of a read) when there is no
 link, and read the URL it lands on.
+
+**A search box drawn as a combobox** takes `type` on its ref, which
+reaches the field inside it. One that has no field until it's clicked
+says so: click it, read again, and type into the new field's ref.
 
 **A site's own date picker isn't a date field.** `type` sets a real date
 field (`date field "Check-in"` in a read) from `2026-12-03`, but a
@@ -134,7 +142,8 @@ console.log(JSON.stringify({
   loads more as it's scrolled ("15 results", ten shown) needs
   `await tab.scroll('bottom')` and a read after. A page that shows hotels
   without prices may load them per card: open one hotel's own page, or
-  look with the browser tool's screenshot.
+  look with the browser tool's screenshot. A screenshot costs far more
+  than text: for what a page says, read it (`maxChars` for its start).
 - **Keep the fan-out to the sites asked for**, a dozen or so at most at
   once. Close the tabs you're done with (`tab.close()`); leave open the
   ones you report, so the person can look.
