@@ -51,7 +51,7 @@ watchWork(async () => Object.keys((await read()).tabs).map(Number));
 
 chrome.runtime.onConnectExternal.addListener((port) => {
     servePort(port, { allows, ops, version: manifest.version });
-    if (allows(port.sender?.origin)) studioConnected(port.sender?.tab?.id);
+    if (allows(port.sender?.origin)) studioConnected(port.sender?.tab?.id, port.sender?.origin);
 });
 
 // the popup: only the extension's own pages send here (a site's page

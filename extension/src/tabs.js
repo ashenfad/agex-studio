@@ -245,13 +245,16 @@ export const tabOps = {
         return { tab, domain };
     },
 
-    /** A share from the toolbar turned down: the tab is left as it was. */
+    /** A share from the toolbar turned down: the tab is left as it was.
+     *  One taken meanwhile (by another of the studio's tabs) stays taken. */
     async drop(req) {
         const tab = tabArg(req);
-        await change((state) => {
+        const waited = await change((state) => {
+            const was = tab in state.shares;
             delete state.shares[tab];
+            return was;
         });
-        await badge(tab, null);
+        if (waited) await badge(tab, null);
         return null;
     },
 
@@ -383,16 +386,23 @@ export function watchTabs() {
     // a prerendered page swapped in comes with a new tab id
     chrome.tabs.onReplaced.addListener((added, removed) => {
         void change(async (state) => {
+            // a share waiting for the studio goes with it
+            const waiting = state.shares[removed];
+            if (waiting !== undefined) {
+                delete state.shares[removed];
+                state.shares[added] = waiting;
+            }
             const tab = state.tabs[removed];
-            if (tab === undefined) return;
-            if (!tab.shared) await hold(added, known(state, tab.session).domains);
-            await release(removed);
-            delete state.tabs[removed];
-            state.tabs[added] = tab;
-            if (tab.shared) void badgeShared(added);
-            // the tabs its pages opened are from it still
-            for (const t of Object.values(state.tabs)) if (t.opener === removed) t.opener = added;
-        });
+            if (tab !== undefined) {
+                if (!tab.shared) await hold(added, known(state, tab.session).domains);
+                await release(removed);
+                delete state.tabs[removed];
+                state.tabs[added] = tab;
+                // the tabs its pages opened are from it still
+                for (const t of Object.values(state.tabs)) if (t.opener === removed) t.opener = added;
+            }
+            return waiting !== undefined || tab?.shared !== undefined;
+        }).then((shared) => shared && badgeShared(added));
     });
 }
 
@@ -438,13 +448,31 @@ export function start() {
     });
 }
 
-/** The studio connected from `tab`: where a share from the toolbar sends
- *  the person. @param {number | undefined} tab */
-export function studioConnected(tab) {
-    if (tab === undefined) return;
+/** The studio connected from `tab`, on `origin`: where a share from the
+ *  toolbar sends the person, while that tab is still on it.
+ *  @param {number | undefined} tab @param {string | undefined} origin */
+export function studioConnected(tab, origin) {
+    if (tab === undefined || origin === undefined) return;
     void change((state) => {
-        state.studio = tab;
+        state.studio = { tab, origin };
     });
+}
+
+/** The studio's tab, if it's still on the studio's origin.
+ *  @param {import("./registry.js").State} state */
+async function studioTab(state) {
+    if (state.studio === null) return null;
+    const tab = await chrome.tabs.get(state.studio.tab).catch(() => null);
+    return tab !== null && originOf(tab.url ?? "") === state.studio.origin ? tab : null;
+}
+
+/** @param {string} url */
+function originOf(url) {
+    try {
+        return new URL(url).origin;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -464,8 +492,9 @@ export async function popupState(tab) {
         }
         if (tab in state.shares) return { kind: "waiting", domain: state.shares[tab].domain };
         const open = await chrome.tabs.get(tab).catch(() => null);
-        if (open !== null && (tab === state.studio || studioPage(open.url ?? ""))) return { kind: "studio" };
-        if (open === null || !shareable(state, open, state.studio ?? undefined)) return { kind: "page" };
+        const studio = await studioTab(state);
+        if (open !== null && (tab === studio?.id || studioPage(open.url ?? ""))) return { kind: "studio" };
+        if (open === null || !shareable(state, open, studio?.id)) return { kind: "page" };
         return { kind: "share", domain: siteOf(/** @type {string} */ (open.url)) };
     });
 }
@@ -480,15 +509,15 @@ export async function popupState(tab) {
 export async function offer(tab) {
     const studio = await change(async (state) => {
         const open = await chrome.tabs.get(tab).catch(() => null);
-        if (open === null || !shareable(state, open, state.studio ?? undefined)) {
+        const at = await studioTab(state);
+        if (open === null || !shareable(state, open, at?.id)) {
             throw new ProtocolError("bad-request", `tab ${tab} can't be shared: only one of the person's own http or https pages can`);
         }
         state.shares[tab] = { domain: siteOf(/** @type {string} */ (open.url)), at: Date.now() };
-        return state.studio;
+        return at;
     });
     await badgeShared(tab);
-    const known = studio === null ? null : await chrome.tabs.get(studio).catch(() => null);
-    const [found] = known === null ? await chrome.tabs.query({ url: [...STUDIO_MATCHES] }) : [known];
+    const [found] = studio === null ? await chrome.tabs.query({ url: [...STUDIO_MATCHES] }) : [studio];
     if (found?.id === undefined) {
         await chrome.tabs.create({ url: STUDIO_URL, active: true });
         return;
