@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Agex Studio</title>
+<style>
+    :root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --accent: #2563eb; --bg: #fff; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #9198a1; --accent: #4c8dff; --bg: #1c1f24; } }
+    body { margin: 0; padding: 14px 16px; width: 280px; font: 13px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+    h1 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    p:last-child { margin-bottom: 0; }
+    button { font: inherit; font-weight: 600; padding: 6px 14px; border: 0; border-radius: 6px; color: #fff; background: var(--accent); cursor: pointer; }
+    button.quiet { color: var(--fg); background: transparent; border: 1px solid var(--muted); }
+    [hidden] { display: none; }
+</style>
+<h1 id="head"></h1>
+<p id="body"></p>
+<button id="act" hidden></button>
+<script type="module" src="popup.js"></script>

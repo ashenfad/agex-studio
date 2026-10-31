@@ -18,12 +18,15 @@ describe("a tab the person shares", () => {
     let browser;
     /** @type {any} */
     let r;
+    /** @type {any} */
+    let t;
     /** whether the server ever answered a request for the fixture `id` */
     const loaded = (id) => browser.served().some((s) => s.id === id);
     before(async () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
-        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "shared" } });
+        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "shared,toolbar" } });
         r = await browser.report("shared", 120_000);
+        t = await browser.report("toolbar", 120_000);
     });
     after(() => browser?.close());
 
@@ -68,5 +71,25 @@ describe("a tab the person shares", () => {
         assert.equal(r.after.error?.code, "not-found");
         assert.equal(r.stillOpen, true);
         assert.deepEqual(r.ownTabs, [r.own]);
+    });
+
+    it("keeps a share from the toolbar until the studio takes it, bringing the studio to the front", () => {
+        assert.equal(t.hidden, "hidden", "the person's tab never came to the front");
+        assert.equal(t.offered.value, null, JSON.stringify(t.offered.error));
+        assert.equal(t.front, true, "the studio wasn't brought to the front");
+        assert.equal(t.waiting.length, 1);
+        assert.deepEqual({ tab: t.waiting[0].tab, domain: t.waiting[0].domain, title: t.waiting[0].title }, { tab: t.tab, domain: "127.0.0.1", title: "site toolbar-person" });
+        assert.equal(t.offeredOwn.error?.code, "bad-request", "a session's own tab was offered");
+    });
+
+    it("drops a share turned down, gives one taken to the session, and forgets one whose tab closed", () => {
+        assert.equal(t.dropped.value, null);
+        assert.deepEqual(t.afterDrop, []);
+        assert.deepEqual(t.taken.value, { tab: t.tab, domain: "127.0.0.1" });
+        assert.equal(t.takenTwice.error?.code, "not-found");
+        assert.deepEqual(t.afterTake, []);
+        assert.equal(t.listed?.shared, "127.0.0.1");
+        assert.equal(t.read, "site toolbar-person");
+        assert.deepEqual(t.afterClose, []);
     });
 });

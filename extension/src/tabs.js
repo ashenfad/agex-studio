@@ -13,6 +13,7 @@
  * read, while they're on the site they were shared on.
  */
 
+import { badge } from "./badge.js";
 import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { originMatcher } from "./origins.js";
@@ -30,6 +31,8 @@ const watched = new WeakSet();
 /** agex.studio's own pages, which are never shared (a dev build's studio
  *  on localhost is known by its port instead) */
 const studioPage = originMatcher(STUDIO_MATCHES);
+/** Where a share from the toolbar sends the person when no studio tab is open. */
+const STUDIO_URL = "https://agex.studio/";
 
 /** @type {Record<string, import("./port.js").Op>} */
 export const tabOps = {
@@ -185,9 +188,11 @@ export const tabOps = {
                 throw new ProtocolError("bad-request", `tab ${tab} can't be shared: only one of the person's own http or https pages can, not a session's tab or the studio's`);
             }
             const d = siteOf(/** @type {string} */ (t.url));
+            delete state.shares[tab];
             state.tabs[tab] = { session, shared: { domain: d, at: Date.now() } };
             return d;
         });
+        await badgeShared(tab);
         return { tab, domain };
     },
 
@@ -201,7 +206,52 @@ export const tabOps = {
             if (!state.tabs[tab].shared) throw new ProtocolError("bad-request", `tab ${tab} is the session's own: close it instead`);
             delete state.tabs[tab];
         });
-        await rest(tab);
+        await stopped(tab);
+        return null;
+    },
+
+    /** The tabs the person shared from the toolbar that wait for the
+     *  studio to say which session takes them, each as it is now. */
+    async shares() {
+        return change(async (state) => {
+            const waiting = [];
+            for (const [key, { domain, at }] of Object.entries(state.shares)) {
+                const tab = await chrome.tabs.get(Number(key)).catch(() => null);
+                if (tab === null || key in state.tabs) {
+                    delete state.shares[key];
+                    continue;
+                }
+                waiting.push({ tab: Number(key), url: tab.url ?? "", title: tab.title ?? "", domain, at });
+            }
+            return waiting;
+        });
+    },
+
+    /** A tab shared from the toolbar given to the session the person
+     *  chose, on the domain it was shared on. */
+    async take(req) {
+        const session = sessionArg(req);
+        const tab = tabArg(req);
+        const domain = await change(async (state) => {
+            known(state, session);
+            const waiting = state.shares[tab];
+            if (waiting === undefined) throw new ProtocolError("not-found", `no share of tab ${tab} waits to be taken`);
+            delete state.shares[tab];
+            if ((await chrome.tabs.get(tab).catch(() => null)) === null) throw new ProtocolError("not-found", `tab ${tab} was closed`);
+            state.tabs[tab] = { session, shared: { domain: waiting.domain, at: Date.now() } };
+            return waiting.domain;
+        });
+        await badgeShared(tab);
+        return { tab, domain };
+    },
+
+    /** A share from the toolbar turned down: the tab is left as it was. */
+    async drop(req) {
+        const tab = tabArg(req);
+        await change((state) => {
+            delete state.shares[tab];
+        });
+        await badge(tab, null);
         return null;
     },
 
@@ -318,10 +368,16 @@ export function watchTabs() {
 
     chrome.tabs.onRemoved.addListener((id) => {
         void change(async (state) => {
+            delete state.shares[id];
             if (!(id in state.tabs)) return;
             delete state.tabs[id];
             await release(id);
         });
+    });
+
+    // the toolbar's badge on a shared tab, again on each page it loads
+    chrome.webNavigation.onCommitted.addListener(({ tabId, frameId }) => {
+        if (frameId === 0) void badgeShared(tabId);
     });
 
     // a prerendered page swapped in comes with a new tab id
@@ -333,6 +389,7 @@ export function watchTabs() {
             await release(removed);
             delete state.tabs[removed];
             state.tabs[added] = tab;
+            if (tab.shared) void badgeShared(added);
             // the tabs its pages opened are from it still
             for (const t of Object.values(state.tabs)) if (t.opener === removed) t.opener = added;
         });
@@ -367,6 +424,8 @@ export function start() {
         }
         const focused = await chrome.windows.getLastFocused().catch(() => null);
         if (focused?.id !== undefined && state.focused.length === 0) state.focused = [focused.id];
+        // an update or a reload of the extension clears its badges
+        for (const key of [...Object.keys(state.tabs), ...Object.keys(state.shares)]) void badgeShared(Number(key));
     });
     chrome.runtime.onStartup.addListener(() => {
         void change(async (state) => {
@@ -374,8 +433,106 @@ export function start() {
             await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: rules.map((r) => r.id) });
             state.sessions = {};
             state.tabs = {};
+            state.shares = {};
         });
     });
+}
+
+/** The studio connected from `tab`: where a share from the toolbar sends
+ *  the person. @param {number | undefined} tab */
+export function studioConnected(tab) {
+    if (tab === undefined) return;
+    void change((state) => {
+        state.studio = tab;
+    });
+}
+
+/**
+ * What the toolbar's popup shows for `tab`: that it can be shared, waits
+ * for the studio, is shared with a session (its name, and the domain), is
+ * a session's own, is the studio, or is another kind of page.
+ *
+ * @param {number} tab
+ * @returns {Promise<{ kind: "share" | "waiting" | "shared" | "session" | "studio" | "page", name?: string, domain?: string }>}
+ */
+export async function popupState(tab) {
+    return change(async (state) => {
+        const t = state.tabs[tab];
+        if (t !== undefined) {
+            const name = state.sessions[t.session]?.name ?? t.session;
+            return t.shared ? { kind: "shared", name, domain: t.shared.domain } : { kind: "session", name };
+        }
+        if (tab in state.shares) return { kind: "waiting", domain: state.shares[tab].domain };
+        const open = await chrome.tabs.get(tab).catch(() => null);
+        if (open !== null && (tab === state.studio || studioPage(open.url ?? ""))) return { kind: "studio" };
+        if (open === null || !shareable(state, open, state.studio ?? undefined)) return { kind: "page" };
+        return { kind: "share", domain: siteOf(/** @type {string} */ (open.url)) };
+    });
+}
+
+/**
+ * The person's share of `tab` from the toolbar: kept, on the domain it's
+ * on, until the studio says which session takes it, and the studio
+ * brought to the front to ask them (or agex.studio opened).
+ *
+ * @param {number} tab
+ */
+export async function offer(tab) {
+    const studio = await change(async (state) => {
+        const open = await chrome.tabs.get(tab).catch(() => null);
+        if (open === null || !shareable(state, open, state.studio ?? undefined)) {
+            throw new ProtocolError("bad-request", `tab ${tab} can't be shared: only one of the person's own http or https pages can`);
+        }
+        state.shares[tab] = { domain: siteOf(/** @type {string} */ (open.url)), at: Date.now() };
+        return state.studio;
+    });
+    await badgeShared(tab);
+    const known = studio === null ? null : await chrome.tabs.get(studio).catch(() => null);
+    const [found] = known === null ? await chrome.tabs.query({ url: [...STUDIO_MATCHES] }) : [known];
+    if (found?.id === undefined) {
+        await chrome.tabs.create({ url: STUDIO_URL, active: true });
+        return;
+    }
+    await chrome.tabs.update(found.id, { active: true });
+    await chrome.windows.update(found.windowId, { focused: true });
+}
+
+/**
+ * A share of `tab` ended, from the popup: a share waiting for the studio
+ * dropped, or the tab no longer the session's.
+ *
+ * @param {number} tab
+ */
+export async function stopSharing(tab) {
+    const was = await change((state) => {
+        delete state.shares[tab];
+        if (!state.tabs[tab]?.shared) return false;
+        delete state.tabs[tab];
+        return true;
+    });
+    if (was) await stopped(tab);
+    else await badge(tab, null);
+}
+
+/** A share ended: the agent's work in the tab rested, its badge gone.
+ *  @param {number} tab */
+async function stopped(tab) {
+    await rest(tab);
+    await badge(tab, null);
+}
+
+/** The toolbar's badge on `tab` as its share stands: shared (with whom,
+ *  on what domain), waiting for the studio, or left alone when neither.
+ *  @param {number} tab */
+async function badgeShared(tab) {
+    const state = await read();
+    const shared = state.tabs[tab]?.shared;
+    if (shared) {
+        const name = state.sessions[state.tabs[tab].session]?.name ?? "a session";
+        await badge(tab, "shared", `Shared with ${name}, to read while it's on ${shared.domain}`);
+    } else if (tab in state.shares) {
+        await badge(tab, "waiting", "Waiting for agex.studio to say which session takes this tab");
+    }
 }
 
 /** @param {import("./registry.js").State} state @param {number} windowId @param {number} tabId */

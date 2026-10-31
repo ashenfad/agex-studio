@@ -41,6 +41,12 @@
  *   (else `moved`).
  * - `unshare { session, tab }`: a shared tab the session's no longer,
  *   left open.
+ * - `shares` → `[{ tab, url, title, domain, at }]`: the tabs the person
+ *   shared from the toolbar (whose popup brings the studio to the front),
+ *   waiting for the studio to ask them which session takes each.
+ * - `take { session, tab }` → `{ tab, domain }`: one given to the
+ *   session, on the domain it was shared on; `drop { tab }`: one turned
+ *   down, the tab left as it was.
  * - `read { session, tab, maxChars?, hrefs?, settle? }` → an outline: the
  *   page's text, with numbered refs on what can be clicked or typed into,
  *   each ref's `{ ref, kind, name }` (`refs`), its `version`, a `blocker` when the page is a CAPTCHA or bot check,

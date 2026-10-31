@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Agex Studio",
-  "description": "Lets agex.studio's agent open, read and act in the tabs you allow it.",
+  "description": "Lets agex.studio's agent open, read and act in the tabs you allow it, and read the tabs you share with it.",
   "version": "0.1.0",
   "permissions": ["debugger", "declarativeNetRequest", "storage", "tabGroups", "tabs", "webNavigation"],
+  "action": { "default_title": "Share this tab with agex.studio", "default_popup": "popup.html" },
   "background": { "service_worker": "background.js", "type": "module" },
   "externally_connectable": { "matches": ["https://agex.studio/*"] }
 }
