@@ -220,24 +220,17 @@ async function after(tab, started, aim) {
  */
 export function aimAt(version, ref, how, key) {
     const COMMITS = /\b(book|reserve|pay|purchase|buy|checkout|check out|place order|order now|send|post|publish|delete|confirm)\b/i;
-    const kept = /** @type {{ version: number, refs: Element[], names: string[], label: (e: Element) => string } | undefined} */ (/** @type {any} */ (globalThis).__agex);
+    const kept = /** @type {{ version: number, refs: Element[], names: string[], label: (e: Element) => string, targets?: Record<number, Element> } | undefined} */ (/** @type {any} */ (globalThis).__agex);
     if (kept === undefined) return { stale: "it is another page now" };
     if (kept.version !== version) return { stale: `outline ${version} isn't its latest, ${kept.version}` };
-    let el = kept.refs[ref - 1];
-    if (el === undefined) return { error: `outline ${version} has no ref ${ref}` };
-    if (!el.isConnected) return { stale: `ref ${ref} has left the page` };
+    // the ref's own element: what the outline named, and whose state the step is checked against
+    const own = kept.refs[ref - 1];
+    if (own === undefined) return { error: `outline ${version} has no ref ${ref}` };
+    if (!own.isConnected) return { stale: `ref ${ref} has left the page` };
     const isField = (/** @type {Element} */ e) => e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement || /** @type {HTMLElement} */ (e).isContentEditable;
-    // a box drawn around its one field (a combobox's): typing goes to that field, under this ref from now on
-    if ((how === "type" || how === "submit") && !isField(el)) {
-        const inner = [...el.querySelectorAll("input:not([type=hidden]), textarea, [contenteditable=''], [contenteditable=true]")].filter((f) => f.checkVisibility());
-        if (inner.length === 1) {
-            el = inner[0];
-            kept.refs[ref - 1] = el;
-        }
-    }
     // what a field holds isn't its name, but a contenteditable's text is: typing changes it
-    if ((how === "click" || how === "press") && !(/** @type {HTMLElement} */ (el).isContentEditable)) {
-        const now = kept.label(el);
+    if ((how === "click" || how === "press") && !(/** @type {HTMLElement} */ (own).isContentEditable)) {
+        const now = kept.label(own);
         if (now !== kept.names[ref - 1]) return { stale: `ref ${ref} reads ${JSON.stringify(now)} now, not ${JSON.stringify(kept.names[ref - 1])}` };
     }
     /** @param {Element} e */
@@ -261,9 +254,20 @@ export function aimAt(version, ref, how, key) {
         const i = kept.refs.indexOf(e);
         return [i >= 0 ? kept.names[i] : "", text(e)].filter(Boolean).join(" / ");
     };
-    const desc = `[${ref}] ${el.tagName.toLowerCase()} ${JSON.stringify(kept.names[ref - 1] || text(el))}`;
-    if (/** @type {HTMLButtonElement} */ (el).disabled || el.getAttribute("aria-disabled") === "true") return { error: `${desc} is disabled` };
-    if (!el.checkVisibility()) return { error: `${desc} isn't shown` };
+    const desc = `[${ref}] ${own.tagName.toLowerCase()} ${JSON.stringify(kept.names[ref - 1] || text(own))}`;
+    if (/** @type {HTMLButtonElement} */ (own).disabled || own.getAttribute("aria-disabled") === "true") return { error: `${desc} is disabled` };
+    if (!own.checkVisibility()) return { error: `${desc} isn't shown` };
+    // a box drawn around its one field (a combobox's): typing goes to that field, and so do keys when the
+    // box is a text control itself (Enter on a button wrapping a field is the button's); the steps after
+    // this check find it as the ref's target
+    let el = own;
+    const textBox = ["combobox", "searchbox", "textbox"].includes(own.getAttribute("role") ?? "");
+    if ((how === "type" || how === "submit" || (how === "press" && textBox)) && !isField(own)) {
+        const inner = [...own.querySelectorAll("input:not([type=hidden]), textarea, [contenteditable=''], [contenteditable=true]")].filter((f) => f.checkVisibility());
+        if (inner.length === 1) el = inner[0];
+    }
+    kept.targets = { ...kept.targets, [ref]: el };
+    if (/** @type {HTMLInputElement} */ (el).disabled) return { error: `${desc} is disabled` };
     const fields = how === "type" || how === "submit";
     if (fields && !isField(el)) {
         return { error: `${desc} isn't a field to type into: if it opens one when clicked, click it, read again, and type into the new field's ref` };
@@ -346,7 +350,9 @@ export function aimAt(version, ref, how, key) {
  * @returns {{ error?: string }}
  */
 export function focusOn(ref) {
-    const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    /** the element a step on `ref` works in: the field of a box drawn around one (see `aimAt`) @param {number} r */
+    const targetOf = (r) => /** @type {any} */ (globalThis).__agex.targets?.[r] ?? /** @type {any} */ (globalThis).__agex.refs[r - 1];
+    const el = /** @type {HTMLElement} */ (targetOf(ref));
     el.focus();
     // a shadow host that hands its focus inward is the document's active element still
     if (document.activeElement !== el) return { error: `[${ref}] ${el.tagName.toLowerCase()} can't take the keyboard's focus: click it` };
@@ -365,7 +371,8 @@ export function focusOn(ref) {
  * @returns {{ toEnd: boolean, picker?: boolean }}
  */
 export function focusField(ref, clear) {
-    const el = /** @type {HTMLElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    const targetOf = (r) => /** @type {any} */ (globalThis).__agex.targets?.[r] ?? /** @type {any} */ (globalThis).__agex.refs[r - 1];
+    const el = /** @type {HTMLElement} */ (targetOf(ref));
     el.focus();
     if (el instanceof HTMLInputElement && ["date", "datetime-local", "month", "week", "time", "color", "range"].includes(el.type)) {
         return { toEnd: false, picker: true };
@@ -399,7 +406,8 @@ export function focusField(ref, clear) {
  * @returns {{ error?: string }}
  */
 export function setPicked(ref, text) {
-    const el = /** @type {HTMLInputElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    const targetOf = (r) => /** @type {any} */ (globalThis).__agex.targets?.[r] ?? /** @type {any} */ (globalThis).__agex.refs[r - 1];
+    const el = /** @type {HTMLInputElement} */ (targetOf(ref));
     const FORMS = /** @type {Record<string, string>} */ ({
         date: "2026-12-03",
         "datetime-local": "2026-12-03T14:30",
@@ -435,7 +443,8 @@ export function setPicked(ref, text) {
  * @returns {{ text?: string, error?: string }}
  */
 export function chooseOption(ref, value) {
-    const el = /** @type {HTMLSelectElement} */ (/** @type {any} */ (globalThis).__agex.refs[ref - 1]);
+    const targetOf = (r) => /** @type {any} */ (globalThis).__agex.targets?.[r] ?? /** @type {any} */ (globalThis).__agex.refs[r - 1];
+    const el = /** @type {HTMLSelectElement} */ (targetOf(ref));
     const squash = (/** @type {string} */ s) => s.replace(/\s+/g, " ").trim();
     const option = [...el.options].find((o) => squash(o.text) === squash(value)) ?? [...el.options].find((o) => o.value === value);
     if (option === undefined) return { error: `no option ${JSON.stringify(value)}; its options: ${[...el.options].map((o) => squash(o.text)).join(" | ")}` };
