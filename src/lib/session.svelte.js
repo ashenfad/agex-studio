@@ -368,9 +368,14 @@ export class ChatSession {
         this.#saving = ws.commit({ tool: "studio.delegates" }).catch(() => undefined).finally(release);
     }
 
+    /** Called with the notes that reached the model (what the studio
+     *  marks told). @type {(notes: readonly import("@agex-ts/world").Note[]) => void} */
+    onNotes = () => {};
+
     /** Notes reached the model: a woken turn's first are its opening.
      *  @param {readonly import("@agex-ts/world").Note[]} notes */
     #delivered(notes) {
+        this.onNotes(notes);
         if (!this.#awaitingOpening) return;
         this.#awaitingOpening = false;
         this.opened(this.inbox.render(notes));

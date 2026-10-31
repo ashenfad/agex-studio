@@ -216,7 +216,8 @@ extension's toolbar button: you're told in a note, with its id, and
 `{tabs: true}` lists it as shared, with the site it's on. It's theirs,
 and often signed in to something private (their mail, an account, a
 dashboard). Read it with the browser tool or from code, and answer from
-it: read, scroll, waitFor and screenshot work there, and nothing else.
+it: read, scroll and waitFor work there (and screenshot, with the tool),
+and nothing else.
 For a step on that page, tell the person what to do; for a site's public
 pages, ask for its domain and open a tab of your own.
 

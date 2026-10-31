@@ -18,7 +18,7 @@
  * A page it reads lists its refs (`{ ref, kind, name }`), with `find` and
  * `findAll` for a ref by its name, so code needn't pick refs out of the
  * text. A tab the person shared (`shared` in `tabs()`, its domain) is
- * only read, scrolled, waited on or screenshot, while it's on that domain.
+ * only read, scrolled or waited on, while it's on that domain.
  */
 
 import { hostFactory, typedHost, withStub } from "@agex-ts/world";
