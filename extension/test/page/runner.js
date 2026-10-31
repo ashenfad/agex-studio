@@ -402,6 +402,8 @@ const SCENARIOS = {
             // a field inside it focused already: the key would reach that (submitting by "Book now"), not the ref
             innerFocused: await c.call("click", on(first, "Focus inside")),
             pressWrapper: await c.call("press", { ...on(first, "Wrapped"), key: "Enter" }),
+            comboType: await c.call("type", { ...on(first, "Course search"), text: "Corvallis" }),
+            comboEmpty: await c.call("type", { ...on(first, "Empty picker"), text: "Albany" }),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
         };
@@ -409,6 +411,7 @@ const SCENARIOS = {
         r.refsListed = first.refs.every((x, i) => x.ref === i + 1);
         const second = (await c.call("read", at)).value;
         r.out = /Out: (.*)$/m.exec(second.text)?.[1];
+        r.comboValue = second.text.split("\n").filter((l) => /Course search|Type a place|Corvallis/.test(l)).join(" / ");
         // what the refused values left in their fields
         r.fields = /\[\d+\] date field "Arrive"[^\n]*/.exec(second.text)?.[0] + " | " + /\[\d+\] color field "Colour"[^\n]*/.exec(second.text)?.[0];
         r.olderOutline = await c.call("click", on(first, "Show photos"));

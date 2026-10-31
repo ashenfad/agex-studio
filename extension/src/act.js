@@ -223,9 +223,18 @@ export function aimAt(version, ref, how, key) {
     const kept = /** @type {{ version: number, refs: Element[], names: string[], label: (e: Element) => string } | undefined} */ (/** @type {any} */ (globalThis).__agex);
     if (kept === undefined) return { stale: "it is another page now" };
     if (kept.version !== version) return { stale: `outline ${version} isn't its latest, ${kept.version}` };
-    const el = kept.refs[ref - 1];
+    let el = kept.refs[ref - 1];
     if (el === undefined) return { error: `outline ${version} has no ref ${ref}` };
     if (!el.isConnected) return { stale: `ref ${ref} has left the page` };
+    const isField = (/** @type {Element} */ e) => e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement || /** @type {HTMLElement} */ (e).isContentEditable;
+    // a box drawn around its one field (a combobox's): typing goes to that field, under this ref from now on
+    if ((how === "type" || how === "submit") && !isField(el)) {
+        const inner = [...el.querySelectorAll("input:not([type=hidden]), textarea, [contenteditable=''], [contenteditable=true]")].filter((f) => f.checkVisibility());
+        if (inner.length === 1) {
+            el = inner[0];
+            kept.refs[ref - 1] = el;
+        }
+    }
     // what a field holds isn't its name, but a contenteditable's text is: typing changes it
     if ((how === "click" || how === "press") && !(/** @type {HTMLElement} */ (el).isContentEditable)) {
         const now = kept.label(el);
@@ -256,8 +265,8 @@ export function aimAt(version, ref, how, key) {
     if (/** @type {HTMLButtonElement} */ (el).disabled || el.getAttribute("aria-disabled") === "true") return { error: `${desc} is disabled` };
     if (!el.checkVisibility()) return { error: `${desc} isn't shown` };
     const fields = how === "type" || how === "submit";
-    if (fields && !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || /** @type {HTMLElement} */ (el).isContentEditable)) {
-        return { error: `${desc} isn't a field to type into` };
+    if (fields && !isField(el)) {
+        return { error: `${desc} isn't a field to type into: if it opens one when clicked, click it, read again, and type into the new field's ref` };
     }
     // a person can't change it either: a site's own picker sets it, so click that
     if (fields && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.readOnly) {
