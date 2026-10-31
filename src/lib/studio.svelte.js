@@ -19,8 +19,7 @@ import { appKeyOf, vault } from "./vault.svelte.js";
 import { browserExtension } from "./browser-extension.svelte.js";
 import { watchSites } from "./site-sync.js";
 import { browser } from "./browser.js";
-import { SharedTabs, sharedNote } from "./shared-tabs.svelte.js";
-import { STUDIO_LABELS } from "./notes.js";
+import { SharedTabs } from "./shared-tabs.svelte.js";
 
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 /** @typedef {import("./store.js").SessionInfo} SessionInfo */
@@ -74,9 +73,10 @@ export class Studio {
         tell: async (name) => {
             await this.#sites?.tell(name);
         },
-        given: async (name, share) => {
+        given: async (name) => {
             await this.switchTo(name);
-            this.#open.get(name)?.inbox.put(sharedNote(share), { kind: "mechanism", label: STUDIO_LABELS.sharedTab });
+            const session = this.#open.get(name);
+            if (session !== undefined) await this.shares.remind(name, session.inbox);
         },
     });
     /** @type {(() => void) | null} */
@@ -90,7 +90,7 @@ export class Studio {
         // the agents' sites, kept given to the browser extension
         this.#sites ??= watchSites({ vault, extension: browserExtension, titleOf: (name) => this.sessions.find((s) => s.name === name)?.title || "Your agent" });
         // and the tabs the person shares from its toolbar, taken as they come
-        this.#watchingShares ??= this.shares.watch(browserExtension);
+        this.#watchingShares ??= this.#watchShares();
         const last = readLocal(CURRENT_KEY);
         const target = this.sessions.find((s) => s.name === last) ?? this.sessions[0];
         if (target) await this.switchTo(target.name);
@@ -117,6 +117,20 @@ export class Studio {
         this.#sites?.sync();
     }
 
+    /** Shares from the toolbar taken as they come, and the open sessions
+     *  reminded of the tabs shared with them each time the extension's
+     *  port opens. Returns the stopping. */
+    #watchShares() {
+        const stopWatch = this.shares.watch(browserExtension);
+        const stopRemind = browserExtension.onOpen(() => {
+            for (const s of this.openSessions()) void this.shares.remind(s.name, s.inbox);
+        });
+        return () => {
+            stopWatch();
+            stopRemind();
+        };
+    }
+
     /** Called with a session's name when its content changed here (a
      *  turn, an undo, a rename, files added): sync pushes it. */
     /** @type {(name: string) => void} */
@@ -128,6 +142,8 @@ export class Studio {
             void this.refresh();
             this.onChanged(session.name);
         };
+        // a share's note that reached the model is told; one that didn't is put again when it opens
+        session.onNotes = (notes) => this.shares.delivered(session.name, notes);
         this.#open.set(session.name, session);
         return session;
     }
@@ -231,6 +247,7 @@ export class Studio {
         if (session === undefined) {
             session = this.#watch(new ChatSession(name, this));
             await session.open();
+            if (!session.readonly) void this.shares.remind(name, session.inbox);
         }
         this.current = session;
         if (onScreen()) session.seen();
