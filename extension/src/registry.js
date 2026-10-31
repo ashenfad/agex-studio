@@ -24,8 +24,9 @@
  *   session, to read. `reads`: how many outlines of it have been read,
  *   the last one's version.
  * @typedef {{ domain: string, at: number }} Shared
- *   A share covers the domain the tab was on when shared (its
- *   subdomains with it, as a grant does): elsewhere, it isn't read.
+ *   A share covers the host the tab was on when shared (its subdomains
+ *   with it, and for a `www.` host the bare one): elsewhere, it isn't
+ *   read. `at`, when it was shared, tells this share from a later one.
  * @typedef {{
  *   sessions: Record<string, Session>,
  *   tabs: Record<string, Tab>,

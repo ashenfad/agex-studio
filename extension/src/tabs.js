@@ -16,7 +16,7 @@
 import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { originMatcher } from "./origins.js";
-import { change } from "./registry.js";
+import { change, read } from "./registry.js";
 import { MARK, isWorking, rest, restAll, resume } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
@@ -97,6 +97,7 @@ export const tabOps = {
         const tab = tabArg(req);
         await change((state) => {
             mine(state, session, tab);
+            if (state.tabs[tab].shared) throw readOnly(tab);
             // what anyone read of it is the page before the person's hands: read again after
             const t = state.tabs[tab];
             t.reads = (t.reads ?? 0) + 1;
@@ -437,19 +438,23 @@ function shareable(state, tab, studio) {
     return tab.id !== undefined && tab.id !== studio && !(tab.id in state.tabs) && hostOf(url) !== null && !studioPage(url);
 }
 
-/** The domain a share of a page at `url` covers: its host, without a
- *  leading `www.`, as a grant names it. @param {string} url */
+/** The host a share of a page at `url` covers. @param {string} url */
 function siteOf(url) {
-    return /** @type {string} */ (hostOf(url)).replace(/^www\./, "");
+    return /** @type {string} */ (hostOf(url));
 }
 
 /**
- * Whether a shared tab at `url` is on the site it was shared on.
+ * Whether a shared tab at `url` is on the site it was shared on: its
+ * host, a subdomain of it, or, for a `www.` host, the bare one the site
+ * may send it to. Never a sibling: sharing `www.github.io` isn't sharing
+ * `someone.github.io`.
  *
  * @param {string} url @param {string} domain
  */
 function onSite(url, domain) {
-    return hostOf(url) !== null && granted(url, [domain]);
+    const host = hostOf(url);
+    if (host === null) return false;
+    return host === domain || host.endsWith(`.${domain}`) || (domain.startsWith("www.") && host === domain.slice(4));
 }
 
 /**
@@ -470,28 +475,36 @@ export async function ownTab(req, { reading = false } = {}) {
     const { domains, latest, shared } = await change((state) => {
         mine(state, session, tab);
         const t = state.tabs[tab];
-        return { domains: known(state, session).domains, latest: t.reads ?? 0, shared: t.shared?.domain };
+        return { domains: known(state, session).domains, latest: t.reads ?? 0, shared: t.shared };
     });
     if (shared !== undefined) {
         if (!reading) throw readOnly(tab);
-        await stillOn(tab, shared);
+        await stillOn(session, tab, shared);
     }
     return { session, tab, domains, latest, shared };
 }
 
 /**
- * Refused as `moved` when a shared tab has gone off the site it was
- * shared on: what it shows there wasn't shared. `url`, where a read
- * found it; else where the browser says it is.
+ * A read of a tab the person shared, checked before it's given: the tab
+ * is still shared with the session, by the same share (a stop, or a
+ * share since with another session, ends it: `not-found`), and on the
+ * site it was shared on (else `moved`: what it shows there wasn't
+ * shared). `url`, where a read found it; else where the browser says it
+ * is. A session's own tab passes.
  *
- * @param {number} tab @param {string | undefined} shared its domain, or undefined for the session's own tab
+ * @param {string} session @param {number} tab
+ * @param {import("./registry.js").Shared | undefined} shared the share ownTab found, or undefined for the session's own tab
  * @param {string} [url]
  */
-export async function stillOn(tab, shared, url) {
+export async function stillOn(session, tab, shared, url) {
     if (shared === undefined) return;
+    const now = (await read()).tabs[tab];
+    if (now?.session !== session || now.shared?.at !== shared.at) {
+        throw new ProtocolError("not-found", `tab ${tab} isn't shared with this session any more`);
+    }
     const at = url ?? (await chrome.tabs.get(tab).catch(() => null))?.url ?? "";
-    if (!onSite(at, shared)) {
-        throw new ProtocolError("moved", `tab ${tab} was shared on ${shared}, and has gone to ${hostOf(at) ?? "another page"}: what it shows there wasn't shared; ask the person to share it again`);
+    if (!onSite(at, shared.domain)) {
+        throw new ProtocolError("moved", `tab ${tab} was shared on ${shared.domain}, and has gone to ${hostOf(at) ?? "another page"}: what it shows there wasn't shared; ask the person to share it again`);
     }
 }
 
@@ -601,7 +614,7 @@ function tabArg(req) {
 
 /** @param {number} tab */
 function readOnly(tab) {
-    return new ProtocolError("read-only", `tab ${tab} is the person's, shared to read: read it, scroll it, wait on it or screenshot it; it can't be acted in, sent elsewhere or closed`);
+    return new ProtocolError("read-only", `tab ${tab} is the person's, shared to read: read it, scroll it, wait on it or screenshot it; it can't be acted in, shown, sent elsewhere or closed`);
 }
 
 /** @param {string} message */

@@ -34,10 +34,10 @@
  *   could be shared, for the studio's picker (http and https pages, not
  *   a session's nor the studio's), the latest used first.
  * - `share { session, tab }` → `{ tab, domain }`: one of them shared
- *   with the session, on the domain it's on now (its subdomains with
- *   it). A shared tab stays the person's: its loads aren't held, and
+ *   with the session, on the host it's on now (its subdomains with it,
+ *   and for a `www.` host the bare one, but no other). A shared tab stays the person's: its loads aren't held, and
  *   it's only read (`read`, `scroll`, `waitFor`, `screenshot`; anything
- *   else is refused as `read-only`), and only while it's on that domain
+ *   else is refused as `read-only`), and only while it's on that host
  *   (else `moved`).
  * - `unshare { session, tab }`: a shared tab the session's no longer,
  *   left open.

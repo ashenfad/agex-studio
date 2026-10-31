@@ -161,6 +161,7 @@ const SCENARIOS = {
             press: await c.call("press", { ...at, ref: 1, key: "Enter" }),
             goto: await c.call("goto", { session: "sharing", tab, url: `${OTHER}/test/page/site.html?id=sent` }),
             close: await c.call("close", { session: "sharing", tab }),
+            show: await c.call("show", { session: "sharing", tab }),
         };
         const waited = await c.call("waitFor", { session: "sharing", tab, text: "A page for the tab tests" });
         const scrolled = await c.call("scroll", { session: "sharing", tab });
