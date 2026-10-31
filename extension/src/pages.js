@@ -45,6 +45,8 @@ export const pageOps = {
         const loaded = await settled(tab, READ_LOAD_MS);
         // a page that draws its results after it loads: its text left to stop changing
         const still = settle ? await stillness(tab, settle === true ? SETTLE_MS : /** @type {number} */ (settle)) : true;
+        // the waits can outlast the tab's rest: worked in again to read it
+        await work(tab);
         const version = await change((state) => {
             const t = state.tabs[tab];
             t.reads = (t.reads ?? 0) + 1;
@@ -123,6 +125,8 @@ export const pageOps = {
         // turns of the wheel in a row that moved nothing with more below
         let missed = 0;
         for (let i = 0; i < (to === "bottom" ? SCROLLS_MAX : 1); i++) {
+            // each turn puts off the tab's rest, as a scroll to the bottom can outlast it
+            await work(tab);
             await send(tab, "Input.dispatchMouseEvent", { type: "mouseWheel", x: at.width / 2, y: at.height / 2, deltaX: 0, deltaY: Math.round(at.height * 0.85) });
             // what the scroll set off: the page moving, and a list loading more, which may
             // wait on the network; at the bottom, the page has to stay put a while to count
@@ -164,6 +168,7 @@ async function stillness(tab, ms) {
     let last = "";
     let since = Date.now();
     while (Date.now() < until) {
+        await work(tab); // a long wait outlasts the tab's rest
         const now = await inWorld(tab, textNow, []).catch(() => "");
         if (now !== last) {
             last = now;
