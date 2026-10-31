@@ -404,6 +404,9 @@ const SCENARIOS = {
             pressWrapper: await c.call("press", { ...on(first, "Wrapped"), key: "Enter" }),
             comboType: await c.call("type", { ...on(first, "Course search"), text: "Corvallis" }),
             comboEmpty: await c.call("type", { ...on(first, "Empty picker"), text: "Albany" }),
+            // a key on the same ref, after typing: to the field, the box's name unchanged
+            comboKey: await c.call("press", { ...on(first, "Course search"), key: "ArrowDown" }),
+            comboLocked: await c.call("type", { ...on(first, "Locked search"), text: "x" }),
             refresh: await c.call("click", on(first, "Refresh list")),
             refreshAgain: await c.call("click", on(first, "Refresh list")),
         };

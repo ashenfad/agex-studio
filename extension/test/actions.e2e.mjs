@@ -137,6 +137,8 @@ describe("acting in a session's pages", () => {
         assert.equal(r.comboType.error, undefined, JSON.stringify(r.comboType));
         assert.match(r.comboValue ?? "", /combobox "Course search" = "Corvallis"/, r.comboValue);
         assert.match(r.comboEmpty.error?.message ?? "", /isn't a field to type into: if it opens one when clicked, click it, read again/);
+        assert.equal(r.comboKey.error, undefined, JSON.stringify(r.comboKey));
+        assert.match(r.comboLocked.error?.message ?? "", /"Locked search" is disabled/, JSON.stringify(r.comboLocked));
         // a switch may save as it's flipped: asked, as a button named so is
         assert.equal(r.publishSwitch.error?.code, "confirm", JSON.stringify(r.publishSwitch));
         assert.match(r.out, /hotel only;/);
