@@ -35,11 +35,11 @@
  *   shares: Record<string, Shared>,
  *   windows: Record<string, number[]>,
  *   focused: number[],
- *   studio: number | null,
+ *   studio: { tab: number, origin: string } | null,
  * }} State
  *   `windows`: the tabs each window has shown in front, the latest last.
  *   `focused`: the windows that have had the focus, the latest last.
- *   `studio`: the tab the studio last connected from.
+ *   `studio`: the tab the studio last connected from, and its origin.
  */
 
 const KEY = "registry";

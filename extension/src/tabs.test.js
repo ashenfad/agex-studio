@@ -174,6 +174,18 @@ describe("a tab a page opens", () => {
         expect(kept().tabs[30].blocked).toMatchObject({ url: "https://elsewhere.example/", newTab: true });
     });
 
+    it("carries a share waiting for the studio over to the tab's new id, badged", async () => {
+        /** @type {Record<number, string>} */
+        const badged = {};
+        /** @type {any} */ (fake.chrome).action.setBadgeText = async (/** @type {any} */ { tabId, text }) => void (badged[tabId] = text);
+        fake.areas.local.set("registry", { ...kept(), shares: { 40: { domain: "mail.example", at: 3 } } });
+        on.replaced(41, 40);
+        await settle();
+        await settle();
+        expect(kept().shares).toEqual({ 41: { domain: "mail.example", at: 3 } });
+        expect(badged[41]).toBe("…");
+    });
+
     it("is kept when it gets somewhere granted, in a frame, or to the error page of a load its rules stopped", async () => {
         on.committed({ tabId: 20, frameId: 0, url: "https://www.hyatt.com/rooms" });
         on.committed({ tabId: 20, frameId: 3, url: "https://ads.example/" });
@@ -237,7 +249,7 @@ describe("the toolbar's popup", () => {
             },
         });
         // the studio last connected from tab 11, a dev server's
-        fake.areas.session.set("registry", { windows: {}, focused: [], studio: 11 });
+        fake.areas.session.set("registry", { windows: {}, focused: [], studio: { tab: 11, origin: "http://localhost:4173" } });
         badges = {};
         fronted = [];
         const chrome = /** @type {any} */ (fake.chrome);
@@ -247,6 +259,8 @@ describe("the toolbar's popup", () => {
                 return { id, windowId: 1, active: false, url: urls[id], title: `tab ${id}` };
             },
             update: async (/** @type {number} */ id, /** @type {any} */ props) => void fronted.push(["tab", id, props]),
+            query: async () => [],
+            create: async (/** @type {any} */ props) => void fronted.push(["new", props.url]),
         });
         chrome.windows = { ...chrome.windows, update: async (/** @type {number} */ id) => void fronted.push(["window", id]) };
         chrome.action = {
@@ -278,6 +292,28 @@ describe("the toolbar's popup", () => {
         await stopSharing(8);
         expect(badges[8]).toEqual({ text: "", title: "Share this tab with agex.studio" });
         expect(await popupState(8)).toEqual({ kind: "share", domain: "www.mail.example" });
+    });
+
+    it("opens agex.studio when the studio's tab has gone to another site", async () => {
+        const { offer, popupState } = await import("./tabs.js");
+        urls[11] = "https://elsewhere.example/";
+        try {
+            // no longer the studio's: a page of the person's, and not where a share goes
+            expect(await popupState(11)).toEqual({ kind: "share", domain: "elsewhere.example" });
+            await offer(8);
+            expect(fronted).toEqual([["new", "https://agex.studio/"]]);
+        } finally {
+            urls[11] = "http://localhost:4173/";
+        }
+    });
+
+    it("leaves a share another studio tab took as it is, when one turns it down after", async () => {
+        const { offer, tabOps } = await import("./tabs.js");
+        await offer(8);
+        await tabOps.take(/** @type {any} */ ({ id: 1, op: "take", session: "s", tab: 8 }), /** @type {any} */ ({}));
+        await tabOps.drop(/** @type {any} */ ({ id: 2, op: "drop", tab: 8 }), /** @type {any} */ ({}));
+        expect(badges[8]?.text).toBe("on");
+        expect(/** @type {any} */ (fake.areas.local.get("registry")).tabs[8]).toMatchObject({ session: "s", shared: { domain: "www.mail.example" } });
     });
 
     it("refuses to share a session's tab, the studio's, or a browser page", async () => {
