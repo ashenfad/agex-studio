@@ -11,7 +11,7 @@ import { DEV_MATCHES, ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { actOps } from "./act.js";
 import { pageOps } from "./pages.js";
 import { read } from "./registry.js";
-import { offer, popupState, start, stopSharing, studioConnected, tabOps, watchTabs } from "./tabs.js";
+import { offer, popupActs, popupState, start, stopSharing, studioConnected, tabOps, watchTabs } from "./tabs.js";
 import { watchWork } from "./work.js";
 
 const manifest = chrome.runtime.getManifest();
@@ -43,6 +43,8 @@ const popupOps = {
     state: popupState,
     share: offer,
     stop: stopSharing,
+    acts: (/** @type {number} */ tab) => popupActs(tab, true),
+    reads: (/** @type {number} */ tab) => popupActs(tab, false),
 };
 
 watchTabs();

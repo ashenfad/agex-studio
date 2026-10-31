@@ -23,10 +23,12 @@
  *   `opener`. `shared`: a tab of the person's they shared with the
  *   session, to read. `reads`: how many outlines of it have been read,
  *   the last one's version.
- * @typedef {{ domain: string, at: number }} Shared
+ * @typedef {{ domain: string, at: number, acts?: boolean }} Shared
  *   A share covers the host the tab was on when shared (its subdomains
  *   with it, and for a `www.` host the bare one): elsewhere, it isn't
  *   read. `at`, when it was shared, tells this share from a later one.
+ *   `acts`: the agent may act in it too (click, type, go on), its loads
+ *   held while it does; else it's only read.
  *   A share from the toolbar waits in `shares`, by tab, until the studio
  *   says which session takes it.
  * @typedef {{

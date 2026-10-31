@@ -89,6 +89,18 @@ export async function rest(tab) {
     await entry.ready.catch(() => {});
     await inWorld(tab, unmarkPage, [MARK]).catch(() => {});
     await chrome.debugger.detach({ tabId: tab }).catch(() => {});
+    for (const fn of resting) fn(tab);
+}
+
+/** Called with each tab as its work rests (or the debugger leaves it).
+ *  @type {Set<(tab: number) => void>} */
+const resting = new Set();
+
+/** Call `fn` with each tab as the agent's work in it rests: rested, or
+ *  the debugger detached (the tab closed, the person's cancel).
+ *  @param {(tab: number) => void} fn */
+export function onRested(fn) {
+    resting.add(fn);
 }
 
 /** Whether the agent is working in `tab` now. @param {number} tab */
@@ -119,6 +131,7 @@ export function watchWork(tabs) {
         clearTimeout(working.get(tabId)?.timer);
         working.delete(tabId);
         if (reason === "canceled_by_user") stopped = true;
+        for (const fn of resting) fn(tabId);
     });
     void tabs().then((ids) => Promise.all(ids.map((tabId) => chrome.debugger.detach({ tabId }).catch(() => {}))));
 }

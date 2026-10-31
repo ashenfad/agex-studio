@@ -40,6 +40,12 @@
         sharedTabs = studio.shares.sharedNow()
     }
 
+    /** @param {string} session @param {number} id @param {boolean} acts */
+    async function setMode(session, id, acts) {
+        await studio.shares.setMode(session, id, acts).catch(() => {})
+        sharedTabs = studio.shares.sharedNow()
+    }
+
     let permission = $state(notificationPermission())
     // notifications on only while the browser allows them (it may have stopped since)
     let s = $state({ ...getSettings(), ...(notificationPermission() !== 'granted' && { notifyOnFinish: false }) })
@@ -639,7 +645,7 @@
         {/if}
         {#if browserExtension.status === 'found'}
             <h3>Tabs you shared</h3>
-            <p class="hint">Tabs of yours a session's agent may read (not click or type in), each while it's on the site you shared it on. Share one from the extension's toolbar button.</p>
+            <p class="hint">Tabs of yours a session's agent may read, or act in too, each while it's on the site you shared it on. Share one from the extension's toolbar button.</p>
             {#await sharedTabs}
                 <p class="hint">Asking the extension…</p>
             {:then shared}
@@ -650,7 +656,8 @@
                         {#each shared as { session, tab } (tab.id)}
                             {@const name = sessionTitle(session) ?? 'a removed session'}
                             <li>
-                                <span class="hint">{tab.title || tab.url} · <code>{tab.shared}</code>, with {name}</span>
+                                <span class="hint">{tab.title || tab.url} · <code>{tab.shared}</code>, with {name}, {tab.acts ? 'to read and act in' : 'to read'}</span>
+                                <button class="btn secondary small" onclick={() => setMode(session, tab.id, !tab.acts)} aria-label="{tab.acts ? 'Only let' : 'Let'} {name} {tab.acts ? 'read' : 'act in'} {tab.title || tab.url}">{tab.acts ? 'Only read' : 'Let it act'}</button>
                                 <button class="btn secondary small" onclick={() => stopSharing(session, tab.id)} aria-label="Stop sharing {tab.title || tab.url} with {name}">Stop sharing</button>
                             </li>
                         {/each}

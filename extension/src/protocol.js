@@ -26,25 +26,32 @@
  * - `resume`: the person's cancel (Chrome's debugging bar) lifted.
  * - `show { session, tab }`: one of its tabs brought to the front, for
  *   the person's hands (the agent's work in it rested first).
- * - `tabs { session }` → `[{ id, url, title, working, blocked?, shared? }]`:
+ * - `tabs { session }` → `[{ id, url, title, working, blocked?, shared?, acts? }]`:
  *   its tabs, each with whether the agent is working in it (the debugger
  *   attached), the last load the extension stopped in it, and for one the
- *   person shared, the domain it was shared on.
+ *   person shared, the domain it was shared on, and whether the agent may
+ *   act there too.
  * - `browsable` → `[{ id, url, title }]`: the person's open tabs that
  *   could be shared, for the studio's picker (http and https pages, not
  *   a session's nor the studio's), the latest used first.
- * - `share { session, tab }` → `{ tab, domain }`: one of them shared
- *   with the session, on the host it's on now (its subdomains with it,
- *   and for a `www.` host the bare one, but no other). A shared tab stays the person's: its loads aren't held, and
- *   it's only read (`read`, `scroll`, `waitFor`, `screenshot`; anything
- *   else is refused as `read-only`), and only while it's on that host
- *   (else `moved`).
+ * - `share { session, tab, acts? }` → `{ tab, domain }`: one of them
+ *   shared with the session, on the host it's on now (its subdomains with
+ *   it, and for a `www.` host the bare one, but no other). A shared tab
+ *   stays the person's, never closed, and is worked in only while it's on
+ *   that host (else `moved`). Without `acts` it's only read (`read`,
+ *   `scroll`, `waitFor`, `screenshot`; anything else is refused as
+ *   `read-only`). With it, the agent acts there too (`click`, `type`,
+ *   `select`, `press`, `goto` on that host or a granted domain, `show`),
+ *   the tab's loads held to that host and the session's grants while it
+ *   acts, and the person's own again once its work rests.
+ * - `shareMode { session, tab, acts }`: whether the agent may act in a
+ *   shared tab, or only read it, changed.
  * - `unshare { session, tab }`: a shared tab the session's no longer,
  *   left open.
  * - `shares` → `[{ tab, url, title, domain, at }]`: the tabs the person
  *   shared from the toolbar (whose popup brings the studio to the front),
  *   waiting for the studio to ask them which session takes each.
- * - `take { session, tab }` → `{ tab, domain }`: one given to the
+ * - `take { session, tab, acts? }` → `{ tab, domain }`: one given to the
  *   session, on the domain it was shared on; `drop { tab }`: one turned
  *   down, the tab left as it was.
  * - `read { session, tab, maxChars?, hrefs?, settle? }` → an outline: the

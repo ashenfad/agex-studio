@@ -11,9 +11,10 @@
  * tab): an action on a page that changed since, or read by someone else
  * since, is refused rather than landing on whatever now sits at that ref.
  *
- * A tab the person shares with a session is the session's too, to read
- * (`shared`, its domain): only read, scrolled, waited on or screenshot,
- * and only while it's on that domain.
+ * A tab the person shares with a session is the session's too (`shared`,
+ * its domain), worked in only while it's on that domain: only read,
+ * scrolled, waited on or screenshot, or, if the person let the agent act
+ * there (`acts`), acted in too.
  */
 
 import { ExtensionError, browserExtension } from "./browser-extension.svelte.js";
@@ -23,8 +24,9 @@ import { ExtensionError, browserExtension } from "./browser-extension.svelte.js"
 export const topOf = (session) => session.split(".")[0];
 
 /**
- * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean }, shared?: string }} TabInfo
- *   `shared`: a tab of the person's they shared with the session, and the domain it was shared on.
+ * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean }, shared?: string, acts?: true }} TabInfo
+ *   `shared`: a tab of the person's they shared with the session, and the domain it was shared on;
+ *   `acts`: the agent may act in it too, not only read it.
  * @typedef {{ tab: number, url: string, title: string, domain: string, at: number }} WaitingShare
  *   A tab the person shared from the extension's toolbar, waiting for the studio to say which session takes it.
  * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: Ref[], text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
@@ -135,10 +137,17 @@ export class Browser {
     }
 
     /** One of them given to `session` (its top session), on the domain it
-     *  was shared on. @param {string} session @param {number} tab
+     *  was shared on, to read, or to act in too (`acts`).
+     *  @param {string} session @param {number} tab @param {boolean} acts
      *  @returns {Promise<{ tab: number, domain: string }>} */
-    take(session, tab) {
-        return this.extension.call("take", { session: topOf(session), tab });
+    take(session, tab, acts) {
+        return this.extension.call("take", { session: topOf(session), tab, acts });
+    }
+
+    /** Whether the agent may act in a tab the person shared, or only read
+     *  it. @param {string} session @param {number} tab @param {boolean} acts */
+    async shareMode(session, tab, acts) {
+        await this.extension.call("shareMode", { session: topOf(session), tab, acts });
     }
 
     /** One of them turned down, the tab left as it was. @param {number} tab */

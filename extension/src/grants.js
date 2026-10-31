@@ -65,15 +65,17 @@ export function granted(url, domains) {
  * The session rules that hold `tab`'s page loads to `domains`: one rule
  * blocking every top-level load in the tab, and one, of a higher
  * priority, letting the domains' through (`requestDomains` matches a
- * domain and its subdomains, as a grant does). Ids are taken from
- * `firstId` up.
+ * domain and its subdomains, as a grant does); and one more for each of
+ * `exact`, a host let through alone, not its subdomains. Ids are taken
+ * from `firstId` up.
  *
  * @param {number} tab
  * @param {readonly string[]} domains
  * @param {number} firstId
+ * @param {readonly string[]} [exact]
  * @returns {chrome.declarativeNetRequest.Rule[]}
  */
-export function pageRules(tab, domains, firstId) {
+export function pageRules(tab, domains, firstId, exact = []) {
     const main = /** @type {chrome.declarativeNetRequest.ResourceType[]} */ (["main_frame"]);
     const block = {
         id: firstId,
@@ -81,14 +83,12 @@ export function pageRules(tab, domains, firstId) {
         action: { type: /** @type {chrome.declarativeNetRequest.RuleActionType} */ ("block") },
         condition: { tabIds: [tab], resourceTypes: main },
     };
-    if (domains.length === 0) return [block];
-    return [
-        block,
-        {
-            id: firstId + 1,
-            priority: 2,
-            action: { type: /** @type {chrome.declarativeNetRequest.RuleActionType} */ ("allow") },
-            condition: { tabIds: [tab], resourceTypes: main, requestDomains: [...domains] },
-        },
-    ];
+    const allow = /** @type {chrome.declarativeNetRequest.RuleActionType} */ ("allow");
+    const rules = [block];
+    if (domains.length > 0) rules.push({ id: firstId + 1, priority: 2, action: { type: allow }, condition: { tabIds: [tab], resourceTypes: main, requestDomains: [...domains] } });
+    for (const [i, host] of exact.entries()) {
+        const regexFilter = `^https?://${host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(:[0-9]+)?(/|$)`;
+        rules.push({ id: firstId + 2 + i, priority: 2, action: { type: allow }, condition: { tabIds: [tab], resourceTypes: main, regexFilter } });
+    }
+    return rules;
 }

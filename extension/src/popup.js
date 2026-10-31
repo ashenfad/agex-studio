@@ -16,6 +16,24 @@ async function ask(op, tab) {
     return reply.value;
 }
 
+/** A second, quieter button, beside the first. @param {string} label @param {() => Promise<void>} run */
+function toggle(label, run) {
+    const b = document.createElement("button");
+    b.className = "quiet";
+    b.textContent = label;
+    b.onclick = () => {
+        b.disabled = true;
+        run().then(
+            () => window.close(),
+            (e) => {
+                b.disabled = false;
+                body.textContent = e.message;
+            },
+        );
+    };
+    act.after(b);
+}
+
 /** @param {string} h @param {string} b @param {{ label: string, quiet?: boolean, run: () => Promise<void> }} [button] */
 function show(h, b, button) {
     head.textContent = h;
@@ -52,7 +70,9 @@ async function main() {
     } else if (s.kind === "waiting") {
         show("Waiting for agex.studio", "Pick the session that gets this tab in agex.studio.", { label: "Cancel", quiet: true, run: () => ask("stop", tab) });
     } else if (s.kind === "shared") {
-        show(`Shared with ${s.name}`, `Its agent can read this page while it's on ${s.domain}.`, { label: "Stop sharing", quiet: true, run: () => ask("stop", tab) });
+        const what = s.acts ? "read this page and act in it (click, type, go on)" : "read this page";
+        show(`Shared with ${s.name}`, `Its agent can ${what} while it's on ${s.domain}.`, { label: "Stop sharing", quiet: true, run: () => ask("stop", tab) });
+        toggle(s.acts ? "Only let it read" : "Let it click and type too", () => ask(s.acts ? "reads" : "acts", tab));
     } else if (s.kind === "session") {
         show(`${s.name}'s tab`, "The agent opened this tab for that session, so it's the session's already.");
     } else if (s.kind === "studio") {

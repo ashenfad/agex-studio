@@ -24,24 +24,32 @@ import { STUDIO_LABELS } from "./notes.js";
 const TOLD_KEY = "agex-studio-shares-told";
 
 /**
- * What the session's agent is told of a tab the person shared with it.
+ * What the session's agent is told of a tab the person shared with it,
+ * to read or to act in too.
  *
- * @param {{ tab: number, url: string, title: string, domain: string }} share
+ * @param {{ tab: number, url: string, title: string, domain: string, acts?: boolean }} share
  */
-export function sharedNote({ tab, url, title, domain }) {
+export function sharedNote({ tab, url, title, domain, acts = false }) {
     // the share it's of reads back out of it (`shareOf`)
-    return (
-        `The person shared a tab of theirs with this session, tab ${tab}: ${JSON.stringify(title || "(untitled)")} · ${url}. ` +
-        `Read it with the browser tool (tab ${tab}, {read: true}) or from code (browser.tab(${tab}).read()). ` +
-        `It stays theirs: it's only read (read, scroll, waitFor, and screenshot with the tool), and only while it's on ${domain}.`
-    );
+    const what = acts
+        ? `You may read it and act in it, with the browser tool (tab ${tab}) or from code (browser.tab(${tab})): click, type, and go on within ${domain} or the sites you were allowed; a step that commits asks them first. ` +
+          `It stays theirs: never close it, and leave it as you found it where you can. You may work in it only while it's on ${domain}.`
+        : `Read it with the browser tool (tab ${tab}, {read: true}) or from code (browser.tab(${tab}).read()). ` +
+          `It stays theirs: it's only read (read, scroll, waitFor, and screenshot with the tool), and only while it's on ${domain}.`;
+    return `The person shared a tab of theirs with this session, tab ${tab}: ${JSON.stringify(title || "(untitled)")} · ${url}. ${what}`;
 }
 
-/** The share a note of `sharedNote`'s is of, as `<tab>@<domain>`, or null.
- *  @param {string} text */
+/** The share a note of `sharedNote`'s is of, as `<tab>@<domain>`, with
+ *  `+acts` for one to act in, or null. @param {string} text */
 function shareOf(text) {
     const m = /^The person shared a tab of theirs with this session, tab (\d+):[\s\S]*only while it's on (.+)\.$/.exec(text);
-    return m === null ? null : `${m[1]}@${m[2]}`;
+    return m === null ? null : keyOf(Number(m[1]), m[2], text.includes("You may read it and act in it"));
+}
+
+/** A share's key: told of once each, and again when its mode changes.
+ *  @param {number} tab @param {string} domain @param {boolean} acts */
+function keyOf(tab, domain, acts) {
+    return `${tab}@${domain}${acts ? "+acts" : ""}`;
 }
 
 /** @returns {Record<string, string[]>} */
@@ -83,13 +91,14 @@ export class SharedTabs {
     }
 
     /**
-     * The person gives `share` to session `session`.
+     * The person gives `share` to session `session`, to read, or to act
+     * in too (`acts`).
      *
-     * @param {string} session @param {WaitingShare} share
+     * @param {string} session @param {WaitingShare} share @param {boolean} acts
      */
-    async give(session, share) {
+    async give(session, share, acts) {
         await this.tell(session);
-        const { domain } = await this.browser.take(session, share.tab);
+        const { domain } = await this.browser.take(session, share.tab, acts);
         this.#gone(share.tab);
         await this.given(session, { ...share, domain });
     }
@@ -110,13 +119,16 @@ export class SharedTabs {
             return; // reminded the next time the port opens
         }
         const told = readTold();
-        const now = new Set(shared.map((t) => `${t.id}@${t.shared}`));
+        const now = new Set(shared.map((t) => keyOf(t.id, /** @type {string} */ (t.shared), t.acts === true)));
         const kept = (told[session] ?? []).filter((k) => now.has(k));
         const waiting = new Set(inbox.pending().flatMap((n) => (n.label === STUDIO_LABELS.sharedTab ? [shareOf(n.text)] : [])));
         for (const t of shared) {
-            const key = `${t.id}@${t.shared}`;
+            const key = keyOf(t.id, /** @type {string} */ (t.shared), t.acts === true);
             if (kept.includes(key) || waiting.has(key)) continue;
-            inbox.put(sharedNote({ tab: t.id, url: t.url, title: t.title, domain: /** @type {string} */ (t.shared) }), { kind: "mechanism", label: STUDIO_LABELS.sharedTab });
+            inbox.put(sharedNote({ tab: t.id, url: t.url, title: t.title, domain: /** @type {string} */ (t.shared), acts: t.acts === true }), {
+                kind: "mechanism",
+                label: STUDIO_LABELS.sharedTab,
+            });
         }
         if (kept.length !== (told[session] ?? []).length) writeLocalJson(TOLD_KEY, { ...told, [session]: kept });
     }
@@ -153,6 +165,12 @@ export class SharedTabs {
      *  @param {string} session @param {number} tab */
     async stop(session, tab) {
         await this.browser.unshare(session, tab);
+    }
+
+    /** Whether session `session`'s agent may act in a tab the person
+     *  shared, or only read it. @param {string} session @param {number} tab @param {boolean} acts */
+    async setMode(session, tab, acts) {
+        await this.browser.shareMode(session, tab, acts);
     }
 
     /** The person turns `share` down: the tab is left as it was.
