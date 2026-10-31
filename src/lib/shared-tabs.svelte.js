@@ -125,6 +125,19 @@ export class SharedTabs {
     }
 
     /**
+     * A message naming `shares` was taken back before the agent read it:
+     * they aren't told.
+     *
+     * @param {string} session @param {readonly SharedTab[]} shares
+     */
+    untell(session, shares) {
+        if (shares.length === 0) return;
+        const keys = new Set(shares.map(keyOf));
+        const told = readTold();
+        writeLocalJson(TOLD_KEY, { ...told, [session]: (told[session] ?? []).filter((k) => !keys.has(k)) });
+    }
+
+    /**
      * Every tab the person has shared with a session, by session: what
      * settings lists, with a stop for each.
      *
