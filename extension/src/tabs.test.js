@@ -285,10 +285,10 @@ describe("the toolbar's popup", () => {
         const { offer, popupState, stopSharing, tabOps } = await import("./tabs.js");
         await offer(8);
         expect(await popupState(8)).toEqual({ kind: "waiting", domain: "www.mail.example" });
-        expect(badges[8]).toEqual({ text: "…", title: "Waiting for agex.studio to say which session takes this tab" });
+        expect(badges[8]).toEqual({ text: "…", title: "Waiting for agex.studio" });
         expect(fronted).toEqual([["tab", 11, { active: true }], ["window", 1]]);
         await tabOps.take(/** @type {any} */ ({ id: 1, op: "take", session: "s", tab: 8 }), /** @type {any} */ ({}));
-        expect(badges[8]).toEqual({ text: "on", title: "Shared with Hotels, to read while it's on www.mail.example" });
+        expect(badges[8]).toEqual({ text: "on", title: "Shared with Hotels (read only)" });
         await stopSharing(8);
         expect(badges[8]).toEqual({ text: "", title: "Share this tab with agex.studio" });
         expect(await popupState(8)).toEqual({ kind: "share", domain: "www.mail.example" });

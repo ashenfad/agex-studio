@@ -63,22 +63,21 @@ async function main() {
     }
     const s = await ask("state", tab);
     if (s.kind === "share") {
-        show("Share this tab", `The agent in the session you pick in agex.studio can read this page while it's on ${s.domain}. It can't click or type here.`, {
+        show("Share this tab", "You'll pick the session in agex.studio, and whether its agent can click and type here or only read.", {
             label: "Share",
             run: () => ask("share", tab),
         });
     } else if (s.kind === "waiting") {
-        show("Waiting for agex.studio", "Pick the session that gets this tab in agex.studio.", { label: "Cancel", quiet: true, run: () => ask("stop", tab) });
+        show("Waiting for agex.studio", "Pick a session for this tab there.", { label: "Cancel", quiet: true, run: () => ask("stop", tab) });
     } else if (s.kind === "shared") {
-        const what = s.acts ? "read this page and act in it (click, type, go on)" : "read this page";
-        show(`Shared with ${s.name}`, `Its agent can ${what} while it's on ${s.domain}.`, { label: "Stop sharing", quiet: true, run: () => ask("stop", tab) });
-        toggle(s.acts ? "Only let it read" : "Let it click and type too", () => ask(s.acts ? "reads" : "acts", tab));
+        show(`Shared with ${s.name}`, `Its agent can ${s.acts ? "use" : "read"} this page while it stays on ${s.domain}.`, { label: "Stop sharing", quiet: true, run: () => ask("stop", tab) });
+        toggle(s.acts ? "Read only" : "Let it act", () => ask(s.acts ? "reads" : "acts", tab));
     } else if (s.kind === "session") {
-        show(`${s.name}'s tab`, "The agent opened this tab for that session, so it's the session's already.");
+        show(`${s.name}'s tab`, "Its agent opened this tab, so it's already that session's.");
     } else if (s.kind === "studio") {
-        show("This is agex.studio", "Share a tab of another site from here.");
+        show("This is agex.studio", "Open another site's tab to share it.");
     } else {
-        show("Can't share this tab", "Only a web page (http or https) can be shared.");
+        show("Can't share this tab", "Only web pages can be shared.");
     }
 }
 
