@@ -120,6 +120,8 @@ export const pageOps = {
         if (to !== "down" && to !== "bottom") throw bad('to: "down" (a screenful) or "bottom"');
         await work(tab);
         let at = await inWorld(tab, scrolledTo, []);
+        // turns of the wheel in a row that moved nothing with more below
+        let missed = 0;
         for (let i = 0; i < (to === "bottom" ? SCROLLS_MAX : 1); i++) {
             await send(tab, "Input.dispatchMouseEvent", { type: "mouseWheel", x: at.width / 2, y: at.height / 2, deltaX: 0, deltaY: Math.round(at.height * 0.85) });
             // what the scroll set off: the page moving, and a list loading more, which may
@@ -133,7 +135,10 @@ export const pageOps = {
             }
             const stuck = now.top === at.top && now.length === at.length;
             at = now;
-            if (to === "bottom" && stuck) break;
+            if (!stuck) missed = 0;
+            // the bottom is where nothing is below: a turn that moved nothing short of it may
+            // not have reached the page (a background tab drops one now and then), so once more
+            else if (to === "bottom" && (at.below <= 0 || ++missed > 1)) break;
         }
         return { top: at.top, below: at.below };
     },
