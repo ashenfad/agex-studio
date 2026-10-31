@@ -40,6 +40,9 @@ What `vite.config.js` adds to a plain Vite build:
   `@agex-ts/world/worker?worker&url` and bundled as a worker entry
   (`dist/assets/worker-*.js`), its URL passed in each session's
   profile.
+- **`dist/extension/agex-studio-extension.zip`**, the browser
+  extension's site build zipped, which the help page offers for
+  loading unpacked (see [browser.md](../architecture/browser.md)).
 - **Chunks:** the entry (`index-*.js`, about 390 KB gzipped) loads
   first; the TypeScript type stripper and its compiler (about 1 MB
   gzipped) come in a chunk of their own on the first code run, and
@@ -48,8 +51,9 @@ What `vite.config.js` adds to a plain Vite build:
 `deploy.yml` installs with pnpm (`pnpm install --frozen-lockfile`)
 and runs `pnpm build`, taking agex-ts's packages from npm.
 `.github/workflows/test.yml` runs the same install, then the typecheck,
-the tests and the build, on pushes and pull requests to `main`, so a
-pull request's checks build what the deploy would.
+the tests and the build, on pushes to `main` and every pull request, so a
+pull request's checks build what the deploy would; its `extension` job
+runs the extension's end-to-end tests in Chromium.
 
 The Google ids stay as they are: `VITE_GOOGLE_CLIENT_ID` and
 `VITE_GOOGLE_API_KEY`, from the repo's secrets.

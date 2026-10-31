@@ -15,7 +15,3 @@ done.
   page, on the viewer's model through `agex.model`), then an app's
   needs and secrets, the agent's secrets and variables (the rebuild's
   S6).
-- [browser.md](browser.md): agents in the person's browser, through
-  an extension: tabs the agent opens and drives (searching a dozen
-  hotels at once), tabs the person shares, and the cards the agent
-  asks the person with (sites, confirmations, handoffs).

@@ -20,6 +20,8 @@ A turn's tools come from the world (`worldTools`, inside agex-ts's
 | `sessions` | delegate: ask, list, result, cancel, keep, resume, published (see [agent-loop.md](agent-loop.md)) |
 | `test_app` | act on the app in a browser (see [app-preview.md](app-preview.md)) |
 | `request_secret` | ask the person for a key, granted to the session's agent by name (see Keys below) |
+| `browser` | work in the session's browser tabs, through the studio's extension, while it's here (see [browser.md](browser.md)) |
+| `request_sites` | ask the person for sites the session's tabs may open (see [browser.md](browser.md)) |
 | `set_variables` | set or remove the session's variables, configuration anyone may read (see Variables below) |
 
 Every call that changes the workspace commits, stamped with its tool,
@@ -103,6 +105,11 @@ schemas before the method runs) that code calls with `await`:
 - **`http`** (the world's `httpHost`): `http.fetch(url, { method,
   headers, body, as })`, `curl`'s requests from code, without
   credentials as `curl`'s are. A key goes in as `secret('NAME')`.
+- **`browser`** (`browser-host.js`, only while the browser extension
+  is here): the session's browser tabs from code, `await
+  browser.open(url)` a tab to read and act in, for searching many sites
+  at once; it never asks the person, and refuses as an error what would
+  need them (see [browser.md](browser.md)).
 - **`agex`** (agex-ts's `agentTasks`): tasks the agent's code defines
   (`agex.task({ name, instructions, params, returns })`, the types as
   JSON Schema) and calls like a function, or `.map`s over a list. Each

@@ -1,7 +1,8 @@
 # The studio's browser extension
 
 Lets a session's agent open, read and act in browser tabs, on the sites
-the person allows it (see [`roadmap/browser.md`](../roadmap/browser.md)).
+the person allows it (see
+[`docs/architecture/browser.md`](../docs/architecture/browser.md)).
 The agent stays in agex.studio; the extension only reaches tabs, and
 answers nothing but the studio's page.
 

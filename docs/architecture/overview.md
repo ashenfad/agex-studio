@@ -159,6 +159,15 @@ same page in a hidden iframe. See [app-preview.md](app-preview.md).
   `main.js` picks it by the path, and the build copies `index.html` to
   `docs/` as it does to `run/`); the header's ? opens it.
 
+## The browser extension
+
+An optional Chrome extension (`extension/`) lets a session's agent
+work in real browser tabs: sites the person allows it, opened in the
+background and woken by the debugger, and tabs the person shares from
+its toolbar. The studio drives it over a port only agex.studio can
+open; without it, the browser tools aren't offered. See
+[browser.md](browser.md).
+
 ## Dev builds
 
 `dev-hook.js` installs `window.__studio` in dev builds: the calls
