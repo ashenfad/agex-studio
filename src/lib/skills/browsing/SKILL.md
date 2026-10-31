@@ -221,7 +221,14 @@ stay, with or without taxes).
 ## A tab the person shares
 
 The person can share a tab of their own with the session, from the
-extension's toolbar button: you're told in a note, with its id, and
+extension's toolbar button. You never see their open tabs: when you need
+a page they have open in a particular state (a draft, a cart, a booking
+half done), ask them in words to open it and share it ("click the Agex
+Studio button in the toolbar on that tab, then Share"). For a signed-in
+site in general, ask for its domain and open a tab of your own instead:
+it's signed in wherever they are, and a login is a handoff.
+
+Once shared, you're told in a note, with its id, and
 `{tabs: true}` lists it as shared, with the site it's on and whether you
 may act in it. It's theirs, and often signed in to something private
 (their mail, an account, a dashboard).

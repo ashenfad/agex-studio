@@ -106,7 +106,7 @@ ends the wait. Its card becomes the first of a family:
 |---|---|---|
 | key | a key, by name and origins (`request_secret`, today's) | an entry from the vault, or not now |
 | sites | to open these domains, and why ("marriott.com, hyatt.com and three more, for June 3 to 6") | allow for this session, or not now |
-| tab | to see a tab the person has open | one tab from a picker, or not now |
+| share | (the person's, from the toolbar) a tab of theirs, for which session | a session, read only or to act in, or not now |
 | confirm | to take a step that commits (book, pay, send, post, delete) | yes or no |
 | handoff | the person's hands on a tab: a CAPTCHA, a login, a second factor | done, or skip |
 
@@ -178,8 +178,8 @@ ends the wait. Its card becomes the first of a family:
   the person's model provider, as everything in its context does, and
   into the session's history, which syncs and publishes with the rest
   of it, as an upload's content does. The person chose to share it, and
-  publishing is a choice of its own: the `tab` card and the share say
-  where it goes, and nothing is tracked after.
+  publishing is a choice of its own: the share card says where it
+  goes, and nothing is tracked after.
 - **Sessions are the boundary.** Any page's text may be an instruction
   aimed at the agent (mail, comments, listings, or the site itself), and
   what the agent can see can reach any server at all: a URL it opens, a
@@ -299,12 +299,17 @@ grants for other sites, that what it reads can reach them.
 
 Planned (2026-10-30):
 
-- **Two ways in.** The person shares the tab in front from the
-  extension's toolbar button, or the agent asks with `request_tab` and
-  the person picks one of their open tabs in its `tab` card. Either
-  way the studio says which session gets it: the toolbar's share
-  brings the studio to the front, where a card asks which session
-  (the open one first), so the popup needn't list them.
+- **One way in: the toolbar.** The person shares the tab in front from
+  the extension's toolbar button; the share brings the studio to the
+  front, where a card asks which session gets it (the open one first),
+  so the popup needn't list them. The agent never sees the person's
+  open tabs. When it needs one, it asks in words for the person to
+  share it; when it needs a signed-in site in general, it asks for the
+  domain and opens a tab of its own, which is signed in as the person
+  is, with a handoff for a login (2026-10-30: `request_tab`, the agent
+  asking for a tab it can't see, and a picker of open tabs in the
+  studio were dropped as no easier than the toolbar; the extension's
+  `browsable` op is there if real use asks for a picker).
 - **Only the person's own web pages are shared:** an http or https
   tab, not one of a session's own (which is already that session's,
   held to its grants) nor the studio's. On those the popup says why
@@ -336,10 +341,8 @@ Planned (2026-10-30):
   person, which is why reading only is a toggle away (the card, the
   popup, settings). The debugger attaches while the agent works in it,
   as in its own tabs, so Chrome's bar shows then.
-- **The session's agent asks; its delegates read.** A shared tab is
-  the top session's, so a delegate reads it as it does the session's
-  own tabs; `request_tab` is refused to a delegate, which names the tab
-  it needs in its answer.
+- **A shared tab is the top session's,** so a delegate works in it as
+  it does in the session's own tabs.
 - **The cards say where it goes:** to the person's model provider, and
   into the session's history, which syncs and publishes with the rest;
   and, when the session holds grants for other sites, that what the
@@ -350,7 +353,7 @@ Planned (2026-10-30):
 | 1 | extension | A toolbar action and its popup: Share (the tab in front, its domain kept, when it's an http or https tab and not a session's own or the studio's) and Stop sharing, a badge on a shared tab; the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front (or agex.studio opened), whose return reconnects the port; ops to list shares waiting and give one to a session, to list the person's open tabs for a picker (http and https only, not the sessions' own, nor the studio's) and share the one chosen, and to stop a share; a shared tab in the registry with its domain, listed in `tabs` as shared, read only on its domain (`moved`), refused anything but reading (`read-only`), its loads never held; the share ended when the tab closes | phase 1 |
 | 2 | studio | Shares taken on each connect: a card asking which session gets one (the open session first, or not now), saying where what the agent reads goes; the tab arriving in that session's inbox ("the person shared *title*, *url*"); `moved` and `read-only` explained in the browser tool's and host's refusals; the session's shared tabs in its settings, with Stop sharing; the skill and the primer's note on shared tabs | 1 |
 | 3 | both | Acting in a shared tab, the person's choice: a share's mode (`acts`) given with it and changed (`shareMode`, the popup, settings), the acting steps let through on its site and the grants, its loads held while the agent acts and let go when its work rests, a stopped load gone back from; the card's toggle, on by default; the tool, the note, the skill and the primer on both modes | 2 |
-| 4 | studio | `request_tab` (the session's agent only; a delegate is refused and names the tab in its answer) and the `tab` card: a picker of the person's open tabs, or not now, with the same words on where it goes and on the session's other grants, and the same toggle; then the spike: the exit, from a tab shared both ways | 3 |
+| 4 | both | The spike: the exit, in the person's own Chrome, from a tab shared to read and one shared to act in | 3 |
 
 ## Phase 3: acting in a shared tab
 
@@ -405,6 +408,18 @@ the default for a share, with reading only a toggle away.
 
 ## Later
 
+- **The outline, measured** (`extension/bench`: public pages captured,
+  each read checked for what an agent needs there). The first run
+  (2026-10-30) weighed rebuilding the outline on Chrome's accessibility
+  tree: it names controls better and finds some the DOM walk misses
+  (UDisc's location search), but a site hides its page from the tree
+  while a pop-up shows (`aria-hidden`, `inert`), and Chrome then drops
+  that content entirely, so Booking.com, Expedia, Airbnb and Allbirds
+  read nearly empty. The DOM walk stays, fixed against the bench (its
+  first find: a web component's slots, unread); the tree may yet name
+  what the walk can't. Next on it: a listing's unnamed photo links
+  (Airbnb), a pop-up read after the page, and the seven sites that
+  refuse a headless browser, captured from a person's Chrome.
 - **Firefox and Safari.** `externally_connectable` is Chrome's; the
   others need a content script on agex.studio relaying `postMessage`.
   The port's protocol is kept to messages that would cross either.
