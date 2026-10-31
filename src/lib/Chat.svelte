@@ -47,7 +47,18 @@
             session.draft = words
             session.attached = paths
             session.sharedTabs = shares
+            // as they stand now: one ended or changed since isn't named as it was
+            await studio.shares.remind(session)
         })
+    }
+
+    /** A queued message taken back before the agent read it: the tabs it
+     *  named wait in the composer again, as they stand now.
+     *  @param {{ id: string, text: string }} q */
+    function withdraw(q) {
+        if (!session.withdraw(q.id)) return
+        studio.shares.untell(session.name, sharesOf(attachmentsOf(q.text).text).shares)
+        void studio.shares.remind(session)
     }
 
     /** @type {HTMLElement | undefined} */
@@ -285,7 +296,7 @@
         {/if}
         {#each session.queued as q (q.id)}
             <div class="mine">
-                <UserBubble {session} text={q.text} label="Queued · reaches the agent with its next step" faded onWithdraw={() => session.withdraw(q.id)} />
+                <UserBubble {session} text={q.text} label="Queued · reaches the agent with its next step" faded onWithdraw={() => withdraw(q)} />
             </div>
         {/each}
         {#if session.error}

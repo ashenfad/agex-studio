@@ -104,6 +104,23 @@ describe("the tabs shared with a session, named with the next message", () => {
         expect(session.sharedTabs).toEqual([{ ...chip, acts: true }]);
     });
 
+    it("wait again once the message naming them is taken back before the agent read it", async () => {
+        const { shares } = setup();
+        shares.told("s1", [chip]);
+        shares.untell("s1", [chip]);
+        const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([chip]);
+    });
+
+    it("restored by an edit, are named as they stand now: an act share now read only as read only, an ended one not at all", async () => {
+        const { shares } = setup();
+        shares.told("s1", [{ ...chip, acts: true }]);
+        const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([{ ...chip, acts: true }, { ...chip, tab: 3, domain: "gone.example" }]) };
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([chip]);
+    });
+
     it("leave the composer once no longer shared, and are told anew if shared again", async () => {
         const { shares, shared } = setup();
         const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
