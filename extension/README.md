@@ -79,8 +79,9 @@ pnpm extension:build --site      # dist/site: the studio's download, a fixed id
 pnpm extension:build --dev       # dist/dev: a fixed id, and local dev servers
 ```
 
-The sources are plain modules, copied as they are; only the manifest
-differs. The site and dev builds each carry a public key, which fixes
+The sources are plain modules, copied as they are, with the icons in
+`icons/` (drawn from the studio's favicon by `node extension/icons.mjs`,
+and committed); only the manifest differs. The site and dev builds each carry a public key, which fixes
 the id an unpacked copy has: `site-key.pub` gives
 `odphfgepbkbbiognjbkdjllabphmdhhg` (`SITE_EXTENSION_ID`), `dev-key.pub`
 `nmkolhlloohlmpklcknknipkaedblgbe` (`DEV_EXTENSION_ID`). Neither needs
