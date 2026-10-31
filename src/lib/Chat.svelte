@@ -21,6 +21,7 @@
     import ConfirmRequest from './ConfirmRequest.svelte'
     import HandoffRequest from './HandoffRequest.svelte'
     import GoOnRequest from './GoOnRequest.svelte'
+    import SharedTabCard from './SharedTabCard.svelte'
     import { browserAsks } from './browser-asks.svelte.js'
     import { keyRequests } from './key-requests.svelte.js'
     import { siteRequests } from './site-requests.svelte.js'
@@ -274,6 +275,11 @@
             {:else if askedGoOn !== undefined}
                 {#key askedGoOn}<GoOnRequest session={session.name} />{/key}
             {/if}
+        {/if}
+        <!-- a tab the person shared from the extension's toolbar, waiting for a session -->
+        {#if studio.shares.waiting.length > 0 && !session.readonly}
+            {@const share = studio.shares.waiting[0]}
+            {#key share.tab}<SharedTabCard {share} current={session.name} />{/key}
         {/if}
         {#each session.queued as q (q.id)}
             <div class="mine">

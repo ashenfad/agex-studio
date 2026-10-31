@@ -12,7 +12,7 @@ import { Agent, RunStream, ScriptedProvider } from "agex-ts";
 import { dbRestores } from "./db-restore.svelte.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, foldBudgetOf, thinkingOf } from "./model.js";
-import { attachmentsOf } from "./notes.js";
+import { attachmentsOf, studioFrame } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { primer } from "./primer.js";
 import { profileFor, toolOptionsNow } from "./profile.js";
@@ -163,7 +163,7 @@ export class ChatSession {
      *  rides the next tool result. What opens a woken turn (the answers
      *  that woke it) is told here as it is delivered, and shown as the
      *  live turn's opening. */
-    inbox = new Inbox({ onDelivered: (notes) => this.#delivered(notes) });
+    inbox = new Inbox({ onDelivered: (notes) => this.#delivered(notes), frame: studioFrame });
     /** A woken turn is starting, its opening not yet delivered. */
     #awaitingOpening = false;
     /** The helper this session delegates through, made when it opens,

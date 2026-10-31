@@ -10,6 +10,10 @@
  * each caller keeps for itself (the tool for its session, code with its
  * tab): an action on a page that changed since, or read by someone else
  * since, is refused rather than landing on whatever now sits at that ref.
+ *
+ * A tab the person shares with a session is the session's too, to read
+ * (`shared`, its domain): only read, scrolled, waited on or screenshot,
+ * and only while it's on that domain.
  */
 
 import { ExtensionError, browserExtension } from "./browser-extension.svelte.js";
@@ -19,7 +23,10 @@ import { ExtensionError, browserExtension } from "./browser-extension.svelte.js"
 export const topOf = (session) => session.split(".")[0];
 
 /**
- * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean } }} TabInfo
+ * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean }, shared?: string }} TabInfo
+ *   `shared`: a tab of the person's they shared with the session, and the domain it was shared on.
+ * @typedef {{ tab: number, url: string, title: string, domain: string, at: number }} WaitingShare
+ *   A tab the person shared from the extension's toolbar, waiting for the studio to say which session takes it.
  * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: Ref[], text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
  * @typedef {{ ref: number, kind: string, name: string }} Ref a ref of an outline: what it is (`button`, `link`, `textbox`, ...) and its name
  * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
@@ -113,6 +120,36 @@ export class Browser {
      *  @returns {Promise<{ top: number, below: number }>} */
     scroll(session, tab, to) {
         return this.extension.call("scroll", { session: topOf(session), tab, to });
+    }
+
+    /** The sessions the extension knows of (each a top session).
+     *  @returns {Promise<{ session: string, name: string, domains: string[] }[]>} */
+    sessions() {
+        return this.extension.call("sessions");
+    }
+
+    /** The tabs the person shared from the toolbar that wait for a
+     *  session. @returns {Promise<WaitingShare[]>} */
+    shares() {
+        return this.extension.call("shares");
+    }
+
+    /** One of them given to `session` (its top session), on the domain it
+     *  was shared on. @param {string} session @param {number} tab
+     *  @returns {Promise<{ tab: number, domain: string }>} */
+    take(session, tab) {
+        return this.extension.call("take", { session: topOf(session), tab });
+    }
+
+    /** One of them turned down, the tab left as it was. @param {number} tab */
+    async drop(tab) {
+        await this.extension.call("drop", { tab });
+    }
+
+    /** A tab the person shared, the session's no longer (it stays open).
+     *  @param {string} session @param {number} tab */
+    async unshare(session, tab) {
+        await this.extension.call("unshare", { session: topOf(session), tab });
     }
 
     /** The person's cancel of the agent's work (Chrome's debugging bar)

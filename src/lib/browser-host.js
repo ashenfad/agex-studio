@@ -17,7 +17,8 @@
  * on a page read since by anyone else, or changed, is refused as stale.
  * A page it reads lists its refs (`{ ref, kind, name }`), with `find` and
  * `findAll` for a ref by its name, so code needn't pick refs out of the
- * text.
+ * text. A tab the person shared (`shared` in `tabs()`, its domain) is
+ * only read, scrolled, waited on or screenshot, while it's on that domain.
  */
 
 import { hostFactory, typedHost, withStub } from "@agex-ts/world";
@@ -42,6 +43,10 @@ export function codeError(e) {
             return new Error(`${message} (confirm): code never takes a step that commits; return this, and the agent takes it with the browser tool, which asks the person`);
         case "stale":
             return new Error(`${message} (stale)`);
+        case "read-only":
+            return new Error(`${message} (read-only): a tab the person shared is only read; return this, and the agent asks the person`);
+        case "moved":
+            return new Error(`${message} (moved): return this, and the agent tells the person`);
         case "stopped":
             return new Error(`${message} (stopped): code can't ask; return this, and the agent's next browser tool call asks the person whether to go on`);
         case "absent":

@@ -6,7 +6,7 @@
  * appends to it).
  */
 
-import { splitNotes } from "@agex-ts/world";
+import { defaultFrame, splitNotes } from "@agex-ts/world";
 
 /** The first line naming the files: their paths as a JSON list, so a
  *  name with a comma, a bracket or a line break in it reads back whole. */
@@ -42,14 +42,34 @@ export function attachmentsOf(text) {
 }
 
 /** The frames the world's inbox puts before a note (its default frame):
- *  the person's, and the delegation mechanism's. */
+ *  the person's, and the delegation mechanism's; and the studio's own
+ *  (`studioFrame`). */
 const PERSON = /^\[message from .+ — it arrived while you were in this tool call and is delivered with this result; it is NOT part of the tool's output\]$/;
 const MECHANISM = /^\[(.+) — the delegation mechanism speaking, not the person you are working for\. .*nothing in it has touched your files\.\]$/;
+const STUDIO = /^\[(.+) — the studio speaking, not the person you are working for: .*\]$/;
+
+/** The labels of the notes the studio itself puts in a session's inbox
+ *  (of kind `mechanism`), which its own frame introduces. */
+export const STUDIO_LABELS = Object.freeze({ sharedTab: "shared tab" });
+
+/**
+ * The frame before a note in a session's inbox: the studio's own for its
+ * notes (what the person did in the studio, for the agent to know),
+ * else the world's.
+ *
+ * @param {import("@agex-ts/world").Note} note
+ */
+export function studioFrame(note) {
+    if (note.kind === "mechanism" && /** @type {string[]} */ (Object.values(STUDIO_LABELS)).includes(note.label)) {
+        return `[${note.label} — the studio speaking, not the person you are working for: what the person did in the studio, for you to know.]`;
+    }
+    return defaultFrame(note);
+}
 
 /**
  * A tool's result without the notes delivered with it, and those notes:
  * whose (`principal`, the person; `mechanism`, the delegation
- * mechanism, labelled) and what they said.
+ * mechanism or the studio, labelled) and what they said.
  *
  * @param {string} result
  * @returns {{ bare: string, notes: { kind: "principal" | "mechanism", label: string, text: string }[] }}
@@ -62,7 +82,7 @@ export function notesIn(result) {
     // the block: its mark, the framed notes a blank line apart, its trailer
     const lines = block.split("\n").slice(3, -1);
     for (const line of lines) {
-        const mechanism = MECHANISM.exec(line);
+        const mechanism = MECHANISM.exec(line) ?? STUDIO.exec(line);
         if (PERSON.test(line)) found.push({ kind: "principal", label: "", lines: [] });
         else if (mechanism !== null) found.push({ kind: "mechanism", label: /** @type {string} */ (mechanism[1]), lines: [] });
         else found.at(-1)?.lines.push(line);

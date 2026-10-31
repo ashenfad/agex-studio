@@ -107,3 +107,14 @@ describe("watchSites", () => {
         sites.stop();
     });
 });
+
+describe("telling the extension of a session given a shared tab", () => {
+    it("tells it of a session with no sites, once", async () => {
+        const ext = fakeExtension();
+        const sites = watchSites({ vault: new Vault(), extension: /** @type {any} */ (ext), titleOf: () => "Mail" });
+        await sites.tell("s9");
+        await sites.tell("s9");
+        expect(ext.told).toEqual([{ op: "session", session: "s9", name: "Mail", domains: [] }]);
+        sites.stop();
+    });
+});
