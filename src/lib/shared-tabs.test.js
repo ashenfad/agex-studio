@@ -1,6 +1,5 @@
-import { Inbox } from "@agex-ts/world";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SharedTabs, sharedNote } from "./shared-tabs.svelte.js";
+import { SharedTabs } from "./shared-tabs.svelte.js";
 
 beforeEach(() => {
     const items = new Map();
@@ -70,67 +69,52 @@ describe("tabs the person shares from the toolbar", () => {
     });
 });
 
-describe("the note a session's agent gets", () => {
-    it("names the tab, how to read it, and that it's read only on its site", () => {
-        const note = sharedNote(share);
-        expect(note).toMatch(/^The person shared a tab of theirs with this session, tab 9: "Inbox" · https:\/\/mail\.example\/inbox\./);
-        expect(note).toMatch(/\(tab 9, \{read: true\}\)/);
-        expect(note).toMatch(/only while it's on mail\.example\.$/);
-    });
+describe("the tabs shared with a session, named with the next message", () => {
+    const held = { id: 9, url: share.url, title: "Inbox", working: false, shared: "mail.example" };
+    const chip = { tab: 9, title: "Inbox", url: share.url, domain: "mail.example", acts: false };
 
-    it("says, for a tab shared to act in, what it may do there and that it's never closed", () => {
-        const note = sharedNote({ ...share, acts: true });
-        expect(note).toMatch(/You may read it and act in it, with the browser tool \(tab 9\) or from code/);
-        expect(note).toMatch(/a step that commits asks them first/);
-        expect(note).toMatch(/never close it/);
-        expect(note).toMatch(/only while it's on mail\.example\.$/);
-    });
-});
-
-describe("telling a session's agent of the tabs shared with it", () => {
-    it("puts a note in its inbox for each share it wasn't told of, once", async () => {
+    it("wait in its composer, once each", async () => {
         const { shares } = setup();
-        const inbox = new Inbox();
-        await shares.remind("s1", inbox);
-        await shares.remind("s1", inbox);
-        expect(inbox.pending().map((n) => [n.kind, n.label, n.text])).toEqual([["mechanism", "shared tab", sharedNote({ ...share, title: "Inbox" })]]);
+        const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(session);
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([chip]);
     });
 
-    it("counts a share told once its note reached the model, and not before: a reload puts it again", async () => {
+    it("are told once a message naming them is sent, and wait again after a reload until then", async () => {
         const { shares } = setup();
-        const first = new Inbox();
-        await shares.remind("s1", first);
-        // the page closed with the note still waiting
-        const reloaded = new Inbox();
-        await shares.remind("s1", reloaded);
-        expect(reloaded.pending()).toHaveLength(1);
-        shares.delivered("s1", reloaded.drain());
-        const again = new Inbox();
-        await shares.remind("s1", again);
-        expect(again.pending()).toEqual([]);
+        const before = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(before);
+        // the page reloaded before a message was sent: the composer starts empty
+        const reloaded = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(reloaded);
+        expect(reloaded.sharedTabs).toEqual([chip]);
+        shares.told("s1", reloaded.sharedTabs);
+        const after = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(after);
+        expect(after.sharedTabs).toEqual([]);
     });
 
-    it("tells it again when the person lets it act in a tab it was told it could only read", async () => {
+    it("wait again when the person lets the agent act in one it was told it could only read", async () => {
         const { shares, shared } = setup();
-        const inbox = new Inbox();
-        await shares.remind("s1", inbox);
-        shares.delivered("s1", inbox.drain());
-        shared[0] = { ...shared[0], acts: true };
-        const next = new Inbox();
-        await shares.remind("s1", next);
-        expect(next.pending().map((n) => n.text)).toEqual([sharedNote({ ...share, title: "Inbox", acts: true })]);
+        shares.told("s1", [chip]);
+        shared[0] = { ...held, acts: true };
+        const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([{ ...chip, acts: true }]);
     });
 
-    it("forgets a share the session no longer holds, so a new one is told", async () => {
+    it("leave the composer once no longer shared, and are told anew if shared again", async () => {
         const { shares, shared } = setup();
-        const inbox = new Inbox();
-        await shares.remind("s1", inbox);
-        shares.delivered("s1", inbox.drain());
+        const session = { name: "s1", sharedTabs: /** @type {any[]} */ ([]) };
+        await shares.remind(session);
+        shares.told("s1", session.sharedTabs);
         shared.length = 0;
-        await shares.remind("s1", new Inbox());
-        shared.push({ id: 9, url: share.url, title: "Inbox", working: false, shared: "mail.example" });
-        const next = new Inbox();
-        await shares.remind("s1", next);
-        expect(next.pending()).toHaveLength(1);
+        session.sharedTabs = [chip];
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([]);
+        shared.push(held);
+        await shares.remind(session);
+        expect(session.sharedTabs).toEqual([chip]);
     });
 });

@@ -1,6 +1,6 @@
 import { Inbox, renderNotes } from "@agex-ts/world";
 import { describe, expect, it } from "vitest";
-import { STUDIO_LABELS, attachmentsOf, notesIn, studioFrame, withAttachments } from "./notes.js";
+import { attachmentsOf, notesIn, sharesOf, withAttachments, withShares, wordsOf } from "./notes.js";
 
 describe("attachments", () => {
     it("go first, for the agent, and come back off for the chat", () => {
@@ -35,19 +35,33 @@ describe("notes delivered with a result", () => {
         });
     });
 
-    it("come apart under the studio's own frame, for what the person did in the studio", () => {
-        const inbox = new Inbox({ frame: studioFrame });
-        inbox.put("The person shared a tab of theirs with this session, tab 9.", { kind: "mechanism", label: STUDIO_LABELS.sharedTab });
-        inbox.put("Found three facts.", { kind: "mechanism", label: "delegate lead.scout" });
-        const result = `ok${renderNotes(inbox.drain(), studioFrame)}`;
-        expect(result).toContain("[shared tab — the studio speaking, not the person you are working for: what the person did in the studio, for you to know.]");
-        expect(notesIn(result).notes).toEqual([
-            { kind: "mechanism", label: "shared tab", text: "The person shared a tab of theirs with this session, tab 9." },
-            { kind: "mechanism", label: "delegate lead.scout", text: "Found three facts." },
-        ]);
-    });
-
     it("leave a result without any as it is", () => {
         expect(notesIn("ok\n---- inbox ----\nnot a block")).toEqual({ bare: "ok\n---- inbox ----\nnot a block", notes: [] });
+    });
+});
+
+describe("tabs a message shares", () => {
+    const shares = [
+        { tab: 9, title: 'Inbox "3" ] [new', url: "https://mail.example/inbox", domain: "mail.example", acts: true },
+        { tab: 4, title: "Order", url: "https://shop.example/o?id=1", domain: "shop.example", acts: false },
+    ];
+
+    it("are named first, a line each, after the files attached, and read back whole", () => {
+        const message = withAttachments(withShares("Summarize this", shares), ["/workspace/uploads/a.pdf"]);
+        expect(message).toBe(
+            '[attached: ["/workspace/uploads/a.pdf"]]\n' +
+                '[shared tab 9: "Inbox \\"3\\" ] [new" · https://mail.example/inbox; you may act in it while it\'s on mail.example]\n' +
+                "[shared tab 4: \"Order\" · https://shop.example/o?id=1; read only while it's on shop.example]\n" +
+                "Summarize this",
+        );
+        const { paths, text } = attachmentsOf(message);
+        expect(paths).toEqual(["/workspace/uploads/a.pdf"]);
+        expect(sharesOf(text)).toEqual({ shares, text: "Summarize this" });
+        expect(wordsOf(message)).toBe("Summarize this");
+    });
+
+    it("leave a message that names none as it is", () => {
+        expect(withShares("hi", [])).toBe("hi");
+        expect(sharesOf("[shared tab x: nope]\nhi")).toEqual({ shares: [], text: "[shared tab x: nope]\nhi" });
     });
 });

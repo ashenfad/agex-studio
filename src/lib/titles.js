@@ -11,7 +11,7 @@
 
 import { messageText, thinkingOptions } from "agex-ts";
 import { deliveredAnswers } from "./delegation.svelte.js";
-import { attachmentsOf, notesIn } from "./notes.js";
+import { attachmentsOf, notesIn, sharesOf } from "./notes.js";
 
 /** The person's turns between one name and the next. */
 const TITLE_TURNS = 5;
@@ -29,12 +29,14 @@ const TITLE_PROMPT =
 
 /** @typedef {import("agex-ts").Run} Run */
 
-/** What the person said in a message: its words, and the files attached, by name.
- *  @param {string} text */
+/** What the person said in a message: its words, and the files attached
+ *  and tabs shared, by name. @param {string} text */
 function said(text) {
-    const { paths, text: words } = attachmentsOf(text);
+    const { paths, text: rest } = attachmentsOf(text);
+    const { shares, text: words } = sharesOf(rest);
     const files = paths.length ? ` (attached: ${paths.map((p) => p.split("/").at(-1)).join(", ")})` : "";
-    return `${words.trim()}${files}`.trim();
+    const tabs = shares.length ? ` (shared: ${shares.map((s) => s.title).join(", ")})` : "";
+    return `${words.trim()}${files}${tabs}`.trim();
 }
 
 /**
