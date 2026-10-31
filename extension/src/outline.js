@@ -186,8 +186,13 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         const el = /** @type {Element} */ (node);
         if (SKIP.has(el.tagName.toUpperCase())) return;
         const shown = display(el);
+        // what it shows: a shadow root's, or for a slot (`display: contents` itself) what's
+        // assigned to it, else its own children
+        const children = el.shadowRoot
+            ? el.shadowRoot.childNodes
+            : el instanceof HTMLSlotElement ? el.assignedNodes({ flatten: true }) : el.childNodes;
         if (shown === "contents") {
-            for (const c of el.childNodes) walk(c, quiet);
+            for (const c of children) walk(c, quiet);
             return;
         }
         if (!el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return;
@@ -197,7 +202,7 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         if (block && !el.matches(INTERACTIVE) && notice(el)) {
             const page = lines;
             lines = [];
-            for (const c of el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes) walk(c, quiet);
+            for (const c of children) walk(c, quiet);
             flush();
             notices.push(...lines);
             lines = page;
@@ -205,9 +210,6 @@ export function outlinePage(version, { maxChars = 40_000, hrefs = false } = {}) 
         }
         const carousel = quiet || CAROUSEL.test(el.getAttribute("aria-roledescription") ?? "") ||
             CAROUSEL.test(typeof el.className === "string" ? el.className : "");
-        const children = el.shadowRoot
-            ? el.shadowRoot.childNodes
-            : el instanceof HTMLSlotElement ? el.assignedNodes({ flatten: true }) : el.childNodes;
         if (el.matches(INTERACTIVE)) {
             if (carousel) return; // a carousel's controls: next, previous, a dot per photo
             refs.push(el);

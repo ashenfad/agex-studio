@@ -130,10 +130,15 @@ describe("a session's pages", () => {
     });
 
     it("says when a page is a CAPTCHA or a bot check", async () => {
-        const { notice, ...r } = await browser.report("blockers", 60_000);
+        const { notice, slotted, ...r } = await browser.report("blockers", 60_000);
         // a challenge's badge, or a frame on a page with much else to read, isn't a blocker;
         // a challenge over such a page is
         assert.deepEqual(r, { captcha: "captcha", checking: "bot-check", hotel: null, badge: null, resort: null, overlay: "captcha", wall: "captcha" });
+    });
+
+    it("reads what a web component puts in its shadow root's slots", async () => {
+        const { slotted } = await browser.report("blockers", 60_000);
+        assert.match(slotted ?? "", /Courses\n# Disc golf near Corvallis\nWillamette Park: 18 holes, wooded\.\n\[1\] button "Directions"/, slotted);
     });
 
     it("reads a cookie notice after the page's own text, so a short read is the page", async () => {
