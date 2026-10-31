@@ -7,8 +7,8 @@
  *     node extension/build.mjs --site   # the studio's download: a fixed id, agex.studio only
  *     node extension/build.mjs --dev    # a fixed id, and local dev servers
  *
- * The sources are plain modules and pages, copied as they are (tests left out);
- * only the manifest differs. The site and dev builds each carry a public
+ * The sources are plain modules and pages, copied as they are (tests left out),
+ * with the icons (`icons.mjs` draws them); only the manifest differs. The site and dev builds each carry a public
  * key (`site-key.pub`, `dev-key.pub`), which fixes the id an unpacked
  * copy has (`SITE_EXTENSION_ID`, `DEV_EXTENSION_ID`); no private key is
  * needed for either, nor kept. The dev build also answers
@@ -66,6 +66,7 @@ export function build(mode) {
     for (const file of readdirSync(join(here, "src"))) {
         if ((file.endsWith(".js") && !file.endsWith(".test.js")) || file.endsWith(".html")) cpSync(join(here, "src", file), join(out, file));
     }
+    cpSync(join(here, "icons"), join(out, "icons"), { recursive: true });
     writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     if (dev) writeFileSync(join(out, "build-info.js"), readFileSync(join(here, "src", "build-info.js"), "utf8").replace("DEV = false", "DEV = true"));
     return out;

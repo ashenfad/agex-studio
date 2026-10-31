@@ -4,7 +4,8 @@
   "description": "Lets agex.studio's agent open, read and act in the tabs you allow it, and read the tabs you share with it.",
   "version": "0.1.0",
   "permissions": ["debugger", "declarativeNetRequest", "storage", "tabGroups", "tabs", "webNavigation"],
-  "action": { "default_title": "Share this tab with agex.studio", "default_popup": "popup.html" },
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": { "default_title": "Share this tab with agex.studio", "default_popup": "popup.html", "default_icon": { "16": "icons/16.png", "32": "icons/32.png" } },
   "background": { "service_worker": "background.js", "type": "module" },
   "externally_connectable": { "matches": ["https://agex.studio/*"] }
 }
