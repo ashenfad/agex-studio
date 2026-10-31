@@ -706,15 +706,19 @@ function onSite(url, domain) {
  * tab's latest outline (none read yet, 0), and for a tab the person
  * shared, its share.
  *
- * A shared tab is worked in only on its site (else `moved`), and a
- * reading op checks it again once it has read (`stillOn`), as the person
- * may have taken it elsewhere meanwhile. One only to read refuses
- * anything else (`read-only`); in one to act in, a step that acts holds
- * its loads to the session's grants and its site until its work rests.
+ * A tab is worked in only where the session may be (`stillOn`): its own
+ * on a domain it still holds a grant for (else `not-granted`, as when the
+ * person took a grant back while the tab showed that site), a shared one
+ * on its site (else `moved`). A step is checked before it acts, a reading
+ * op again once it has read, as the tab may have gone meanwhile; `leaving`
+ * (a `goto`) isn't, as it's the way out. A shared tab only to read
+ * refuses anything else (`read-only`); in one to act in, a step that acts
+ * holds its loads to the session's grants and its site until its work
+ * rests.
  *
- * @param {Request} req @param {{ reading?: boolean }} [opts]
+ * @param {Request} req @param {{ reading?: boolean, leaving?: boolean }} [opts]
  */
-export async function ownTab(req, { reading = false } = {}) {
+export async function ownTab(req, { reading = false, leaving = false } = {}) {
     const session = sessionArg(req);
     const tab = tabArg(req);
     const { domains, latest, shared } = await change((state) => {
@@ -726,7 +730,7 @@ export async function ownTab(req, { reading = false } = {}) {
         if (!reading && !shared.acts) throw readOnly(tab);
         await stillOn(session, tab, shared);
         if (!reading) await holdShared(tab, domains, shared);
-    }
+    } else if (!reading && !leaving) await stillOn(session, tab, undefined);
     return { session, tab, domains, latest, shared };
 }
 
@@ -798,24 +802,37 @@ async function setActs(tab, acts, session) {
 }
 
 /**
- * A read of a tab the person shared, checked before it's given: the tab
- * is still shared with the session, by the same share (a stop, or a
- * share since with another session, ends it: `not-found`), and on the
- * site it was shared on (else `moved`: what it shows there wasn't
- * shared). `url`, where a read found it; else where the browser says it
- * is. A session's own tab passes.
+ * A read of a tab, or a step in it, checked before it's given: the tab
+ * is still where the session may be. `url`, where a read found it; else
+ * where the browser says it is.
+ *
+ * - **A session's own tab** is on a domain the session still holds a
+ *   grant for. Its rules hold the loads to come, not the page already
+ *   there, so a grant the person took back while the tab showed that
+ *   site is refused here (`not-granted`). A page that isn't the web's (a
+ *   new tab), and the browser's error page for a load the tab's rules
+ *   stopped, show nothing of a site and pass.
+ * - **A tab the person shared** is still shared with the session, by the
+ *   same share (a stop, or a share since with another session, ends it:
+ *   `not-found`), and on the site it was shared on (else `moved`: what it
+ *   shows there wasn't shared).
  *
  * @param {string} session @param {number} tab
  * @param {import("./registry.js").Shared | undefined} shared the share ownTab found, or undefined for the session's own tab
  * @param {string} [url]
  */
 export async function stillOn(session, tab, shared, url) {
-    if (shared === undefined) return;
-    const now = (await read()).tabs[tab];
+    const state = await read();
+    const now = state.tabs[tab];
+    const at = url ?? (await chrome.tabs.get(tab).catch(() => null))?.url ?? "";
+    if (shared === undefined) {
+        const host = hostOf(at);
+        if (host === null || now?.blocked?.url === at || granted(at, state.sessions[session]?.domains ?? [])) return;
+        throw new ProtocolError("not-granted", `tab ${tab} is on ${host}, which this session holds no grant for now (the person may have taken it back); a goto to a page it may open leaves it`);
+    }
     if (now?.session !== session || now.shared?.at !== shared.at) {
         throw new ProtocolError("not-found", `tab ${tab} isn't shared with this session any more`);
     }
-    const at = url ?? (await chrome.tabs.get(tab).catch(() => null))?.url ?? "";
     if (!onSite(at, shared.domain)) {
         throw new ProtocolError("moved", `tab ${tab} was shared on ${shared.domain}, and has gone to ${hostOf(at) ?? "another page"}: what it shows there wasn't shared; ask the person to share it again`);
     }

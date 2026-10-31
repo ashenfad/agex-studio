@@ -191,6 +191,12 @@ first; the browser adds:
   each session's grants to the extension (`session`) whenever the vault
   changes and each time the port opens; a session whose grants went is
   sent none, so its tabs are held to nothing at once.
+- **A page already there when its grant goes is refused too.** Rules
+  hold the loads to come, not the page a tab shows, so every read and
+  step in a session's own tab checks the tab is on a domain the session
+  still holds (`stillOn`, before a step and again after a read):
+  elsewhere it's `not-granted`. `goto` isn't checked, as it's the way
+  out; the tab isn't closed, as the person may be looking at it.
 - **Every page load in a tab the agent opened is held to its grants**,
   by the browser: `declarativeNetRequest` session rules for that tab
   (`grants.js`), so a link, a redirect, a sign-in hop or a script's
@@ -251,7 +257,8 @@ first; the browser adds:
 
 - **Promised, whatever a page says:** a key's value, which the agent
   never holds; and the sites the agent reads and acts in, every page
-  load in its own tabs held to the session's grants.
+  load in its own tabs held to the session's grants, and every read and
+  step there checked against them as they stand.
 - **Guard rails, not boundaries:**
   - `confirm`: the extension reports a form submit or a click on a
     control that reads as committing (book, reserve, pay, purchase,

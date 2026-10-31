@@ -71,7 +71,8 @@ export const pageOps = {
     /** The tab sent to `url`, on a domain the session holds a grant
      *  for, and its load waited for. */
     async goto(req) {
-        const { tab, domains, shared } = await ownTab(req);
+        // the way out of a page the session may no longer be on
+        const { tab, domains, shared } = await ownTab(req, { leaving: true });
         const { url } = req;
         if (typeof url !== "string" || hostOf(url) === null) throw bad("url: an http or https URL");
         // a tab the person shared goes on its own site too

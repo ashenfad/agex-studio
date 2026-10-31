@@ -25,7 +25,7 @@ describe("a session's tabs", () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
         browser = await launch({
             extension: `${ext}/dist/dev`,
-            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,subdomains,show,turn,restart" },
+            query: { ext: DEV_EXTENSION_ID, scenarios: "tabs,held,opened,popup,regrant,revoked,subdomains,show,turn,restart" },
         });
     });
     after(() => browser?.close());
@@ -97,6 +97,16 @@ describe("a session's tabs", () => {
         assert.equal(loaded("after-narrow"), false);
         assert.notEqual(r.widened, null, "the widened tab never reached the new origin");
         assert.equal(loaded("after-wide"), true);
+    });
+
+    it("reads and acts in no page whose grant was taken back while the tab showed it, and lets goto leave", async () => {
+        const r = await browser.report("revoked", 60_000);
+        assert.equal(r.before, "Hotels in Lisbon");
+        assert.equal(r.read.error?.code, "not-granted");
+        assert.equal(r.shot.code, "not-granted");
+        assert.equal(r.click.error?.code, "not-granted");
+        assert.equal(r.left.error, undefined);
+        assert.equal(r.after, "site after-revoke");
     });
 
     it("keeps a session's tabs, and holds their loads, after the worker's idle stop", async () => {

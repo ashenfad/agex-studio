@@ -315,6 +315,23 @@ const SCENARIOS = {
         return { narrowed, widened };
     },
 
+    /** a grant taken back while a tab shows its site: the page no longer read or acted in, and left by goto */
+    async revoked() {
+        const c = await greeted();
+        await c.call("session", { session: "revoked", name: "Revoked", domains: [GRANTED_DOMAIN, OTHER_DOMAIN] });
+        const { value: { tab } } = await c.call("open", { session: "revoked", url: `${OTHER}/test/page/hotel.html` });
+        const at = { session: "revoked", tab };
+        const before = await c.call("read", at);
+        await c.call("session", { session: "revoked", name: "Revoked", domains: [GRANTED_DOMAIN] });
+        const read = await c.call("read", at);
+        const shot = await c.call("screenshot", at);
+        const click = await c.call("click", { ...at, version: before.value?.version, ref: 1 });
+        const left = await c.call("goto", { ...at, url: site("after-revoke") });
+        const after = await c.call("read", at);
+        c.port.disconnect();
+        return { before: before.error ?? before.value?.title, read, shot: shot.error ?? "shot", click, left, after: after.error ?? after.value?.title };
+    },
+
     /** the registry and the rules outlive the worker's idle stop */
     async restart() {
         const c = await greeted();
