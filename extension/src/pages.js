@@ -32,7 +32,7 @@ const WAIT_MAX_MS = 60_000;
 export const pageOps = {
     /** The page's outline (`outline.js`), under a new version. */
     async read(req) {
-        const { tab, shared } = await ownTab(req, { reading: true });
+        const { session, tab, shared } = await ownTab(req, { reading: true });
         const { maxChars, hrefs, settle } = req;
         if (maxChars !== undefined && !(Number.isInteger(maxChars) && /** @type {number} */ (maxChars) >= 100)) {
             throw bad("maxChars: how much of the page's text to read, at least 100");
@@ -55,7 +55,7 @@ export const pageOps = {
         const outline = await inWorld(tab, outlinePage, [version, { maxChars: /** @type {number | undefined} */ (maxChars), hrefs: /** @type {boolean | undefined} */ (hrefs) }]);
         // the browser's own page, for a load that failed, is at the URL that did
         const url = outline.url.startsWith("chrome-error:") ? ((await chrome.tabs.get(tab)).url ?? outline.url) : outline.url;
-        await stillOn(tab, shared, url);
+        await stillOn(session, tab, shared, url);
         const blocked = await change((state) => state.tabs[tab]?.blocked);
         return {
             ...outline,
@@ -91,7 +91,7 @@ export const pageOps = {
     /** Wait until the page shows `text`, or has an element matching
      *  `selector`. */
     async waitFor(req) {
-        const { tab, shared } = await ownTab(req, { reading: true });
+        const { session, tab, shared } = await ownTab(req, { reading: true });
         const { text, selector, timeout = WAIT_MS } = req;
         if ((typeof text === "string") === (typeof selector === "string")) throw bad("text or selector: what to wait for, one of them");
         if (!Number.isInteger(timeout) || /** @type {number} */ (timeout) < 0 || /** @type {number} */ (timeout) > WAIT_MAX_MS) {
@@ -106,7 +106,7 @@ export const pageOps = {
                 return false; // between two documents
             });
             const ms = Math.round(performance.now() - started);
-            await stillOn(tab, shared);
+            await stillOn(session, tab, shared);
             if (has) return { ms };
             if (ms >= /** @type {number} */ (timeout)) {
                 throw new ProtocolError("timeout", `the page still doesn't ${text !== undefined ? `show ${JSON.stringify(text)}` : `have ${selector}`} after ${ms}ms`);
@@ -119,7 +119,7 @@ export const pageOps = {
      *  as it is scrolled loads): `to` "down", a screenful, or "bottom",
      *  until the page stops growing. */
     async scroll(req) {
-        const { tab, shared } = await ownTab(req, { reading: true });
+        const { session, tab, shared } = await ownTab(req, { reading: true });
         const { to = "down" } = req;
         if (to !== "down" && to !== "bottom") throw bad('to: "down" (a screenful) or "bottom"');
         await work(tab);
@@ -146,18 +146,18 @@ export const pageOps = {
             // not have reached the page (a background tab drops one now and then), so once more
             else if (to === "bottom" && (at.below <= 0 || ++missed > 1)) break;
         }
-        await stillOn(tab, shared);
+        await stillOn(session, tab, shared);
         return { top: at.top, below: at.below };
     },
 
     /** The tab as it renders now, a JPEG. */
     async screenshot(req) {
-        const { tab, shared } = await ownTab(req, { reading: true });
+        const { session, tab, shared } = await ownTab(req, { reading: true });
         await work(tab);
         const shot = send(tab, "Page.captureScreenshot", { format: "jpeg", quality: 70 });
         const late = new Promise((_, no) => setTimeout(() => no(new ProtocolError("timeout", "the screenshot took more than 10s")), 10_000));
         const { data } = await Promise.race([shot, late]);
-        await stillOn(tab, shared);
+        await stillOn(session, tab, shared);
         return { mime: "image/jpeg", data };
     },
 };

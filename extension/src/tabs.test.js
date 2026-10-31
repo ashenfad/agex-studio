@@ -176,3 +176,35 @@ describe("a tab a page opens", () => {
         expect(kept().tabs[7].blocked).toBeUndefined();
     });
 });
+
+describe("a read of a shared tab, checked before it's given", () => {
+    /** @type {ReturnType<typeof fakeChrome>} */
+    let fake;
+    const share = { domain: "www.github.io", at: 5 };
+    beforeEach(() => {
+        fake = fakeChrome({ open: [9], registry: { sessions: { s: { name: "Notes", domains: [] } }, tabs: { 9: { session: "s", shared: share } } } });
+        Object.assign(globalThis, { chrome: fake.chrome });
+    });
+
+    it("passes on the host it was shared on, a subdomain of it, and the bare host of a www. one", async () => {
+        const { stillOn } = await import("./tabs.js");
+        for (const url of ["https://www.github.io/a", "https://docs.www.github.io/", "https://github.io/b"]) await expect(stillOn("s", 9, share, url), url).resolves.toBeUndefined();
+    });
+
+    it("refuses a sibling of it, or another site, as moved", async () => {
+        const { stillOn } = await import("./tabs.js");
+        for (const url of ["https://someone.github.io/", "https://example.com/", "chrome://settings/"]) await expect(stillOn("s", 9, share, url), url).rejects.toMatchObject({ code: "moved" });
+    });
+
+    it("refuses once the share has ended, or the tab is shared again since, with this session or another", async () => {
+        const { stillOn } = await import("./tabs.js");
+        const url = "https://www.github.io/";
+        const again = (/** @type {any} */ tab) => fake.areas.local.set("registry", { sessions: { s: { name: "Notes", domains: [] } }, tabs: { 9: tab } });
+        again({ session: "s", shared: { ...share, at: 6 } });
+        await expect(stillOn("s", 9, share, url)).rejects.toMatchObject({ code: "not-found" });
+        again({ session: "t", shared: share });
+        await expect(stillOn("s", 9, share, url)).rejects.toMatchObject({ code: "not-found" });
+        fake.areas.local.set("registry", { sessions: {}, tabs: {} });
+        await expect(stillOn("s", 9, share, url)).rejects.toMatchObject({ code: "not-found" });
+    });
+});
