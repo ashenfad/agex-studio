@@ -78,6 +78,8 @@ export class BrowserExtension {
     #beat = null;
     /** Called each time a port opens and is greeted. @type {Set<() => void>} */
     #onOpen = new Set();
+    /** Called with each event the extension sends unasked. @type {Set<(event: string) => void>} */
+    #onEvent = new Set();
 
     /**
      * @param {{ runtime?: Runtime | null, ids?: string[], heartbeatMs?: number }} opts
@@ -148,6 +150,17 @@ export class BrowserExtension {
         return () => this.#onOpen.delete(fn);
     }
 
+    /**
+     * Call `fn` with each event the extension sends unasked (`shares`:
+     * the shares changed from the browser's side). Returns the stopping.
+     *
+     * @param {(event: string) => void} fn
+     */
+    onEvent(fn) {
+        this.#onEvent.add(fn);
+        return () => this.#onEvent.delete(fn);
+    }
+
     /** Whether anything holds the extension now. */
     get held() {
         return this.#holds > 0;
@@ -210,6 +223,10 @@ export class BrowserExtension {
     /** @param {chrome.runtime.Port} port @param {string} id */
     #listen(port, id) {
         port.onMessage.addListener((/** @type {any} */ msg) => {
+            if (typeof msg?.event === "string" && msg.id === undefined) {
+                for (const f of this.#onEvent) f(msg.event);
+                return;
+            }
             const w = this.#waiting.get(msg?.id);
             if (w === undefined) return;
             this.#waiting.delete(msg.id);

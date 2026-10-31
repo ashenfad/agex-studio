@@ -20,7 +20,7 @@ import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { originMatcher } from "./origins.js";
 import { change, read } from "./registry.js";
-import { MARK, isWorking, onRested, rest, restAll, resume } from "./work.js";
+import { MARK, isWorking, onRested, rest, restAll, resume, work } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
 
@@ -33,6 +33,16 @@ const watched = new WeakSet();
 /** agex.studio's own pages, which are never shared (a dev build's studio
  *  on localhost is known by its port instead) */
 const studioPage = originMatcher(STUDIO_MATCHES);
+/** Told when the shares change from the browser's side (the popup, a
+ *  shared tab closed), for the studio to look again. */
+let sharesChanged = () => {};
+
+/** Call `fn` whenever the shares change from the browser's side.
+ *  @param {() => void} fn */
+export function onSharesChanged(fn) {
+    sharesChanged = fn;
+}
+
 /** Where a share from the toolbar sends the person when no studio tab is open. */
 const STUDIO_URL = "https://agex.studio/";
 
@@ -52,6 +62,11 @@ export const tabOps = {
             const before = state.sessions[session];
             state.sessions[session] = { name, domains: [...new Set(domains)] };
             for (const tab of ownedOf(state, session)) await hold(tab, domains);
+            // and a shared tab the agent acts in now, to the new grants and its site
+            for (const tab of tabsOf(state, session)) {
+                const shared = state.tabs[tab].shared;
+                if (shared && actingIn.has(tab)) await holdTo(tab, domains, shared);
+            }
             if (before !== undefined && before.name !== name) await renameGroups(state, session, before.name, name);
         });
         return null;
@@ -309,9 +324,7 @@ export const tabOps = {
  */
 export function watchTabs() {
     // a shared tab's loads are the person's again once the agent's work in it rests
-    onRested((tab) => {
-        if (actingIn.delete(tab)) void release(tab);
-    });
+    onRested((tab) => void letGo(tab));
 
     chrome.webNavigation.onCreatedNavigationTarget.addListener(({ sourceTabId, tabId, url }) => {
         void change(async (state) => {
@@ -399,11 +412,14 @@ export function watchTabs() {
 
     chrome.tabs.onRemoved.addListener((id) => {
         void change(async (state) => {
+            const waited = id in state.shares;
             delete state.shares[id];
-            if (!(id in state.tabs)) return;
+            const t = state.tabs[id];
+            if (t === undefined) return waited;
             delete state.tabs[id];
             await release(id);
-        });
+            return waited || t.shared !== undefined;
+        }).then((share) => share && sharesChanged());
     });
 
     // the toolbar's badge on a shared tab, again on each page it loads
@@ -548,6 +564,8 @@ export async function offer(tab) {
         return at;
     });
     await badgeShared(tab);
+    // a studio connected now looks at once, in view or not
+    sharesChanged();
     const [found] = studio === null ? await chrome.tabs.query({ url: [...STUDIO_MATCHES] }) : [studio];
     if (found?.id === undefined) {
         await chrome.tabs.create({ url: STUDIO_URL, active: true });
@@ -572,6 +590,7 @@ export async function stopSharing(tab) {
     });
     if (was) await stopped(tab);
     else await badge(tab, null);
+    sharesChanged();
 }
 
 /** The popup's switch on a shared tab: whether its agent may act there
@@ -584,6 +603,7 @@ export async function popupActs(tab, acts) {
  *  @param {number} tab */
 async function stopped(tab) {
     await rest(tab);
+    await letGo(tab);
     await badge(tab, null);
 }
 
@@ -735,9 +755,24 @@ const actingIn = new Set();
  */
 async function holdShared(tab, domains, shared) {
     if (actingIn.has(tab)) return;
+    // worked in first: its rest, which lets the hold go, is due even if the step fails before it acts
+    await work(tab);
     actingIn.add(tab);
+    await holdTo(tab, domains, shared);
+}
+
+/** A shared tab's loads held to `domains` and its site (its subdomains,
+ *  and for a `www.` host the bare one alone).
+ *  @param {number} tab @param {readonly string[]} domains @param {import("./registry.js").Shared} shared */
+async function holdTo(tab, domains, shared) {
     const bare = shared.domain.startsWith("www.") ? [shared.domain.slice(4)] : [];
     await hold(tab, [...domains, shared.domain], bare);
+}
+
+/** A shared tab's hold let go, if it has one: the person's loads are theirs.
+ *  @param {number} tab */
+async function letGo(tab) {
+    if (actingIn.delete(tab)) await release(tab);
 }
 
 /**
@@ -754,8 +789,12 @@ async function setActs(tab, acts, session) {
         if (acts) t.shared.acts = true;
         else delete t.shared.acts;
     });
-    if (!acts) await rest(tab);
+    if (!acts) {
+        await rest(tab);
+        await letGo(tab);
+    }
     await badgeShared(tab);
+    sharesChanged();
 }
 
 /**

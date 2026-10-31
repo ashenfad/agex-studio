@@ -12,11 +12,12 @@ own with <code>&amp;popup=1</code>).</p>
     if (params.has("go")) setTimeout(() => location.assign(params.get("go")), Number(params.get("after") ?? 0));
     if (params.has("open")) window.open(params.get("open"), "_blank", params.has("popup") ? "popup" : "");
     // links to follow, by a click
-    for (const name of ["next", "away"]) {
+    const LABELS = { next: "Next page", away: "Somewhere else", later: "Granted later" };
+    for (const name of Object.keys(LABELS)) {
         if (!params.has(name)) continue;
         const a = document.createElement("a");
         a.href = params.get(name);
-        a.textContent = name === "next" ? "Next page" : "Somewhere else";
+        a.textContent = LABELS[name];
         document.body.append(" ", a);
     }
 </script>

@@ -68,13 +68,17 @@ export class SharedTabs {
      *   browser: import("./browser.js").Browser,
      *   tell: (session: string) => Promise<void>,
      *   given: (session: string, share: WaitingShare) => Promise<void>,
+     *   changed?: () => void,
      * }} deps `tell` makes the extension know the session first; `given`
-     *   follows a tab given to one (the session opened, its agent told)
+     *   follows a tab given to one (the session opened, its agent told);
+     *   `changed` follows a share's mode changed or stopped here (the open
+     *   sessions told)
      */
-    constructor({ browser, tell, given }) {
+    constructor({ browser, tell, given, changed = () => {} }) {
         this.browser = browser;
         this.tell = tell;
         this.given = given;
+        this.changed = changed;
     }
 
     /** What waits, asked of the extension again. */
@@ -165,12 +169,14 @@ export class SharedTabs {
      *  @param {string} session @param {number} tab */
     async stop(session, tab) {
         await this.browser.unshare(session, tab);
+        this.changed();
     }
 
     /** Whether session `session`'s agent may act in a tab the person
      *  shared, or only read it. @param {string} session @param {number} tab @param {boolean} acts */
     async setMode(session, tab, acts) {
         await this.browser.shareMode(session, tab, acts);
+        this.changed();
     }
 
     /** The person turns `share` down: the tab is left as it was.
