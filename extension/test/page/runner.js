@@ -500,6 +500,9 @@ const SCENARIOS = {
         const short = (await c.call("read", { session: "blockers", tab: consent, maxChars: 150 })).value;
         const whole = (await c.call("read", { session: "blockers", tab: consent })).value;
         report.notice = { short: short.text, whole: whole.text, accept: whole.refs.find((x) => x.name === "Accept all")?.kind };
+        // a page drawn as web components, what it shows put in its shadow root's slots
+        const { value: { tab: slotted } } = await c.call("open", { session: "blockers", url: `${GRANTED}/test/page/slotted.html` });
+        report.slotted = (await c.call("read", { session: "blockers", tab: slotted })).value?.text;
         await c.call("turn", { running: false });
         c.port.disconnect();
         return report;
