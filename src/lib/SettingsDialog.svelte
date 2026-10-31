@@ -656,7 +656,7 @@
                         {#each shared as { session, tab } (tab.id)}
                             {@const name = sessionTitle(session) ?? 'a removed session'}
                             <li>
-                                <span class="hint">{tab.title || tab.url} · {name}{tab.acts ? '' : ' · read only'}</span>
+                                <span class="hint">{tab.title || tab.url} · <code>{tab.shared}</code> · {name}{tab.acts ? '' : ' · read only'}</span>
                                 <button class="btn secondary small" onclick={() => setMode(session, tab.id, !tab.acts)} aria-label="{tab.acts ? 'Only let' : 'Let'} {name} {tab.acts ? 'read' : 'act in'} {tab.title || tab.url}">{tab.acts ? 'Only read' : 'Let it act'}</button>
                                 <button class="btn secondary small" onclick={() => stopSharing(session, tab.id)} aria-label="Stop sharing {tab.title || tab.url} with {name}">Stop sharing</button>
                             </li>
