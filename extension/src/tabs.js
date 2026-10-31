@@ -615,9 +615,9 @@ async function badgeShared(tab) {
     const shared = state.tabs[tab]?.shared;
     if (shared) {
         const name = state.sessions[state.tabs[tab].session]?.name ?? "a session";
-        await badge(tab, "shared", `Shared with ${name}, to ${shared.acts ? "read and act in" : "read"} while it's on ${shared.domain}`);
+        await badge(tab, "shared", `Shared with ${name}${shared.acts ? "" : " (read only)"}`);
     } else if (tab in state.shares) {
-        await badge(tab, "waiting", "Waiting for agex.studio to say which session takes this tab");
+        await badge(tab, "waiting", "Waiting for agex.studio");
     }
 }
 

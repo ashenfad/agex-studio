@@ -19,7 +19,6 @@
     /** @type {string} */
     let chosen = $state('')
     const to = $derived(chosen || current)
-    const toTitle = $derived(sessions.find((s) => s.name === to)?.title || 'This session')
     /** The other sites the chosen session's agent may open: what it reads here can reach them. */
     const sites = $derived(vault.agentSites[`agent:${to}`] ?? [])
     /** Whether the agent may click and type there too, not only read it. */
@@ -42,7 +41,7 @@
     }
 </script>
 
-<AskCard why="From the extension's toolbar: {share.title || share.url}" {errors}>
+<AskCard why={share.title || share.url} {errors}>
     {#snippet title()}You shared a tab on <code>{share.domain}</code>{/snippet}
     <label class="to">
         With
@@ -52,11 +51,11 @@
             {/each}
         </select>
     </label>
-    <label class="acts"><input type="checkbox" bind:checked={acts} /> Let its agent click and type here</label>
+    <label class="acts"><input type="checkbox" bind:checked={acts} /> Let the agent click and type</label>
     {#snippet note()}
-        {#if acts}Its agent can read this page and act in it (click, type, go on) while it's on {share.domain}, signed in as you are; a step that books, pays, sends or deletes asks you first.{:else}Its agent can read this page while it's on {share.domain}, but can't click or type in it.{/if}
-        What it reads goes to your model provider and into the session's history, which syncs and publishes with it.{#if sites.length > 0}
-            {' '}{toTitle} can also open {sites.join(', ')}: what it reads here can reach them.{/if}
+        {#if acts}The agent can use this page, signed in as you, while it stays on {share.domain}. Booking, paying, sending or deleting asks you first.{:else}The agent can read this page while it stays on {share.domain}.{/if}
+        What it reads goes to your model provider and into the session's history.{#if sites.length > 0}
+            {' '}This session can also open {sites.length === 1 ? 'another site' : `${sites.length} other sites`}, so what it reads here could reach {sites.length === 1 ? 'it' : 'them'}.{/if}
     {/snippet}
     {#snippet actions()}
         <button class="btn" disabled={busy} onclick={() => run(() => studio.shares.give(to, share, acts))}>Share</button>
