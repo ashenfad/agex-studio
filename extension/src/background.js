@@ -11,7 +11,7 @@ import { DEV_MATCHES, ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { actOps } from "./act.js";
 import { pageOps } from "./pages.js";
 import { read } from "./registry.js";
-import { offer, popupActs, popupState, start, stopSharing, studioConnected, tabOps, watchTabs } from "./tabs.js";
+import { offer, onSharesChanged, popupActs, popupState, start, stopSharing, studioConnected, tabOps, watchTabs } from "./tabs.js";
 import { watchWork } from "./work.js";
 
 const manifest = chrome.runtime.getManifest();
@@ -51,9 +51,24 @@ watchTabs();
 start();
 watchWork(async () => Object.keys((await read()).tabs).map(Number));
 
+/** The studio's ports open now, told when the shares change. @type {Set<chrome.runtime.Port>} */
+const studios = new Set();
+onSharesChanged(() => {
+    for (const port of studios) {
+        try {
+            port.postMessage({ event: "shares" });
+        } catch {
+            studios.delete(port);
+        }
+    }
+});
+
 chrome.runtime.onConnectExternal.addListener((port) => {
     servePort(port, { allows, ops, version: manifest.version });
-    if (allows(port.sender?.origin)) studioConnected(port.sender?.tab?.id, port.sender?.origin);
+    if (!allows(port.sender?.origin)) return;
+    studioConnected(port.sender?.tab?.id, port.sender?.origin);
+    studios.add(port);
+    port.onDisconnect.addListener(() => studios.delete(port));
 });
 
 // the popup: only the extension's own pages send here (a site's page

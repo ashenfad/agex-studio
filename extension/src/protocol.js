@@ -72,6 +72,11 @@
  *   page has changed since, and as `confirm` when the step reads as
  *   committing and isn't `confirmed`.
  *
+ * The extension also sends, unasked, `{ event: "shares" }` when the shares
+ * change from the browser's side (the toolbar's popup shares a tab, stops
+ * one or changes what the agent may do there; a shared tab closes): the
+ * studio looks at them again (`shares`, and each session's `tabs`).
+ *
  * A port with no messages on it doesn't keep the extension's service
  * worker alive (Chrome stops it after about 30 s idle, and the port
  * drops), so the studio sends `ping` while it needs the port, and opens

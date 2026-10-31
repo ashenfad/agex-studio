@@ -79,6 +79,7 @@ describe("a tab the person shares", () => {
     it("keeps a share from the toolbar until the studio takes it, bringing the studio to the front", () => {
         assert.equal(t.hidden, "hidden", "the person's tab never came to the front");
         assert.equal(t.offered.value, null, JSON.stringify(t.offered.error));
+        assert.equal(t.told, true, "the studio's port wasn't told the shares changed");
         assert.equal(t.front, true, "the studio wasn't brought to the front");
         assert.equal(t.waiting.length, 1);
         assert.deepEqual({ tab: t.waiting[0].tab, domain: t.waiting[0].domain, title: t.waiting[0].title }, { tab: t.tab, domain: "127.0.0.1", title: "site toolbar-person" });
@@ -109,9 +110,17 @@ describe("a tab the person shares", () => {
     it("holds its loads while the agent acts, and lets them go once that work rests", () => {
         assert.match(a.awayClick.value?.blocked?.url ?? "", /id=act-away/, JSON.stringify(a.awayClick));
         assert.equal(loaded("act-away"), false, "a link off the site loaded while the agent acted");
+        assert.equal(a.laterClick.value?.navigated, true, JSON.stringify(a.laterClick));
+        assert.equal(loaded("act-later"), true, "a domain granted while the agent acted stayed held");
         assert.equal(a.shown.value, null);
         assert.notEqual(a.free, null, "the person's own browsing was held after the agent's work rested");
         assert.equal(loaded("act-free"), true);
+    });
+
+    it("leaves no hold behind a first step that failed before it acted", () => {
+        assert.equal(a.staleFirst.error?.code, "stale", JSON.stringify(a.staleFirst));
+        assert.notEqual(a.secondFree, null, "the person's tab stayed held after a failed step");
+        assert.equal(loaded("act-second-free"), true);
     });
 
     it("goes back to reading only when the person says so", () => {

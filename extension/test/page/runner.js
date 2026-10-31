@@ -14,8 +14,10 @@ function connect() {
     const port = chrome.runtime.connect(ext);
     let next = 0;
     const waiting = new Map();
-    const conn = { dropped: /** @type {number | null} */ (null), opened: performance.now() };
+    const conn = { dropped: /** @type {number | null} */ (null), opened: performance.now(), events: /** @type {string[]} */ ([]) };
     port.onMessage.addListener((m) => {
+        // what the extension sends unasked, kept for the scenario to look at
+        if (m.event !== undefined && m.id === undefined) return void conn.events.push(m.event);
         waiting.get(m.id)?.(m);
         waiting.delete(m.id);
     });
@@ -204,7 +206,8 @@ const SCENARIOS = {
         const c = await greeted();
         await c.call("session", { session: "acting", name: "Acting", domains: [] });
         const away = `${OTHER}/test/page/site.html?id=act-away`;
-        const person = window.open(site("act-person", { next: site("act-next", { away }), away }), "_blank");
+        const later = `${OTHER}/test/page/site.html?id=act-later`;
+        const person = window.open(site("act-person", { next: site("act-next", { away, later }), away }), "_blank");
         const tab = (await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site act-person")))?.id;
         const shared = await c.call("share", { session: "acting", tab, acts: true });
         const listed = (await c.call("tabs", { session: "acting" })).value?.find((t) => t.id === tab);
@@ -213,6 +216,13 @@ const SCENARIOS = {
         const next = await c.call("click", { ...at, version: page.version, ref: refOf(page.text, "Next page") });
         page = (await c.call("read", at)).value;
         const awayClick = await c.call("click", { ...at, version: page.version, ref: refOf(page.text, "Somewhere else") });
+        // granted while the agent acts there: its hold follows at once
+        await c.call("session", { session: "acting", name: "Acting", domains: [OTHER_DOMAIN] });
+        page = (await c.call("read", at)).value;
+        const laterClick = await c.call("click", { ...at, version: page.version, ref: refOf(page.text, "Granted later") });
+        await c.call("session", { session: "acting", name: "Acting", domains: [] });
+        person.location.href = site("act-next", { away });
+        await tabWhere(c, "acting", (t) => t.id === tab && t.title === "site act-next" && !t.url.includes("later"));
         const gotoSite = await c.call("goto", { ...at, url: site("act-goto") });
         const gotoAway = await c.call("goto", { ...at, url: away });
         const close = await c.call("close", at);
@@ -228,8 +238,17 @@ const SCENARIOS = {
         const readOnly = await c.call("click", { ...at, version: page.version, ref: 1 });
         const listedAfter = (await c.call("tabs", { session: "acting" })).value?.find((t) => t.id === tab);
         person.close();
+        // a first step that fails before it acts (a stale outline) leaves no hold behind, once the share is read only
+        const second = window.open(site("act-second"), "_blank");
+        const tab2 = (await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site act-second")))?.id;
+        await c.call("share", { session: "acting", tab: tab2, acts: true });
+        const staleFirst = await c.call("click", { session: "acting", tab: tab2, version: 99, ref: 1 });
+        await c.call("shareMode", { session: "acting", tab: tab2, acts: false });
+        second.location.href = `${OTHER}/test/page/site.html?id=act-second-free`;
+        const secondFree = await tabWhere(c, "acting", (t) => t.id === tab2 && t.title === "site act-second-free");
+        second.close();
         c.port.disconnect();
-        return { shared, listed, next, awayClick, gotoSite, gotoAway, close, shown, free, toRead, readOnly, listedAfter };
+        return { shared, listed, next, awayClick, laterClick, gotoSite, gotoAway, close, shown, free, toRead, readOnly, listedAfter, staleFirst, secondFree };
     },
 
     /** a tab shared from the toolbar: kept until the studio takes it,
@@ -243,6 +262,7 @@ const SCENARIOS = {
         const hidden = document.visibilityState;
         // the popup's Share, as the dev build stands in for it
         const offered = await c.call("offer", { tab });
+        const told = await until(async () => c.events.includes("shares"));
         const front = await until(async () => document.visibilityState === "visible");
         const waiting = (await c.call("shares")).value;
         const offeredOwn = await c.call("offer", { tab: (await c.call("open", { session: "toolbar", url: site("toolbar-own") })).value?.tab });
@@ -265,7 +285,7 @@ const SCENARIOS = {
         });
         person.close();
         c.port.disconnect();
-        return { tab, hidden, offered, front, waiting, offeredOwn, dropped, afterDrop, taken, takenTwice, afterTake, listed, read: read.value?.title ?? read.error, afterClose };
+        return { tab, hidden, offered, told, front, waiting, offeredOwn, dropped, afterDrop, taken, takenTwice, afterTake, listed, read: read.value?.title ?? read.error, afterClose };
     },
 
     /** a popup window a page opens, which takes no tab group */

@@ -12,7 +12,7 @@ import { BrowserExtension, ExtensionError, ID_KEY, candidateIds } from "./browse
 function fakeRuntime(extensions) {
     /** @type {{ id: string, op: string, args: any }[]} */
     const sent = [];
-    /** @type {{ drop: () => void }[]} */
+    /** @type {{ drop: () => void, send: (m: any) => void }[]} */
     const ports = [];
     const runtime = {
         sent,
@@ -42,7 +42,8 @@ function fakeRuntime(extensions) {
                 },
                 disconnect: drop,
             };
-            ports.push({ drop });
+            // a message the extension sends unasked
+            ports.push({ drop, send: (/** @type {any} */ m) => onMessage.forEach((f) => f(m)) });
             if (!(id in extensions)) queueMicrotask(drop);
             return /** @type {any} */ (port);
         },
@@ -102,6 +103,20 @@ describe("BrowserExtension", () => {
         const err = await ext.call("open", { session: "s", url: "https://x.com/" }).catch((e) => e);
         expect(err).toBeInstanceOf(ExtensionError);
         expect(err.code).toBe("not-granted");
+    });
+
+    it("hands what the extension sends unasked to its listeners, apart from replies", async () => {
+        const runtime = fakeRuntime({ dev: answering() });
+        const ext = new BrowserExtension({ runtime, ids: ["dev"] });
+        await ext.detect();
+        /** @type {string[]} */
+        const heard = [];
+        const stop = ext.onEvent((e) => heard.push(e));
+        runtime.ports[0].send({ event: "shares" });
+        expect(await ext.call("ping")).toEqual({ op: "ping" });
+        stop();
+        runtime.ports[0].send({ event: "shares" });
+        expect(heard).toEqual(["shares"]);
     });
 
     it("fails the calls waiting when the port drops, and opens it again for the next", async () => {

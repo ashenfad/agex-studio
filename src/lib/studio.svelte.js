@@ -78,6 +78,7 @@ export class Studio {
             const session = this.#open.get(name);
             if (session !== undefined) await this.shares.remind(name, session.inbox);
         },
+        changed: () => this.#remindShares(),
     });
     /** @type {(() => void) | null} */
     #watchingShares = null;
@@ -122,13 +123,23 @@ export class Studio {
      *  port opens. Returns the stopping. */
     #watchShares() {
         const stopWatch = this.shares.watch(browserExtension);
-        const stopRemind = browserExtension.onOpen(() => {
-            for (const s of this.openSessions()) void this.shares.remind(s.name, s.inbox);
+        const stopRemind = browserExtension.onOpen(() => this.#remindShares());
+        // shared, stopped or changed from the extension's toolbar: looked at again at once
+        const stopEvents = browserExtension.onEvent((event) => {
+            if (event !== "shares") return;
+            void this.shares.refresh();
+            this.#remindShares();
         });
         return () => {
             stopWatch();
             stopRemind();
+            stopEvents();
         };
+    }
+
+    /** Each open session told of the tabs shared with it, as they are now. */
+    #remindShares() {
+        for (const s of this.openSessions()) void this.shares.remind(s.name, s.inbox);
     }
 
     /** Called with a session's name when its content changed here (a
