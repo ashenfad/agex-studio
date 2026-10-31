@@ -4,11 +4,11 @@
  * (`work`), so the page renders as if it were in front.
  */
 
-import { granted, hostOf } from "./grants.js";
+import { hostOf } from "./grants.js";
 import { outlinePage, pageHas } from "./outline.js";
 import { ProtocolError } from "./protocol.js";
 import { change } from "./registry.js";
-import { ownTab, stillOn, unmarked } from "./tabs.js";
+import { mayGo, ownTab, stillOn, unmarked } from "./tabs.js";
 import { inWorld, send, work } from "./work.js";
 
 /** How long `read` waits for a page still loading before it reads it anyway. */
@@ -71,10 +71,11 @@ export const pageOps = {
     /** The tab sent to `url`, on a domain the session holds a grant
      *  for, and its load waited for. */
     async goto(req) {
-        const { tab, domains } = await ownTab(req);
+        const { tab, domains, shared } = await ownTab(req);
         const { url } = req;
         if (typeof url !== "string" || hostOf(url) === null) throw bad("url: an http or https URL");
-        if (!granted(url, domains)) throw new ProtocolError("not-granted", `this session holds no grant for ${hostOf(url)}`);
+        // a tab the person shared goes on its own site too
+        if (!mayGo(url, domains, shared)) throw new ProtocolError("not-granted", `this session holds no grant for ${hostOf(url)}`);
         await work(tab);
         const { errorText } = await send(tab, "Page.navigate", { url });
         const loaded = await settled(tab, GOTO_LOAD_MS);

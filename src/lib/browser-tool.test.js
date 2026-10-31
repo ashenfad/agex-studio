@@ -144,7 +144,9 @@ describe("the browser tool", () => {
 
     it("marks a tab the person shared, with the site it's read on", async () => {
         const out = await setup({ tabs: [{ id: 9, url: "https://mail.example/inbox", title: "Inbox", working: false, shared: "mail.example" }] }).tool.call({ actions: [{ tabs: true }] });
-        expect(out.text).toBe("1. tabs:\n   tab 9: Inbox · https://mail.example/inbox (shared by the person, read only, on mail.example)");
+        expect(out.text).toBe("1. tabs:\n   tab 9: Inbox · https://mail.example/inbox (shared by the person, on mail.example: read only)");
+        const acting = await setup({ tabs: [{ id: 9, url: "https://mail.example/inbox", title: "Inbox", working: false, shared: "mail.example", acts: true }] }).tool.call({ actions: [{ tabs: true }] });
+        expect(acting.text).toBe("1. tabs:\n   tab 9: Inbox · https://mail.example/inbox (shared by the person, on mail.example: you may act in it)");
     });
 
     it("stops at a step a shared tab refuses, saying what the agent can do instead", async () => {

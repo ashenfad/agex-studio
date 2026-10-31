@@ -154,10 +154,11 @@ ends the wait. Its card becomes the first of a family:
   it to the session and closes it at once if its domain has no grant,
   before the agent can read it, but its first request may already have
   gone out. What's held is what the agent reads and acts in, not every
-  request a page makes. A tab the person shared stays theirs: its loads aren't held, and when
-  the agent acts in one (phase 3) they're held only while it acts, to
-  the session's grants and the tab's own domain (sharing it approved
-  that much), so its own submits and links still go.
+  request a page makes. A tab the person shared stays theirs: its
+  loads aren't held, and when the agent acts in one (a share to act
+  in) they're held only while it acts, to the session's grants and the
+  tab's own site (sharing it approved that much), so its own submits
+  and links still go.
 - **The person's logins stay in tabs.** The extension makes no request
   of its own with the person's cookies. A session's tab is signed in
   wherever the person is (opening marriott.com opens their account),
@@ -288,12 +289,13 @@ was about 4,500 tokens for the seven sites, some 650 a site, against
 lists were read short (10 of Marriott's 15 hotels, 3 of IHG's 16),
 since the rest load as the page scrolls: `scroll` came of it.
 
-## Phase 2: tabs the person shares, to read
+## Phase 2: tabs the person shares
 
 Exit: the person signs in to a site, shares the tab, and the agent
-answers a question about it. The card said where what it reads goes,
-and, in a session that holds grants for other sites, that what it reads
-can reach them.
+answers a question about it; shared to act in, the agent fills a form
+the person asked for there, and stops at its submit with a `confirm`.
+The card said where what it reads goes, and, in a session that holds
+grants for other sites, that what it reads can reach them.
 
 Planned (2026-10-30):
 
@@ -319,11 +321,21 @@ Planned (2026-10-30):
   shared, and its popup stops sharing it; closing the tab ends the
   share, and so does Stop sharing in the session's settings. A fork
   doesn't copy a share: a tab is one session's.
-- **Read only:** `read`, `screenshot`, `waitFor` and `scroll` (which
-  loads a list that grows as it's scrolled, and submits nothing).
-  `click`, `type`, `select`, `press` and `goto` are refused
-  (`read-only`) until phase 3. The debugger attaches while the agent
-  reads, as in its own tabs, so Chrome's bar shows then.
+- **Read only, or acted in too, as the person says.** Shared to read,
+  the agent can `read`, `screenshot`, `waitFor` and `scroll` (which
+  loads a list that grows as it's scrolled, and submits nothing), and
+  anything else is refused (`read-only`). The share card's toggle, on by
+  default (2026-10-30: a page's collapsed sections, its filters and its
+  forms need clicks), lets it act there too: `click`, `type`, `select`,
+  `press`, `goto` within that site or the session's grants, and a
+  handoff; never `close`. While it acts, the tab's loads are held to
+  that site and the session's grants, as in its own tabs, and a load
+  stopped there goes back to the page it left; once its work rests the
+  loads are the person's again. A step that commits asks for a
+  `confirm`, as in its own tabs: a guard rail in a tab signed in as the
+  person, which is why reading only is a toggle away (the card, the
+  popup, settings). The debugger attaches while the agent works in it,
+  as in its own tabs, so Chrome's bar shows then.
 - **The session's agent asks; its delegates read.** A shared tab is
   the top session's, so a delegate reads it as it does the session's
   own tabs; `request_tab` is refused to a delegate, which names the tab
@@ -337,16 +349,13 @@ Planned (2026-10-30):
 |---|---|---|---|
 | 1 | extension | A toolbar action and its popup: Share (the tab in front, its domain kept, when it's an http or https tab and not a session's own or the studio's) and Stop sharing, a badge on a shared tab; the share kept in the extension's storage until the studio takes it, and the studio's tab brought to the front (or agex.studio opened), whose return reconnects the port; ops to list shares waiting and give one to a session, to list the person's open tabs for a picker (http and https only, not the sessions' own, nor the studio's) and share the one chosen, and to stop a share; a shared tab in the registry with its domain, listed in `tabs` as shared, read only on its domain (`moved`), refused anything but reading (`read-only`), its loads never held; the share ended when the tab closes | phase 1 |
 | 2 | studio | Shares taken on each connect: a card asking which session gets one (the open session first, or not now), saying where what the agent reads goes; the tab arriving in that session's inbox ("the person shared *title*, *url*"); `moved` and `read-only` explained in the browser tool's and host's refusals; the session's shared tabs in its settings, with Stop sharing; the skill and the primer's note on shared tabs | 1 |
-| 3 | studio | `request_tab` (the session's agent only; a delegate is refused and names the tab in its answer) and the `tab` card: a picker of the person's open tabs, or not now, with the same words on where it goes and on the session's other grants; then the spike: the exit, from a tab shared both ways | 2 |
+| 3 | both | Acting in a shared tab, the person's choice: a share's mode (`acts`) given with it and changed (`shareMode`, the popup, settings), the acting steps let through on its site and the grants, its loads held while the agent acts and let go when its work rests, a stopped load gone back from; the card's toggle, on by default; the tool, the note, the skill and the primer on both modes | 2 |
+| 4 | studio | `request_tab` (the session's agent only; a delegate is refused and names the tab in its answer) and the `tab` card: a picker of the person's open tabs, or not now, with the same words on where it goes and on the session's other grants, and the same toggle; then the spike: the exit, from a tab shared both ways | 3 |
 
 ## Phase 3: acting in a shared tab
 
-Exit: in a shared, signed-in tab the agent fills a form the person
-asked for, and stops at its submit with a `confirm`.
-
-Sliced once phase 2 has run: the `confirm` heuristic will have met
-real sites in phase 1, and shared tabs are where a wrong step costs
-most.
+Folded into phase 2 (slice 3, 2026-10-30): the person chose acting as
+the default for a share, with reading only a toggle away.
 
 ## Decisions
 

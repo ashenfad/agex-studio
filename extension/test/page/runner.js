@@ -197,6 +197,41 @@ const SCENARIOS = {
         };
     },
 
+    /** a tab of the person's shared to act in: clicked and sent on within
+     *  its site and the session's grants while the agent acts, its loads
+     *  the person's again once that work rests */
+    async sharedActing() {
+        const c = await greeted();
+        await c.call("session", { session: "acting", name: "Acting", domains: [] });
+        const away = `${OTHER}/test/page/site.html?id=act-away`;
+        const person = window.open(site("act-person", { next: site("act-next", { away }), away }), "_blank");
+        const tab = (await until(async () => (await c.call("browsable")).value?.find((t) => t.title === "site act-person")))?.id;
+        const shared = await c.call("share", { session: "acting", tab, acts: true });
+        const listed = (await c.call("tabs", { session: "acting" })).value?.find((t) => t.id === tab);
+        const at = { session: "acting", tab };
+        let page = (await c.call("read", at)).value;
+        const next = await c.call("click", { ...at, version: page.version, ref: refOf(page.text, "Next page") });
+        page = (await c.call("read", at)).value;
+        const awayClick = await c.call("click", { ...at, version: page.version, ref: refOf(page.text, "Somewhere else") });
+        const gotoSite = await c.call("goto", { ...at, url: site("act-goto") });
+        const gotoAway = await c.call("goto", { ...at, url: away });
+        const close = await c.call("close", at);
+        // a handoff rests the agent's work: the person browses anywhere again
+        const shown = await c.call("show", at);
+        person.location.href = `${OTHER}/test/page/site.html?id=act-free`;
+        const free = await tabWhere(c, "acting", (t) => t.id === tab && t.title === "site act-free");
+        person.location.href = site("act-back");
+        await tabWhere(c, "acting", (t) => t.id === tab && t.title === "site act-back");
+        // only to read, again
+        const toRead = await c.call("shareMode", { ...at, acts: false });
+        page = (await c.call("read", at)).value;
+        const readOnly = await c.call("click", { ...at, version: page.version, ref: 1 });
+        const listedAfter = (await c.call("tabs", { session: "acting" })).value?.find((t) => t.id === tab);
+        person.close();
+        c.port.disconnect();
+        return { shared, listed, next, awayClick, gotoSite, gotoAway, close, shown, free, toRead, readOnly, listedAfter };
+    },
+
     /** a tab shared from the toolbar: kept until the studio takes it,
      *  the studio brought to the front to ask, and turned down or taken */
     async toolbar() {

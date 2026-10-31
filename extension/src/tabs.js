@@ -9,8 +9,10 @@
  *
  * Only tabs the extension opened for a session, and the tabs their pages
  * open, are in the registry, and the tabs the person shared with one:
- * those stay the person's, never held, grouped or closed, and are only
- * read, while they're on the site they were shared on.
+ * those stay the person's, never grouped or closed, and are worked in
+ * only while they're on the site they were shared on: read, or, if the
+ * person let the agent act there, acted in too, their loads held to that
+ * site and the session's grants only while the agent acts.
  */
 
 import { badge } from "./badge.js";
@@ -18,7 +20,7 @@ import { granted, hostOf, isDomain, pageRules } from "./grants.js";
 import { ProtocolError, STUDIO_MATCHES } from "./protocol.js";
 import { originMatcher } from "./origins.js";
 import { change, read } from "./registry.js";
-import { MARK, isWorking, rest, restAll, resume } from "./work.js";
+import { MARK, isWorking, onRested, rest, restAll, resume } from "./work.js";
 
 /** @typedef {import("./protocol.js").Request} Request */
 
@@ -100,7 +102,8 @@ export const tabOps = {
         const tab = tabArg(req);
         await change((state) => {
             mine(state, session, tab);
-            if (state.tabs[tab].shared) throw readOnly(tab);
+            const { shared } = state.tabs[tab];
+            if (shared && !shared.acts) throw readOnly(tab);
             // what anyone read of it is the page before the person's hands: read again after
             const t = state.tabs[tab];
             t.reads = (t.reads ?? 0) + 1;
@@ -124,7 +127,9 @@ export const tabOps = {
         const tab = tabArg(req);
         await change(async (state) => {
             mine(state, session, tab);
-            if (state.tabs[tab].shared) throw readOnly(tab);
+            const { shared } = state.tabs[tab];
+            if (shared && !shared.acts) throw readOnly(tab);
+            if (shared) throw new ProtocolError("bad-request", `tab ${tab} is the person's, shared with you: it stays open; leave it as it is when you're done`);
             await chrome.tabs.remove(tab).catch(() => {}); // already gone is closed too
             delete state.tabs[tab];
             await release(tab);
@@ -153,7 +158,7 @@ export const tabOps = {
                     title: unmarked(tab.title ?? ""),
                     working: isWorking(id),
                     ...(blocked && { blocked }),
-                    ...(shared && { shared: shared.domain }),
+                    ...(shared && { shared: shared.domain, ...(shared.acts && { acts: true }) }),
                 });
             }
             return listed;
@@ -174,11 +179,13 @@ export const tabOps = {
         });
     },
 
-    /** One of the person's tabs shared with the session, to read, on the
-     *  domain it's on now: the one the person chose in the studio. */
+    /** One of the person's tabs shared with the session, on the domain
+     *  it's on now: the one the person chose in the studio, to read, or
+     *  to act in too (`acts`). */
     async share(req, port) {
         const session = sessionArg(req);
         const tab = tabArg(req);
+        const acts = actsArg(req);
         const studio = port.sender?.tab?.id;
         const domain = await change(async (state) => {
             known(state, session);
@@ -189,7 +196,7 @@ export const tabOps = {
             }
             const d = siteOf(/** @type {string} */ (t.url));
             delete state.shares[tab];
-            state.tabs[tab] = { session, shared: { domain: d, at: Date.now() } };
+            state.tabs[tab] = { session, shared: { domain: d, at: Date.now(), ...(acts && { acts }) } };
             return d;
         });
         await badgeShared(tab);
@@ -207,6 +214,16 @@ export const tabOps = {
             delete state.tabs[tab];
         });
         await stopped(tab);
+        return null;
+    },
+
+    /** Whether the agent may act in a tab the person shared, or only
+     *  read it, changed. */
+    async shareMode(req) {
+        const session = sessionArg(req);
+        const tab = tabArg(req);
+        const acts = actsArg(req);
+        await setActs(tab, acts, session);
         return null;
     },
 
@@ -228,17 +245,18 @@ export const tabOps = {
     },
 
     /** A tab shared from the toolbar given to the session the person
-     *  chose, on the domain it was shared on. */
+     *  chose, on the domain it was shared on, to read or to act in too. */
     async take(req) {
         const session = sessionArg(req);
         const tab = tabArg(req);
+        const acts = actsArg(req);
         const domain = await change(async (state) => {
             known(state, session);
             const waiting = state.shares[tab];
             if (waiting === undefined) throw new ProtocolError("not-found", `no share of tab ${tab} waits to be taken`);
             delete state.shares[tab];
             if ((await chrome.tabs.get(tab).catch(() => null)) === null) throw new ProtocolError("not-found", `tab ${tab} was closed`);
-            state.tabs[tab] = { session, shared: { domain: waiting.domain, at: Date.now() } };
+            state.tabs[tab] = { session, shared: { domain: waiting.domain, at: Date.now(), ...(acts && { acts }) } };
             return waiting.domain;
         });
         await badgeShared(tab);
@@ -290,6 +308,11 @@ export const tabOps = {
  * the worker starts: listeners added later wouldn't wake a stopped worker.
  */
 export function watchTabs() {
+    // a shared tab's loads are the person's again once the agent's work in it rests
+    onRested((tab) => {
+        if (actingIn.delete(tab)) void release(tab);
+    });
+
     chrome.webNavigation.onCreatedNavigationTarget.addListener(({ sourceTabId, tabId, url }) => {
         void change(async (state) => {
             const source = state.tabs[sourceTabId];
@@ -363,9 +386,14 @@ export function watchTabs() {
         if (frameId !== 0 || !error.includes("ERR_BLOCKED_BY_CLIENT")) return;
         void change((state) => {
             const tab = state.tabs[tabId];
-            // a shared tab's loads aren't held: another extension stopped that one
-            if (tab === undefined || tab.shared || granted(url, state.sessions[tab.session]?.domains ?? [])) return;
+            // a shared tab's loads are held only while the agent acts there: else another extension stopped that one
+            if (tab === undefined || (tab.shared && !actingIn.has(tabId))) return false;
+            if (mayGo(url, state.sessions[tab.session]?.domains ?? [], tab.shared)) return false;
             tab.blocked = { url, at: Date.now() };
+            return tab.shared !== undefined;
+        }).then((shared) => {
+            // the person's own tab isn't left on the error page: back to the page it left
+            if (shared) void chrome.tabs.goBack(tabId).catch(() => {});
         });
     });
 
@@ -427,6 +455,9 @@ export function start() {
                 await release(id);
             } else if (!shared && rulesOf(rules, id).length === 0) {
                 await hold(id, state.sessions[session]?.domains ?? []);
+            } else if (shared && rulesOf(rules, id).length > 0) {
+                // held while the agent acted, by a worker since stopped: the tab is the person's again
+                await release(id);
             }
         }
         for (const tab of await chrome.tabs.query({ active: true })) {
@@ -481,14 +512,14 @@ function originOf(url) {
  * a session's own, is the studio, or is another kind of page.
  *
  * @param {number} tab
- * @returns {Promise<{ kind: "share" | "waiting" | "shared" | "session" | "studio" | "page", name?: string, domain?: string }>}
+ * @returns {Promise<{ kind: "share" | "waiting" | "shared" | "session" | "studio" | "page", name?: string, domain?: string, acts?: boolean }>}
  */
 export async function popupState(tab) {
     return change(async (state) => {
         const t = state.tabs[tab];
         if (t !== undefined) {
             const name = state.sessions[t.session]?.name ?? t.session;
-            return t.shared ? { kind: "shared", name, domain: t.shared.domain } : { kind: "session", name };
+            return t.shared ? { kind: "shared", name, domain: t.shared.domain, acts: t.shared.acts === true } : { kind: "session", name };
         }
         if (tab in state.shares) return { kind: "waiting", domain: state.shares[tab].domain };
         const open = await chrome.tabs.get(tab).catch(() => null);
@@ -543,6 +574,12 @@ export async function stopSharing(tab) {
     else await badge(tab, null);
 }
 
+/** The popup's switch on a shared tab: whether its agent may act there
+ *  too, or only read it. @param {number} tab @param {boolean} acts */
+export async function popupActs(tab, acts) {
+    await setActs(tab, acts);
+}
+
 /** A share ended: the agent's work in the tab rested, its badge gone.
  *  @param {number} tab */
 async function stopped(tab) {
@@ -558,7 +595,7 @@ async function badgeShared(tab) {
     const shared = state.tabs[tab]?.shared;
     if (shared) {
         const name = state.sessions[state.tabs[tab].session]?.name ?? "a session";
-        await badge(tab, "shared", `Shared with ${name}, to read while it's on ${shared.domain}`);
+        await badge(tab, "shared", `Shared with ${name}, to ${shared.acts ? "read and act in" : "read"} while it's on ${shared.domain}`);
     } else if (tab in state.shares) {
         await badge(tab, "waiting", "Waiting for agex.studio to say which session takes this tab");
     }
@@ -647,11 +684,13 @@ function onSite(url, domain) {
  * The session and tab a request names, checked: the tab is the
  * session's. With the session's granted domains, the version of the
  * tab's latest outline (none read yet, 0), and for a tab the person
- * shared, the domain it was shared on.
+ * shared, its share.
  *
- * A shared tab is only read (`reading`, else `read-only`), and only on
- * its site (else `moved`); a reading op checks it again once it has read
- * (`stillOn`), as the person may have taken it elsewhere meanwhile.
+ * A shared tab is worked in only on its site (else `moved`), and a
+ * reading op checks it again once it has read (`stillOn`), as the person
+ * may have taken it elsewhere meanwhile. One only to read refuses
+ * anything else (`read-only`); in one to act in, a step that acts holds
+ * its loads to the session's grants and its site until its work rests.
  *
  * @param {Request} req @param {{ reading?: boolean }} [opts]
  */
@@ -664,10 +703,59 @@ export async function ownTab(req, { reading = false } = {}) {
         return { domains: known(state, session).domains, latest: t.reads ?? 0, shared: t.shared };
     });
     if (shared !== undefined) {
-        if (!reading) throw readOnly(tab);
+        if (!reading && !shared.acts) throw readOnly(tab);
         await stillOn(session, tab, shared);
+        if (!reading) await holdShared(tab, domains, shared);
     }
     return { session, tab, domains, latest, shared };
+}
+
+/**
+ * Whether `url` is somewhere a step in a tab may send it: a domain the
+ * session holds a grant for, or, in a shared tab, the site it was shared on.
+ *
+ * @param {string} url @param {readonly string[]} domains
+ * @param {import("./registry.js").Shared | undefined} shared
+ */
+export function mayGo(url, domains, shared) {
+    return granted(url, domains) || (shared !== undefined && onSite(url, shared.domain));
+}
+
+/** Tabs the person shared whose loads are held now, while the agent acts. @type {Set<number>} */
+const actingIn = new Set();
+
+/**
+ * A shared tab's loads held, while the agent acts in it, to the session's
+ * grants and the site it was shared on (its subdomains, and for a `www.`
+ * host the bare one alone): a link or a script that would take it
+ * anywhere else is stopped, as in the session's own tabs. Let go once the
+ * work rests (`watchTabs`).
+ *
+ * @param {number} tab @param {readonly string[]} domains @param {import("./registry.js").Shared} shared
+ */
+async function holdShared(tab, domains, shared) {
+    if (actingIn.has(tab)) return;
+    actingIn.add(tab);
+    const bare = shared.domain.startsWith("www.") ? [shared.domain.slice(4)] : [];
+    await hold(tab, [...domains, shared.domain], bare);
+}
+
+/**
+ * Whether the agent may act in shared tab `tab`, set: its work rested
+ * first when it may no longer, so its loads are the person's again.
+ *
+ * @param {number} tab @param {boolean} acts @param {string} [session] the session it's shared with, checked when given
+ */
+async function setActs(tab, acts, session) {
+    await change((state) => {
+        const t = state.tabs[tab];
+        if (t === undefined || (session !== undefined && t.session !== session)) throw new ProtocolError("not-found", `tab ${tab} isn't one of this session's`);
+        if (!t.shared) throw new ProtocolError("bad-request", `tab ${tab} is the session's own, not one the person shared`);
+        if (acts) t.shared.acts = true;
+        else delete t.shared.acts;
+    });
+    if (!acts) await rest(tab);
+    await badgeShared(tab);
 }
 
 /**
@@ -713,17 +801,17 @@ function mine(state, session, tab) {
 }
 
 /**
- * The tab's rules replaced by ones holding it to `domains`, in one
- * update, so it is never unheld between the two.
+ * The tab's rules replaced by ones holding it to `domains`, and the
+ * `exact` hosts alone, in one update, so it is never unheld between the two.
  *
- * @param {number} tab @param {readonly string[]} domains
+ * @param {number} tab @param {readonly string[]} domains @param {readonly string[]} [exact]
  */
-async function hold(tab, domains) {
+async function hold(tab, domains, exact = /** @type {string[]} */ ([])) {
     const rules = await chrome.declarativeNetRequest.getSessionRules();
     const next = rules.reduce((max, r) => Math.max(max, r.id), 0) + 1;
     await chrome.declarativeNetRequest.updateSessionRules({
         removeRuleIds: rulesOf(rules, tab),
-        addRules: pageRules(tab, domains, next),
+        addRules: pageRules(tab, domains, next, exact),
     });
 }
 
@@ -801,6 +889,12 @@ function tabArg(req) {
 /** @param {number} tab */
 function readOnly(tab) {
     return new ProtocolError("read-only", `tab ${tab} is the person's, shared to read: read it, scroll it, wait on it or screenshot it; it can't be acted in, shown, sent elsewhere or closed`);
+}
+
+/** @param {Request} req */
+function actsArg(req) {
+    if (req.acts !== undefined && typeof req.acts !== "boolean") throw bad("acts: whether the agent may act in the tab (click, type, go on), or only read it");
+    return req.acts === true;
 }
 
 /** @param {string} message */

@@ -275,7 +275,7 @@ describe("the toolbar's popup", () => {
         const { popupState } = await import("./tabs.js");
         expect(await popupState(8)).toEqual({ kind: "share", domain: "www.mail.example" });
         expect(await popupState(7)).toEqual({ kind: "session", name: "Hotels" });
-        expect(await popupState(12)).toEqual({ kind: "shared", name: "Hotels", domain: "news.example" });
+        expect(await popupState(12)).toEqual({ kind: "shared", name: "Hotels", domain: "news.example", acts: false });
         expect(await popupState(9)).toEqual({ kind: "page" });
         expect(await popupState(10)).toEqual({ kind: "studio" });
         expect(await popupState(11)).toEqual({ kind: "studio" });

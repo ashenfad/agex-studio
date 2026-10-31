@@ -20,12 +20,15 @@ describe("a tab the person shares", () => {
     let r;
     /** @type {any} */
     let t;
+    /** @type {any} */
+    let a;
     /** whether the server ever answered a request for the fixture `id` */
     const loaded = (id) => browser.served().some((s) => s.id === id);
     before(async () => {
         execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
-        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "shared,toolbar" } });
+        browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "shared,sharedActing,toolbar" } });
         r = await browser.report("shared", 120_000);
+        a = await browser.report("sharedActing", 120_000);
         t = await browser.report("toolbar", 120_000);
     });
     after(() => browser?.close());
@@ -91,5 +94,29 @@ describe("a tab the person shares", () => {
         assert.equal(t.listed?.shared, "127.0.0.1");
         assert.equal(t.read, "site toolbar-person");
         assert.deepEqual(t.afterClose, []);
+    });
+
+    it("acts in a tab shared to act in, within its site and the session's grants", () => {
+        assert.equal(a.shared.value?.domain, "127.0.0.1", JSON.stringify(a.shared));
+        assert.equal(a.listed?.acts, true);
+        assert.equal(a.next.value?.navigated, true, JSON.stringify(a.next));
+        assert.equal(loaded("act-next"), true);
+        assert.equal(a.gotoSite.value?.title, "site act-goto", JSON.stringify(a.gotoSite));
+        assert.equal(a.gotoAway.error?.code, "not-granted");
+        assert.equal(a.close.error?.code, "bad-request", "the person's tab was closed");
+    });
+
+    it("holds its loads while the agent acts, and lets them go once that work rests", () => {
+        assert.match(a.awayClick.value?.blocked?.url ?? "", /id=act-away/, JSON.stringify(a.awayClick));
+        assert.equal(loaded("act-away"), false, "a link off the site loaded while the agent acted");
+        assert.equal(a.shown.value, null);
+        assert.notEqual(a.free, null, "the person's own browsing was held after the agent's work rested");
+        assert.equal(loaded("act-free"), true);
+    });
+
+    it("goes back to reading only when the person says so", () => {
+        assert.equal(a.toRead.value, null);
+        assert.equal(a.readOnly.error?.code, "read-only");
+        assert.equal(a.listedAfter?.acts, undefined);
     });
 });
