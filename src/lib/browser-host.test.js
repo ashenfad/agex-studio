@@ -50,6 +50,8 @@ describe("the browser host", () => {
 
     it("never takes a committing step from code", () => {
         expect(codeError(new ExtensionError("confirm", '[1] button "Book" reads as a step that commits ("Book")')).message).toMatch(/\(confirm\): code never takes a step that commits/);
+        expect(codeError(new ExtensionError("read-only", "tab 9 is the person's, shared to read")).message).toMatch(/\(read-only\): a tab the person shared is only read; return this/);
+        expect(codeError(new ExtensionError("moved", "tab 9 was shared on mail.example")).message).toMatch(/\(moved\): return this, and the agent tells the person/);
     });
 });
 

@@ -141,6 +141,16 @@ describe("the browser tool", () => {
         const out = await setup({ tabs: [{ id: 7, url: "https://www.hyatt.com/", title: "Hyatt", working: true }] }).tool.call({ actions: [{ tabs: true }] });
         expect(out.text).toBe("1. tabs:\n   tab 7: Hyatt · https://www.hyatt.com/ (working in it)");
     });
+
+    it("marks a tab the person shared, with the site it's read on", async () => {
+        const out = await setup({ tabs: [{ id: 9, url: "https://mail.example/inbox", title: "Inbox", working: false, shared: "mail.example" }] }).tool.call({ actions: [{ tabs: true }] });
+        expect(out.text).toBe("1. tabs:\n   tab 9: Inbox · https://mail.example/inbox (shared by the person, read only, on mail.example)");
+    });
+
+    it("stops at a step a shared tab refuses, saying what the agent can do instead", async () => {
+        const out = await setup({ click: new ExtensionError("read-only", "tab 9 is the person's, shared to read") }).tool.call({ tab: 9, actions: [{ read: true }, { click: 1 }] });
+        expect(out.text.split("\n").at(-1)).toMatch(/^2\. click failed: tab 9 is the person's, shared to read\. To act on that site, ask the person to do it/);
+    });
 });
 
 describe("each agent's own outline", () => {
@@ -162,6 +172,12 @@ describe("refusals, for an agent and for a delegate", () => {
         const e = new ExtensionError("not-granted", "no grant for ihg.com");
         expect(refusalText(e, false)).toMatch(/Ask for it with request_sites/);
         expect(refusalText(e, true)).toMatch(/say in your answer which domain you need/);
+    });
+
+    it("tell the agent of a shared tab gone off its site, and a delegate to say so in its answer", () => {
+        const e = new ExtensionError("moved", "tab 9 was shared on mail.example, and has gone to news.example");
+        expect(refusalText(e, false)).toMatch(/Tell the person: they can take the tab back to that site, or share it again/);
+        expect(refusalText(e, true)).toMatch(/say in your answer that the tab left the site it was shared on/);
     });
 
     it("stop a delegate at a committing step, for the person's yes", () => {

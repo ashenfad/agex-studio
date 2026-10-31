@@ -30,6 +30,15 @@
     let { onClose, tab: firstTab = 'model' } = $props()
 
     let tab = $state(untrack(() => firstTab))
+    /** The tabs the person shared with sessions, asked of the extension
+     *  when the dialog opens and after each stop. */
+    let sharedTabs = $state(studio.shares.sharedNow())
+
+    /** @param {string} session @param {number} id */
+    async function stopSharing(session, id) {
+        await studio.shares.stop(session, id).catch(() => {})
+        sharedTabs = studio.shares.sharedNow()
+    }
 
     let permission = $state(notificationPermission())
     // notifications on only while the browser allows them (it may have stopped since)
@@ -627,6 +636,29 @@
                     </li>
                 {/each}
             </ul>
+        {/if}
+        {#if browserExtension.status === 'found'}
+            <h3>Tabs you shared</h3>
+            <p class="hint">Tabs of yours a session's agent may read (not click or type in), each while it's on the site you shared it on. Share one from the extension's toolbar button.</p>
+            {#await sharedTabs}
+                <p class="hint">Asking the extension…</p>
+            {:then shared}
+                {#if shared.length === 0}
+                    <p class="hint">None.</p>
+                {:else}
+                    <ul class="users">
+                        {#each shared as { session, tab } (tab.id)}
+                            {@const name = sessionTitle(session) ?? 'a removed session'}
+                            <li>
+                                <span class="hint">{tab.title || tab.url} · <code>{tab.shared}</code>, with {name}</span>
+                                <button class="btn secondary small" onclick={() => stopSharing(session, tab.id)} aria-label="Stop sharing {tab.title || tab.url} with {name}">Stop sharing</button>
+                            </li>
+                        {/each}
+                    </ul>
+                {/if}
+            {:catch e}
+                <p class="hint warn">{errorText(e)}</p>
+            {/await}
         {/if}
     {:else}
         <h3>Sync</h3>

@@ -7,6 +7,10 @@
  * nothing at once. The extension keeps what it was told while the studio
  * is away, so on each opening the studio asks it which sessions it knows
  * (`sessions`), and sends none to those whose sites went meanwhile.
+ *
+ * A session given a tab the person shared may hold no sites, and the
+ * extension takes a tab only for a session it knows: `tell` tells it of
+ * that one first.
  */
 
 /**
@@ -22,21 +26,26 @@ export function watchSites({ vault, extension, titleOf }) {
     /** What the extension was last told of each session, this page. @type {Map<string, string>} */
     const told = new Map();
 
+    /** @returns {Record<string, string[]>} */
+    const sitesNow = () => Object.fromEntries(Object.entries(vault.agentSites).map(([key, domains]) => [key.slice("agent:".length), [...domains]]));
+
+    /** @param {string} session @param {string[]} domains */
+    const say = (session, domains) => {
+        const name = titleOf(session);
+        const said = JSON.stringify([name, domains]);
+        if (told.get(session) === said) return Promise.resolve();
+        told.set(session, said);
+        return extension.call("session", { session, name, domains }).catch((/** @type {unknown} */ e) => {
+            // told again the next time the port opens
+            if (told.get(session) === said) told.set(session, "");
+            throw e;
+        });
+    };
+
     const sync = () => {
         if (extension.status !== "found") return; // told on the port's opening
-        /** @type {Record<string, string[]>} */
-        const sites = Object.fromEntries(Object.entries(vault.agentSites).map(([key, domains]) => [key.slice("agent:".length), [...domains]]));
-        for (const session of new Set([...Object.keys(sites), ...told.keys()])) {
-            const name = titleOf(session);
-            const domains = sites[session] ?? [];
-            const said = JSON.stringify([name, domains]);
-            if (told.get(session) === said) continue;
-            told.set(session, said);
-            extension.call("session", { session, name, domains }).catch(() => {
-                // told again the next time the port opens
-                if (told.get(session) === said) told.set(session, "");
-            });
-        }
+        const sites = sitesNow();
+        for (const session of new Set([...Object.keys(sites), ...told.keys()])) void say(session, sites[session] ?? []).catch(() => {});
     };
 
     const stopVault = vault.onChange(sync);
@@ -54,6 +63,10 @@ export function watchSites({ vault, extension, titleOf }) {
     sync();
     return {
         sync,
+        /** The extension told of `session` (its title and sites), if it
+         *  wasn't: before it's given a tab the person shared.
+         *  @param {string} session */
+        tell: (session) => say(session, sitesNow()[session] ?? []),
         stop() {
             stopVault();
             stopOpen();

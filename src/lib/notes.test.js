@@ -1,6 +1,6 @@
 import { Inbox, renderNotes } from "@agex-ts/world";
 import { describe, expect, it } from "vitest";
-import { attachmentsOf, notesIn, withAttachments } from "./notes.js";
+import { STUDIO_LABELS, attachmentsOf, notesIn, studioFrame, withAttachments } from "./notes.js";
 
 describe("attachments", () => {
     it("go first, for the agent, and come back off for the chat", () => {
@@ -33,6 +33,18 @@ describe("notes delivered with a result", () => {
                 { kind: "mechanism", label: "delegate lead.scout", text: "Found three facts." },
             ],
         });
+    });
+
+    it("come apart under the studio's own frame, for what the person did in the studio", () => {
+        const inbox = new Inbox({ frame: studioFrame });
+        inbox.put("The person shared a tab of theirs with this session, tab 9.", { kind: "mechanism", label: STUDIO_LABELS.sharedTab });
+        inbox.put("Found three facts.", { kind: "mechanism", label: "delegate lead.scout" });
+        const result = `ok${renderNotes(inbox.drain(), studioFrame)}`;
+        expect(result).toContain("[shared tab — the studio speaking, not the person you are working for: what the person did in the studio, for you to know.]");
+        expect(notesIn(result).notes).toEqual([
+            { kind: "mechanism", label: "shared tab", text: "The person shared a tab of theirs with this session, tab 9." },
+            { kind: "mechanism", label: "delegate lead.scout", text: "Found three facts." },
+        ]);
     });
 
     it("leave a result without any as it is", () => {
