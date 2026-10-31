@@ -12,7 +12,7 @@ import { Agent, RunStream, ScriptedProvider } from "agex-ts";
 import { dbRestores } from "./db-restore.svelte.js";
 import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
 import { buildModel, foldBudgetOf, thinkingOf } from "./model.js";
-import { attachmentsOf, studioFrame } from "./notes.js";
+import { wordsOf } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
 import { primer } from "./primer.js";
 import { profileFor, toolOptionsNow } from "./profile.js";
@@ -121,6 +121,9 @@ export class ChatSession {
     /** Files attached to the next message: added under uploads/ already,
      *  named to the agent with it. @type {string[]} */
     attached = $state([]);
+    /** Tabs the person shared since their last message, named to the
+     *  agent with the next one. @type {import("./notes.js").SharedTab[]} */
+    sharedTabs = $state([]);
     /** Messages written while a turn runs, waiting for the agent's next
      *  tool result. @type {{ id: string, text: string }[]} */
     queued = $state([]);
@@ -163,7 +166,7 @@ export class ChatSession {
      *  rides the next tool result. What opens a woken turn (the answers
      *  that woke it) is told here as it is delivered, and shown as the
      *  live turn's opening. */
-    inbox = new Inbox({ onDelivered: (notes) => this.#delivered(notes), frame: studioFrame });
+    inbox = new Inbox({ onDelivered: (notes) => this.#delivered(notes) });
     /** A woken turn is starting, its opening not yet delivered. */
     #awaitingOpening = false;
     /** The helper this session delegates through, made when it opens,
@@ -368,14 +371,9 @@ export class ChatSession {
         this.#saving = ws.commit({ tool: "studio.delegates" }).catch(() => undefined).finally(release);
     }
 
-    /** Called with the notes that reached the model (what the studio
-     *  marks told). @type {(notes: readonly import("@agex-ts/world").Note[]) => void} */
-    onNotes = () => {};
-
     /** Notes reached the model: a woken turn's first are its opening.
      *  @param {readonly import("@agex-ts/world").Note[]} notes */
     #delivered(notes) {
-        this.onNotes(notes);
         if (!this.#awaitingOpening) return;
         this.#awaitingOpening = false;
         this.opened(this.inbox.render(notes));
@@ -757,8 +755,8 @@ export class ChatSession {
         if (plane === undefined) return;
         plane.set(`turns/${runId}`, { before: head, at: Date.now() });
         const now = Date.now();
-        // named for what was asked, not for the files attached to it
-        const title = this.title || titleFrom(attachmentsOf(prompt ?? "").text);
+        // named for what was asked, not for the files or tabs it names
+        const title = this.title || titleFrom(wordsOf(prompt ?? ""));
         // at once, so the turn's own commits carry it
         this.#meta = { ...this.#meta, title, createdAt: this.createdAt || now, updatedAt: now };
         plane.set("meta", this.#meta);

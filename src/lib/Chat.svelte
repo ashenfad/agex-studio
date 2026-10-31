@@ -14,7 +14,7 @@
     import DelegateStrip from './DelegateStrip.svelte'
     import EmptyState from './EmptyState.svelte'
     import { Nearby, provideNearby } from './lazy.js'
-    import { attachmentsOf } from './notes.js'
+    import { attachmentsOf, sharesOf } from './notes.js'
     import { keepReading, readingAt } from './reading.js'
     import KeyRequest from './KeyRequest.svelte'
     import SitesRequest from './SitesRequest.svelte'
@@ -42,9 +42,11 @@
         const text = first?.role === 'user' ? first.parts.map((p) => (p.kind === 'text' ? p.text : '')).join('') : ''
         await act(async () => {
             await session.undo(run.runId)
-            const { paths, text: words } = attachmentsOf(text)
+            const { paths, text: rest } = attachmentsOf(text)
+            const { shares, text: words } = sharesOf(rest)
             session.draft = words
             session.attached = paths
+            session.sharedTabs = shares
         })
     }
 

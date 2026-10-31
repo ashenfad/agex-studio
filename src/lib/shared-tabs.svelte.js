@@ -4,51 +4,29 @@
  * studio looks each time the port opens and each time its tab comes back
  * to the front (the toolbar's Share brings it there), and a card
  * (`SharedTabCard.svelte`) asks the person about the first. Given to a
- * session, the tab is that session's to read, and its agent is told in
- * its inbox; turned down, it's left as it was.
+ * session, the tab is that session's to read (or act in), and it waits in
+ * the session's composer, as a file attached does, to be named to the
+ * agent with the person's next message; turned down, it's left as it was.
  *
  * Which shares each session's agent has been told of is kept in this
- * browser (shares are this browser's, as the extension is), and a share
- * counts as told once its note reached the model: a note still in the
- * inbox when the page closes is put there again (`remind`) when the
- * session opens next, from what the extension still holds.
+ * browser (shares are this browser's, as the extension is): a share counts
+ * as told once a message naming it was sent. One not told yet, a page
+ * reload since, waits in the composer again when the session opens
+ * (`remind`), from what the extension still holds.
  */
 
 import { readLocalJson, writeLocalJson } from "./local.js";
-import { STUDIO_LABELS } from "./notes.js";
 
 /** @typedef {import("./browser.js").WaitingShare} WaitingShare */
+/** @typedef {import("./notes.js").SharedTab} SharedTab */
 
 /** Where the shares each session's agent was told of are kept, as
  *  `{ [session]: ["<tab>@<domain>", ...] }`. */
 const TOLD_KEY = "agex-studio-shares-told";
 
-/**
- * What the session's agent is told of a tab the person shared with it,
- * to read or to act in too.
- *
- * @param {{ tab: number, url: string, title: string, domain: string, acts?: boolean }} share
- */
-export function sharedNote({ tab, url, title, domain, acts = false }) {
-    // the share it's of reads back out of it (`shareOf`)
-    const what = acts
-        ? `You may read it and act in it, with the browser tool (tab ${tab}) or from code (browser.tab(${tab})): click, type, and go on within ${domain} or the sites you were allowed; a step that commits asks them first. ` +
-          `It stays theirs: never close it, and leave it as you found it where you can. You may work in it only while it's on ${domain}.`
-        : `Read it with the browser tool (tab ${tab}, {read: true}) or from code (browser.tab(${tab}).read()). ` +
-          `It stays theirs: it's only read (read, scroll, waitFor, and screenshot with the tool), and only while it's on ${domain}.`;
-    return `The person shared a tab of theirs with this session, tab ${tab}: ${JSON.stringify(title || "(untitled)")} · ${url}. ${what}`;
-}
-
-/** The share a note of `sharedNote`'s is of, as `<tab>@<domain>`, with
- *  `+acts` for one to act in, or null. @param {string} text */
-function shareOf(text) {
-    const m = /^The person shared a tab of theirs with this session, tab (\d+):[\s\S]*only while it's on (.+)\.$/.exec(text);
-    return m === null ? null : keyOf(Number(m[1]), m[2], text.includes("You may read it and act in it"));
-}
-
 /** A share's key: told of once each, and again when its mode changes.
- *  @param {number} tab @param {string} domain @param {boolean} acts */
-function keyOf(tab, domain, acts) {
+ *  @param {{ tab: number, domain: string, acts: boolean }} share */
+function keyOf({ tab, domain, acts }) {
     return `${tab}@${domain}${acts ? "+acts" : ""}`;
 }
 
@@ -108,46 +86,42 @@ export class SharedTabs {
     }
 
     /**
-     * Tell session `session`'s agent, through `inbox`, of each tab shared
-     * with it that it hasn't been told of, and whose note isn't waiting
-     * there already. Shares the session no longer holds are forgotten.
+     * The tabs shared with `session` that its agent wasn't told of, waiting
+     * in its composer (`sharedTabs`) to be named with the next message; and
+     * one no longer shared (stopped, or now another mode) gone from there.
+     * Shares the session no longer holds are forgotten.
      *
-     * @param {string} session @param {import("@agex-ts/world").Inbox} inbox
+     * @param {{ name: string, sharedTabs: SharedTab[] }} session
      */
-    async remind(session, inbox) {
+    async remind(session) {
         if (!this.browser.available) return;
-        let shared;
+        let held;
         try {
-            shared = (await this.browser.tabs(session)).filter((t) => t.shared !== undefined);
+            held = (await this.browser.tabs(session.name)).filter((t) => t.shared !== undefined);
         } catch {
             return; // reminded the next time the port opens
         }
+        /** @type {SharedTab[]} */
+        const now = held.map((t) => ({ tab: t.id, title: t.title, url: t.url, domain: /** @type {string} */ (t.shared), acts: t.acts === true }));
+        const keys = new Set(now.map(keyOf));
         const told = readTold();
-        const now = new Set(shared.map((t) => keyOf(t.id, /** @type {string} */ (t.shared), t.acts === true)));
-        const kept = (told[session] ?? []).filter((k) => now.has(k));
-        const waiting = new Set(inbox.pending().flatMap((n) => (n.label === STUDIO_LABELS.sharedTab ? [shareOf(n.text)] : [])));
-        for (const t of shared) {
-            const key = keyOf(t.id, /** @type {string} */ (t.shared), t.acts === true);
-            if (kept.includes(key) || waiting.has(key)) continue;
-            inbox.put(sharedNote({ tab: t.id, url: t.url, title: t.title, domain: /** @type {string} */ (t.shared), acts: t.acts === true }), {
-                kind: "mechanism",
-                label: STUDIO_LABELS.sharedTab,
-            });
-        }
-        if (kept.length !== (told[session] ?? []).length) writeLocalJson(TOLD_KEY, { ...told, [session]: kept });
+        const kept = (told[session.name] ?? []).filter((k) => keys.has(k));
+        if (kept.length !== (told[session.name] ?? []).length) writeLocalJson(TOLD_KEY, { ...told, [session.name]: kept });
+        const waiting = session.sharedTabs.filter((s) => keys.has(keyOf(s)));
+        const more = now.filter((s) => !kept.includes(keyOf(s)) && !waiting.some((w) => keyOf(w) === keyOf(s)));
+        if (more.length > 0 || waiting.length !== session.sharedTabs.length) session.sharedTabs = [...waiting, ...more];
     }
 
     /**
-     * Notes that reached session `session`'s model: the shares they told
-     * of are told.
+     * A message naming `shares` was sent to session `session`'s agent: they
+     * are told.
      *
-     * @param {string} session @param {readonly import("@agex-ts/world").Note[]} notes
+     * @param {string} session @param {readonly SharedTab[]} shares
      */
-    delivered(session, notes) {
-        const keys = notes.flatMap((n) => (n.label === STUDIO_LABELS.sharedTab ? [shareOf(n.text)] : [])).filter((k) => k !== null);
-        if (keys.length === 0) return;
+    told(session, shares) {
+        if (shares.length === 0) return;
         const told = readTold();
-        writeLocalJson(TOLD_KEY, { ...told, [session]: [...new Set([...(told[session] ?? []), ...keys])] });
+        writeLocalJson(TOLD_KEY, { ...told, [session]: [...new Set([...(told[session] ?? []), ...shares.map(keyOf)])] });
     }
 
     /**

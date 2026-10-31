@@ -229,9 +229,11 @@ in its answer which page it needs shared instead. For a signed-in
 site in general, ask for its domain and open a tab of your own instead:
 it's signed in wherever they are, and a login is a handoff.
 
-Once shared, you're told in a note, with its id, and
-`{tabs: true}` lists it as shared, with the site it's on and whether you
-may act in it. It's theirs, and often signed in to something private
+Once shared, their next message names it first, with its id, before
+their words: `[shared tab 9: "Inbox" · https://mail.example/inbox; read
+only while it's on mail.example]`, so "this page" or "summarize this" is
+that tab. `{tabs: true}` lists it as shared too, with the site it's on
+and whether you may act in it. It's theirs, and often signed in to something private
 (their mail, an account, a dashboard).
 
 - **Shared to read:** read, scroll and waitFor work there (and

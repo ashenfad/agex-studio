@@ -76,7 +76,7 @@ export class Studio {
         given: async (name) => {
             await this.switchTo(name);
             const session = this.#open.get(name);
-            if (session !== undefined) await this.shares.remind(name, session.inbox);
+            if (session !== undefined) await this.shares.remind(session);
         },
         changed: () => this.#remindShares(),
     });
@@ -139,7 +139,7 @@ export class Studio {
 
     /** Each open session told of the tabs shared with it, as they are now. */
     #remindShares() {
-        for (const s of this.openSessions()) void this.shares.remind(s.name, s.inbox);
+        for (const s of this.openSessions()) void this.shares.remind(s);
     }
 
     /** Called with a session's name when its content changed here (a
@@ -153,8 +153,6 @@ export class Studio {
             void this.refresh();
             this.onChanged(session.name);
         };
-        // a share's note that reached the model is told; one that didn't is put again when it opens
-        session.onNotes = (notes) => this.shares.delivered(session.name, notes);
         this.#open.set(session.name, session);
         return session;
     }
@@ -258,7 +256,7 @@ export class Studio {
         if (session === undefined) {
             session = this.#watch(new ChatSession(name, this));
             await session.open();
-            if (!session.readonly) void this.shares.remind(name, session.inbox);
+            if (!session.readonly) void this.shares.remind(session);
         }
         this.current = session;
         if (onScreen()) session.seen();
