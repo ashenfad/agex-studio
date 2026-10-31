@@ -397,6 +397,12 @@ the default for a share, with reading only a toggle away.
 - **An app's agent gets no tabs.**
 - **The extension lives in this repository** (`extension/`): its
   protocol and the studio's tools change together.
+- **The studio's site offers it for download first,** to load unpacked
+  (a fixed id from a committed public key, agex.studio only), built
+  and zipped with each deploy; the studio says when its download is
+  newer than the one found. The Chrome Web Store comes after, unlisted
+  at first, with `debugger` made optional and asked for at the first
+  browsing, so its install warning is the milder one.
 
 ## Open questions
 

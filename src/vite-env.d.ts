@@ -29,8 +29,10 @@ declare module 'virtual:ecosystem-packages' {
   export default packages
 }
 
-/** Build-time constant injected by `define` in `vite.config.js`. */
+/** Build-time constants injected by `define` in `vite.config.js`: the
+ *  studio's version, and that of the extension it offers for download. */
 declare const __APP_VERSION__: string
+declare const __EXTENSION_VERSION__: string
 
 /**
  * Globals attached by scripts we load from a CDN at runtime rather

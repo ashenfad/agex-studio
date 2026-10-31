@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL } from "../../extension/src/protocol.js";
-import { BrowserExtension, ExtensionError, ID_KEY, candidateIds } from "./browser-extension.svelte.js";
+import { BrowserExtension, ExtensionError, ID_KEY, candidateIds, olderThan } from "./browser-extension.svelte.js";
 
 /**
  * `chrome.runtime` as a page has it, with extensions behind some ids: a
@@ -71,6 +71,15 @@ describe("BrowserExtension", () => {
         expect(ext.version).toBe("0.2.0");
         expect(runtime.sent.map((s) => `${s.id}:${s.op}`)).toEqual(["dev:hello"]);
         expect(await ext.call("tabs", { session: "s" })).toEqual({ op: "tabs" });
+    });
+
+    it("names the download's version when the one found is older", async () => {
+        const older = new BrowserExtension({ runtime: fakeRuntime({ dev: answering("0.1.0") }), ids: ["dev"], offered: "0.1.2" });
+        await older.detect();
+        expect(older.newer).toBe("0.1.2");
+        const same = new BrowserExtension({ runtime: fakeRuntime({ dev: answering("0.1.2") }), ids: ["dev"], offered: "0.1.2" });
+        await same.detect();
+        expect(same.newer).toBeNull();
     });
 
     it("goes on past an id Chrome won't take", async () => {
@@ -173,9 +182,18 @@ describe("BrowserExtension", () => {
 });
 
 describe("candidateIds", () => {
-    it("tries an id the person set first, then the dev build's", () => {
+    it("tries an id the person set first, then the download's, then the dev build's", () => {
         const storage = /** @type {any} */ ({ getItem: (/** @type {string} */ k) => (k === ID_KEY ? "mine" : null) });
-        expect(candidateIds(storage)).toEqual(["mine", "nmkolhlloohlmpklcknknipkaedblgbe"]);
-        expect(candidateIds(undefined)).toEqual(["nmkolhlloohlmpklcknknipkaedblgbe"]);
+        expect(candidateIds(storage)).toEqual(["mine", "odphfgepbkbbiognjbkdjllabphmdhhg", "nmkolhlloohlmpklcknknipkaedblgbe"]);
+        expect(candidateIds(undefined)).toEqual(["odphfgepbkbbiognjbkdjllabphmdhhg", "nmkolhlloohlmpklcknknipkaedblgbe"]);
+    });
+});
+
+describe("olderThan", () => {
+    it("compares dotted versions as numbers", () => {
+        expect(olderThan("0.1.0", "0.1.1")).toBe(true);
+        expect(olderThan("0.1.9", "0.1.10")).toBe(true);
+        expect(olderThan("0.2", "0.1.5")).toBe(false);
+        expect(olderThan("0.1.0", "0.1")).toBe(false);
     });
 });

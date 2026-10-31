@@ -25,6 +25,7 @@
     import { studio } from './studio.svelte.js'
     import { VaultError, sessionsOf, vault } from './vault.svelte.js'
     import { browserExtension } from './browser-extension.svelte.js'
+    import { EXTENSION_DOWNLOAD } from '../../extension/src/protocol.js'
 
     /** @type {{ onClose: () => void, tab?: 'model' | 'notify' | 'sync' | 'keys' }} */
     let { onClose, tab: firstTab = 'model' } = $props()
@@ -624,7 +625,7 @@
         <h3>Sites your agents may open</h3>
         <p class="hint">
             The sites each session's agent may open in this browser's tabs, through the studio's extension, each with its subdomains. Its tabs load nothing else: a page that goes on to another site is stopped.
-            {#if browserExtension.status === 'found'}The extension is here{browserExtension.version ? ` (${browserExtension.version})` : ''}.{:else if browserExtension.status === 'outdated'}<span class="warn-text">The extension here is out of date: {browserExtension.problem}</span>{:else}The extension isn't installed in this browser, so they open nothing until it is.{/if}
+            {#if browserExtension.status === 'found'}The extension is here{browserExtension.version ? ` (${browserExtension.version})` : ''}.{#if browserExtension.newer}{' '}<span class="warn-text">A newer one is out ({browserExtension.newer}): <a href={EXTENSION_DOWNLOAD} download>download it</a>, put its folder in place of this one's, and reload it in <code>chrome://extensions</code>.</span>{/if}{:else if browserExtension.status === 'outdated'}<span class="warn-text">The extension here is out of date: {browserExtension.problem}. <a href={EXTENSION_DOWNLOAD} download>Download the one this studio speaks</a>, put its folder in place of this one's, and reload it in <code>chrome://extensions</code>.</span>{:else}The extension isn't installed in this browser, so they open nothing until it is: <a href="/docs/#browser" target="_blank" rel="noreferrer">how to install it</a>.{/if}
         </p>
         {#if Object.keys(vault.agentSites).length === 0}
             <p class="hint">None yet.</p>

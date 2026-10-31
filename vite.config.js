@@ -1,10 +1,13 @@
-import { copyFileSync, mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig, searchForWorkspaceRoot } from 'vite'
+import { build as buildExtension, zip } from './extension/build.mjs'
+import { EXTENSION_DOWNLOAD } from './extension/src/protocol.js'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+const extension = JSON.parse(readFileSync('./extension/manifest.json', 'utf-8'))
 
 /** `/run/` (a published session's link) and `/docs/` (the help pages)
  *  are the studio's page too: a static host serves each from its own
@@ -17,6 +20,26 @@ function entryPoints() {
         mkdirSync(resolve('dist', dir), { recursive: true })
         copyFileSync(resolve('dist', 'index.html'), resolve('dist', dir, 'index.html'))
       }
+    },
+  }
+}
+
+/** The browser extension's download (`EXTENSION_DOWNLOAD`): its site
+ *  build, zipped as one folder to load unpacked. A build writes it into
+ *  `dist`; the dev server builds it afresh for each request. */
+function extensionDownload() {
+  const file = () => zip(buildExtension('site'), 'agex-studio')
+  return {
+    name: 'extension-download',
+    configureServer(server) {
+      server.middlewares.use(EXTENSION_DOWNLOAD, (_req, res) => {
+        res.setHeader('Content-Type', 'application/zip')
+        res.end(file())
+      })
+    },
+    closeBundle() {
+      mkdirSync(resolve('dist', dirname(EXTENSION_DOWNLOAD.slice(1))), { recursive: true })
+      writeFileSync(resolve('dist', EXTENSION_DOWNLOAD.slice(1)), file())
     },
   }
 }
@@ -77,9 +100,10 @@ function sqliteDir() {
 }
 
 export default defineConfig({
-  plugins: [svelte(), entryPoints(), packageReadmes(), ecosystemPackages()],
+  plugins: [svelte(), entryPoints(), extensionDownload(), packageReadmes(), ecosystemPackages()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __EXTENSION_VERSION__: JSON.stringify(extension.version),
   },
   // SQLite finds its .wasm beside its own module (`new URL('sqlite3.wasm',
   // import.meta.url)`). Pre-bundled into the dev server's deps folder it
@@ -88,8 +112,11 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@sqlite.org/sqlite-wasm'],
   },
-  // and the dev server serves that file only from a directory it allows
+  // and the dev server serves that file only from a directory it allows.
+  // The extension's builds aren't the studio's source: one written (by
+  // its tests, or for the download) reloads nothing.
   server: {
     fs: { allow: [searchForWorkspaceRoot(process.cwd()), sqliteDir()] },
+    watch: { ignored: ['**/extension/dist/**'] },
   },
 })

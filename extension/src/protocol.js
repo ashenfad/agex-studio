@@ -92,6 +92,13 @@ export const PROTOCOL = 1;
  *  Chrome Web Store. */
 export const DEV_EXTENSION_ID = "nmkolhlloohlmpklcknknipkaedblgbe";
 
+/** The id of the build the studio offers for download, to load
+ *  unpacked: fixed by the public key in `extension/site-key.pub`. */
+export const SITE_EXTENSION_ID = "odphfgepbkbbiognjbkdjllabphmdhhg";
+
+/** Where the studio's site serves that build, zipped. */
+export const EXTENSION_DOWNLOAD = "/extension/agex-studio-extension.zip";
+
 /** The store build's id, once the Chrome Web Store has given it one;
  *  until then the studio finds the dev build only.
  *  @type {string | null} */
