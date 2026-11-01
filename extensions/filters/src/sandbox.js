@@ -19,7 +19,9 @@ import { Store } from "@agex-ts/world";
 import { remoteKv } from "./host/kv.js";
 import { remoteProvider } from "./host/provider.js";
 import { sessionOf, siteOf } from "./host/sessions.js";
+import { presentFilterTool, siteHost } from "./host/site-tools.js";
 import { classicBlobWorkers, workerUrl } from "./host/worker.js";
+import SKILL from "./skills/site-filters.md";
 
 /** The most tool calls one turn may make. */
 const TOOL_CALLS = 40;
@@ -76,10 +78,15 @@ function store() {
 /** @type {Promise<string> | null} */
 let kernel = null;
 /** What every session's world is opened with: code runs in the kernel's
- *  worker, and a bare import has nowhere to load from. */
+ *  worker (a bare import has nowhere to load from), `site` looks at the
+ *  site's saved pages, and the skill says how to write its filter. */
 async function profile() {
     kernel ??= ask({ asset: "kernel-worker.js" }).then(workerUrl);
-    return { code: { worker: { target: /** @type {const} */ ("browser"), url: await kernel } } };
+    return {
+        code: { worker: { target: /** @type {const} */ ("browser"), url: await kernel } },
+        hostObjects: { site: siteHost() },
+        skills: [SKILL],
+    };
 }
 
 /** @type {Map<string, Promise<import("@agex-ts/world").Workspace>>} */
@@ -125,8 +132,9 @@ const COMMANDS = {
     /** A file of site `site`'s session, as text. */
     read: async ({ site, path }) => (await workspace(site)).files.readText(path),
     /** A turn of site `site`'s session on `prompt`, once the turn before it
-     *  (any site's) has ended; `model` names the model and `thinking` is
-     *  its effort, from the person's settings. */
+     *  (any site's) has ended; `model` names the model, `thinking` is its
+     *  effort and `vision` whether it takes images, from the person's
+     *  settings. */
     /** A page the person submitted, saved as site `site`'s next page
      *  (`pages/<n>.json`, and its screenshot `pages/<n>.jpg`), only the
      *  latest `PAGES_KEPT` kept; after any turn running, so a page never
@@ -147,14 +155,19 @@ const COMMANDS = {
         turns = run.then(() => {}, () => {});
         return run;
     },
-    turn: ({ site, prompt, model, thinking }) => {
+    turn: ({ site, prompt, model, thinking, vision }) => {
         const run = turns.then(async () => {
             const agent = new Agent({
                 model: remoteProvider(model, channel),
                 settings: { maxTokens: MAX_TOKENS, ...(thinking !== undefined && { thinking }) },
                 maxToolCalls: TOOL_CALLS,
             });
-            return outcome(await agent.session(await workspace(site)).say(prompt));
+            const ws = await workspace(site);
+            // a filter the agent presents goes to the extension, which keeps it for the person
+            const present = (/** @type {unknown} */ candidate) => parent.postMessage({ event: "candidate", candidate }, PARENT);
+            // a page's screenshot is the agent's to look at when its model takes images
+            const toolOptions = { vision: vision === true };
+            return outcome(await agent.session(ws, { tools: [presentFilterTool(ws, present)], toolOptions }).say(prompt));
         });
         turns = run.then(() => {}, () => {});
         return run;

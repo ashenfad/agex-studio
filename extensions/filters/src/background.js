@@ -70,6 +70,8 @@ const OPS = {
     submit: ({ tabId, steps }) => submit(/** @type {number} */ (tabId), __DEV__ ? steps : undefined),
     /** Site `site`'s agent's state: working, done or failed, and when. */
     status: ({ site }) => statusOf(/** @type {string} */ (site)),
+    /** Site `site`'s candidate filter, or null when none waits. */
+    candidate: async ({ site }) => (await candidates())[/** @type {string} */ (site)] ?? null,
 };
 
 /** The site of the page at `url`, or null when it isn't a web page of one. @param {string | undefined} url */
@@ -122,12 +124,30 @@ async function setStatus(site, now) {
 }
 
 /**
- * What the offscreen document tells the worker unasked: a turn it ran
- * has ended.
+ * @typedef {{ site: string, filter: unknown, pages: { page: string, hidden: number, hiddenShare: number }[] }} Candidate
+ *   A filter the site's agent presented, checked and tried on its saved
+ *   pages, waiting for the person to preview it and say yes or no.
+ */
+
+/** Every site's candidate, kept until the person answers. @returns {Promise<Record<string, Candidate & { at: number }>>} */
+async function candidates() {
+    const { candidates: all } = await chrome.storage.local.get("candidates");
+    return /** @type {Record<string, Candidate & { at: number }>} */ (all ?? {});
+}
+
+/** A presented filter kept as its site's candidate, replacing one not yet answered. @param {Candidate} candidate */
+async function keepCandidate(candidate) {
+    await chrome.storage.local.set({ candidates: { ...(await candidates()), [candidate.site]: { ...candidate, at: Date.now() } } });
+}
+
+/**
+ * What the offscreen document tells the worker unasked: a filter the
+ * agent presented, and a turn it ran having ended.
  *
  * @param {{ event: string, site: string, outcome?: { status: string, text: string }, error?: string }} msg
  */
 async function onEvent(msg) {
+    if (msg.event === "candidate") return keepCandidate(/** @type {any} */ (msg).candidate);
     if (msg.event !== "turn-ended") return;
     if (msg.error !== undefined || msg.outcome?.status !== "completed") {
         await setStatus(msg.site, { state: "failed", error: msg.error ?? msg.outcome?.text ?? msg.outcome?.status ?? "the turn ended early" });

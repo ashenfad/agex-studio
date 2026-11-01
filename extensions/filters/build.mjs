@@ -73,6 +73,8 @@ export async function build(mode) {
         logLevel: /** @type {const} */ ("warning"),
         minify: mode !== "dev",
         define: { __DEV__: JSON.stringify(mode === "dev") },
+        // the agent's skill, as its text
+        loader: { ".md": /** @type {const} */ ("text") },
         // the world's Node-only paths, never taken in a browser
         external: ["node:*", "worker_threads"],
     };

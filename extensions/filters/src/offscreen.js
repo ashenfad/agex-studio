@@ -13,7 +13,7 @@
 
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import { AiSdkProvider, ScriptedProvider } from "agex-ts";
-import { buildModel, modelOf, thinkingOf } from "../../../src/lib/model.js";
+import { buildModel, modelOf, thinkingOf, visionOf } from "../../../src/lib/model.js";
 import { STORAGE_KEY, getSettings, reloadSettings } from "../../../src/lib/settings.js";
 import { serveKv } from "./host/kv.js";
 import { submittedPrompt } from "./host/prompts.js";
@@ -71,6 +71,8 @@ window.addEventListener("message", async (e) => {
     if (e.source !== sandbox()) return;
     const m = e.data;
     if (m?.ready === true) return isReady();
+    // a filter the agent presented: the worker keeps it as its site's candidate
+    if (m?.event === "candidate") return void chrome.runtime.sendMessage({ event: "candidate", candidate: m.candidate });
     if (typeof m?.reply === "number") {
         const w = waiting.get(m.reply);
         waiting.delete(m.reply);
@@ -135,7 +137,7 @@ async function command(msg) {
             reloadSettings();
             turnProvider = provider();
             const s = getSettings();
-            return ask({ ...msg, steps: undefined, model: __DEV__ && script !== null ? "scripted" : modelOf(s), thinking: thinkingOf(s) });
+            return ask({ ...msg, steps: undefined, model: __DEV__ && script !== null ? "scripted" : modelOf(s), thinking: thinkingOf(s), vision: visionOf(s) });
         });
         turns = run.then(() => {}, () => {});
         return run;
