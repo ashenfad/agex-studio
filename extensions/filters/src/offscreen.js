@@ -23,7 +23,10 @@ const STORE_DB = "agex-site-filters";
 /** The extension's files the sandbox may be handed, as text. */
 const ASSETS = ["kernel-worker.js"];
 
-const frame = /** @type {HTMLIFrameElement} */ (document.getElementById("sandbox"));
+// made here, and framed only once this page listens for it (below): the
+// sandbox says it's ready once, as soon as it has loaded
+const frame = document.createElement("iframe");
+frame.src = "sandbox.html";
 const sandbox = () => /** @type {Window} */ (frame.contentWindow);
 
 /** @type {Promise<import("@agex-ts/kvgit").KVStore> | null} */
@@ -115,6 +118,8 @@ async function command(msg) {
         const run = turns.then(() => {
             // the turn's model, as the settings name it now; in the dev build a script's instead
             if (__DEV__) script = Array.isArray(msg.steps) ? msg.steps : null;
+            // read again now: a Save just before this turn may not have reached the storage event yet
+            reloadSettings();
             turnProvider = provider();
             const s = getSettings();
             return ask({ ...msg, steps: undefined, model: __DEV__ && script !== null ? "scripted" : modelOf(s), thinking: thinkingOf(s) });
@@ -139,6 +144,8 @@ async function ask(msg) {
     post({ ...msg, reply });
     return answer;
 }
+
+document.body.append(frame);
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     if (msg?.target !== "offscreen" || sender.id !== chrome.runtime.id) return;
