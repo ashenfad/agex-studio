@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hidden &amp; shown</title>
+<link rel="stylesheet" href="data:text/css,p%7B%7D">
+<link rel="icon" href="data:,">
+<style>
+    .zero { width: 0; height: 0; overflow: hidden }
+    .zero-open { height: 0 }
+    .abs { position: absolute; top: 300px; left: 10px; margin: 0 }
+</style>
+<script src="nowhere.js"></script>
+</head>
+<body>
+<h1 id="title">Shown</h1>
+<div id="none" style="display: none"><p id="inside-none">Gone</p></div>
+<div id="invisible" style="visibility: hidden"><p id="inside-invisible">Unseen</p></div>
+<div id="peek" style="visibility: hidden"><p id="peeking" style="visibility: visible">Peeking</p></div>
+<div id="zero" class="zero"><p id="clipped">Clipped</p></div>
+<div id="zero-open" class="zero-open"><p id="escaped" class="abs">Escaped</p></div>
+<div id="contents" style="display: contents"><span style="display: none">Nothing shown</span></div>
+<div id="flex" style="display: flex"><span id="flex-a">Sponsored</span><span id="flex-b">Today</span></div>
+<!-- the page's own annotations, which a capture leaves out -->
+<div id="forged" data-agex-hidden data-agex-box="0 0 1 1" data-agex-cut="9">Forged but shown</div>
+<p id="quotes" title='a "quoted" &amp; <tagged> value&nbsp;'>Fish &amp; chips &lt;3 &gt; a&nbsp;b</p>
+<pre id="pre">
+
+two newlines</pre>
+<textarea id="notes">
+<b>not bold</b> &amp;</textarea>
+<noscript><p>Noscript text</p></noscript>
+<template><p>Template text</p></template>
+<iframe id="frame" src="frame.html" width="200" height="100"></iframe>
+<button id="btn" onclick="this.textContent = 'Clicked'">Click</button>
+<svg id="icon" viewBox="0 0 10 10" width="20" height="20"><linearGradient id="grad"></linearGradient><path d="M0 0L10 10" stroke="black"/></svg>
+<img id="pixel" alt="dot" width="4" height="4">
+<div style="height: 3000px"></div>
+<script>
+    document.getElementById("pixel").setAttribute("src", `data:image/png;base64,${"A".repeat(5000)}`);
+</script>
+</body>
+</html>
