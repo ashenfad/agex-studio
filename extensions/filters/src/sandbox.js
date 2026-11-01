@@ -4,8 +4,12 @@
  * agex-ts's kernel needs; in exchange its origin is opaque and it has no
  * `chrome.*`. So it keeps nothing itself: its store is the offscreen
  * document's (`host/kv.js`), and so is everything else it needs from
- * outside. Its CSP allows no connections, so neither it nor the agent's
+ * outside, the model included (`host/provider.js`: the key never comes
+ * here). Its CSP allows no connections, so neither it nor the agent's
  * code can send anything anywhere.
+ *
+ * Each site has a session (`host/sessions.js`), and one turn runs at a
+ * time across all of them.
  *
  * It answers only the offscreen document, its parent.
  */
@@ -13,7 +17,14 @@
 import { Agent, ScriptedProvider } from "agex-ts";
 import { Store } from "@agex-ts/world";
 import { remoteKv } from "./host/kv.js";
+import { remoteProvider } from "./host/provider.js";
+import { sessionOf, siteOf } from "./host/sessions.js";
 import { classicBlobWorkers, workerUrl } from "./host/worker.js";
+
+/** The most tool calls one turn may make. */
+const TOOL_CALLS = 40;
+/** The most tokens one model reply may take. */
+const MAX_TOKENS = 16_000;
 
 classicBlobWorkers();
 
@@ -24,6 +35,19 @@ const PARENT = new URL(location.href).origin;
 let next = 0;
 /** @type {Map<string, { ok: (v: any) => void, no: (e: Error) => void }>} */
 const waiting = new Map();
+/** The model's streams, by id: each one's messages back. @type {Map<string, (msg: any) => void>} */
+const streams = new Map();
+/** How the model's stand-in reaches the offscreen document. */
+const channel = {
+    /** @param {Record<string, unknown>} msg */
+    send: (msg) => parent.postMessage(msg, PARENT),
+    /** @param {string} id @param {(msg: any) => void} f */
+    listen: (id, f) => {
+        streams.set(id, f);
+        return () => void streams.delete(id);
+    },
+    nextId: () => `m${++next}`,
+};
 
 /**
  * A request to the offscreen document, and its answer.
@@ -58,12 +82,16 @@ async function profile() {
 
 /** @type {Map<string, Promise<import("@agex-ts/world").Workspace>>} */
 const open = new Map();
-/** Session `name`'s workspace, opened once (and made, the first time).
- *  @param {string} name */
-function workspace(name) {
+/** Site `site`'s workspace, opened once (and made, the first time).
+ *  @param {string} site */
+function workspace(site) {
+    const name = sessionOf(site);
     if (!open.has(name)) open.set(name, (async () => (await store()).open(name, { profile: await profile() }))());
     return /** @type {Promise<import("@agex-ts/world").Workspace>} */ (open.get(name));
 }
+
+/** The turn running or last run: the next waits for it, whatever its site. */
+let turns = Promise.resolve();
 
 /**
  * A turn's outcome, as the extension's pages are told it.
@@ -82,25 +110,33 @@ function outcome(out) {
 /** What the offscreen document may ask, by `cmd`.
  *  @type {Record<string, (msg: any) => Promise<unknown>>} */
 const COMMANDS = {
-    /** The sessions in the store. */
-    sessions: async () => (await store()).sessions(),
-    /** How many runs session `session` has had. */
-    runs: async ({ session }) => (await new Agent({ model: new ScriptedProvider([]) }).session(await workspace(session)).runs()).length,
-    /** A file of session `session`'s, as text. */
-    read: async ({ session, path }) => (await workspace(session)).files.readText(path),
+    /** The sites that have a session. */
+    sites: async () => (await (await store()).sessions()).map(siteOf).filter((site) => site !== null),
+    /** How many runs site `site`'s session has had. */
+    runs: async ({ site }) => (await new Agent({ model: new ScriptedProvider([]) }).session(await workspace(site)).runs()).length,
+    /** A file of site `site`'s session, as text. */
+    read: async ({ site, path }) => (await workspace(site)).files.readText(path),
+    /** A turn of site `site`'s session on `prompt`, once the turn before it
+     *  (any site's) has ended; `model` names the model and `thinking` is
+     *  its effort, from the person's settings. */
+    turn: ({ site, prompt, model, thinking }) => {
+        const run = turns.then(async () => {
+            const agent = new Agent({
+                model: remoteProvider(model, channel),
+                settings: { maxTokens: MAX_TOKENS, ...(thinking !== undefined && { thinking }) },
+                maxToolCalls: TOOL_CALLS,
+            });
+            return outcome(await agent.session(await workspace(site)).say(prompt));
+        });
+        turns = run.then(() => {}, () => {});
+        return run;
+    },
 };
-
-if (__DEV__) {
-    /** A turn on a scripted model (the tests'): `steps` are its replies. */
-    COMMANDS.scripted = async ({ session, prompt, steps }) => {
-        const agent = new Agent({ model: new ScriptedProvider(steps) });
-        return outcome(await agent.session(await workspace(session)).say(prompt));
-    };
-}
 
 window.addEventListener("message", async (e) => {
     if (e.source !== parent) return;
     const m = e.data;
+    if (typeof m?.id === "string" && streams.has(m.id)) return /** @type {(msg: any) => void} */ (streams.get(m.id))(m);
     if (typeof m?.id === "string" && waiting.has(m.id)) {
         const { ok, no } = /** @type {{ ok: (v: any) => void, no: (e: Error) => void }} */ (waiting.get(m.id));
         waiting.delete(m.id);

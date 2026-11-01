@@ -40,17 +40,19 @@ async function agent(cmd, args = {}) {
 const OPS = {
     /** That the worker is up, and which build it is. */
     ping: async () => ({ version: chrome.runtime.getManifest().version }),
-    /** The agent's sessions. */
-    sessions: () => agent("sessions"),
-    /** How many runs a session has had. */
-    runs: ({ session }) => agent("runs", { session }),
-    /** A file of a session's, as text. */
-    read: ({ session, path }) => agent("read", { session, path }),
+    /** The sites with a session. */
+    sites: () => agent("sites"),
+    /** How many runs a site's session has had. */
+    runs: ({ site }) => agent("runs", { site }),
+    /** A file of a site's session, as text. */
+    read: ({ site, path }) => agent("read", { site, path }),
+    /** A turn of a site's session, on the person's model. */
+    turn: ({ site, prompt }) => agent("turn", { site, prompt }),
 };
 
 if (__DEV__) {
-    /** A turn on a scripted model, for the tests. */
-    OPS.scripted = ({ session, prompt, steps }) => agent("scripted", { session, prompt, steps });
+    /** A turn on a scripted model, for the tests: `steps` are its replies. */
+    OPS.scripted = ({ site, prompt, steps }) => agent("turn", { site, prompt, steps });
     /** The offscreen document closed (the agent's store stays). */
     OPS.restart = async () => {
         if ((await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] })).length > 0) await chrome.offscreen.closeDocument();

@@ -33,7 +33,7 @@ describe("the agent in the extension", () => {
 
     it("runs a turn's code in the sandbox's kernel, and keeps what it wrote", async () => {
         const out = await op("scripted", {
-            session: "site-example-com",
+            site: "example.com",
             prompt: "try the kernel",
             steps: [
                 step("", [runTs("const xs: number[] = [1, 2, 3, 4]\nconsole.log('sum', xs.reduce((a, b) => a + b, 0))\nawait fs.write('notes.txt', 'kept')")]),
@@ -43,12 +43,12 @@ describe("the agent in the extension", () => {
         assert.equal(out.status, "completed");
         assert.equal(out.text, "Done.");
         assert.deepEqual(out.tools.map((t) => [t.name, t.isError, t.result.trim()]), [["run_ts", false, "sum 10"]]);
-        assert.equal(await op("read", { session: "site-example-com", path: "notes.txt" }), "kept");
+        assert.equal(await op("read", { site: "example.com", path: "notes.txt" }), "kept");
     });
 
     it("lets the agent's code reach no network", async () => {
         const out = await op("scripted", {
-            session: "site-example-com",
+            site: "example.com",
             prompt: "try the network",
             steps: [step("", [runTs("const r = await fetch('https://example.com/')\nconsole.log(r.status)")]), step("Done.")],
         });
@@ -56,10 +56,26 @@ describe("the agent in the extension", () => {
         assert.match(out.tools[0].result, /fetch|Content Security Policy|connect/i);
     });
 
+    it("takes the model's failure across the wall as it was: one worth resuming interrupts the turn", async () => {
+        const out = await op("scripted", { site: "example.org", prompt: "fail", steps: [{ ...step(""), fail: "provider" }] });
+        assert.equal(out.status, "interrupted");
+    });
+
+    it("runs one turn at a time, whatever the site", async () => {
+        const slow = "await new Promise((ok) => setTimeout(ok, 1500))\nconsole.log('slow')";
+        const [a, b] = await Promise.all([
+            op("scripted", { site: "a.example", prompt: "first", steps: [step("", [runTs(slow)]), step("a")] }),
+            op("scripted", { site: "b.example", prompt: "second", steps: [step("b")] }),
+        ]);
+        // each turn's own script, though the second was asked while the first ran
+        assert.equal(a.text, "a");
+        assert.equal(b.text, "b");
+    });
+
     it("keeps its sessions when the offscreen document closes", async () => {
         await op("restart");
-        assert.deepEqual(await op("sessions"), ["site-example-com"]);
-        assert.equal(await op("runs", { session: "site-example-com" }), 2);
-        assert.equal(await op("read", { session: "site-example-com", path: "notes.txt" }), "kept");
+        assert.deepEqual(await op("sites"), ["a.example", "b.example", "example.com", "example.org"]);
+        assert.equal(await op("runs", { site: "example.com" }), 2);
+        assert.equal(await op("read", { site: "example.com", path: "notes.txt" }), "kept");
     });
 });
