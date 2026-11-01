@@ -6,6 +6,7 @@
 
 import { applyOps } from "./apply/sites.js";
 import { capturePage } from "./capture/walk.js";
+import { paint } from "./dots.js";
 import { siteOfHost } from "./site.js";
 
 /** The offscreen document, which frames the sandbox the agent runs in. */
@@ -76,7 +77,20 @@ const OPS = {
     /** The page in tab `tabId` submitted: captured as the person sees it,
      *  saved as one of its site's pages, and a turn of the site's session
      *  started on it, which ends on its own time (`statusOf`). */
-    submit: ({ tabId, steps }) => submit(/** @type {number} */ (tabId), __DEV__ ? steps : undefined),
+    submit: ({ tabId, request, steps }) =>
+        submit(/** @type {number} */ (tabId), typeof request === "string" && request.trim() !== "" ? request.trim() : undefined, __DEV__ ? steps : undefined),
+    /** The person has seen how site `site`'s last turn ended (the popup
+     *  showed it): its amber dot goes. */
+    seen: async ({ site }) => {
+        const status = await statusOf(/** @type {string} */ (site));
+        if (status !== null && status.state !== "working" && !status.seen) {
+            await chrome.storage.session.set({ [statusKey(/** @type {string} */ (site))]: { ...status, seen: true } });
+            await paintSite(/** @type {string} */ (site));
+        }
+        return null;
+    },
+    /** The dot site `site`'s tabs show, or null for none. */
+    dot: ({ site }) => dotOf(/** @type {string} */ (site)),
     /** Site `site`'s agent's state: working, done or failed, and when. */
     status: ({ site }) => statusOf(/** @type {string} */ (site)),
     /** Site `site`'s candidate filter, or null when none waits. */
@@ -114,6 +128,8 @@ const OPS = {
         await agent("forget", { site: s });
         await dropCandidate(s);
         await chrome.storage.session.remove(statusKey(s));
+        await chrome.notifications.clear(`ended:${s}`);
+        await paintSite(s);
         await chrome.permissions.remove({ origins: [`*://${s}/*`, `*://*.${s}/*`] }).catch(() => false);
         return null;
     },
@@ -152,9 +168,16 @@ function siteOf(url) {
 /**
  * Capture tab `tabId` and hand it to its site's agent.
  *
- * @param {number} tabId @param {unknown} [steps] in the dev build, a scripted model's replies for the turn
+ * @param {number} tabId
+ * @param {string} [request] what the person asks to change, in their words
+ * @param {unknown} [steps] in the dev build, a scripted model's replies for the turn
  */
-async function submit(tabId, steps) {
+async function submit(tabId, request, steps) {
+    if (__DEV__ && steps === undefined) {
+        // a script the tests queued for a submission from the popup's buttons
+        steps = (await chrome.storage.session.get("scriptNext")).scriptNext;
+        await chrome.storage.session.remove("scriptNext");
+    }
     const tab = await chrome.tabs.get(tabId);
     const site = siteOf(tab.url);
     if (site === null) throw new Error("this tab isn't a web page of a site");
@@ -166,7 +189,7 @@ async function submit(tabId, steps) {
     const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 70 }).catch(() => null);
     await setStatus(site, { state: "working" });
     try {
-        const saved = /** @type {{ page: string }} */ (await agent("submit", { site, capture, shot, ...(steps !== undefined && { steps }) }));
+        const saved = /** @type {{ page: string }} */ (await agent("submit", { site, capture, shot, ...(request !== undefined && { request }), ...(steps !== undefined && { steps }) }));
         return { site, page: saved.page };
     } catch (e) {
         await setStatus(site, { state: "failed", error: String(/** @type {Error} */ (e)?.message ?? e) });
@@ -174,7 +197,8 @@ async function submit(tabId, steps) {
     }
 }
 
-/** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string }} Status */
+/** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string, seen?: boolean }} Status
+ *   `seen`: the person has looked since it ended (the popup showed it). */
 
 /** When site `site` was last forgotten. @param {string} site */
 const forgotKey = (site) => `forgot:${site}`;
@@ -202,7 +226,44 @@ async function statusOf(site) {
 /** @param {string} site @param {Omit<Status, "at">} now */
 async function setStatus(site, now) {
     await chrome.storage.session.set({ [statusKey(site)]: { ...now, at: Date.now() } });
+    await paintSite(site);
 }
+
+/**
+ * The dot site `site`'s tabs show: working while its agent is; ready
+ * while a filter waits for the person; stopped when the last turn failed
+ * or ended without a filter and the person hasn't looked since.
+ *
+ * @param {string} site
+ * @returns {Promise<import("./dots.js").Dot | null>}
+ */
+async function dotOf(site) {
+    const status = await statusOf(site);
+    if (status?.state === "working") return "working";
+    if ((await candidateOf(site)) !== undefined) return "ready";
+    if (status !== null && !status.seen) return "stopped";
+    return null;
+}
+
+/** Every open tab of site `site` showing its dot. @param {string} site */
+async function paintSite(site) {
+    const dot = await dotOf(site);
+    for (const tab of await chrome.tabs.query({})) {
+        if (tab.id !== undefined && siteOf(tab.url) === site) await paint(tab.id, dot).catch(() => {});
+    }
+}
+
+/** Tab `tabId` showing its site's dot (none for a page that isn't a site's). @param {number} tabId @param {string | undefined} url */
+async function paintTab(tabId, url) {
+    const site = siteOf(url);
+    await paint(tabId, site === null ? null : await dotOf(site)).catch(() => {});
+}
+
+// a tab that loads a page, or comes to the front, shows its site's dot
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+    if (change.status === "complete" || change.url !== undefined) void paintTab(tabId, tab.url);
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => void chrome.tabs.get(tabId).then((tab) => paintTab(tabId, tab.url), () => {}));
 
 /**
  * @typedef {{ site: string, filter: unknown, pages: { page: string, url: string, hidden: number, hiddenShare: number }[] }} Candidate
@@ -221,23 +282,35 @@ async function candidateOf(site) {
     return got[candidateKey(site)];
 }
 
-/** A presented filter kept as its site's candidate, replacing one not yet
- *  answered, and the person told it's ready. @param {Candidate} candidate */
+/**
+ * A presented filter kept as its site's candidate, replacing one not yet
+ * answered, and the person told it's ready, so it can't be missed: the
+ * site's green dot; a notice that stays until it's dealt with; and when
+ * the person is on the site now, the popup itself, over the page.
+ *
+ * @param {Candidate} candidate
+ */
 async function keepCandidate(candidate) {
     await chrome.storage.local.set({ [candidateKey(candidate.site)]: { ...candidate, at: Date.now() } });
+    await paintSite(candidate.site);
     const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
     await chrome.notifications.create(`candidate:${candidate.site}`, {
         type: "basic",
         iconUrl: "icons/128.png",
         title: `A filter for ${candidate.site} is ready`,
-        message: `It hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. Open the site to preview it.`,
+        message: `It hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent.`,
+        buttons: [{ title: "Preview it" }],
+        requireInteraction: true,
     });
+    const [front] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (siteOf(front?.url) === candidate.site) await chrome.action.openPopup().catch(() => {});
 }
 
 /** Site `site`'s candidate dropped, and its notice with it. @param {string} site */
 async function dropCandidate(site) {
     await chrome.storage.local.remove(candidateKey(site));
     await chrome.notifications.clear(`candidate:${site}`);
+    await paintSite(site);
 }
 
 // a popup open on a tab: when it closes, a preview it started there ends with it
@@ -247,19 +320,45 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onDisconnect.addListener(() => void applyOps.filterPreviewEnd({ op: "filterPreviewEnd", tabId: Number(tab[1]) }).catch(() => {}));
 });
 
-// the notice that a filter is ready: the site in front (a tab of it, or its page as sent),
-// and the popup over it, to preview the filter there
-chrome.notifications.onClicked.addListener(async (id) => {
-    if (!id.startsWith("candidate:")) return;
-    const site = id.slice("candidate:".length);
-    const candidate = await candidateOf(site);
-    if (candidate === undefined) return;
+/**
+ * A notice about site `site`, clicked (or its button): the site in front
+ * (a tab of it, or the page last sent), and the popup over it, to preview
+ * a filter there or read how the turn ended.
+ *
+ * @param {string} id
+ */
+async function onNotice(id) {
+    const site = /^(?:candidate|ended):(.+)$/.exec(id)?.[1];
+    if (site === undefined) return;
+    await chrome.notifications.clear(id);
     const open = (await chrome.tabs.query({})).find((t) => siteOf(t.url) === site);
-    const tab = open ?? (await chrome.tabs.create({ url: candidate.pages.at(-1)?.url }));
-    if (tab.id !== undefined) await chrome.tabs.update(tab.id, { active: true });
+    const url = (await candidateOf(site))?.pages.at(-1)?.url;
+    const tab = open ?? (url === undefined ? undefined : await chrome.tabs.create({ url }));
+    if (tab?.id === undefined) return;
+    await chrome.tabs.update(tab.id, { active: true });
     if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
     await chrome.action.openPopup().catch(() => {});
-});
+}
+chrome.notifications.onClicked.addListener((id) => void onNotice(id));
+chrome.notifications.onButtonClicked.addListener((id) => void onNotice(id));
+
+/**
+ * The person told how site `site`'s turn ended when it ended without a
+ * filter to preview (that one has a notice of its own): it stopped, or
+ * the agent finished saying why it presented none.
+ *
+ * @param {string} site @param {Status} status
+ */
+async function noticeEnding(site, status) {
+    const failed = status.state === "failed";
+    const words = (failed ? status.error : status.text) ?? "";
+    await chrome.notifications.create(`ended:${site}`, {
+        type: "basic",
+        iconUrl: "icons/128.png",
+        title: failed ? `The agent stopped on ${site}` : `The agent finished on ${site} without a filter`,
+        message: words.length > 180 ? `${words.slice(0, 179)}…` : words || "It said nothing more.",
+    });
+}
 
 /**
  * What the offscreen document tells the worker unasked: a filter the
@@ -272,12 +371,23 @@ async function onEvent(msg) {
     if (await forgottenSince(site, /** @type {any} */ (msg).at)) return;
     if (msg.event === "candidate") return keepCandidate(/** @type {any} */ (msg).candidate);
     if (msg.event !== "turn-ended") return;
+    // a filter this turn presented has its notice and its dot; any other ending gets both too
+    const candidate = await candidateOf(msg.site);
+    const presented = candidate !== undefined && typeof (/** @type {any} */ (msg).at) === "number" && candidate.at >= /** @type {any} */ (msg).at;
     if (msg.error !== undefined || msg.outcome?.status !== "completed") {
         await setStatus(msg.site, { state: "failed", error: msg.error ?? msg.outcome?.text ?? msg.outcome?.status ?? "the turn ended early" });
-    } else await setStatus(msg.site, { state: "done", text: msg.outcome.text });
+    } else await setStatus(msg.site, { state: "done", text: msg.outcome.text, ...(presented && { seen: true }) });
+    const status = await statusOf(msg.site);
+    if (!presented && status !== null) await noticeEnding(msg.site, status);
 }
 
 if (__DEV__) {
+    /** The replies a scripted model gives the next submission that comes with
+     *  none (one from the popup's own buttons), for the tests. */
+    OPS.scriptNext = async ({ steps }) => {
+        await chrome.storage.session.set({ scriptNext: steps });
+        return null;
+    };
     /** A turn on a scripted model, for the tests: `steps` are its replies. */
     OPS.scripted = ({ site, prompt, steps }) => agent("turn", { site, prompt, steps });
     /** The offscreen document closed (the agent's store stays). */

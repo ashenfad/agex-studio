@@ -42,10 +42,18 @@
     <section id="applied" hidden>
         <label><input id="on" type="checkbox"> Filter this site</label>
         <p id="count" class="muted"></p>
-        <p id="hint" class="warn" hidden>The filter hides nothing on this page. Submit it to extend the filter?</p>
+        <p id="hint" class="warn" hidden>The filter hides nothing on this page. Extend it with this page?</p>
         <div class="row">
             <button id="show" class="secondary">Show hidden</button>
             <button id="remove" class="secondary">Remove filter</button>
+        </div>
+        <p id="changes-note" class="muted">Changes go to the agent with this page, and come back as a new filter to preview.</p>
+        <div class="row">
+            <input id="request" type="text" placeholder="What should change? (also hide the sidebar…)">
+        </div>
+        <div class="row">
+            <button id="ask-changes">Ask for changes</button>
+            <button id="extend" class="secondary">Extend with this page</button>
         </div>
     </section>
 

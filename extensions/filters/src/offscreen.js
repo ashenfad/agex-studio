@@ -118,9 +118,9 @@ async function command(msg) {
     await ready;
     if (msg.cmd === "submit") {
         // the page saved, then a turn on it
-        const { site, capture, shot, steps } = /** @type {any} */ (msg);
+        const { site, capture, shot, request, steps } = /** @type {any} */ (msg);
         const saved = await ask({ cmd: "submit", site, capture, shot });
-        detach(site, submittedPrompt({ site, page: saved.page, url: capture.url, title: capture.title, shot: typeof shot === "string" }), steps);
+        detach(site, submittedPrompt({ site, page: saved.page, url: capture.url, title: capture.title, shot: typeof shot === "string", ...(typeof request === "string" && { request }) }), steps);
         return saved;
     }
     if (msg.cmd === "rejected") {
