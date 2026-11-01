@@ -325,11 +325,14 @@ const SCENARIOS = {
         await c.call("session", { session: "revoked", name: "Revoked", domains: [GRANTED_DOMAIN] });
         const read = await c.call("read", at);
         const shot = await c.call("screenshot", at);
+        // refused before it turns the wheel: a scroll to the bottom waits seconds for the page to grow
+        const scrolling = performance.now();
+        const scroll = { ...(await c.call("scroll", { ...at, to: "bottom" })), ms: Math.round(performance.now() - scrolling) };
         const click = await c.call("click", { ...at, version: before.value?.version, ref: 1 });
         const left = await c.call("goto", { ...at, url: site("after-revoke") });
         const after = await c.call("read", at);
         c.port.disconnect();
-        return { before: before.error ?? before.value?.title, read, shot: shot.error ?? "shot", click, left, after: after.error ?? after.value?.title };
+        return { before: before.error ?? before.value?.title, read, shot: shot.error ?? "shot", scroll, click, left, after: after.error ?? after.value?.title };
     },
 
     /** the registry and the rules outlive the worker's idle stop */

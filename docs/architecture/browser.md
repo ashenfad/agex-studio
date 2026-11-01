@@ -194,8 +194,9 @@ first; the browser adds:
 - **A page already there when its grant goes is refused too.** Rules
   hold the loads to come, not the page a tab shows, so every read and
   step in a session's own tab checks the tab is on a domain the session
-  still holds (`stillOn`, before a step and again after a read):
-  elsewhere it's `not-granted`. `goto` isn't checked, as it's the way
+  still holds (`stillOn`, before any call, as a scroll moves the page
+  too, and again after a read): elsewhere it's `not-granted`, unless the
+  tab shows the browser's error page for a load that failed. `goto` isn't checked, as it's the way
   out; the tab isn't closed, as the person may be looking at it.
 - **Every page load in a tab the agent opened is held to its grants**,
   by the browser: `declarativeNetRequest` session rules for that tab

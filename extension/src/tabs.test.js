@@ -234,21 +234,30 @@ describe("a read of a shared tab, checked before it's given", () => {
 describe("a read of a session's own tab, checked before it's given", () => {
     /** @type {ReturnType<typeof fakeChrome>} */
     let fake;
+    let errorPage = false;
     beforeEach(() => {
+        errorPage = false;
         fake = fakeChrome({ open: [9], registry: { sessions: { s: { name: "Trip", domains: ["hyatt.com"] } }, tabs: { 9: { session: "s" } } } });
+        Object.assign(fake.chrome, { webNavigation: { getFrame: async () => ({ errorOccurred: errorPage }) } });
         Object.assign(globalThis, { chrome: fake.chrome });
     });
 
     it("passes on a granted domain, a page that isn't the web's, and the error page of a load its rules stopped", async () => {
         const { stillOn } = await import("./tabs.js");
         for (const url of ["https://www.hyatt.com/rooms", "about:blank", "chrome://newtab/"]) await expect(stillOn("s", 9, undefined, url), url).resolves.toBeUndefined();
-        fake.areas.local.set("registry", { sessions: { s: { name: "Trip", domains: ["hyatt.com"] } }, tabs: { 9: { session: "s", blocked: { url: "https://elsewhere.example/", at: 1 } } } });
+        errorPage = true;
         await expect(stillOn("s", 9, undefined, "https://elsewhere.example/")).resolves.toBeUndefined();
     });
 
     it("refuses a domain whose grant the person took back while the tab showed it", async () => {
         const { stillOn } = await import("./tabs.js");
         fake.areas.local.set("registry", { sessions: { s: { name: "Trip", domains: [] } }, tabs: { 9: { session: "s" } } });
+        await expect(stillOn("s", 9, undefined, "https://www.hyatt.com/rooms")).rejects.toMatchObject({ code: "not-granted" });
+    });
+
+    it("refuses one whose load was stopped once, then granted and gone through, then taken back", async () => {
+        const { stillOn } = await import("./tabs.js");
+        fake.areas.local.set("registry", { sessions: { s: { name: "Trip", domains: [] } }, tabs: { 9: { session: "s", blocked: { url: "https://www.hyatt.com/rooms", at: 1 } } } });
         await expect(stillOn("s", 9, undefined, "https://www.hyatt.com/rooms")).rejects.toMatchObject({ code: "not-granted" });
     });
 });

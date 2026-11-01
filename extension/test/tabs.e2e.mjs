@@ -104,6 +104,8 @@ describe("a session's tabs", () => {
         assert.equal(r.before, "Hotels in Lisbon");
         assert.equal(r.read.error?.code, "not-granted");
         assert.equal(r.shot.code, "not-granted");
+        assert.equal(r.scroll.error?.code, "not-granted");
+        assert.ok(r.scroll.ms < 1_000, `the refused scroll took ${r.scroll.ms}ms: it scrolled first`);
         assert.equal(r.click.error?.code, "not-granted");
         assert.equal(r.left.error, undefined);
         assert.equal(r.after, "site after-revoke");
