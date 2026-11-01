@@ -44,11 +44,21 @@ neither widens the other's.
     the studio's `ModelSettings` and styles, saved in the extension's
     `localStorage` (the offscreen document reads them again when they
     change), and the sites with a session. Built with Vite and Svelte.
-  - `popup.html`, `popup.js`: the toolbar's popup, for the tab in front:
-    its site, and *Filter this site*, after a warning that says where the
-    page goes (stronger when it has a password field). Opening it is the
-    person's click on the extension, which lets it read that tab
-    (`activeTab`).
+  - `popup.html`, `popup.js`: the toolbar's popup, for the tab in front
+    and its site. Opening it is the person's click on the extension,
+    which lets it read that tab (`activeTab`).
+    - *Filter this site*, after a warning that says where the page goes
+      (stronger when it has a password field).
+    - A filter the agent presented (a notification says when): preview it
+      on the page, outlined; accept it (the click Chrome asks for the
+      site's permission on; the worker accepts only the stored candidate,
+      which `present_filter` checked in full); or reject it, with a
+      reason that becomes the agent's next turn.
+    - The site's filter: on or off, what it hides on this page, shown
+      outlined, extended with this page (offered when it hides nothing
+      here), removed.
+    - Pause all filters; *Forget this site* (its filter, candidate,
+      session and pages, and the permission).
   - `site.js`: a page's site, its registrable domain by the Public Suffix
     List (`tldts`, private domains included: `foo.github.io` is its own).
   - A submission (`submit` in `background.js`): the tab captured
@@ -73,6 +83,13 @@ neither widens the other's.
       the operators, what's stable to select by, trying before
       presenting. A page's screenshot is the agent's to look at when its
       model takes images.
+  - `apply/`: an accepted filter applied to its site's pages. The worker
+    keeps the state (`state.js`: each site's filter, whether it's on, its
+    rule ids, and a global pause), registers the content script
+    (`content.js`, bundled as `apply-content.js`) for the site at
+    `document_start`, installs its block rules as dynamic
+    `declarativeNetRequest` rules, and previews and counts on a tab
+    (`sites.js`). Open tabs follow every change with no reload.
   - `ids.js`: the fixed ids of the builds that load unpacked.
 - `test/`: end to end, each build loaded into Playwright's Chromium,
   with every host under `filters.test` sent to this machine (the dev

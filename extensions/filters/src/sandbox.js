@@ -155,6 +155,18 @@ const COMMANDS = {
         turns = run.then(() => {}, () => {});
         return run;
     },
+    /** Site `site`'s session deleted, its pages and filters with it, once
+     *  the turn before has ended. */
+    forget: ({ site }) => {
+        const run = turns.then(async () => {
+            const name = sessionOf(site);
+            open.delete(name);
+            if (await (await store()).exists(name)) await (await store()).delete(name);
+            return null;
+        });
+        turns = run.then(() => {}, () => {});
+        return run;
+    },
     turn: ({ site, prompt, model, thinking, vision }) => {
         const run = turns.then(async () => {
             const agent = new Agent({

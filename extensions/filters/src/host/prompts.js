@@ -13,6 +13,19 @@ export function submittedPrompt({ site, page, url, title, shot }) {
     return [
         `The person submitted a page of ${site} for filtering: ${JSON.stringify(title)} (${url}).`,
         `It's saved as ${page}.json (the page as they saw it: its HTML, every element's box, what doesn't show marked)${shot ? `, with a screenshot of what was in view at ${page}.jpg` : ""}.`,
-        "Find what on it is clutter or advertising and write the site's filter so it hides that, on this page and the site's other saved pages, then present it. The site-filters skill says how.",
+        "Find what on it is clutter or advertising and write the site's filter so it hides that, on this page and the site's other saved pages, then present it. If the site has a filter already, extend it: keep what works. The site-filters skill says how.",
+    ].join("\n");
+}
+
+/**
+ * The prompt for a turn after the person turned down the filter the
+ * agent presented, saying why.
+ *
+ * @param {{ site: string, reason: string }} rejected
+ */
+export function rejectedPrompt({ site, reason }) {
+    return [
+        `The person turned down the filter you presented for ${site}, saying: ${JSON.stringify(reason)}`,
+        "Change the site's filter as that asks, keeping what works, try it on the saved pages, and present it again.",
     ].join("\n");
 }

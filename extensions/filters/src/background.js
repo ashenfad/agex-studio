@@ -63,7 +63,17 @@ const OPS = {
         const [probe] = await chrome.scripting
             .executeScript({ target: { tabId: /** @type {number} */ (tabId) }, func: () => document.querySelector("input[type=password]") !== null })
             .catch(() => [null]);
-        return { site, url: tab.url, title: tab.title, password: probe?.result === true, status: await statusOf(site) };
+        const { paused, sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site }));
+        return {
+            site,
+            url: tab.url,
+            title: tab.title,
+            password: probe?.result === true,
+            status: await statusOf(site),
+            candidate: (await candidates())[site] ?? null,
+            applied: sites[site] ?? null,
+            paused,
+        };
     },
     /** The page in tab `tabId` submitted: captured as the person sees it,
      *  saved as one of its site's pages, and a turn of the site's session
@@ -73,6 +83,37 @@ const OPS = {
     status: ({ site }) => statusOf(/** @type {string} */ (site)),
     /** Site `site`'s candidate filter, or null when none waits. */
     candidate: async ({ site }) => (await candidates())[/** @type {string} */ (site)] ?? null,
+    /** Site `site`'s candidate made its filter: only ever the one its agent
+     *  presented, which `present_filter` checked in full. The popup asked
+     *  Chrome for the site's permission first, from the person's click. */
+    accept: async ({ site }) => {
+        const candidate = (await candidates())[/** @type {string} */ (site)];
+        if (candidate === undefined) throw new Error(`no filter for ${site} waits for an answer`);
+        const applied = await applyOps.filterAccept({ op: "filterAccept", site, filter: candidate.filter });
+        await dropCandidate(/** @type {string} */ (site));
+        return applied;
+    },
+    /** Site `site`'s candidate turned down; with a reason, a turn of the
+     *  site's session on it, which ends on its own time. */
+    reject: async ({ site, reason, steps }) => {
+        await dropCandidate(/** @type {string} */ (site));
+        if (typeof reason !== "string" || reason.trim() === "") return null;
+        await setStatus(/** @type {string} */ (site), { state: "working" });
+        await agent("rejected", { site, reason: reason.trim(), ...(__DEV__ && steps !== undefined && { steps }) });
+        return null;
+    },
+    /** Everything of site `site`'s gone: its filter, its candidate, its
+     *  session (its pages with it) and the permission it was given. */
+    forget: async ({ site }) => {
+        const s = /** @type {string} */ (site);
+        const { sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site: s }));
+        if (sites[s] !== undefined) await applyOps.filterRemove({ op: "filterRemove", site: s });
+        await dropCandidate(s);
+        await chrome.storage.session.set({ status: Object.fromEntries(Object.entries(await statuses()).filter(([k]) => k !== s)) });
+        await agent("forget", { site: s });
+        await chrome.permissions.remove({ origins: [`*://${s}/*`, `*://*.${s}/*`] }).catch(() => false);
+        return null;
+    },
 };
 Object.assign(OPS, applyOps);
 
@@ -126,7 +167,7 @@ async function setStatus(site, now) {
 }
 
 /**
- * @typedef {{ site: string, filter: unknown, pages: { page: string, hidden: number, hiddenShare: number }[] }} Candidate
+ * @typedef {{ site: string, filter: unknown, pages: { page: string, url: string, hidden: number, hiddenShare: number }[] }} Candidate
  *   A filter the site's agent presented, checked and tried on its saved
  *   pages, waiting for the person to preview it and say yes or no.
  */
@@ -137,10 +178,38 @@ async function candidates() {
     return /** @type {Record<string, Candidate & { at: number }>} */ (all ?? {});
 }
 
-/** A presented filter kept as its site's candidate, replacing one not yet answered. @param {Candidate} candidate */
+/** A presented filter kept as its site's candidate, replacing one not yet
+ *  answered, and the person told it's ready. @param {Candidate} candidate */
 async function keepCandidate(candidate) {
     await chrome.storage.local.set({ candidates: { ...(await candidates()), [candidate.site]: { ...candidate, at: Date.now() } } });
+    const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
+    await chrome.notifications.create(`candidate:${candidate.site}`, {
+        type: "basic",
+        iconUrl: "icons/128.png",
+        title: `A filter for ${candidate.site} is ready`,
+        message: `It hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. Open the site to preview it.`,
+    });
 }
+
+/** Site `site`'s candidate dropped, and its notice with it. @param {string} site */
+async function dropCandidate(site) {
+    await chrome.storage.local.set({ candidates: Object.fromEntries(Object.entries(await candidates()).filter(([k]) => k !== site)) });
+    await chrome.notifications.clear(`candidate:${site}`);
+}
+
+// the notice that a filter is ready: the site in front (a tab of it, or its page as sent),
+// and the popup over it, to preview the filter there
+chrome.notifications.onClicked.addListener(async (id) => {
+    if (!id.startsWith("candidate:")) return;
+    const site = id.slice("candidate:".length);
+    const candidate = (await candidates())[site];
+    if (candidate === undefined) return;
+    const open = (await chrome.tabs.query({})).find((t) => siteOf(t.url) === site);
+    const tab = open ?? (await chrome.tabs.create({ url: candidate.pages.at(-1)?.url }));
+    if (tab.id !== undefined) await chrome.tabs.update(tab.id, { active: true });
+    if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
+    await chrome.action.openPopup().catch(() => {});
+});
 
 /**
  * What the offscreen document tells the worker unasked: a filter the

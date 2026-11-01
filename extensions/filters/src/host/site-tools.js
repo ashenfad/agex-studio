@@ -205,7 +205,7 @@ export function siteHost() {
  * person); what doesn't comes back to the agent, saying why.
  *
  * @param {Workspace} ws
- * @param {(candidate: { site: string, filter: import("../filter/format.js").Filter, pages: { page: string, hidden: number, hiddenShare: number }[] }) => void} present
+ * @param {(candidate: { site: string, filter: import("../filter/format.js").Filter, pages: { page: string, url: string, hidden: number, hiddenShare: number }[] }) => void} present
  * @returns {import("@agex-ts/world").Tool}
  */
 export function presentFilterTool(ws, present) {
@@ -237,7 +237,7 @@ export function presentFilterTool(ws, present) {
             if (problems.length > 0) return fail(`Not presented:\n${problems.join("\n")}`);
             const checked = checkFilter(filter, { site });
             if ("errors" in checked) return fail(checked.errors.join("\n"));
-            const pages = tried.pages.map(({ page, hidden, hiddenShare }) => ({ page, hidden, hiddenShare }));
+            const pages = tried.pages.map(({ page, url, hidden, hiddenShare }) => ({ page, url, hidden, hiddenShare }));
             present({ site, filter: checked.filter, pages });
             const lines = pages.map((p) => `${p.page}: ${p.hidden} hidden (${Math.round(p.hiddenShare * 100)}% of its text)`);
             return { text: `Presented to the person as ${site}'s filter:\n${lines.join("\n")}`, images: [], isError: false };
