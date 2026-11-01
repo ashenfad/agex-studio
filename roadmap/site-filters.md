@@ -57,7 +57,7 @@ popup / notifications / app page          the site's tabs
         ▼                                 filter, previews a candidate
 service worker ── wakes ──▶ offscreen document (extension origin)
   (captures, permissions,     the store (kvgit on IndexedDB), settings,
-   declarativeNetRequest)     the model provider, captures parsed (DOMParser)
+   declarativeNetRequest)     the model provider, captures rebuilt to test on
                                 │ postMessage
                                 ▼
                               sandboxed iframe (manifest `sandbox`, origin "null")
@@ -116,11 +116,14 @@ host permission, which is enough to run a capture script in it and take
 a screenshot.
 
 - **The page as the person sees it,** after their own scrolling: the
-  DOM serialized after rendering, open shadow roots included
-  (`getHTML({ serializableShadowRoots: true })`), scripts stripped, and
-  each element annotated with what layout knows (its box, whether it's
-  visible, the text a person sees), so checks that need them work away
-  from the live page.
+  DOM serialized after rendering by a walk of our own, which annotates
+  each element with what layout knows (its box, whether it's visible,
+  the text a person sees), so checks that need them work away from the
+  live page. The walk goes into every open shadow root, nested ones too,
+  as the browsing extension's outline does (`getHTML`'s
+  `serializableShadowRoots` alone would leave out any root not created
+  serializable, which is most), and writes each as a declarative one
+  (`<template shadowrootmode="open">`). Scripts are left out.
 - **A screenshot** of what's in view; the URL, title and host.
 - **Only what was submitted** reaches the agent: no other tab, nothing
   in the background.
@@ -170,8 +173,10 @@ extension checks it at the call, and the result says what failed:
   `main`) or blocks the site's own pages.
 - **Each saved page, before and after:** the page's main text still
   there, and only what the filter names gone. The pages are rebuilt in
-  the offscreen document (`DOMParser`), the selectors and operators run
-  against them, and the recorded boxes stand in for layout.
+  the offscreen document with `Document.parseHTMLUnsafe`, which, unlike
+  `DOMParser`, attaches their declarative shadow roots; the selectors
+  and operators run against them, and the recorded boxes stand in for
+  layout.
 
 On a pass it becomes the site's candidate, the notification goes out,
 and the turn can end: the agent is told the person decides. Their
