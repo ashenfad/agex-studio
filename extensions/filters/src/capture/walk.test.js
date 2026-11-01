@@ -16,7 +16,7 @@ beforeEach(() => {
     vi.spyOn(Element.prototype, "checkVisibility").mockReturnValue(true);
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(/** @type {DOMRect} */ ({ left: 1, top: 2, width: 10, height: 10 }));
     vi.spyOn(window, "getComputedStyle").mockReturnValue(
-        /** @type {CSSStyleDeclaration} */ (/** @type {unknown} */ ({ display: "inline", visibility: "visible", overflowX: "visible", overflowY: "visible" })),
+        /** @type {CSSStyleDeclaration} */ (/** @type {unknown} */ ({ display: "inline", visibility: "visible", opacity: "1", overflowX: "visible", overflowY: "visible" })),
     );
 });
 afterEach(() => vi.restoreAllMocks());
@@ -117,5 +117,25 @@ describe("capturePage's cut", () => {
         expect(doc.getElementById("a")?.textContent).toBe(big);
         expect(doc.querySelectorAll("#b > p")).toHaveLength(1);
         expect(doc.getElementById("b")?.getAttribute("data-agex-cut")).toBe("1");
+    });
+
+    it("cuts into the head when the head alone is over, and stays within the size", () => {
+        const metas = Array.from({ length: 400 }, (_, i) => `<meta name="m${i}" content="${"v".repeat(40)}">`).join("");
+        page(`<head>${metas}</head><body><p id="p">Body</p></body>`);
+        document.title = "t".repeat(200_000);
+        const whole = capturePage();
+        for (const maxBytes of [100_000, 20_000, 2_000]) {
+            const c = capturePage({ maxBytes });
+            expect(c.bytes).toBeLessThanOrEqual(maxBytes);
+            expect(c.bytes).toBe(new TextEncoder().encode(c.html).length);
+            expect(c.cut).toBe(whole.bytes - c.bytes);
+        }
+    });
+
+    it("stays within a size too small for the body", () => {
+        page(`<head><title>t</title></head><body>${"<p>words words words</p>".repeat(200)}</body>`);
+        const c = capturePage({ maxBytes: 300 });
+        expect(c.bytes).toBeLessThanOrEqual(300);
+        expect(parse(c.html).documentElement.localName).toBe("html");
     });
 });

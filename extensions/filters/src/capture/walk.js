@@ -27,9 +27,12 @@
  *   scroll), rounded.
  * - `data-agex-hidden` (empty) on each element that renders nothing a
  *   person could see: not rendered (`display: none`, inside one, a light
- *   child no slot takes), or rendering no visible box, no visible text and
- *   no visible descendant (`visibility: hidden`, zero size). A hidden
- *   element's subtree may carry no annotations. An element that renders
+ *   child no slot takes), fully transparent (`opacity: 0`), or rendering
+ *   no visible box, no visible text and no visible descendant
+ *   (`visibility: hidden`, zero size). A hidden element's subtree may
+ *   carry no annotations. An element that shows only for a descendant
+ *   (`visibility: visible` under `visibility: hidden`) isn't hidden, and
+ *   its own text, which doesn't show, is left out. An element that renders
  *   no box of its own, its children drawn in its place (`display:
  *   contents`, a slot), carries neither, and its children carry their
  *   own.
@@ -66,8 +69,10 @@
  * each attribute value longer than a kilobyte keeps only its first (a
  * JSON blob, an SVG path); then the latest content goes: the tail of each
  * long run of like siblings (a feed's later posts), latest run first,
- * down to its first few; then, if still over, the end of the page, whole
- * subtrees at a time, keeping the elements that held them.
+ * down to its first few; then, if still over, the end of the body, whole
+ * subtrees at a time, keeping the elements that held them; then the end
+ * of the head, and of the root. The HTML is always within `maxBytes`, as
+ * long as that holds the root's own tags.
  *
  * @param {{ maxBytes?: number }} [options]
  * @returns {Capture}
@@ -123,7 +128,7 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         if (node.nodeType === Node.TEXT_NODE) return /\S/.test(node.textContent ?? "");
         if (node.nodeType !== Node.ELEMENT_NODE) return false;
         const el = /** @type {Element} */ (node);
-        return el.checkVisibility({ checkVisibilityCSS: true }) || getComputedStyle(el).display === "contents";
+        return el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) || getComputedStyle(el).display === "contents";
     };
 
     /** @type {Run[]} */
@@ -182,8 +187,12 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         // draws no box of its own, and its children do: never marked hidden itself
         let contents = false;
         if (!plain) {
-            if (el.checkVisibility()) {
-                const style = getComputedStyle(el);
+            const style = getComputedStyle(el);
+            const rendered = el.checkVisibility();
+            if (rendered && Number(style.opacity) === 0) {
+                // fully transparent: nothing in it shows
+                hidden = true;
+            } else if (rendered) {
                 const r = el.getBoundingClientRect();
                 const visible = style.visibility === "visible";
                 shows = visible && r.width > 0 && r.height > 0;
@@ -192,7 +201,6 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
                 box = `${Math.round(r.left + scrollX)} ${Math.round(r.top + scrollY)} ${Math.round(r.width)} ${Math.round(r.height)}`;
                 block = !style.display.startsWith("inline") || style.position === "absolute" || style.position === "fixed";
             } else {
-                const style = getComputedStyle(el);
                 if (style.display === "contents") {
                     contents = true;
                     kidTextShows = style.visibility === "visible";
@@ -208,6 +216,8 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         const below = plain || hidden;
 
         const html = el.namespaceURI === HTML_NS;
+        /** @type {Piece | null} */
+        let template = null;
         if (!(html && (VOID.has(lower) || EMPTY.has(lower)))) {
             const root = el.shadowRoot;
             if (root) {
@@ -216,8 +226,7 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
                     root.clonable && " shadowrootclonable",
                     root.serializable && " shadowrootserializable",
                 ].filter(Boolean).join("");
-                /** @type {Piece} */
-                const template = {
+                template = {
                     open: `<template shadowrootmode="open"${flags}>`, close: "</template>", kids: [], bytes: 0,
                     parent: piece, start: order++, end: 0, gone: false, cut: 0,
                 };
@@ -228,7 +237,6 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
                     shows ||= s;
                 }
                 template.end = order;
-                finish(template);
                 piece.kids.push(template);
             }
             for (const c of el.childNodes) {
@@ -240,6 +248,17 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         if (clips) shows = false;
         if (!below && !shows && !contents) hidden = true;
         piece.end = order;
+        if (!below && !hidden && !kidTextShows) {
+            // shown only for a descendant that is (`visibility: visible` under `hidden`): its own
+            // text doesn't show, so it isn't written, where a reader would take it for shown
+            /** @param {Piece} p */
+            const shownOnly = (p) => {
+                p.kids = p.kids.filter((k) => typeof k !== "string" || !/\S/.test(k));
+            };
+            shownOnly(piece);
+            if (template) shownOnly(template);
+        }
+        if (template) finish(template);
 
         const marks = plain ? "" : hidden ? " data-agex-hidden" : box ? ` data-agex-box="${box}"${block ? " data-agex-block" : ""}` : "";
         const first = piece.kids[0];
@@ -356,9 +375,15 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         }
     }
     if (over > 0) {
-        resize(html);
-        const body = html.kids.find((k) => typeof k !== "string" && !k.gone && k.open.startsWith("<body"));
-        trim(typeof body === "object" ? body : html, over);
+        // then the end of the page: the body's, then the head's, then whatever else the root holds
+        /** @param {string} tag */
+        const part = (tag) => html.kids.find((k) => typeof k !== "string" && !k.gone && new RegExp(`^<${tag}[\\s>]`).test(k.open));
+        for (const p of [part("body"), part("head"), html]) {
+            if (typeof p !== "object") continue;
+            over = size(doctype) + resize(html) - maxBytes;
+            if (over <= 0) break;
+            trim(p, over);
+        }
     }
 
     /** @type {string[]} */
