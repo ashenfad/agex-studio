@@ -26,6 +26,8 @@ describe("submitting a page", () => {
     let ext;
     /** @type {number} */
     let tabId;
+    /** @type {number} */
+    let port;
     /** An op of the worker's, from a page of the extension's. */
     const op = async (name, args = {}) => {
         const reply = await ext.evaluate((msg) => chrome.runtime.sendMessage(msg), { op: name, ...args });
@@ -35,10 +37,10 @@ describe("submitting a page", () => {
     before(async () => {
         server = createServer((req, res) => {
             res.setHeader("content-type", "text/html");
-            res.end(readFileSync(join(PAGES, "shop.html")));
+            res.end(readFileSync(join(PAGES, req.url?.startsWith("/login") ? "login.html" : "shop.html")));
         });
         await new Promise((ok) => server.listen(0, "127.0.0.1", () => ok(undefined)));
-        const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
+        port = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
         browser = await launch(await build("dev"));
         ext = await browser.context.newPage();
         await ext.goto(`chrome-extension://${browser.id}/manifest.json`);
@@ -57,6 +59,14 @@ describe("submitting a page", () => {
         assert.equal(page.site, TEST_SITE);
         assert.equal(page.password, false);
         assert.equal(page.status, null);
+    });
+
+    it("warns more strongly of a page with a password field, a component's closed one too", async () => {
+        const login = await browser.context.newPage();
+        await login.goto(`http://login.${TEST_SITE}:${port}/login.html`);
+        const loginTab = await ext.evaluate(async () => (await chrome.tabs.query({ url: "*://login.filters.test/*" }))[0].id);
+        assert.equal((await op("page", { tabId: loginTab })).password, true);
+        await login.close();
     });
 
     it("saves the page as the site's first, and runs a turn on it to its end", async () => {

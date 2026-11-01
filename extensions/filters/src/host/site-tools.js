@@ -72,7 +72,9 @@ export async function tryFilter(ws, filter) {
     const pages = (await savedPages(ws)).map(({ page, url, html }) => {
         const doc = parseCapture(html);
         const { hidden, rules } = explain(doc, checked.filter, capturedView);
-        return { page, url, hidden, hiddenShare: hiddenShare(doc, checked.filter), rules };
+        // of what it hides, how much showed on the page as saved: hiding what was hidden anyway hides nothing
+        const shown = [...matchAll(doc, checked.filter, capturedView)].filter((el) => capturedView.visible(el)).length;
+        return { page, url, hidden, shown, hiddenShare: hiddenShare(doc, checked.filter), rules };
     });
     return { ok: true, pages };
 }
@@ -115,13 +117,21 @@ function describe(el) {
         const named = a.name.startsWith("data-") ? !a.name.startsWith("data-agex-") : ["aria-label", "role", "href", "slot"].includes(a.name);
         if (named) out += `[${a.name}=${JSON.stringify(a.value.length > 40 ? `${a.value.slice(0, 39)}…` : a.value)}]`;
     }
-    if (el.parentNode?.nodeType === Node.DOCUMENT_FRAGMENT_NODE) out = `(in ${describe(/** @type {ShadowRoot} */ (el.parentNode).host)}'s shadow root) ${out}`;
+    const root = el.getRootNode();
+    if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) out = `(in ${describe(/** @type {ShadowRoot} */ (root).host)}'s shadow root) ${out}`;
     return out;
 }
 
 /** Every element of a rebuilt page, in its document and its shadow roots. @param {Document} doc */
 function everyElement(doc) {
     return [doc, ...shadowRoots(doc)].flatMap((root) => [...root.querySelectorAll("*")]);
+}
+
+/** Whether `outer` holds `inner`, across shadow roots (a host holds what its shadow root does).
+ *  @param {Element} outer @param {Element} inner */
+function holds(outer, inner) {
+    for (let at = composedParent(inner); at; at = composedParent(at)) if (at === outer) return true;
+    return false;
 }
 
 /** A short piece of what an element shows. @param {Element} el */
@@ -145,8 +155,8 @@ export async function findText(ws, pattern) {
     return (await savedPages(ws)).map(({ page, html }) => {
         const doc = parseCapture(html);
         const hits = everyElement(doc).filter((el) => capturedView.visible(el) && re.test(capturedView.text(el)));
-        // the smallest: none of their own children matches too
-        const smallest = hits.filter((el) => !hits.some((other) => other !== el && el.contains(other)));
+        // the smallest: nothing below them matches too, inside their shadow roots included
+        const smallest = hits.filter((el) => !hits.some((other) => other !== el && holds(el, other)));
         return {
             page,
             found: smallest.length,
@@ -228,7 +238,7 @@ export function presentFilterTool(ws, present) {
             if (!tried.ok) return fail(`${filterPath(site)} fails its check:\n${tried.errors.join("\n")}`);
             if (tried.pages.length === 0) return fail("there are no saved pages to try it on");
             const problems = [];
-            if (tried.pages.every((p) => p.hidden === 0)) problems.push("it hides nothing on any saved page");
+            if (tried.pages.every((p) => p.shown === 0)) problems.push("it hides nothing that shows on any saved page (what it matches was hidden there already)");
             for (const p of tried.pages) {
                 if (p.hiddenShare > MAX_HIDDEN_SHARE) {
                     problems.push(`on ${p.page} it hides ${Math.round(p.hiddenShare * 100)}% of the text (at most ${MAX_HIDDEN_SHARE * 100}%): it's hiding the page, not its clutter`);

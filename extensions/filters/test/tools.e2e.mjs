@@ -79,18 +79,40 @@ describe("the agent's tools", () => {
         assert.ok(tried.pages[0].hiddenShare > 0 && tried.pages[0].hiddenShare < 0.5, String(tried.pages[0].hiddenShare));
     });
 
-    it("refuses to present a filter that hides the page, and presents one that hides its ad", async () => {
-        const greedy = { version: 1, hide: [{ selector: "article" }, { selector: "x-closed" }] };
+    it("finds text in a component's shadow root once: the label, not its host too", async () => {
+        const out = await op("scripted", {
+            site: TEST_SITE,
+            prompt: "look inside",
+            steps: [step("", [runTs("console.log(JSON.stringify(await site.find('^Featured$')))")]), step("Looked.")],
+        });
+        const [found] = JSON.parse(out.tools[0].result.trim());
+        assert.equal(found.found, 1);
+        assert.match(found.samples[0].element, /^\(in x-open's shadow root\) span\.badge/);
+    });
+
+    it("refuses to present a filter that hides the page, or only what was hidden already, and presents one that hides its ad", async () => {
+        const greedy = { version: 1, hide: [{ selector: "article" }, { selector: "x-closed" }, { selector: "x-open" }] };
+        const unseen = { version: 1, hide: [{ selector: "span.promo-label", upward: "article" }] };
         const good = { version: 1, hide: [{ selector: "span.label", hasText: "^Sponsored$", upward: "article", why: "a sponsored listing" }] };
         const out = await op("scripted", {
             site: TEST_SITE,
             prompt: "present",
-            steps: [step("", [runTs(writeFilter(greedy))]), step("", [present]), step("", [runTs(writeFilter(good))]), step("", [present]), step("Hides the sponsored listing.")],
+            steps: [
+                step("", [runTs(writeFilter(greedy))]),
+                step("", [present]),
+                step("", [runTs(writeFilter(unseen))]),
+                step("", [present]),
+                step("", [runTs(writeFilter(good))]),
+                step("", [present]),
+                step("Hides the sponsored listing."),
+            ],
         });
         const presents = out.tools.filter((t) => t.name === "present_filter");
         assert.equal(presents[0].isError, true);
         assert.match(presents[0].result, /hiding the page, not its clutter/);
-        assert.equal(presents[1].isError, false, presents[1].result);
+        assert.equal(presents[1].isError, true);
+        assert.match(presents[1].result, /hides nothing that shows/);
+        assert.equal(presents[2].isError, false, presents[2].result);
         const candidate = await op("candidate", { site: TEST_SITE });
         assert.equal(candidate.site, TEST_SITE);
         assert.deepEqual(candidate.filter.hide.map((r) => r.selector), ["span.label"]);
