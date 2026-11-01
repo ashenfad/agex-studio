@@ -362,7 +362,10 @@ export const liveView = {
         const walk = (e) => {
             if (UNSEEN.has(e.localName)) return;
             const style = win.getComputedStyle(e);
-            if (style.display === "none") return;
+            // as a capture reads a page: nothing fully transparent, and of a closed select only
+            // its chosen option, which is all it shows (a group's label isn't text, so it's never read)
+            if (style.display === "none" || Number(style.opacity) === 0) return;
+            if (e.localName === "option" && closedSelect(e) && !(/** @type {HTMLOptionElement} */ (e).selected)) return;
             const block = e.localName === "br" || (style.display !== "contents" && !style.display.startsWith("inline"));
             if (block) parts.push(" ");
             inside(e, style);
@@ -405,7 +408,19 @@ function drawn(el) {
         const parent = composedParent(el);
         return parent ? drawn(parent) : true;
     }
-    return typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true });
+    // fully transparent is unseen, as the capture marks it
+    return typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+}
+
+/**
+ * Whether option `el` is in a select that shows
+ * one option at a time: not a list box (`multiple`, or a `size` over 1).
+ *
+ * @param {Element} el
+ */
+function closedSelect(el) {
+    const select = el.closest("select");
+    return select !== null && !select.multiple && select.size <= 1;
 }
 
 /**

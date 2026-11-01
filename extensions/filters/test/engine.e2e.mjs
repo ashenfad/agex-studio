@@ -92,6 +92,20 @@ describe("the engine and the applier in a live page", () => {
         assert.ok(r.box.width > 0 && r.box.height > 0, JSON.stringify(r.box));
     });
 
+    it("reads what a capture reads: nothing fully transparent, and only a closed select's chosen option", async () => {
+        const text = await page.evaluate(() => {
+            const box = document.createElement("div");
+            box.innerHTML = '<span>Seen</span><span style="opacity:0">Sponsored</span>' +
+                '<select><option>First</option><option selected>Chosen</option></select>' +
+                '<select size="3"><option>All</option><option>shown</option></select>';
+            /** @type {Element} */ (document.getElementById("feed")).append(box);
+            const out = /** @type {any} */ (window).engine.liveView.text(box);
+            box.remove();
+            return out;
+        });
+        assert.equal(text, "Seen Chosen All shown");
+    });
+
     it("reads a capture rebuilt by the browser's own parser as it reads the live page", async () => {
         const r = await page.evaluate(() => {
             const { engine, filter } = /** @type {any} */ (window);
