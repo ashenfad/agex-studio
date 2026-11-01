@@ -30,14 +30,15 @@ async function ask(op, args = {}) {
  * How the site's agent stands, in words: working (and for how long), or
  * how its last turn ended when it ended without a filter to preview.
  *
- * @param {{ state: string, at: number, text?: string, error?: string } | null} status
+ * @param {{ state: string, at: number, text?: string, error?: string, presented?: boolean } | null} status
  * @param {boolean} candidate whether a filter it presented waits
  */
 function statusText(status, candidate) {
     if (status === null) return "";
     if (status.state === "working") return `Its agent is working on this site (${since(status.at)}).`;
     if (status.state === "failed") return `Its agent stopped: ${status.error}`;
-    if (candidate) return "";
+    // a turn that presented a filter didn't end without one, answered since or not
+    if (candidate || status.presented) return "";
     const words = (status.text ?? "").trim();
     return `Its agent finished without a filter${words === "" ? "." : `: “${words.length > 300 ? `${words.slice(0, 299)}…` : words}”`}`;
 }

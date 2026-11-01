@@ -27,6 +27,7 @@ const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
  *   steps: Step[],
  *   said: string,
  *   models: string[],
+ *   providers: string[],
  *   usage: { inputTokens: number, outputTokens: number },
  * }} LoggedRun
  */
@@ -48,10 +49,13 @@ export async function runLog(ws) {
         let said = "";
         /** @type {Set<string>} */
         const models = new Set();
+        /** @type {Set<string>} */
+        const providers = new Set();
         for (const message of run.messages) {
             if (message.role === "user" && asked === "") asked = messageText(message);
             if (message.role === "assistant") {
                 if (message.model) models.add(message.model);
+                if (message.provider) providers.add(message.provider);
                 const text = messageText(message).trim();
                 if (text !== "") said = text;
             }
@@ -81,6 +85,7 @@ export async function runLog(ws) {
             steps,
             said: cut(said, 1000),
             models: [...models],
+            providers: [...providers],
             usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
         };
     });
