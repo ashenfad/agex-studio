@@ -17,6 +17,16 @@ const hiding = (...hide) => ({ version: 1, hide });
 /** a filter of these block rules @param {unknown[]} block */
 const blocking = (...block) => ({ version: 1, block });
 
+/** Whether this JavaScript engine compiles regex modifiers (`(?i:...)`). */
+const MODIFIERS = (() => {
+    try {
+        new RegExp("(?i:a)");
+        return true;
+    } catch {
+        return false;
+    }
+})();
+
 describe("checkFilter", () => {
     it("passes the roadmap's example, normalized", () => {
         const filter = {
@@ -119,7 +129,11 @@ describe("checkFilter", () => {
         expect(errorsOf(hiding({ selector: "a", hasText: "x".repeat(MAX_PATTERN + 1) }))[0]).toMatch(/at most 300/);
         expect(errorsOf(hiding({ selector: "a", hasText: "(a+)+$" }))[0]).toMatch(/repeated group/);
         expect(errorsOf(hiding({ selector: "a", matchesAttr: { name: "class", pattern: "(\\w*)*" } }))[0]).toMatch(/^hide\[0\]\.matchesAttr\.pattern: has a repeated group/);
-        expect(errorsOf(hiding({ selector: "a", hasText: "(?i:sponsored)|Promoted" }))).toEqual([]);
+        // a part that ignores case: regex modifiers, which Chrome has had since 125 but an older
+        // JavaScript engine (Node 22) can't compile, so there the guard refuses them as invalid
+        const modifiers = hiding({ selector: "a", hasText: "(?i:sponsored)|Promoted" });
+        if (MODIFIERS) expect(errorsOf(modifiers)).toEqual([]);
+        else expect(errorsOf(modifiers)[0]).toMatch(/not a valid regular expression/);
         expect(errorsOf(hiding({ selector: "a", hasText: "(ad|promo)s?" }))).toEqual([]);
     });
 
