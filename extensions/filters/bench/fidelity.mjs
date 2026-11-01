@@ -347,6 +347,7 @@ for (const file of files) {
             let agree = 0;
             // agreement on what the capture kept: the live matches less those cut
             let agreeKept = 0;
+            let countOnly = 0;
             /** @type {{ kind: string, selector: string, live: number, rebuilt: number, cause: string }[]} */
             const disagree = [];
             selectors.forEach((/** @type {any} */ s, /** @type {number} */ i) => {
@@ -354,12 +355,17 @@ for (const file of files) {
                 k.n++;
                 const a = /** @type {(string | null)[]} */ (liveMatches[i]);
                 const b = /** @type {(string | null)[]} */ (got[i]);
-                if (a.filter((f) => f !== null && (f in places || !c.cut || c.html.includes(`data-fid="${f}"`))).length === b.length) agreeKept++;
-                if (a.length === b.length) {
+                // the same elements, by number, on both sides (an element the parser made has none)
+                const same = (/** @type {(string | null)[]} */ x, /** @type {(string | null)[]} */ y) =>
+                    x.length === y.length && [...x].sort().join("\n") === [...y].sort().join("\n");
+                if (same(c.cut ? a.filter((f) => f === null || f in places) : a, b)) agreeKept++;
+                if (same(a, b)) {
                     k.agree++;
                     agree++;
                     return;
                 }
+                // as many matches, but not the same elements: a count alone would have agreed
+                if (a.length === b.length) countOnly++;
                 // the first element matched on one side only, and why
                 const inB = new Set(b);
                 const inA = new Set(a);
@@ -420,7 +426,7 @@ for (const file of files) {
             // live text in elements the capture marked hidden that layout renders (zero size, clipped)
             const hiddenRendered = await live.evaluate((fids) => [...fids].map((f) => document.querySelector(`[data-fid="${f}"]`)).filter((e) => e && e.checkVisibility()).map((e) => /** @type {HTMLElement} */ (e).innerText ?? "").join(" "),
                 Object.entries(places).filter(([f, q]) => !q.rendered && livePlaces[f]?.rendered && (places[livePlaces[f].parent ?? ""]?.rendered ?? true)).map(([f]) => f));
-            missingCauses["marked hidden, which innerText reads (zero size, clipped)"] = explain(onlyLive, bag(words(hiddenRendered)));
+            missingCauses["marked hidden, which innerText reads (transparent, zero size, clipped)"] = explain(onlyLive, bag(words(hiddenRendered)));
             return {
                 bytes: c.bytes, cut: c.cut ?? 0,
                 disagree,
@@ -429,7 +435,7 @@ for (const file of files) {
                     onlyLive: [...onlyLive].filter(([, n]) => n > 0).slice(0, 80),
                     cuts: [...c.html.matchAll(/<([a-z0-9-]+)[^>]*data-agex-cut="(\d+)"/g)].map((m) => `${m[1]} ${m[2]}`),
                 } }),
-                selectors: { n: selectors.length, agree, agreeKept, kinds, causes },
+                selectors: { n: selectors.length, agree, agreeKept, countOnly, kinds, causes },
                 // of the elements a capture means to keep: not the page's code or styling
                 kept: Object.keys(places).length / Math.max(Object.values(livePlaces).filter((p) => !p.dropped).length, 1),
                 text: {
@@ -446,7 +452,7 @@ for (const file of files) {
         rows.push({ page: name, elements, shadowRoots, bytes: whole.bytes, ms, cappedBytes: capped.bytes, cappedMs, cut: capped.cut ?? 0, uncut, capped: cut });
         const pct = (/** @type {number} */ x) => `${(x * 100).toFixed(1)}%`;
         console.log(
-            `${name.padEnd(12)} ${String(elements).padStart(6)} els ${String(shadowRoots).padStart(4)} roots ${String(Math.round(whole.bytes / 1024)).padStart(6)} KB ${String(ms).padStart(5)} ms` +
+            `${name.padEnd(12)} ${String(elements).padStart(6)} els ${String(shadowRoots).padStart(4)} roots ${String(Math.round(whole.bytes / 1024)).padStart(6)} KB ${String(cappedMs).padStart(5)} ms` +
             `${capped.cut ? ` cut ${Math.round(capped.cut / 1024)} KB` : ""} | selectors ${pct(uncut.selectors.agree / uncut.selectors.n)} (cut: ${pct(cut.selectors.agree / cut.selectors.n)}, on what it kept ${pct(cut.selectors.agreeKept / cut.selectors.n)}, ${pct(cut.kept)} of elements kept)` +
             ` | text recall ${pct(uncut.text.recall)} precision ${pct(uncut.text.precision)}`,
         );
@@ -463,6 +469,10 @@ writeFileSync(join(outDir, "fidelity.json"), `${JSON.stringify(rows, null, 2)}\n
 
 // the totals
 const ok = rows.filter((r) => !r.error);
+if (ok.length === 0) {
+    console.error(`no page completed (${rows.length} failed)`);
+    process.exit(1);
+}
 /** @param {"uncut" | "capped"} which */
 const totals = (which) => {
     const kinds = /** @type {Record<string, { n: number, agree: number }>} */ ({});
@@ -470,7 +480,9 @@ const totals = (which) => {
     let n = 0;
     let agree = 0;
     let agreeKept = 0;
+    let countOnly = 0;
     for (const r of ok) {
+        countOnly += r[which].selectors.countOnly;
         n += r[which].selectors.n;
         agree += r[which].selectors.agree;
         agreeKept += r[which].selectors.agreeKept;
@@ -481,12 +493,12 @@ const totals = (which) => {
         }
         for (const [k, v] of Object.entries(r[which].selectors.causes)) causes[k] = (causes[k] ?? 0) + /** @type {number} */ (v);
     }
-    return { n, agree, agreeKept, kinds, causes };
+    return { n, agree, agreeKept, countOnly, kinds, causes };
 };
 const pct = (/** @type {number} */ x) => `${(x * 100).toFixed(1)}%`;
 for (const which of /** @type {const} */ (["uncut", "capped"])) {
     const t = totals(which);
-    console.log(`\n${which}: selectors agree ${t.agree}/${t.n} (${pct(t.agree / t.n)}); on what the capture kept ${pct(t.agreeKept / t.n)}`);
+    console.log(`\n${which}: selectors match the same elements ${t.agree}/${t.n} (${pct(t.agree / t.n)}); on what the capture kept ${pct(t.agreeKept / t.n)}; as many but others ${t.countOnly}`);
     for (const [k, v] of Object.entries(t.kinds)) console.log(`  ${k.padEnd(22)} ${pct(v.agree / v.n).padStart(6)} of ${v.n}`);
     console.log(`  disagreements by cause: ${Object.entries(t.causes).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(", ")}`);
 }
@@ -498,7 +510,7 @@ const textTotals = (/** @type {"onlyCaptured" | "onlyLive"} */ side) => {
 const liveWords = ok.reduce((n, r) => n + r.uncut.text.liveWords, 0);
 const capturedWords = ok.reduce((n, r) => n + r.uncut.text.capturedWords, 0);
 const common = ok.reduce((n, r) => n + r.uncut.text.common, 0);
-console.log(`\ntext: recall ${pct(common / liveWords)}, precision ${pct(common / capturedWords)} (${liveWords} live words, ${capturedWords} captured)`);
+if (liveWords > 0 && capturedWords > 0) console.log(`\ntext: recall ${pct(common / liveWords)}, precision ${pct(common / capturedWords)} (${liveWords} live words, ${capturedWords} captured)`);
 console.log(`  only captured: ${JSON.stringify(textTotals("onlyCaptured"))}`);
 console.log(`  only live:     ${JSON.stringify(textTotals("onlyLive"))}`);
 
@@ -510,6 +522,6 @@ const median = (xs) => {
 };
 const read = ok.filter((r) => r.uncut.text.liveWords >= 20);
 console.log(`\n${ok.length} pages (${rows.length - ok.length} failed), ${ok.filter((r) => r.cut > 0).length} over the default size`);
-console.log(`  capture: median ${Math.round(median(ok.map((r) => r.bytes)) / 1024)} KB, max ${Math.round(Math.max(...ok.map((r) => r.bytes)) / 1024)} KB; median ${median(ok.map((r) => r.ms))} ms, max ${Math.max(...ok.map((r) => r.ms))} ms`);
-console.log(`  text per page (${read.length} with 20 words or more): recall median ${pct(median(read.map((r) => r.uncut.text.recall)))}, min ${pct(Math.min(...read.map((r) => r.uncut.text.recall)))}; precision median ${pct(median(read.map((r) => r.uncut.text.precision)))}, min ${pct(Math.min(...read.map((r) => r.uncut.text.precision)))}`);
+console.log(`  capture: median ${Math.round(median(ok.map((r) => r.bytes)) / 1024)} KB, max ${Math.round(Math.max(...ok.map((r) => r.bytes)) / 1024)} KB; median ${median(ok.map((r) => r.cappedMs))} ms, max ${Math.max(...ok.map((r) => r.cappedMs))} ms (within the default size)`);
+if (read.length > 0) console.log(`  text per page (${read.length} with 20 words or more): recall median ${pct(median(read.map((r) => r.uncut.text.recall)))}, min ${pct(Math.min(...read.map((r) => r.uncut.text.recall)))}; precision median ${pct(median(read.map((r) => r.uncut.text.precision)))}, min ${pct(Math.min(...read.map((r) => r.uncut.text.precision)))}`);
 console.log(`  selectors per page: median ${pct(median(ok.map((r) => r.uncut.selectors.agree / r.uncut.selectors.n)))}, min ${pct(Math.min(...ok.map((r) => r.uncut.selectors.agree / r.uncut.selectors.n)))}`);
