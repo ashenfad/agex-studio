@@ -1,15 +1,24 @@
 /**
- * The toolbar's popup, for the tab in front: its site, and submitting the
- * page as the person sees it for the site's agent to filter, after a
- * warning that says where it goes. Opening the popup is the person's
- * click on the extension, which lets it read that one tab (`activeTab`).
+ * The toolbar's popup, for the tab in front and its site: submitting the
+ * page as the person sees it for the site's agent (after a warning that
+ * says where it goes); the filter the agent presented, previewed on the
+ * page and accepted or turned down; and once there's one, the site's
+ * filter turned on or off, its hidden things shown, extended with this
+ * page, or removed. Opening the popup is the person's click on the
+ * extension, which lets it read that one tab (`activeTab`); accepting is
+ * the click Chrome asks for the site's permission on.
+ *
+ * `?tab=<id>` names the tab instead of the one in front (the tests').
  */
 
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id));
+const button = (/** @type {string} */ id) => /** @type {HTMLButtonElement} */ ($(id));
+const input = (/** @type {string} */ id) => /** @type {HTMLInputElement} */ ($(id));
 
 /**
  * An op of the service worker's.
  * @param {string} op @param {Record<string, unknown>} [args]
+ * @returns {Promise<any>}
  */
 async function ask(op, args = {}) {
     const reply = await chrome.runtime.sendMessage({ op, ...args });
@@ -22,46 +31,123 @@ function statusText(status) {
     if (status === null) return "";
     if (status.state === "working") return "Its agent is working on this site.";
     if (status.state === "failed") return `Its agent stopped: ${status.error}`;
-    return "Its agent has finished.";
+    return "";
 }
 
-async function show() {
+/** Say `e` in the status line. @param {unknown} e */
+function fail(e) {
+    $("status").hidden = false;
+    $("status").textContent = String(/** @type {Error} */ (e)?.message ?? e);
+}
+
+/** The tab the popup is about. */
+async function tabOf() {
+    const named = new URLSearchParams(location.search).get("tab");
+    if (named !== null) return Number(named);
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const page = tab?.id === undefined ? { site: null } : await ask("page", { tabId: tab.id });
+    return tab?.id;
+}
+
+/** Whether the candidate or the hidden things are outlined on the page now. */
+let outlining = false;
+
+async function show() {
+    const tabId = await tabOf();
+    const page = tabId === undefined ? { site: null } : await ask("page", { tabId });
+    for (const id of ["candidate", "applied", "submit-section", "forget"]) $(id).hidden = true;
     if (page.site === null) {
         $("site").textContent = "Not a site's page";
         return;
     }
-    $("site").textContent = page.site;
+    const site = page.site;
+    $("site").textContent = site;
     const status = statusText(page.status);
     $("status").hidden = status === "";
     $("status").textContent = status;
-    $("warning").hidden = false;
-    $("warning").textContent = `The page as it is now goes to your model's service, and stays on this device as one of ${page.site}'s pages.`;
-    if (page.password) {
-        $("warning").className = "warn";
-        $("warning").textContent += " It has a password field: submit it only if nothing on it is private.";
+    input("pause").checked = page.paused === true;
+    $("forget").hidden = page.candidate === null && page.applied === null && page.status === null;
+    const working = page.status?.state === "working";
+
+    if (page.candidate !== null) {
+        const hidden = page.candidate.pages.reduce((/** @type {number} */ n, /** @type {{ hidden: number }} */ p) => n + p.hidden, 0);
+        $("candidate").hidden = false;
+        $("candidate-text").textContent = `A filter is ready: it hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. Preview it here, then accept it or say what's wrong.`;
+        button("preview").textContent = outlining ? "End preview" : "Preview";
+    } else if (page.applied !== null) {
+        $("applied").hidden = false;
+        input("on").checked = page.applied.on;
+        const count = await ask("filterCount", { tabId });
+        $("count").textContent = page.paused ? "All filters are paused." : !page.applied.on ? "Off for this site." : `${count} hidden on this page.`;
+        $("hint").hidden = !(page.applied.on && !page.paused && count === 0);
+        button("show").textContent = outlining ? "Hide them again" : "Show hidden";
     }
-    const submit = /** @type {HTMLButtonElement} */ ($("submit"));
-    submit.hidden = false;
-    submit.disabled = page.status?.state === "working";
-    submit.onclick = async () => {
-        submit.disabled = true;
-        try {
-            await ask("submit", { tabId: tab.id });
-            $("status").hidden = false;
-            $("status").textContent = statusText({ state: "working" });
-        } catch (e) {
-            $("status").hidden = false;
-            $("status").textContent = String(/** @type {Error} */ (e)?.message ?? e);
-            submit.disabled = false;
-        }
+    if (page.candidate === null && (page.applied === null || !$("hint").hidden)) {
+        // a first page, or one the filter misses: submitting it extends the filter
+        $("submit-section").hidden = false;
+        button("submit").textContent = page.applied === null ? "Filter this site" : "Extend the filter with this page";
+        button("submit").disabled = working;
+        $("warning").className = page.password ? "warn" : "muted";
+        $("warning").textContent = `The page as it is now goes to your model's service, and stays on this device as one of ${site}'s pages.` +
+            (page.password ? " It has a password field: submit it only if nothing on it is private." : "");
+    }
+
+    button("submit").onclick = () => act(async () => ask("submit", { tabId }));
+    button("preview").onclick = () =>
+        act(async () => {
+            if (outlining) await ask("filterPreviewEnd", { tabId });
+            else await ask("filterPreview", { tabId, site, filter: page.candidate.filter });
+            outlining = !outlining;
+        });
+    button("accept").onclick = () =>
+        act(async () => {
+            // the site's permission, asked of Chrome from this click
+            const granted = await chrome.permissions.request({ origins: [`*://${site}/*`, `*://*.${site}/*`] });
+            if (!granted) throw new Error(`Without permission for ${site}, the filter can't apply there.`);
+            if (outlining) await ask("filterPreviewEnd", { tabId });
+            outlining = false;
+            await ask("accept", { site });
+        });
+    button("reject").onclick = () =>
+        act(async () => {
+            if (outlining) await ask("filterPreviewEnd", { tabId });
+            outlining = false;
+            await ask("reject", { site, reason: input("reason").value });
+        });
+    input("on").onchange = () => act(async () => ask("filterSetOn", { site, on: input("on").checked }));
+    button("show").onclick = () =>
+        act(async () => {
+            if (outlining) await ask("filterPreviewEnd", { tabId });
+            else await ask("filterPreview", { tabId, site, filter: page.applied.filter });
+            outlining = !outlining;
+        });
+    button("remove").onclick = () => act(async () => ask("filterRemove", { site }));
+    $("forget").onclick = (e) => {
+        e.preventDefault();
+        void act(async () => ask("forget", { site }));
     };
 }
 
+/** Do `change`, then show the popup again as things now stand. @param {() => Promise<unknown>} change */
+async function act(change) {
+    for (const b of document.querySelectorAll("button")) b.disabled = true;
+    try {
+        await change();
+    } catch (e) {
+        fail(e);
+        return;
+    } finally {
+        for (const b of document.querySelectorAll("button")) b.disabled = false;
+    }
+    await show().catch(fail);
+}
+
+input("pause").onchange = () => act(async () => ask("filterPause", { paused: input("pause").checked }));
 $("settings").onclick = (e) => {
     e.preventDefault();
     void chrome.runtime.openOptionsPage();
 };
 
-void show();
+void show().catch(fail);
+
+// a module, so its names are its own
+export {};
