@@ -58,6 +58,21 @@ neither widens the other's.
     (`pages/<n>.json`, `pages/<n>.jpg`, the latest eight kept), then a
     turn on it. The offscreen document runs the turn to its end and tells
     the worker, which keeps each site's state (`status`).
+  - The agent's tools (`host/site-tools.js`), on the site's saved pages
+    rebuilt from their captures, with the filter engine:
+    - `site`, for its code (which runs with no DOM): `site.pages()`,
+      `site.find(pattern)` (where text shows, and what holds it, for an
+      `upward` rule), `site.query(selector)`, `site.try(filter)` (each
+      rule's matches and samples, and how much of each page's text the
+      filter hides).
+    - `present_filter`: the site's filter file (`filters/<site>.json`)
+      checked and tried on every saved page, where it has to hide
+      something and never more than half a page's text; on a pass the
+      worker keeps it as the site's candidate for the person.
+    - The `site-filters` skill (`skills/site-filters.md`): the format,
+      the operators, what's stable to select by, trying before
+      presenting. A page's screenshot is the agent's to look at when its
+      model takes images.
   - `ids.js`: the fixed ids of the builds that load unpacked.
 - `test/`: end to end, each build loaded into Playwright's Chromium,
   with every host under `filters.test` sent to this machine (the dev
