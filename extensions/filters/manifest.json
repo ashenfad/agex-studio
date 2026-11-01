@@ -3,11 +3,16 @@
   "name": "Agex Site Filters",
   "description": "An agent that writes a filter for each site you submit a page from, hiding the clutter and native ads lists miss.",
   "version": "0.1.0",
+  "minimum_chrome_version": "125",
   "permissions": [
     "activeTab",
+    "declarativeNetRequest",
     "offscreen",
     "scripting",
     "storage"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
   ],
   "background": {
     "service_worker": "background.js",
