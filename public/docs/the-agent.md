@@ -19,6 +19,7 @@ Everything it changes is versioned, so you can undo any turn (see
 | Apps | Builds an interactive app under `app/`, which the preview beside the chat shows as it changes, and checks it by clicking through it. | *"Build a flashcard game for multiplication."* |
 | Web search and pages | Searches the web, and reads a page to answer a question about it. *Needs an OpenRouter key.* | *"What changed in the latest Svelte release?"* |
 | Images, speech, music | Makes pictures, spoken audio and music clips, for a reply or an app. *Needs an OpenRouter key.* | *"Make a pixel-art knight sprite for my game."* |
+| Browser tabs | Opens the sites you allow it in Chrome tabs, to search, compare and fill in forms, and reads or acts in a tab you share with it. *Needs the studio's extension* (see [Browser tabs](#browser)). | *"Compare three hotels near the Lisbon airport for December 3 to 6."* |
 | PDFs | Reads a PDF's text, and renders pages as images to look at. | *"Summarize the tables in this report."* |
 | Helper agents | Hands a judgment call over many items (classify, extract, summarize each) to helper agents its code calls like a function, many at once. | *"Classify these 200 reviews by sentiment."* |
 | Delegates | Hands separable pieces of work to delegates that run alongside it (see below). | *"Have one delegate write the story and another the poem."* |
@@ -123,5 +124,6 @@ and report back. It decides when to; you can also ask for it.
 
 The agent can reach public web pages and APIs your browser can, and
 files you bring in. It can't sign in to your accounts or reach
-private services on your behalf. Its code runs in a sandbox: no access
+private services on your behalf, beyond a tab you share with it (see
+[Browser tabs](#browser)). Its code runs in a sandbox: no access
 to this page, your other tabs, or files outside the studio.

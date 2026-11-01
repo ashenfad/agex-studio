@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>A long page</title>
+<style>.item { height: 120px; border-bottom: 1px solid #ddd }</style>
+<h1>A long page</h1>
+<script>
+    for (let i = 1; i <= 30; i++) document.write(`<div class="item">Room ${i}</div>`);
+    // its first turn of the wheel goes nowhere, as one a background tab drops would
+    addEventListener("wheel", (e) => e.preventDefault(), { passive: false, once: true });
+</script>
+<p>The end.</p>

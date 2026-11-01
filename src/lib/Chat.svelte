@@ -14,10 +14,17 @@
     import DelegateStrip from './DelegateStrip.svelte'
     import EmptyState from './EmptyState.svelte'
     import { Nearby, provideNearby } from './lazy.js'
-    import { attachmentsOf } from './notes.js'
+    import { attachmentsOf, sharesOf } from './notes.js'
     import { keepReading, readingAt } from './reading.js'
     import KeyRequest from './KeyRequest.svelte'
+    import SitesRequest from './SitesRequest.svelte'
+    import ConfirmRequest from './ConfirmRequest.svelte'
+    import HandoffRequest from './HandoffRequest.svelte'
+    import GoOnRequest from './GoOnRequest.svelte'
+    import SharedTabCard from './SharedTabCard.svelte'
+    import { browserAsks } from './browser-asks.svelte.js'
     import { keyRequests } from './key-requests.svelte.js'
+    import { siteRequests } from './site-requests.svelte.js'
     import LiveTurn from './LiveTurn.svelte'
     import RunView from './RunView.svelte'
     import { isConfigured, settingsStore } from './settings.js'
@@ -35,10 +42,23 @@
         const text = first?.role === 'user' ? first.parts.map((p) => (p.kind === 'text' ? p.text : '')).join('') : ''
         await act(async () => {
             await session.undo(run.runId)
-            const { paths, text: words } = attachmentsOf(text)
+            const { paths, text: rest } = attachmentsOf(text)
+            const { shares, text: words } = sharesOf(rest)
             session.draft = words
             session.attached = paths
+            session.sharedTabs = shares
+            // as they stand now: one ended or changed since isn't named as it was
+            await studio.shares.remind(session)
         })
+    }
+
+    /** A queued message taken back before the agent read it: the tabs it
+     *  named wait in the composer again, as they stand now.
+     *  @param {{ id: string, text: string }} q */
+    function withdraw(q) {
+        if (!session.withdraw(q.id)) return
+        studio.shares.untell(session.name, sharesOf(attachmentsOf(q.text).text).shares)
+        void studio.shares.remind(session)
     }
 
     /** @type {HTMLElement | undefined} */
@@ -251,14 +271,32 @@
         {/if}
         {#if session.busy}
             <LiveTurn {session} prompt={session.prompt} parts={session.live} />
-            {@const asked = keyRequests.asking[session.name]}
-            {#if asked !== undefined}
-                {#key asked}<KeyRequest session={session.name} question={asked} />{/key}
+            <!-- the one card the session's agent asks with now, by its kind -->
+            {@const askedKey = keyRequests.open(session.name)}
+            {@const askedSites = siteRequests.open(session.name)}
+            {@const askedConfirm = browserAsks.openConfirm(session.name)}
+            {@const askedHandoff = browserAsks.openHandoff(session.name)}
+            {@const askedGoOn = browserAsks.openGoOn(session.name)}
+            {#if askedKey !== undefined}
+                {#key askedKey}<KeyRequest session={session.name} question={askedKey} />{/key}
+            {:else if askedSites !== undefined}
+                {#key askedSites}<SitesRequest session={session.name} question={askedSites} />{/key}
+            {:else if askedConfirm !== undefined}
+                {#key askedConfirm}<ConfirmRequest session={session.name} question={askedConfirm} />{/key}
+            {:else if askedHandoff !== undefined}
+                {#key askedHandoff}<HandoffRequest session={session.name} question={askedHandoff} />{/key}
+            {:else if askedGoOn !== undefined}
+                {#key askedGoOn}<GoOnRequest session={session.name} />{/key}
             {/if}
+        {/if}
+        <!-- a tab the person shared from the extension's toolbar, waiting for a session -->
+        {#if studio.shares.waiting.length > 0 && !session.readonly}
+            {@const share = studio.shares.waiting[0]}
+            {#key share.tab}<SharedTabCard {share} current={session.name} />{/key}
         {/if}
         {#each session.queued as q (q.id)}
             <div class="mine">
-                <UserBubble {session} text={q.text} label="Queued · reaches the agent with its next step" faded onWithdraw={() => session.withdraw(q.id)} />
+                <UserBubble {session} text={q.text} label="Queued · reaches the agent with its next step" faded onWithdraw={() => withdraw(q)} />
             </div>
         {/each}
         {#if session.error}

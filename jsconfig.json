@@ -20,6 +20,6 @@
   // Getting src/ to zero is what makes the JSDoc load-bearing; typing
   // the suite is worthwhile follow-up work, not a blocker for gating
   // CI on the production surface.
-  "include": ["src/**/*.js", "src/**/*.svelte", "src/**/*.d.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.js", "src/lib/skills/*/references/**"]
+  "include": ["src/**/*.js", "src/**/*.svelte", "src/**/*.d.ts", "extension/src/**/*.js"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.js", "src/lib/skills/*/references/**", "extension/src/**/*.test.js"]
 }

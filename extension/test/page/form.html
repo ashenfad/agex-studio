@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Book a room</title>
+<h1>Book a room</h1>
+<form action="form.html"><label>Where <input name="q"></label> <button>Search</button></form>
+<form id="pay"><label>Card name <input name="card"></label> <button>Pay now</button></form>
+<p><button onclick="out('reserved')">Reserve</button> <button onclick="out(`clicked ${event.isTrusted}`)">Show photos</button></p>
+<p><label>Guests <select onchange="out(`guests ${this.value}`)"><option>1</option><option>2</option><option disabled>3</option><optgroup label="Groups" disabled><option>10</option></optgroup></select></label></p>
+<p><button onclick="out('deleted')"><img alt="Delete" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button>
+  <span id="trash-name">Delete booking</span><button aria-labelledby="trash-name" onclick="out('removed')">🗑</button></p>
+<p><label>Nights <input type="number" id="nights" value="3"></label></p>
+<p><label>Arrive <input type="date" id="arrive"></label></p>
+<p><label>Depart <input type="date" id="depart" value="2026-12-06" readonly></label> <label>Colour <input type="color" id="colour" value="#336699"></label></p>
+<p><input id="notes" aria-label="Notes"></p>
+<div id="list"><button onclick="rebuild()">Refresh list</button></div>
+<p style="position: relative"><button>Under the banner</button><span style="position: absolute; inset: 0; background: #eee">Cookie banner</span></p>
+<p style="position: relative; width: 300px"><button style="width: 300px" onclick="out('half')">Half covered</button><span style="position: absolute; left: 100px; width: 100px; top: 0; bottom: 0; background: #eee">Badge</span></p>
+<!-- result rows whose link lies under the row's own content, as some search pages draw them -->
+<div style="position: relative; width: 420px; height: 48px" onclick="out(`row ${event.isTrusted}`)">
+  <div role="link" tabindex="0" aria-label="From 583 to Lisbon" style="position: absolute; inset: 0" onkeydown="if (event.key === 'Enter') out(`row key ${event.isTrusted}`)"></div>
+  <div style="position: relative; height: 100%">Total duration 11 hr 50 min · From $583</div>
+</div>
+<div style="position: relative; width: 420px; height: 48px">
+  <div role="link" aria-label="From 706 to Lisbon" style="position: absolute; inset: 0" onclick="out('row 706')"></div>
+  <div style="position: relative; height: 100%"><button style="width: 100%; height: 100%" onclick="out('removed row')">Remove</button></div>
+</div>
+<p><span role="button" onclick="out('tag')">Tag</span></p>
+<p><span role="switch" tabindex="0" aria-checked="false" aria-label="Publish" style="display: inline-block; width: 30px; height: 16px; background: #ccc" onclick="out('published')"></span></p>
+<p role="tablist"><span role="tab" tabindex="0" onclick="out('hotel only')">Book hotel</span> <span role="tab" tabindex="0">Book flight + hotel</span></p>
+<!-- a calendar that reuses its day cells when it moves on: the cell that read 24 reads 23 -->
+<p id="cal"><button>23</button> <button>24</button></p>
+<!-- a combobox drawn as a box around its field; and one that opens its field only once clicked -->
+<p><span role="combobox" tabindex="0" aria-label="Course search" aria-expanded="false"><span>Search</span> <input placeholder="Type a place" style="border: 0"></span></p>
+<p><span role="combobox" tabindex="0" aria-label="Empty picker" aria-expanded="false">Nearby courses</span></p>
+<p><span role="combobox" tabindex="0" aria-label="Locked search" aria-disabled="true"><input placeholder="Locked"></span></p>
+<form id="wrapped"><span role="button">Wrapped <input id="inner" aria-label="Inner code"></span> <button>Book now</button></form>
+<p><button onclick="document.getElementById('inner').focus()">Focus inside</button></p>
+<p><a id="away">Elsewhere</a></p>
+<p>Out: <span id="out"></span></p>
+<script>
+    const out = (t) => (document.getElementById("out").textContent += `${t}; `);
+    for (const day of document.querySelectorAll("#cal button")) {
+        day.addEventListener("click", () => {
+            out(`picked ${day.textContent}`);
+            for (const d of document.querySelectorAll("#cal button")) d.textContent = String(Number(d.textContent) - 1);
+        });
+    }
+    document.getElementById("wrapped").addEventListener("submit", (e) => (e.preventDefault(), out("booked")));
+    document.getElementById("pay").addEventListener("submit", (e) => (e.preventDefault(), out("paid")));
+    document.getElementById("arrive").addEventListener("change", (e) => out(`arrive ${e.isTrusted} ${e.target.value}`));
+    document.getElementById("nights").addEventListener("input", (e) => out(`nights ${e.target.value}`));
+    document.getElementById("notes").addEventListener("input", (e) => out(`typed ${e.isTrusted} ${e.target.value}`));
+    // as a framework re-renders: the same button, a new element
+    const rebuild = () => (document.getElementById("list").innerHTML = `<button onclick="rebuild()">Refresh list</button>`);
+    document.getElementById("away").href = `${location.origin.replace("127.0.0.1", "localhost")}/test/page/site.html?id=leak-click`;
+</script>

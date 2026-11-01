@@ -18,6 +18,12 @@
  * made available under the same name. An agent's grants are apart from
  * its session's app's: granting one gives the other nothing.
  *
+ * A session's agent may also have sites: the domains its browser tabs
+ * may load (`agentSites`, under `agent:<session>` too), each with its
+ * subdomains (see `site-grants.js`). They go with its key grants: a
+ * fork's agent has its parent's, a delegate its top session's, and a
+ * session forgotten takes them.
+ *
  * It is kept in this device's `localStorage`, under a key of its own,
  * and nowhere else: not synced, not bundled, not published, and not in
  * any app's storage. Apps run on another origin, so can't read it.
@@ -28,6 +34,7 @@
  */
 
 import { checkKeyOrigins, secretNameRefusal } from "./app-needs.js";
+import { checkDomains, covered, isDomain } from "./site-grants.js";
 import { readLocalJson, writeLocalJson } from "./local.js";
 
 /** Where the vault is kept. */
@@ -49,6 +56,8 @@ export const LABEL_MAX = 80;
  *   and the origins the person approved it for
  * @typedef {Record<string, Record<string, AgentGrant>>} AgentGrants
  *   agent key (`agentKeyOf`), then secret name, to its grant
+ * @typedef {Record<string, string[]>} AgentSites agent key, then the
+ *   domains its tabs may load
  * @typedef {Readonly<Record<string, { value: string, origins: string[] }>>} AgentSecrets
  *   a profile's `secrets`
  */
@@ -193,15 +202,21 @@ export class Vault {
     models = $state({});
     /** Each session's agent's grants. @type {AgentGrants} */
     agentGrants = $state({});
+    /** Each session's agent's sites. @type {AgentSites} */
+    agentSites = $state({});
     /** Each entry's value, by id. @type {Map<string, string>} */
     #values = new Map();
+    /** Called after each change, this page's or another tab's. @type {Set<() => void>} */
+    #onChange = new Set();
 
     constructor() {
         this.#load();
         // another tab's change shows here
         if (typeof window !== "undefined") {
             window.addEventListener("storage", (e) => {
-                if (e.key === STORAGE_KEY) this.#load();
+                if (e.key !== STORAGE_KEY) return;
+                this.#load();
+                this.#changed();
             });
         }
     }
@@ -252,16 +267,31 @@ export class Vault {
                 (agentGrants[agent] ??= {})[name] = { entry: g.entry, origins: [...g.origins] };
             }
         }
+        /** @type {AgentSites} */
+        const agentSites = {};
+        const sites = typeof kept.agentSites === "object" && kept.agentSites !== null ? kept.agentSites : {};
+        for (const [agent, domains] of Object.entries(sites)) {
+            if (!agent.startsWith("agent:") || !Array.isArray(domains)) continue;
+            const valid = domains.filter(isDomain);
+            if (valid.length > 0) agentSites[agent] = valid;
+        }
         this.entries = entries;
         this.grants = grants;
         this.models = models;
         this.agentGrants = agentGrants;
+        this.agentSites = agentSites;
         this.#values = values;
     }
 
     #save() {
         const entries = this.entries.map((e) => ({ id: e.id, label: e.label, value: this.#values.get(e.id), origins: [...e.origins], ...(e.agentName !== undefined && { agentName: e.agentName }) }));
-        writeLocalJson(STORAGE_KEY, { entries, grants: $state.snapshot(this.grants), models: $state.snapshot(this.models), agentGrants: $state.snapshot(this.agentGrants) });
+        writeLocalJson(STORAGE_KEY, {
+            entries,
+            grants: $state.snapshot(this.grants),
+            models: $state.snapshot(this.models),
+            agentGrants: $state.snapshot(this.agentGrants),
+            agentSites: $state.snapshot(this.agentSites),
+        });
     }
 
     /** Make a change to the vault as it is kept now (another tab's
@@ -270,7 +300,19 @@ export class Vault {
         this.#load();
         const out = fn();
         this.#save();
+        this.#changed();
         return out;
+    }
+
+    #changed() {
+        for (const f of this.#onChange) f();
+    }
+
+    /** Call `fn` after each change to the vault, this page's or another
+     *  tab's; returns the stopping. @param {() => void} fn */
+    onChange(fn) {
+        this.#onChange.add(fn);
+        return () => this.#onChange.delete(fn);
     }
 
     /** Entry `id`, or a refusal. @param {string} id */
@@ -507,10 +549,52 @@ export class Vault {
         });
     }
 
-    /** Session `session` is gone: its agent's grants go. A delegate's
-     *  are its top session's, which keeps them. @param {string} session */
+    /** Session `session` is gone: its agent's grants and sites go. A
+     *  delegate's are its top session's, which keeps them.
+     *  @param {string} session */
     forgetAgent(session) {
-        if (!session.includes(".")) this.revokeAgent(session);
+        if (session.includes(".")) return;
+        this.revokeAgent(session);
+        this.revokeSites(session);
+    }
+
+    /**
+     * Let session `session`'s agent open `domains` (each with its
+     * subdomains) in its tabs, beside the sites it has. Refused for
+     * anything that isn't a domain. A delegate's are its top session's.
+     *
+     * @param {string} session @param {string[]} domains
+     */
+    grantSites(session, domains) {
+        this.#change(() => {
+            const checked = checkDomains(domains);
+            if (checked.errors.length > 0) throw new VaultError(checked.errors);
+            const key = agentKeyOf(session);
+            const have = this.agentSites[key] ?? [];
+            const more = checked.domains.filter((d) => !covered(have, d));
+            // a domain granted now covers a subdomain granted before
+            const kept = have.filter((h) => !more.some((d) => h.endsWith(`.${d}`)));
+            if (more.length > 0) this.agentSites[key] = [...kept, ...more];
+        });
+    }
+
+    /** Take back session `session`'s agent's site `domain`, or with none
+     *  every site it has. @param {string} session @param {string} [domain] */
+    revokeSites(session, domain) {
+        this.#change(() => {
+            const key = agentKeyOf(session);
+            const have = this.agentSites[key];
+            if (have === undefined) return;
+            const left = domain === undefined ? [] : have.filter((d) => d !== domain);
+            if (left.length > 0) this.agentSites[key] = left;
+            else delete this.agentSites[key];
+        });
+    }
+
+    /** The domains session `session`'s agent may open, each with its
+     *  subdomains. @param {string} session @returns {string[]} */
+    sitesOf(session) {
+        return [...(this.agentSites[agentKeyOf(session)] ?? [])];
     }
 
     /** Session `session`'s agent's grants, by secret name.
@@ -529,14 +613,20 @@ export class Vault {
         );
     }
 
-    /** Give session `to`'s agent session `from`'s agent's grants (a fork
-     *  its parent's), beside any of its own. @param {string} from @param {string} to */
+    /** Give session `to`'s agent session `from`'s agent's grants and
+     *  sites (a fork its parent's), beside any of its own.
+     *  @param {string} from @param {string} to */
     copyAgentGrants(from, to) {
         const [fromKey, toKey] = [agentKeyOf(from), agentKeyOf(to)];
         if (fromKey === toKey) return;
         this.#change(() => {
             const grants = this.agentGrants[fromKey];
             if (grants !== undefined) this.agentGrants[toKey] = { ...this.agentGrants[toKey], ...$state.snapshot(grants) };
+            const sites = this.agentSites[fromKey];
+            if (sites !== undefined) {
+                const have = this.agentSites[toKey] ?? [];
+                this.agentSites[toKey] = [...have, ...sites.filter((d) => !covered(have, d))];
+            }
         });
     }
 
@@ -569,7 +659,13 @@ export class Vault {
 
     /** The vault as it may be shown: entries without values. */
     toJSON() {
-        return { entries: $state.snapshot(this.entries), grants: $state.snapshot(this.grants), models: $state.snapshot(this.models), agentGrants: $state.snapshot(this.agentGrants) };
+        return {
+            entries: $state.snapshot(this.entries),
+            grants: $state.snapshot(this.grants),
+            models: $state.snapshot(this.models),
+            agentGrants: $state.snapshot(this.agentGrants),
+            agentSites: $state.snapshot(this.agentSites),
+        };
     }
 
     toString() {

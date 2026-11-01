@@ -406,3 +406,54 @@ describe("an app's key", () => {
         expect(sessionsOf("session:gone", sessions)).toEqual([]);
     });
 });
+
+describe("an agent's sites", () => {
+    it("are granted to the session's agent, kept, and had by its delegates", () => {
+        const v = new Vault();
+        v.grantSites("s1", ["marriott.com", "https://www.hyatt.com/"]);
+        expect(v.sitesOf("s1")).toEqual(["marriott.com", "hyatt.com"]);
+        expect(v.sitesOf("s1.d1")).toEqual(["marriott.com", "hyatt.com"]);
+        expect(new Vault().sitesOf("s1")).toEqual(["marriott.com", "hyatt.com"]);
+        expect(v.sitesOf("s2")).toEqual([]);
+    });
+
+    it("add to what the agent has, a domain covering a subdomain granted before", () => {
+        const v = new Vault();
+        v.grantSites("s1", ["book.marriott.com", "ihg.com"]);
+        v.grantSites("s1", ["marriott.com", "ihg.com"]);
+        expect(v.sitesOf("s1")).toEqual(["ihg.com", "marriott.com"]);
+    });
+
+    it("refuses what isn't a domain, granting none", () => {
+        const v = new Vault();
+        expect(refused(() => v.grantSites("s1", ["hyatt.com", "com"]))).toEqual(['domains: "com" isn\'t a domain; name one like "marriott.com"']);
+        expect(v.sitesOf("s1")).toEqual([]);
+    });
+
+    it("are taken back one at a time or all at once", () => {
+        const v = new Vault();
+        v.grantSites("s1", ["marriott.com", "hyatt.com"]);
+        v.revokeSites("s1", "marriott.com");
+        expect(v.sitesOf("s1")).toEqual(["hyatt.com"]);
+        v.revokeSites("s1");
+        expect(v.sitesOf("s1")).toEqual([]);
+        expect(v.agentSites).toEqual({});
+    });
+
+    it("go to a fork's agent, and go with a session forgotten, but not with a delegate", () => {
+        const v = new Vault();
+        v.grantSites("s1", ["marriott.com"]);
+        v.grantSites("s2", ["hyatt.com"]);
+        v.copyAgentGrants("s1", "s2");
+        expect(v.sitesOf("s2")).toEqual(["hyatt.com", "marriott.com"]);
+        v.forgetAgent("s1.d1");
+        expect(v.sitesOf("s1")).toEqual(["marriott.com"]);
+        v.forgetAgent("s1");
+        expect(v.sitesOf("s1")).toEqual([]);
+    });
+
+    it("drop what isn't a domain when read back", () => {
+        items.set(STORAGE_KEY, JSON.stringify({ entries: [], agentSites: { "agent:s1": ["hyatt.com", "https://x.com", 7], nope: ["ihg.com"], "agent:s2": "ihg.com" } }));
+        expect(new Vault().agentSites).toEqual({ "agent:s1": ["hyatt.com"] });
+    });
+});

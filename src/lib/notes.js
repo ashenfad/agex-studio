@@ -41,6 +41,59 @@ export function attachmentsOf(text) {
     return { paths, text: text.slice(m[0].length) };
 }
 
+/**
+ * A tab the person shared with the session, as a message names it: its
+ * id, title and URL, the site it's worked in on, and whether the agent
+ * may act there or only read it.
+ *
+ * @typedef {{ tab: number, title: string, url: string, domain: string, acts: boolean }} SharedTab
+ */
+
+/** A line naming a shared tab, one per tab, after the files attached:
+ *  the title as JSON, so a quote or a bracket in it reads back whole. */
+const SHARED = /^\[shared tab (\d+): ("(?:[^"\\]|\\.)*") · (\S+); (read only|you may act in it) while it's on ([^\]\s]+)\]\n?/;
+
+/**
+ * A message with the tabs the person shared since naming them first,
+ * for the agent: what "this page" means, before it does anything.
+ *
+ * @param {string} text @param {readonly SharedTab[]} shares
+ */
+export function withShares(text, shares) {
+    const lines = shares.map(
+        (s) => `[shared tab ${s.tab}: ${JSON.stringify(s.title || "(untitled)")} · ${s.url}; ${s.acts ? "you may act in it" : "read only"} while it's on ${s.domain}]`,
+    );
+    return lines.length === 0 ? text : `${lines.join("\n")}\n${text}`;
+}
+
+/**
+ * A message's shared tabs (after its files: `attachmentsOf` first) and its words.
+ *
+ * @param {string} text
+ * @returns {{ shares: SharedTab[], text: string }}
+ */
+export function sharesOf(text) {
+    /** @type {SharedTab[]} */
+    const shares = [];
+    let rest = text;
+    for (let m = SHARED.exec(rest); m !== null; m = SHARED.exec(rest)) {
+        let title;
+        try {
+            title = JSON.parse(/** @type {string} */ (m[2]));
+        } catch {
+            break;
+        }
+        shares.push({ tab: Number(m[1]), title, url: /** @type {string} */ (m[3]), domain: /** @type {string} */ (m[5]), acts: m[4] !== "read only" });
+        rest = rest.slice(m[0].length);
+    }
+    return { shares, text: rest };
+}
+
+/** What a message says, without the files or tabs it names. @param {string} text */
+export function wordsOf(text) {
+    return sharesOf(attachmentsOf(text).text).text;
+}
+
 /** The frames the world's inbox puts before a note (its default frame):
  *  the person's, and the delegation mechanism's. */
 const PERSON = /^\[message from .+ — it arrived while you were in this tool call and is delivered with this result; it is NOT part of the tool's output\]$/;

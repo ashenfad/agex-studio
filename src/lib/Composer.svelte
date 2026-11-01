@@ -1,20 +1,24 @@
 <script>
     /**
      * Where the person writes: one card holding the files attached to the
-     * next message (as chips), the message itself (growing as it does),
+     * next message and the tabs shared with the session since the last one
+     * (as chips), the message itself (growing as it does),
      * and a row with `+` to attach files (from this device, or Google
      * Drive) and the send button, which is Stop while a turn runs with
      * nothing written.
      *
      * Files attach at once, added under uploads/ as one commit each time;
-     * the chips say which the next message names to the agent. Pasting an
+     * the chips say which the next message names to the agent, and so for a
+     * tab shared from the extension's toolbar (`shared-tabs.svelte.js`): the
+     * agent learns of it with the message, before it does anything. Pasting an
      * image attaches it too. Sent while a turn runs, a message is queued:
      * it reaches the agent with its next tool result.
      */
     import { errorText } from './errors.js'
     import ContextMeter from './ContextMeter.svelte'
     import { isDriveImportAvailable, pickFromDrive } from './drive-import.js'
-    import { withAttachments } from './notes.js'
+    import { withAttachments, withShares } from './notes.js'
+    import { studio } from './studio.svelte.js'
     import { isConfigured, settingsStore } from './settings.js'
 
     /** @type {{ session: import('./session.svelte.js').ChatSession }} */
@@ -34,7 +38,7 @@
     const drive = isDriveImportAvailable()
 
     const configured = $derived(isConfigured($settingsStore))
-    const written = $derived(session.draft.trim() !== '' || session.attached.length > 0)
+    const written = $derived(session.draft.trim() !== '' || session.attached.length > 0 || session.sharedTabs.length > 0)
 
     // the box grows with the message, up to a point, then scrolls
     $effect(() => {
@@ -88,9 +92,12 @@
 
     function send() {
         if (!written || !configured || attaching) return
-        const message = withAttachments(session.draft.trim(), session.attached)
+        const shares = session.sharedTabs
+        const message = withAttachments(withShares(session.draft.trim(), shares), session.attached)
         session.draft = ''
         session.attached = []
+        session.sharedTabs = []
+        studio.shares.told(session.name, shares)
         problem = ''
         void session.say(message)
     }
@@ -121,6 +128,14 @@
         session.attached = session.attached.filter((p) => p !== path)
     }
 
+    /** A shared tab left out of the next message: still shared, and the
+     *  agent can find it in its tabs. @param {number} tab */
+    function unmention(tab) {
+        const left = session.sharedTabs.filter((s) => s.tab === tab)
+        session.sharedTabs = session.sharedTabs.filter((s) => s.tab !== tab)
+        studio.shares.told(session.name, left)
+    }
+
     const placeholder = $derived(
         !configured ? (session.runs.length > 0 ? 'To carry on the conversation, choose a model in settings' : 'Choose a model to start') : session.busy ? 'Add a note to the turn running (it reaches the agent with its next step)…' : 'Ask for something…',
     )
@@ -129,8 +144,14 @@
 <svelte:window onclick={() => (menuOpen = false)} />
 
 <div class="card" class:disabled={!configured}>
-    {#if session.attached.length || attaching}
+    {#if session.attached.length || session.sharedTabs.length || attaching}
         <div class="chips">
+            {#each session.sharedTabs as s (s.tab)}
+                <span class="chip tab" title="{s.url} · {s.acts ? 'its agent can use this page' : 'read only'} while it stays on {s.domain}">
+                    tab: {s.title || s.domain}{s.acts ? '' : ' · read only'}
+                    <button class="remove" onclick={() => unmention(s.tab)} aria-label="Don't mention {s.title || s.domain}" title="Don't mention it (it stays shared)">×</button>
+                </span>
+            {/each}
             {#each session.attached as p (p)}
                 <span class="chip" title={p}>
                     {p.split('/').at(-1)}

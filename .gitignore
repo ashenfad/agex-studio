@@ -27,3 +27,7 @@ public/wheels/
 
 # Driver profiles (scripts/drive.mjs --profile)
 .drive-profile/
+
+# The outline bench: sites' own pages, and what was read of them
+extension/bench/pages/
+extension/bench/out/

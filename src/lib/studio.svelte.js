@@ -16,6 +16,10 @@ import { onScreen } from "./status.js";
 import { PLANE, metaOf, newName, openStore, settleFork } from "./store.js";
 import { forgetLiveVariables } from "./variables.js";
 import { appKeyOf, vault } from "./vault.svelte.js";
+import { browserExtension } from "./browser-extension.svelte.js";
+import { watchSites } from "./site-sync.js";
+import { browser } from "./browser.js";
+import { SharedTabs } from "./shared-tabs.svelte.js";
 
 /** @typedef {import("@agex-ts/world").Workspace} Workspace */
 /** @typedef {import("./store.js").SessionInfo} SessionInfo */
@@ -59,12 +63,35 @@ export class Studio {
      *  what reads every open session's status follows new ones. */
     /** @type {SvelteMap<string, ChatSession>} */
     #open = new SvelteMap();
+    /** The agents' sites, kept given to the browser extension.
+     *  @type {ReturnType<typeof watchSites> | null} */
+    #sites = null;
+    /** Tabs the person shares from the extension's toolbar, waiting for a
+     *  session: one given to a session opens it, and its agent is told. */
+    shares = new SharedTabs({
+        browser,
+        tell: async (name) => {
+            await this.#sites?.tell(name);
+        },
+        given: async (name) => {
+            await this.switchTo(name);
+            const session = this.#open.get(name);
+            if (session !== undefined) await this.shares.remind(session);
+        },
+        changed: () => this.#remindShares(),
+    });
+    /** @type {(() => void) | null} */
+    #watchingShares = null;
 
     /** Open the store, list the sessions, and open the one last looked
      *  at; with none, a new one, unless `empty` (a published session is
      *  about to open, and is the first). */
     async init({ empty = false } = {}) {
         await this.refresh();
+        // the agents' sites, kept given to the browser extension
+        this.#sites ??= watchSites({ vault, extension: browserExtension, titleOf: (name) => this.sessions.find((s) => s.name === name)?.title || "Your agent" });
+        // and the tabs the person shares from its toolbar, taken as they come
+        this.#watchingShares ??= this.#watchShares();
         const last = readLocal(CURRENT_KEY);
         const target = this.sessions.find((s) => s.name === last) ?? this.sessions[0];
         if (target) await this.switchTo(target.name);
@@ -87,6 +114,32 @@ export class Studio {
             }),
         );
         this.sessions = infos.sort((a, b) => b.updatedAt - a.updatedAt);
+        // a renamed session's tab group follows
+        this.#sites?.sync();
+    }
+
+    /** Shares from the toolbar taken as they come, and the open sessions
+     *  reminded of the tabs shared with them each time the extension's
+     *  port opens. Returns the stopping. */
+    #watchShares() {
+        const stopWatch = this.shares.watch(browserExtension);
+        const stopRemind = browserExtension.onOpen(() => this.#remindShares());
+        // shared, stopped or changed from the extension's toolbar: looked at again at once
+        const stopEvents = browserExtension.onEvent((event) => {
+            if (event !== "shares") return;
+            void this.shares.refresh();
+            this.#remindShares();
+        });
+        return () => {
+            stopWatch();
+            stopRemind();
+            stopEvents();
+        };
+    }
+
+    /** Each open session told of the tabs shared with it, as they are now. */
+    #remindShares() {
+        for (const s of this.openSessions()) void this.shares.remind(s);
     }
 
     /** Called with a session's name when its content changed here (a
@@ -203,6 +256,7 @@ export class Studio {
         if (session === undefined) {
             session = this.#watch(new ChatSession(name, this));
             await session.open();
+            if (!session.readonly) void this.shares.remind(session);
         }
         this.current = session;
         if (onScreen()) session.seen();
