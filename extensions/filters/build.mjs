@@ -79,6 +79,8 @@ export async function build(mode) {
         external: ["node:*", "worker_threads"],
     };
     await esbuild().build({ ...common, entryPoints: ENTRIES.map((e) => join(here, "src", e)), outdir: out, format: "esm" });
+    // the content script, a classic script: it is both registered for a site's pages and put in a tab
+    await esbuild().build({ ...common, entryPoints: [join(here, "src", "apply", "content.js")], outfile: join(out, "apply-content.js"), format: "iife" });
     // the kernel's worker, whole, as a classic script (`src/host/worker.js`)
     const kernel = join(out, "kernel-worker.js");
     await esbuild().build({ ...common, entryPoints: [join(root, "node_modules", "@agex-ts", "world", "dist", "worker.js")], outfile: kernel, format: "iife" });

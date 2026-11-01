@@ -4,6 +4,7 @@
  * manifest names no `externally_connectable`.
  */
 
+import { applyOps } from "./apply/sites.js";
 import { capturePage } from "./capture/walk.js";
 import { siteOfHost } from "./site.js";
 
@@ -73,6 +74,7 @@ const OPS = {
     /** Site `site`'s candidate filter, or null when none waits. */
     candidate: async ({ site }) => (await candidates())[/** @type {string} */ (site)] ?? null,
 };
+Object.assign(OPS, applyOps);
 
 /** The site of the page at `url`, or null when it isn't a web page of one. @param {string | undefined} url */
 function siteOf(url) {
