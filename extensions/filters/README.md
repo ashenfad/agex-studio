@@ -39,8 +39,16 @@ neither widens the other's.
     applies a filter to a page or tests it on a capture.
   - `capture/`: a page as the person sees it, and its rebuild for
     testing filters away from the live page.
+  - `app/`: the extension's own page (its options page, and for now
+    what the toolbar button opens): the person's model and key, with
+    the studio's `ModelSettings` and styles, saved in the extension's
+    `localStorage` (the offscreen document reads them again when they
+    change), and the sites with a session. Built with Vite and Svelte.
   - `ids.js`: the fixed ids of the builds that load unpacked.
-- `test/`: end to end, each build loaded into Playwright's Chromium.
+- `test/`: end to end, each build loaded into Playwright's Chromium;
+  `model-server.mjs` is a model service of the tests' own, in the
+  OpenAI-compatible shape, so a turn on the person's-model path needs no
+  key.
 - `build.mjs`, `dev-key.pub`, `site-key.pub`: the builds (below).
 
 ## Building

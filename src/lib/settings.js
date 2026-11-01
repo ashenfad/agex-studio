@@ -151,6 +151,13 @@ export function updateSettings(patch) {
     for (const fn of subscribers) fn(settings);
 }
 
+/** The settings read again from storage, as another page of this
+ *  origin may have saved them (a `storage` event says when). */
+export function reloadSettings() {
+    settings = load();
+    for (const fn of subscribers) fn(settings);
+}
+
 /** The settings now: a snapshot, replaced (never changed) by updates.
  *  @returns {Settings} */
 export function getSettings() {
