@@ -25,6 +25,8 @@ import { classicBlobWorkers, workerUrl } from "./host/worker.js";
 const TOOL_CALLS = 40;
 /** The most tokens one model reply may take. */
 const MAX_TOKENS = 16_000;
+/** The most pages a site keeps, the latest: a filter has to hold up on each. */
+const PAGES_KEPT = 8;
 
 classicBlobWorkers();
 
@@ -90,6 +92,12 @@ function workspace(site) {
     return /** @type {Promise<import("@agex-ts/world").Workspace>} */ (open.get(name));
 }
 
+/** A data URL's bytes. @param {string} url */
+function dataUrlBytes(url) {
+    const b64 = url.slice(url.indexOf(",") + 1);
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
 /** The turn running or last run: the next waits for it, whatever its site. */
 let turns = Promise.resolve();
 
@@ -119,6 +127,26 @@ const COMMANDS = {
     /** A turn of site `site`'s session on `prompt`, once the turn before it
      *  (any site's) has ended; `model` names the model and `thinking` is
      *  its effort, from the person's settings. */
+    /** A page the person submitted, saved as site `site`'s next page
+     *  (`pages/<n>.json`, and its screenshot `pages/<n>.jpg`), only the
+     *  latest `PAGES_KEPT` kept; after any turn running, so a page never
+     *  lands mid-turn. `shot`: a JPEG's data URL, or null. */
+    submit: ({ site, capture, shot }) => {
+        const run = turns.then(async () => {
+            const ws = await workspace(site);
+            const had = (await ws.files.exists("pages")) ? await ws.files.list("pages") : [];
+            const numbers = had.flatMap((name) => (/^\d+\.json$/.test(name) ? [Number.parseInt(name, 10)] : [])).sort((a, b) => a - b);
+            const n = (numbers.at(-1) ?? 0) + 1;
+            await ws.files.write(`pages/${n}.json`, JSON.stringify(capture));
+            if (typeof shot === "string") await ws.files.write(`pages/${n}.jpg`, dataUrlBytes(shot));
+            for (const old of numbers.slice(0, Math.max(0, numbers.length + 1 - PAGES_KEPT))) {
+                for (const path of [`pages/${old}.json`, `pages/${old}.jpg`]) if (await ws.files.exists(path)) await ws.files.remove(path);
+            }
+            return { page: `pages/${n}` };
+        });
+        turns = run.then(() => {}, () => {});
+        return run;
+    },
     turn: ({ site, prompt, model, thinking }) => {
         const run = turns.then(async () => {
             const agent = new Agent({

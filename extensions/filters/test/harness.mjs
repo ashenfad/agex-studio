@@ -9,6 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 
+/** The domain the tests' sites are on (`shop.filters.test`, `filters.test`): Chromium sends
+ *  it and every subdomain to this machine, and the dev build may reach them with no click. */
+export const TEST_SITE = "filters.test";
+
 /**
  * Chromium with the build at `dir` loaded, and its service worker.
  *
@@ -19,7 +23,7 @@ export async function launch(dir) {
     const context = await chromium.launchPersistentContext(profile, {
         channel: "chromium",
         headless: process.env.HEADED !== "1",
-        args: [`--disable-extensions-except=${dir}`, `--load-extension=${dir}`],
+        args: [`--disable-extensions-except=${dir}`, `--load-extension=${dir}`, `--host-resolver-rules=MAP *.${TEST_SITE} 127.0.0.1, MAP ${TEST_SITE} 127.0.0.1`],
     });
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
     return {

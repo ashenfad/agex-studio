@@ -16,6 +16,7 @@ import { AiSdkProvider, ScriptedProvider } from "agex-ts";
 import { buildModel, modelOf, thinkingOf } from "../../../src/lib/model.js";
 import { STORAGE_KEY, getSettings, reloadSettings } from "../../../src/lib/settings.js";
 import { serveKv } from "./host/kv.js";
+import { submittedPrompt } from "./host/prompts.js";
 import { serveStream } from "./host/provider.js";
 
 /** The IndexedDB database the agent's sessions live in. */
@@ -113,6 +114,18 @@ window.addEventListener("message", async (e) => {
  */
 async function command(msg) {
     await ready;
+    if (msg.cmd === "submit") {
+        // the page saved, then a turn on it, run here to its end: it can outlast what one
+        // message keeps the service worker up for, so the worker hears when it's done
+        const { site, capture, shot, steps } = /** @type {any} */ (msg);
+        const saved = await ask({ cmd: "submit", site, capture, shot });
+        const prompt = submittedPrompt({ site, page: saved.page, url: capture.url, title: capture.title, shot: typeof shot === "string" });
+        command({ cmd: "turn", site, prompt, ...(__DEV__ && steps !== undefined && { steps }) }).then(
+            (outcome) => chrome.runtime.sendMessage({ event: "turn-ended", site, outcome }),
+            (e) => chrome.runtime.sendMessage({ event: "turn-ended", site, error: String(e?.message ?? e) }),
+        );
+        return saved;
+    }
     if (msg.cmd === "turn") {
         // one at a time, so each turn's provider is its own for the whole turn
         const run = turns.then(() => {

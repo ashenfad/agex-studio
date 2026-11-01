@@ -4,8 +4,10 @@
   "description": "An agent that writes a filter for each site you submit a page from, hiding the clutter and native ads lists miss.",
   "version": "0.1.0",
   "permissions": [
-    "storage",
-    "offscreen"
+    "activeTab",
+    "offscreen",
+    "scripting",
+    "storage"
   ],
   "background": {
     "service_worker": "background.js",
@@ -18,7 +20,8 @@
     "128": "icons/128.png"
   },
   "action": {
-    "default_title": "Filter this site"
+    "default_title": "Filter this site",
+    "default_popup": "popup.html"
   },
   "sandbox": {
     "pages": [

@@ -44,8 +44,24 @@ neither widens the other's.
     the studio's `ModelSettings` and styles, saved in the extension's
     `localStorage` (the offscreen document reads them again when they
     change), and the sites with a session. Built with Vite and Svelte.
+  - `popup.html`, `popup.js`: the toolbar's popup, for the tab in front:
+    its site, and *Filter this site*, after a warning that says where the
+    page goes (stronger when it has a password field). Opening it is the
+    person's click on the extension, which lets it read that tab
+    (`activeTab`).
+  - `site.js`: a page's site, its registrable domain by the Public Suffix
+    List (`tldts`, private domains included: `foo.github.io` is its own).
+  - A submission (`submit` in `background.js`): the tab captured
+    (`capture/walk.js`, closed shadow roots too, through
+    `chrome.dom.openOrClosedShadowRoot`) with a screenshot of what's in
+    view, saved as the site's next page in its session
+    (`pages/<n>.json`, `pages/<n>.jpg`, the latest eight kept), then a
+    turn on it. The offscreen document runs the turn to its end and tells
+    the worker, which keeps each site's state (`status`).
   - `ids.js`: the fixed ids of the builds that load unpacked.
-- `test/`: end to end, each build loaded into Playwright's Chromium;
+- `test/`: end to end, each build loaded into Playwright's Chromium,
+  with every host under `filters.test` sent to this machine (the dev
+  build may reach them with no click);
   `model-server.mjs` is a model service of the tests' own, in the
   OpenAI-compatible shape, so a turn on the person's-model path needs no
   key.

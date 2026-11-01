@@ -19,9 +19,11 @@
  *   isn't captured.
  * - Every open shadow root, nested ones too, as a declarative one: a
  *   `<template shadowrootmode="open">` as its host's first child, then the
- *   host's light DOM, which its slots take once rebuilt. A closed root
- *   can't be read from the page and is absent; its host's light DOM is
- *   kept.
+ *   host's light DOM, which its slots take once rebuilt. A closed root is
+ *   written the same way (open, in the capture) where the walk can reach
+ *   it: from an extension's content script, through
+ *   `chrome.dom.openOrClosedShadowRoot`; from a page's own script it
+ *   can't, and the root is absent, its host's light DOM kept.
  * - `data-agex-box="left top width height"` on each element that renders
  *   a box: CSS pixels, in page coordinates (the viewport's plus its
  *   scroll), rounded.
@@ -219,7 +221,7 @@ export function capturePage({ maxBytes = 2_000_000 } = {}) {
         /** @type {Piece | null} */
         let template = null;
         if (!(html && (VOID.has(lower) || EMPTY.has(lower)))) {
-            const root = el.shadowRoot;
+            const root = el.shadowRoot ?? /** @type {any} */ (globalThis).chrome?.dom?.openOrClosedShadowRoot?.(el) ?? null;
             if (root) {
                 const flags = [
                     root.delegatesFocus && " shadowrootdelegatesfocus",
