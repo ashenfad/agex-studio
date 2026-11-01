@@ -15,7 +15,21 @@ neither widens the other's.
 - `src/`: what runs in the extension. Bundled, since it imports
   packages (agex-ts):
   - `background.js`: the service worker. It answers the extension's own
-    pages only.
+    pages only, and makes the offscreen document when the agent is
+    needed.
+  - `offscreen.js`: the offscreen document. It keeps the agent's store
+    (kvgit on the extension's IndexedDB) and frames the sandbox.
+  - `sandbox.js`: the sandboxed page (the manifest's `sandbox`), the one
+    page that may eval, where agex-ts runs: a session per site, the
+    world's kernel in a worker. Its origin is opaque and it has no
+    `chrome.*`, so it asks the offscreen document for its store
+    (`host/kv.js`). Its CSP (`SANDBOX_CSP` in `build.mjs`) allows no
+    connections: neither it nor the agent's code can send anything
+    anywhere.
+  - `host/`: the store across the sandbox's wall, and the kernel's
+    worker started as a classic one (a module worker from a blob can't
+    start in an opaque origin; the build refuses a kernel worker that
+    needs one).
   - `filter/`: the filter format, its guards, and the engine that
     applies a filter to a page or tests it on a capture.
   - `capture/`: a page as the person sees it, and its rebuild for
@@ -32,7 +46,9 @@ pnpm filters:build --site     # dist/site: the studio's download, a fixed id
 pnpm filters:build --dev      # dist/dev: a fixed id, for local work and the tests
 ```
 
-Scripts are bundled with esbuild (the version the repo's Vite brings).
+Scripts are bundled with esbuild (the version the repo's Vite brings),
+minified except in the dev build, which also has the tests' ops
+(`__DEV__`: a turn on a scripted model, the offscreen document closed).
 The site and dev builds each carry a public key, which fixes the id an
 unpacked copy has (`src/ids.js`). Neither needs its private key, and
 neither's is kept. The icons are the browsing extension's.
