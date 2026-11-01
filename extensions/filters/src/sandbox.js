@@ -17,6 +17,7 @@
 import { Agent, ScriptedProvider } from "agex-ts";
 import { Store } from "@agex-ts/world";
 import { remoteKv } from "./host/kv.js";
+import { runLog } from "./host/log.js";
 import { remoteProvider } from "./host/provider.js";
 import { sessionOf, siteOf } from "./host/sessions.js";
 import { presentFilterTool, siteHost } from "./host/site-tools.js";
@@ -129,6 +130,8 @@ const COMMANDS = {
     sites: async () => (await (await store()).sessions()).map(siteOf).filter((site) => site !== null),
     /** How many runs site `site`'s session has had. */
     runs: async ({ site }) => (await new Agent({ model: new ScriptedProvider([]) }).session(await workspace(site)).runs()).length,
+    /** Site `site`'s runs, newest first: what each did (`host/log.js`). */
+    log: async ({ site }) => runLog(await workspace(site)),
     /** A file of site `site`'s session, as text. */
     read: async ({ site, path }) => (await workspace(site)).files.readText(path),
     /** A turn of site `site`'s session on `prompt`, once the turn before it

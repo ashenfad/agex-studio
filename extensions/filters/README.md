@@ -43,7 +43,11 @@ neither widens the other's.
     what the toolbar button opens): the person's model and key, with
     the studio's `ModelSettings` and styles, saved in the extension's
     `localStorage` (the offscreen document reads them again when they
-    change), and the sites with a session. Built with Vite and Svelte.
+    change), and the sites with a session, each opening to its runs
+    (`host/log.js`, newest first): what each was asked, its tool calls
+    and their results, its last words, the tokens it used, and about
+    what they cost when OpenRouter's catalog prices the model. Built
+    with Vite and Svelte.
   - `popup.html`, `popup.js`: the toolbar's popup, for the tab in front
     and its site. Opening it is the person's click on the extension,
     which lets it read that tab (`activeTab`).
