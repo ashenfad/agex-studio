@@ -118,8 +118,8 @@ use Playwright's Chromium (`pnpm exec playwright install chromium`), or
 Chrome ignores `--load-extension`. `HEADED=1` shows the window.
 
 Most of their time is waiting out the worker's idle stop, not work, so
-`pnpm extension:test` builds every mode first (`EXTENSION_BUILT`) and
-runs the files four at a time, each in a Chromium and on ports of its
+`pnpm extension:test` (`test/run.mjs`) builds every mode first
+(`EXTENSION_BUILT`) and runs the files four at a time, each in a Chromium and on ports of its
 own: about a minute and a half, as long as the slowest file. Run alone
 (`node --test extension/test/tabs.e2e.mjs`), a file builds what it
 loads. The quiet port's idle stop and the heartbeat, which keeps the
