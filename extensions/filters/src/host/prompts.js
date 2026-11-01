@@ -6,12 +6,14 @@
 /**
  * The prompt for a turn after a submission.
  *
- * @param {{ site: string, page: string, url: string, title: string, shot: boolean }} submitted
+ * @param {{ site: string, page: string, url: string, title: string, shot: boolean, request?: string }} submitted
  *   `page`: the saved page's path without its extension (`pages/3`).
+ *   `request`: what the person asks to change, in their words.
  */
-export function submittedPrompt({ site, page, url, title, shot }) {
+export function submittedPrompt({ site, page, url, title, shot, request }) {
     return [
         `The person submitted a page of ${site} for filtering: ${JSON.stringify(title)} (${url}).`,
+        ...(request === undefined ? [] : [`With it, they ask: ${JSON.stringify(request)}. Change the site's filter as they ask, keeping what works.`]),
         `It's saved as ${page}.json (the page as they saw it: its HTML, every element's box, what doesn't show marked)${shot ? `, with a screenshot of what was in view at ${page}.jpg` : ""}.`,
         "Find what on it is clutter or advertising and write the site's filter so it hides that, on this page and the site's other saved pages, then present it. If the site has a filter already, extend it: keep what works. The site-filters skill says how.",
     ].join("\n");

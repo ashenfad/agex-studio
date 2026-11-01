@@ -59,6 +59,18 @@ neither widens the other's.
       here), removed.
     - Pause all filters; *Forget this site* (its filter, candidate,
       session and pages, and the permission).
+    - How the last turn ended, when it ended without a filter: the
+      agent's own last words, or why it stopped.
+    - An accepted filter changed: *Ask for changes* (the person's words,
+      with the page) or *Extend with this page*, either a turn whose new
+      version comes back to preview; the accepted one keeps working
+      meanwhile.
+  - `dots.js`: the toolbar icon's dot on a site's tabs, as the studio
+    marks its sessions: working (the accent), a filter waiting (green), a
+    turn that stopped or ended without one and isn't seen yet (amber).
+    Every ending also has a notice; a ready filter's stays until it's
+    dealt with, and when the person is on the site, the popup opens on
+    its own.
   - `site.js`: a page's site, its registrable domain by the Public Suffix
     List (`tldts`, private domains included: `foo.github.io` is its own).
   - A submission (`submit` in `background.js`): the tab captured

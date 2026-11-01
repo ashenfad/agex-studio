@@ -26,12 +26,26 @@ async function ask(op, args = {}) {
     return reply?.value;
 }
 
-/** The agent's state for a site, in words. @param {{ state: string, error?: string } | null} status */
-function statusText(status) {
+/**
+ * How the site's agent stands, in words: working (and for how long), or
+ * how its last turn ended when it ended without a filter to preview.
+ *
+ * @param {{ state: string, at: number, text?: string, error?: string } | null} status
+ * @param {boolean} candidate whether a filter it presented waits
+ */
+function statusText(status, candidate) {
     if (status === null) return "";
-    if (status.state === "working") return "Its agent is working on this site.";
+    if (status.state === "working") return `Its agent is working on this site (${since(status.at)}).`;
     if (status.state === "failed") return `Its agent stopped: ${status.error}`;
-    return "";
+    if (candidate) return "";
+    const words = (status.text ?? "").trim();
+    return `Its agent finished without a filter${words === "" ? "." : `: “${words.length > 300 ? `${words.slice(0, 299)}…` : words}”`}`;
+}
+
+/** How long ago `at` was, roughly. @param {number} at */
+function since(at) {
+    const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+    return s < 60 ? `${s}s` : `${Math.round(s / 60)} min`;
 }
 
 /** Say `e` in the status line. @param {unknown} e */
@@ -72,7 +86,9 @@ async function show() {
     }
     const site = page.site;
     $("site").textContent = site;
-    const status = statusText(page.status);
+    // the popup shows how the last turn ended: the site's amber dot goes
+    void ask("seen", { site }).catch(() => {});
+    const status = statusText(page.status, page.candidate !== null);
     $("status").hidden = status === "";
     $("status").textContent = status;
     $("forget").hidden = page.candidate === null && page.applied === null && page.status === null;
@@ -90,11 +106,15 @@ async function show() {
         $("count").textContent = page.paused ? "All filters are paused." : !page.applied.on ? "Off for this site." : `${count} hidden on this page.`;
         $("hint").hidden = !(page.applied.on && !page.paused && count === 0);
         button("show").textContent = outlining ? "Hide them again" : "Show hidden";
+        $("changes-note").className = page.password ? "warn" : "muted";
+        $("changes-note").textContent = "Changes go to the agent with this page, and come back as a new filter to preview." +
+            (page.password ? " This page has a password field: send it only if nothing on it is private." : "");
+        button("ask-changes").disabled = working;
+        button("extend").disabled = working;
     }
-    if (page.candidate === null && (page.applied === null || !$("hint").hidden)) {
-        // a first page, or one the filter misses: submitting it extends the filter
+    if (page.candidate === null && page.applied === null) {
+        // a site's first page
         $("submit-section").hidden = false;
-        button("submit").textContent = page.applied === null ? "Filter this site" : "Extend the filter with this page";
         button("submit").disabled = working;
         $("warning").className = page.password ? "warn" : "muted";
         $("warning").textContent = `The page as it is now goes to your model's service, and stays on this device as one of ${site}'s pages.` +
@@ -127,6 +147,19 @@ async function show() {
             if (outlining) await ask("filterPreviewEnd", { tabId });
             else await ask("filterPreview", { tabId, site, filter: page.applied.filter });
             outlining = !outlining;
+        });
+    // the page goes with either, so the agent sees what's meant
+    button("ask-changes").onclick = () =>
+        act(async () => {
+            const request = input("request").value.trim();
+            if (request === "") throw new Error("Say what should change, or extend the filter with this page.");
+            await endPreview(tabId);
+            await ask("submit", { tabId, request });
+        });
+    button("extend").onclick = () =>
+        act(async () => {
+            await endPreview(tabId);
+            await ask("submit", { tabId });
         });
     button("remove").onclick = () =>
         act(async () => {
