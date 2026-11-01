@@ -152,11 +152,19 @@ describe("a page's capture", () => {
         assert.match((await marks("zero-open")).box ?? "", / 0$/, "zero height, its child drawn below it");
         // the page's own annotations are gone: ours say it shows
         assert.equal((await marks("forged")).cut, null);
+        // a fully transparent element is hidden, with what's in it
+        assert.equal((await marks("faded")).hidden, true);
+        // one shown only for a visible descendant isn't hidden, and its own text, unseen, isn't written
+        assert.equal((await marks("mixed")).hidden, false);
+        assert.equal(await inRebuilt(`doc.getElementById("mixed").textContent.trim()`), "Visible words");
+        assert.doesNotMatch(capture.html, /Invisible words|more invisible/);
+        assert.match(capture.html, /Unseen/, "a hidden element keeps its text, marked");
         // `display: contents` draws no box, and isn't hidden: its children carry their own marks
         assert.deepEqual(await marks("contents"), { box: null, hidden: false, cut: null });
         const text = /** @type {string} */ (await inRebuilt(`capturedVisibleText(doc.body)`));
         for (const shown of ["Shown", "Peeking", "Escaped", "Forged but shown"]) assert.match(text, new RegExp(shown));
-        for (const gone of ["Gone", "Unseen", "Clipped", "Nothing shown"]) assert.doesNotMatch(text, new RegExp(gone));
+        for (const gone of ["Gone", "Unseen", "Clipped", "Nothing shown", "Invisible", "Faded text"]) assert.doesNotMatch(text, new RegExp(gone));
+        assert.match(text, /Visible words/);
     });
 
     it("marks what layout drew as a block, so its text reads as a line of its own", async () => {
