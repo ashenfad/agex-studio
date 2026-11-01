@@ -49,4 +49,15 @@ describe("the extension's page", () => {
         assert.equal(model.requests.length, 2);
         assert.equal(model.requests[0].model, "mock");
     });
+
+    it("shows what each of a site's runs did: asked, its calls and their results, and its last words", async () => {
+        await page.reload();
+        await page.getByRole("button", { name: /example\.com/ }).click();
+        await page.getByText("What's 6 * 7? Use code.").waitFor();
+        await page.getByText("The code printed 42.").waitFor();
+        await page.getByText("What it did").click();
+        await page.getByText("console.log(6 * 7)").waitFor();
+        assert.equal(await page.locator(".step pre.result").first().textContent(), "42");
+        assert.match(await page.locator(".run .hint").first().textContent() ?? "", /completed · 1 call/);
+    });
 });

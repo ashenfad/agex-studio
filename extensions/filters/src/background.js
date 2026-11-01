@@ -49,6 +49,9 @@ const OPS = {
     sites: () => agent("sites"),
     /** How many runs a site's session has had. */
     runs: ({ site }) => agent("runs", { site }),
+    /** A site's runs, newest first: what each was asked, its tool calls
+     *  and their results, how it ended, and what it used. */
+    log: ({ site }) => agent("log", { site }),
     /** A file of a site's session, as text. */
     read: ({ site, path }) => agent("read", { site, path }),
     /** A turn of a site's session, on the person's model. */
