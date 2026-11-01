@@ -3,18 +3,17 @@
 //
 //     pnpm extension:test
 //
-// The idle and heartbeat cases wait out the service worker's idle stop,
-// so the file takes a couple of minutes.
+// The idle case waits out the service worker's idle stop, so the file
+// takes a minute; the heartbeat, which keeps the worker up and so can't
+// share its browser, is `heartbeat.e2e.mjs`.
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { DEV_EXTENSION_ID, HEARTBEAT_MS, PROTOCOL } from "../src/protocol.js";
-import { launch } from "./harness.mjs";
+import { DEV_EXTENSION_ID, PROTOCOL } from "../src/protocol.js";
+import { build, launch } from "./harness.mjs";
 
 const ext = fileURLToPath(new URL("..", import.meta.url));
-const build = (...args) => execFileSync(process.execPath, [`${ext}/build.mjs`, ...args], { stdio: "ignore" });
 const version = JSON.parse((await import("node:fs")).readFileSync(`${ext}/manifest.json`, "utf8")).version;
 
 describe("the dev build", () => {
@@ -24,7 +23,7 @@ describe("the dev build", () => {
         build("--dev");
         browser = await launch({
             extension: `${ext}/dist/dev`,
-            query: { ext: DEV_EXTENSION_ID, scenarios: "reachable,hello,refusals,idle,heartbeat" },
+            query: { ext: DEV_EXTENSION_ID, scenarios: "reachable,hello,refusals,idle" },
         });
     });
     after(() => browser?.close());
@@ -49,12 +48,6 @@ describe("the dev build", () => {
         assert.notEqual(droppedAfterMs, null, "the quiet port never dropped");
         assert.ok(droppedAfterMs > 20_000, `dropped after ${droppedAfterMs}ms, before the idle limit`);
         assert.deepEqual(reconnected.value, { protocol: PROTOCOL, version });
-    });
-
-    it(`keeps a port pinged every ${HEARTBEAT_MS / 1000}s up past the idle limit`, async () => {
-        const { up, pings } = await browser.report("heartbeat", 120_000);
-        assert.equal(up, true);
-        assert.ok(pings >= 3, `${pings} pings`);
     });
 });
 

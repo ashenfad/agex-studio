@@ -16,12 +16,25 @@
  * Chrome ignores `--load-extension`). `HEADED=1` shows the window.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/**
+ * The extension built as `flags` say (`--dev`, `--site`, or none for the
+ * store's), into `extension/dist/<mode>`. Skipped when the run built every
+ * mode first (`EXTENSION_BUILT`, as `pnpm extension:test` does), so files
+ * running at once never write over a build another is loading.
+ *
+ * @param {...string} flags
+ */
+export function build(...flags) {
+    if (process.env.EXTENSION_BUILT) return;
+    execFileSync(process.execPath, [fileURLToPath(new URL("../build.mjs", import.meta.url)), ...flags], { stdio: "ignore" });
+}
 
 // the page imports the extension's own protocol module, as the studio will
 const root = fileURLToPath(new URL("..", import.meta.url));

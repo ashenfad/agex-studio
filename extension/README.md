@@ -115,5 +115,13 @@ tab tests serve a fixture site on `127.0.0.1`, granted, and on
 never reached it. They
 use Playwright's Chromium (`pnpm exec playwright install chromium`), or
 `CHROME`, a path to another Chromium or Chrome for Testing: branded
-Chrome ignores `--load-extension`. `HEADED=1` shows the window. Waiting
-out the worker's idle stop takes them a couple of minutes.
+Chrome ignores `--load-extension`. `HEADED=1` shows the window.
+
+Most of their time is waiting out the worker's idle stop, not work, so
+`pnpm extension:test` builds every mode first (`EXTENSION_BUILT`) and
+runs the files four at a time, each in a Chromium and on ports of its
+own: about a minute and a half, as long as the slowest file. Run alone
+(`node --test extension/test/tabs.e2e.mjs`), a file builds what it
+loads. The quiet port's idle stop and the heartbeat, which keeps the
+worker up, can't share a browser, so they're two files
+(`port.e2e.mjs`, `heartbeat.e2e.mjs`) that wait side by side.

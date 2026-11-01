@@ -58,8 +58,22 @@ jobs:
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
+    # Playwright's Chromium, kept between runs: the lockfile pins Playwright, and with it the
+    # browser; its system libraries aren't cached, so they're installed either way
+    - name: Cache Chromium
+      id: chromium
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
     - name: Install Chromium
+      if: steps.chromium.outputs.cache-hit != 'true'
       run: pnpm exec playwright install --with-deps chromium
+
+    - name: Install Chromium's system libraries
+      if: steps.chromium.outputs.cache-hit == 'true'
+      run: pnpm exec playwright install-deps chromium
 
     - name: Run the extension's tests
       run: pnpm extension:test
