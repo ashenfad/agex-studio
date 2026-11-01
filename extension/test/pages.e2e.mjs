@@ -5,11 +5,10 @@
 //     pnpm extension:test
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { DEV_EXTENSION_ID } from "../src/protocol.js";
-import { launch } from "./harness.mjs";
+import { build, launch } from "./harness.mjs";
 
 const ext = fileURLToPath(new URL("..", import.meta.url));
 
@@ -19,7 +18,7 @@ describe("a session's pages", () => {
     /** whether the server ever answered a request for the fixture `id` */
     const loaded = (id) => browser.served().some((r) => r.id === id);
     before(async () => {
-        execFileSync(process.execPath, [`${ext}/build.mjs`, "--dev"], { stdio: "ignore" });
+        build("--dev");
         browser = await launch({ extension: `${ext}/dist/dev`, query: { ext: DEV_EXTENSION_ID, scenarios: "pages,blockers,twoTurns,loading" } });
     });
     after(() => browser?.close());
