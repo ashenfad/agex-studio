@@ -75,11 +75,20 @@ describe("matches", () => {
         expect(names(matches(doc, ruleOf({ selector: "#a1 > span", upward: 3 }), plain))).toEqual([]);
         expect(names(matches(doc, ruleOf({ selector: "#a1 > span", upward: 2 }), plain))).toEqual(["div"]);
     });
+
+    it("never hides what holds the page's main content, however a selector names it", () => {
+        // qualified past the guard's bare page: the body's one wrapper, and an ancestor of main
+        const app = parseCapture('<body class="logged-in"><div id="app" class="shell"><div id="layout"><main><p class="ad">ad</p></main></div></div><script></script></body>');
+        for (const selector of ["body.logged-in > div", "#app", "#layout", ".shell div"]) {
+            expect(names(matches(app, ruleOf({ selector }), plain)), selector).toEqual([]);
+        }
+        expect(names(matches(app, ruleOf({ selector: "p.ad" }), plain))).toEqual(["p"]);
+    });
 });
 
-// a capture as the capture script leaves one: boxes on what draws, a
-// hidden mark on what doesn't, a shadow root declared, no scripts
-// as the walk writes it: boxes, blocks where layout drew one (the badges are inline)
+// a capture as the walk writes it: boxes on what draws, blocks marked where
+// layout drew one (the badges are inline), a hidden mark on what doesn't, a
+// shadow root declared, no scripts
 const CAPTURE = `<!doctype html><html data-agex-box="0 0 1280 3000" data-agex-block=""><head><title>Feed</title></head><body data-agex-box="0 0 1280 3000" data-agex-block=""><main data-agex-box="0 0 1280 3000" data-agex-block="">
   <article id="a1" data-agex-box="0 0 600 200" data-agex-block=""><span class="badge" id="s1" data-agex-box="10 10 80 20">Spon<span data-agex-hidden="">x</span>sored</span><p data-agex-box="10 40 500 20" data-agex-block="">Buy   now</p></article>
   <article id="a2" data-agex-hidden=""><span class="badge">Sponsored</span></article>

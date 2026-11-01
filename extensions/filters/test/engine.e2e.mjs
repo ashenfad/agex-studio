@@ -182,4 +182,44 @@ describe("the engine and the applier in a live page", () => {
         await page.waitForTimeout(300);
         assert.deepEqual(await hiddenIds(), [], "nothing is watching any more");
     });
+
+    it("reads the text a zero-size wrapper shows through what overflows it", async () => {
+        const text = await page.evaluate(() => {
+            const wrap = document.createElement("div");
+            wrap.style.height = "0";
+            wrap.innerHTML = '<span style="position:absolute">Sponsored</span>';
+            /** @type {Element} */ (document.getElementById("feed")).append(wrap);
+            const { engine } = /** @type {any} */ (window);
+            const out = { text: engine.liveView.text(wrap), visible: engine.liveView.visible(wrap) };
+            wrap.remove();
+            return out;
+        });
+        // it draws nothing of its own, but what it holds shows, and hiding it would hide that
+        assert.deepEqual(text, { text: "Sponsored", visible: false });
+    });
+
+    it("filters inside a shadow root attached after it started, which no mutation announces", async () => {
+        const hidden = await page.evaluate(async () => {
+            const { apply } = /** @type {any} */ (window);
+            const { checkFilter } = await import("/src/filter/format.js");
+            const late = document.createElement("x-late");
+            /** @type {Element} */ (document.getElementById("feed")).append(late);
+            const r = checkFilter({ version: 1, hide: [{ selector: ".late-ad" }] }, { site: "example.com" });
+            const applied = apply.applyFilter(document, r.ok ? r.filter : null, { mode: "hide", debounce: 50 });
+            // upgraded now: its shadow root is attached with nothing in the document changing
+            customElements.define("x-late", class extends HTMLElement {
+                constructor() {
+                    super();
+                    this.attachShadow({ mode: "open" }).innerHTML = '<span class="late-ad">ad</span>';
+                }
+            });
+            const ad = /** @type {Element} */ (late.shadowRoot?.querySelector(".late-ad"));
+            const until = Date.now() + 3000;
+            while (getComputedStyle(ad).display !== "none" && Date.now() < until) await new Promise((ok) => setTimeout(ok, 100));
+            const out = getComputedStyle(ad).display;
+            applied.stop();
+            return out;
+        });
+        assert.equal(hidden, "none");
+    });
 });

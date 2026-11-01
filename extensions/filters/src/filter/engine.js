@@ -129,7 +129,12 @@ export function composedParent(node) {
  */
 export function isPageRoot(el) {
     const doc = el.ownerDocument;
-    return el === doc.documentElement || el === doc.body || el.localName === "main" || el.getAttribute("role") === "main";
+    if (el === doc.documentElement || el === doc.body || el.localName === "main" || el.getAttribute("role") === "main") return true;
+    // what holds the page's main content, or the body's one wrapper (an app's mount point):
+    // hiding either hides the page, however the selector named it (`body.logged-in > div`)
+    const main = doc.querySelector("main, [role=main]");
+    if (main && el.contains(main)) return true;
+    return el.parentElement === doc.body && [...doc.body.children].filter((c) => !UNSEEN.has(c.localName)).length === 1;
 }
 
 /**
@@ -276,7 +281,9 @@ export function explain(root, filter, view) {
         const { hits, atRoot, error } = run(roots, rule, view);
         for (const el of hits) all.add(el);
         const shownHits = hits.filter((el) => view.visible(el));
-        const picked = [...shownHits, ...hits.filter((el) => !shownHits.includes(el))].slice(0, 3);
+        const shown = new Set(shownHits);
+        // those that show first; the rest only when fewer than three show
+        const picked = shownHits.length >= 3 ? shownHits.slice(0, 3) : [...shownHits, ...hits.filter((el) => !shown.has(el)).slice(0, 3 - shownHits.length)];
         /** @type {RuleReport} */
         const report = {
             rule: i,
@@ -336,7 +343,8 @@ export const liveView = {
     text(el) {
         const win = el.ownerDocument.defaultView;
         if (!win) return squash(el.textContent ?? "");
-        if (!liveView.visible(el)) return "";
+        // shown, whatever its own size: a zero-size wrapper's overflowing content shows
+        if (!drawn(el)) return "";
         /** @type {string[]} */
         const parts = [];
         /** @param {Element} e @param {CSSStyleDeclaration} style */
@@ -375,17 +383,30 @@ export const liveView = {
         };
     },
     visible(el) {
+        if (!drawn(el)) return false;
         const win = el.ownerDocument.defaultView;
-        // an element that draws no box of its own (a slot) shows as its parent does
-        if (win && win.getComputedStyle(el).display === "contents") {
-            const parent = composedParent(el);
-            return parent ? liveView.visible(parent) : true;
-        }
-        if (typeof el.checkVisibility === "function" && !el.checkVisibility({ visibilityProperty: true })) return false;
+        if (win && win.getComputedStyle(el).display === "contents") return true;
         const r = el.getBoundingClientRect();
         return r.width > 0 && r.height > 0;
     },
 };
+
+/**
+ * Whether `el` is drawn on the live page, at any size: not under
+ * `display: none` or `visibility: hidden`. An element that draws no box
+ * of its own (a slot) is drawn as its parent is.
+ *
+ * @param {Element} el
+ * @returns {boolean}
+ */
+function drawn(el) {
+    const win = el.ownerDocument.defaultView;
+    if (win && win.getComputedStyle(el).display === "contents") {
+        const parent = composedParent(el);
+        return parent ? drawn(parent) : true;
+    }
+    return typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true });
+}
 
 /**
  * A rebuilt capture's view, from the marks the capture left

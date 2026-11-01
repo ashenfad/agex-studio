@@ -38,6 +38,9 @@ const CSS = `[${FILTERED}="hide"]{display:none!important}` +
 /** @type {WeakMap<Document, Applied>} */
 const current = new WeakMap();
 
+/** How often, in ms, the applier looks for shadow roots attached since its last pass. */
+export const ROOTS_EVERY = 1000;
+
 /**
  * Apply `filter` to `doc` in `mode`, replacing what applied there before,
  * and keep it applied as the page changes until it is stopped. Changes
@@ -126,6 +129,12 @@ export function applyFilter(doc, filter, { mode = "hide", debounce = 100 } = {})
         observer.takeRecords();
     };
 
+    // a shadow root attached later (a custom element upgraded after the page loaded) changes
+    // nothing an observer sees until something inside it does: looked for now and then
+    const newRoots = setInterval(() => {
+        if (!stopped && shadowRoots(doc).some((root) => !watched.has(root))) schedule();
+    }, ROOTS_EVERY);
+
     /** @type {Applied} */
     const applied = {
         mode,
@@ -135,6 +144,7 @@ export function applyFilter(doc, filter, { mode = "hide", debounce = 100 } = {})
             stopped = true;
             observer.disconnect();
             clearTimeout(timer);
+            clearInterval(newRoots);
             for (const root of [doc, ...shadowRoots(doc)]) {
                 for (const el of root.querySelectorAll(`[${FILTERED}]`)) el.removeAttribute(FILTERED);
             }
