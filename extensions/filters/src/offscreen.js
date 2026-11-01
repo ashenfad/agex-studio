@@ -14,7 +14,7 @@
 import { IndexedDB } from "@agex-ts/kvgit/backends/idb";
 import { AiSdkProvider, ScriptedProvider } from "agex-ts";
 import { buildModel, modelOf, thinkingOf } from "../../../src/lib/model.js";
-import { getSettings } from "../../../src/lib/settings.js";
+import { STORAGE_KEY, getSettings, reloadSettings } from "../../../src/lib/settings.js";
 import { serveKv } from "./host/kv.js";
 import { serveStream } from "./host/provider.js";
 
@@ -28,6 +28,11 @@ const sandbox = () => /** @type {Window} */ (frame.contentWindow);
 
 /** @type {Promise<import("@agex-ts/kvgit").KVStore> | null} */
 let kv = null;
+
+// the person saved settings on the extension's page: the next turn uses them
+window.addEventListener("storage", (e) => {
+    if (e.key === STORAGE_KEY) reloadSettings();
+});
 
 /** In the dev build, the replies a scripted model gives the next turn
  *  instead of the person's model (the tests'). @type {any[] | null} */

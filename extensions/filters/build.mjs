@@ -9,7 +9,8 @@
  *
  * Its scripts are bundled (esbuild, as Vite has it): the extension runs
  * agex-ts, so unlike the browsing extension's plain modules they import
- * packages. The site and dev builds carry a public key each
+ * packages. Its own page (`src/app/`) is built with Vite and Svelte, as
+ * the studio is, since it reuses the studio's model settings. The site and dev builds carry a public key each
  * (`site-key.pub`, `dev-key.pub`), which fixes an unpacked copy's id
  * (`src/ids.js`); no private key is needed for either, nor kept.
  */
@@ -18,6 +19,8 @@ import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
+import { build as vite } from "vite";
 import { idOf } from "../../extension/build.mjs";
 import { DEV_FILTERS_ID, SITE_FILTERS_ID } from "./src/ids.js";
 
@@ -78,6 +81,16 @@ export async function build(mode) {
     const needsModule = moduleSyntax(readFileSync(kernel, "utf8"));
     if (needsModule) throw new Error(`the kernel's worker uses ${needsModule}, so it can't run as a classic worker in the sandbox`);
     for (const page of PAGES) cpSync(join(here, "src", page), join(out, page));
+    await vite({
+        configFile: false,
+        root: join(here, "src", "app"),
+        base: "./",
+        // zod's comments make Rollup warn on every build; errors still show
+        logLevel: "error",
+        plugins: [svelte({ configFile: join(root, "svelte.config.js") })],
+        define: common.define,
+        build: { outDir: join(out, "app"), emptyOutDir: true, minify: common.minify, rollupOptions: { input: join(here, "src", "app", "app.html") } },
+    });
     // the studio's braces, as the browsing extension draws them
     cpSync(join(root, "extension", "icons"), join(out, "icons"), { recursive: true });
     writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

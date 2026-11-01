@@ -24,5 +24,9 @@
     "pages": [
       "sandbox.html"
     ]
+  },
+  "options_ui": {
+    "page": "app/app.html",
+    "open_in_tab": true
   }
 }

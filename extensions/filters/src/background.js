@@ -60,6 +60,9 @@ if (__DEV__) {
     };
 }
 
+// until the toolbar has a popup of its own, its button opens the extension's page
+chrome.action.onClicked.addListener(() => void chrome.runtime.openOptionsPage());
+
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     // only the extension's own pages (a content script's sender is the site's
     // page), and not what's meant for the offscreen document
