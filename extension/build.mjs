@@ -121,7 +121,7 @@ function files(dir) {
 
 /** An unpacked extension's id from its manifest key: the first 128 bits
  *  of the key's SHA-256, each hex digit spelled a to p. @param {string} key */
-function idOf(key) {
+export function idOf(key) {
     const hex = createHash("sha256").update(Buffer.from(key, "base64")).digest("hex").slice(0, 32);
     return [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
 }
