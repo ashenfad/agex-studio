@@ -1,6 +1,6 @@
 # Privacy
 
-*Last updated: 2026-10-14.*
+*Last updated: 2026-10-31.*
 
 ## What agex.studio is
 
@@ -68,6 +68,13 @@ agex.studio connects out only when you choose to:
   published. Opening a published link fetches the gist from
   GitHub, and the studio later asks GitHub whether it has a newer
   version.
+- **Browser tabs.** With the studio's browser extension, the agent
+  opens the sites you've allowed it in tabs of their own, and reads a
+  tab you share with it. What it reads there goes into its
+  conversation, and so to your LLM provider. The extension keeps the
+  sessions' names, their allowed sites and their tabs in its own
+  storage in your browser, and answers only agex.studio. See
+  [Browser tabs](#browser).
 - **Code packages.** When the agent's code or an app imports a
   package, it is fetched from esm.sh. Charts load Plotly from
   cdn.plot.ly, and PDFs load pdf.js from jsDelivr. These requests

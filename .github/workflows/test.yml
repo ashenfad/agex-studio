@@ -3,8 +3,8 @@ name: Tests
 on:
   push:
     branches: [ main ]
+  # every pull request, whatever its base (a feature branch's included)
   pull_request:
-    branches: [ main ]
 
 jobs:
   test:
@@ -36,3 +36,30 @@ jobs:
     # worker
     - name: Build
       run: pnpm build
+
+  # the browser extension, loaded into Chromium: its port to a page
+  # playing the studio, the service worker's idle stop and the heartbeat
+  extension:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11.0.4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Install Chromium
+      run: pnpm exec playwright install --with-deps chromium
+
+    - name: Run the extension's tests
+      run: pnpm extension:test

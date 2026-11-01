@@ -1,0 +1,193 @@
+/**
+ * The agent's browser: a session's tabs, reached through the studio's
+ * extension (`browser-extension.svelte.js`), for the `browser` tool and
+ * the `browser` host object alike.
+ *
+ * Tabs belong to the top session: a delegate's calls are its top
+ * session's, so a tab it opens outlives it, and a delegate resumed later
+ * finds it again. Each read of a tab gives an outline with a version, and
+ * an action names the version of the outline its ref came from, which
+ * each caller keeps for itself (the tool for its session, code with its
+ * tab): an action on a page that changed since, or read by someone else
+ * since, is refused rather than landing on whatever now sits at that ref.
+ *
+ * A tab the person shares with a session is the session's too (`shared`,
+ * its domain), worked in only while it's on that domain: only read,
+ * scrolled, waited on or screenshot, or, if the person let the agent act
+ * there (`acts`), acted in too.
+ */
+
+import { ExtensionError, browserExtension } from "./browser-extension.svelte.js";
+
+/** The top session of `session` (a delegate's is its parent's, up).
+ *  @param {string} session */
+export const topOf = (session) => session.split(".")[0];
+
+/**
+ * @typedef {{ id: number, url: string, title: string, working: boolean, blocked?: { url: string, at: number, newTab?: boolean }, shared?: string, acts?: true }} TabInfo
+ *   `shared`: a tab of the person's they shared with the session, and the domain it was shared on;
+ *   `acts`: the agent may act in it too, not only read it.
+ * @typedef {{ tab: number, url: string, title: string, domain: string, at: number }} WaitingShare
+ *   A tab the person shared from the extension's toolbar, waiting for the studio to say which session takes it.
+ * @typedef {{ version: number, url: string, title: string, blocker: "captcha" | "bot-check" | null, refs: Ref[], text: string, cut?: number, below?: number, loading?: true, settled?: false, blocked?: { url: string, at: number } }} Outline
+ * @typedef {{ ref: number, kind: string, name: string }} Ref a ref of an outline: what it is (`button`, `link`, `textbox`, ...) and its name
+ * @typedef {{ url: string, title: string, navigated?: true, submitted?: true, loading?: true, blocked?: { url: string, at: number }, chosen?: string }} ActResult
+ */
+
+/**
+ * The refs of an outline whose names match `match` (a string, ignoring
+ * case, or a RegExp), of a `kind`, shown in its text after the first
+ * place it says `after` (a row's price, a month's heading), in the
+ * order its text shows them (a notice read last, its refs too): for
+ * code's `page.find` and the browser tool's ref by name alike.
+ * Self-contained, as the browser host's stub carries its source.
+ *
+ * @param {{ text: string, refs: Ref[] }} page @param {string | RegExp} match
+ * @param {{ kind?: string, after?: string }} [opts] @returns {number[]}
+ */
+export function findRefs(page, match, { kind, after } = {}) {
+    const from = after === undefined ? 0 : page.text.indexOf(after);
+    if (from < 0) return [];
+    const named = typeof match === "string"
+        ? (/** @type {string} */ name) => name.toLowerCase().includes(match.toLowerCase())
+        : (/** @type {string} */ name) => name.search(match) >= 0;
+    // a ref the text doesn't show (cut short) comes last
+    const at = (/** @type {Ref} */ r) => {
+        const i = page.text.indexOf(`[${r.ref}]`);
+        return i < 0 ? Infinity : i;
+    };
+    return page.refs
+        .filter((r) => named(r.name) && (kind === undefined || r.kind === kind) && (after === undefined || page.text.indexOf(`[${r.ref}]`) > from))
+        .map((r) => ({ ref: r.ref, at: at(r) }))
+        .sort((a, b) => (a.at === b.at ? 0 : a.at - b.at))
+        .map((r) => r.ref);
+}
+
+export class Browser {
+    /** @param {import("./browser-extension.svelte.js").BrowserExtension} extension */
+    constructor(extension) {
+        this.extension = extension;
+    }
+
+    /** Whether the extension is here to reach tabs through. */
+    get available() {
+        return this.extension.status === "found";
+    }
+
+    /** @param {string} session @returns {Promise<TabInfo[]>} */
+    tabs(session) {
+        return this.extension.call("tabs", { session: topOf(session) });
+    }
+
+    /** A tab opened on `url`, in the background. @param {string} session @param {string} url
+     *  @returns {Promise<number>} */
+    async open(session, url) {
+        const { tab } = await this.extension.call("open", { session: topOf(session), url });
+        return tab;
+    }
+
+    /** The tab brought to the front, for the person's hands.
+     *  @param {string} session @param {number} tab */
+    async show(session, tab) {
+        await this.extension.call("show", { session: topOf(session), tab });
+    }
+
+    /** @param {string} session @param {number} tab */
+    async close(session, tab) {
+        await this.extension.call("close", { session: topOf(session), tab });
+    }
+
+    /** The tab's page as an outline, with its version, which the actions
+     *  on its refs name; `settle` waits for its text to stop changing first.
+     *  @param {string} session @param {number} tab
+     *  @param {{ maxChars?: number, hrefs?: boolean, settle?: boolean | number }} [opts] @returns {Promise<Outline>} */
+    read(session, tab, opts = {}) {
+        return this.extension.call("read", { session: topOf(session), tab, ...opts });
+    }
+
+    /** @param {string} session @param {number} tab @param {string} url
+     *  @returns {Promise<{ url: string, title: string, loading?: true }>} */
+    goto(session, tab, url) {
+        return this.extension.call("goto", { session: topOf(session), tab, url });
+    }
+
+    /** @param {string} session @param {number} tab
+     *  @param {{ text?: string, selector?: string, timeout?: number }} what @returns {Promise<{ ms: number }>} */
+    waitFor(session, tab, what) {
+        return this.extension.call("waitFor", { session: topOf(session), tab, ...what });
+    }
+
+    /** The page scrolled with the wheel: a screenful down, or to the bottom.
+     *  @param {string} session @param {number} tab @param {"down" | "bottom"} to
+     *  @returns {Promise<{ top: number, below: number }>} */
+    scroll(session, tab, to) {
+        return this.extension.call("scroll", { session: topOf(session), tab, to });
+    }
+
+    /** The sessions the extension knows of (each a top session).
+     *  @returns {Promise<{ session: string, name: string, domains: string[] }[]>} */
+    sessions() {
+        return this.extension.call("sessions");
+    }
+
+    /** The tabs the person shared from the toolbar that wait for a
+     *  session. @returns {Promise<WaitingShare[]>} */
+    shares() {
+        return this.extension.call("shares");
+    }
+
+    /** One of them given to `session` (its top session), on the domain it
+     *  was shared on, to read, or to act in too (`acts`).
+     *  @param {string} session @param {number} tab @param {boolean} acts
+     *  @returns {Promise<{ tab: number, domain: string }>} */
+    take(session, tab, acts) {
+        return this.extension.call("take", { session: topOf(session), tab, acts });
+    }
+
+    /** Whether the agent may act in a tab the person shared, or only read
+     *  it. @param {string} session @param {number} tab @param {boolean} acts */
+    async shareMode(session, tab, acts) {
+        await this.extension.call("shareMode", { session: topOf(session), tab, acts });
+    }
+
+    /** One of them turned down, the tab left as it was. @param {number} tab */
+    async drop(tab) {
+        await this.extension.call("drop", { tab });
+    }
+
+    /** A tab the person shared, the session's no longer (it stays open).
+     *  @param {string} session @param {number} tab */
+    async unshare(session, tab) {
+        await this.extension.call("unshare", { session: topOf(session), tab });
+    }
+
+    /** The person's cancel of the agent's work (Chrome's debugging bar)
+     *  lifted, on their word. */
+    async resume() {
+        await this.extension.call("resume");
+    }
+
+    /** @param {string} session @param {number} tab @returns {Promise<{ mime: string, data: string }>} */
+    screenshot(session, tab) {
+        return this.extension.call("screenshot", { session: topOf(session), tab });
+    }
+
+    /**
+     * An action on the element at `ref` of outline `version` of the tab
+     * (the caller's own latest read): `click`, `type` (`text`, `submit`,
+     * `clear`), `select` (`value`) or `press` (`key`). `confirmed` only for a step the
+     * person has confirmed.
+     *
+     * @param {string} session @param {number} tab @param {"click" | "type" | "select" | "press"} op
+     * @param {number | undefined} version @param {number} ref @param {Record<string, unknown>} [args]
+     * @param {{ confirmed?: boolean }} [opts]
+     * @returns {Promise<ActResult>}
+     */
+    act(session, tab, op, version, ref, args = {}, { confirmed = false } = {}) {
+        if (version === undefined) return Promise.reject(new ExtensionError("stale", `tab ${tab} hasn't been read here yet; read it first`));
+        return this.extension.call(op, { session: topOf(session), tab, version, ref, ...args, ...(confirmed && { confirmed: true }) });
+    }
+}
+
+/** This page's browser. */
+export const browser = new Browser(browserExtension);

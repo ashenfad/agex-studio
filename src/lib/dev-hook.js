@@ -13,9 +13,13 @@
  *     await __studio.db.query('SELECT 1 AS one')   // the session's app database
  *     await __studio.db.announceSync(); __studio.appBusy()   // agex.busy's offer
  *     __studio.vault.add({ label, value, origins }); __studio.vault.entries()   // never values
+ *     __studio.extension.status(); await __studio.extension.call('tabs', { session })
+ *     __studio.saveRuns()   // the session's runs, with usage, as a JSON download
  */
 
 import { appDbs } from "./app-db-clients.js";
+import { browserAsks } from "./browser-asks.svelte.js";
+import { browserExtension } from "./browser-extension.svelte.js";
 import { liveBusy } from "./app-busy.js";
 import { dbRestores } from "./db-restore.svelte.js";
 import { base64ToBytes, bytesToBase64 } from "./bytes.js";
@@ -24,6 +28,7 @@ import { script } from "./scripted.js";
 import { getSettings, updateSettings } from "./settings.js";
 import { vault } from "./vault.svelte.js";
 import { keyRequests } from "./key-requests.svelte.js";
+import { siteRequests } from "./site-requests.svelte.js";
 
 /** @typedef {import("./studio.svelte.js").Studio} Studio */
 
@@ -180,6 +185,20 @@ export function installDevHook(studio, sync) {
         async resume() {
             await session().resume();
             return { status: session().runs.at(-1)?.status ?? null, error: session().error };
+        },
+        /** The current session's runs as they're stored (each reply with
+         *  its model and token usage), saved by the browser as a JSON file
+         *  in its downloads: what a spike reads back. @param {string} [fileName] */
+        saveRuns(fileName) {
+            const s = session();
+            const name = fileName ?? `${s.name}-runs.json`;
+            const data = JSON.stringify({ session: s.name, title: s.title, runs: s.runs }, null, 1);
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+            a.download = name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+            return { fileName: name, runs: s.runs.length, bytes: data.length };
         },
         async folds() {
             return session().folds.map((f) => ({ through: f.through, summary: f.summary }));
@@ -426,7 +445,7 @@ export function installDevHook(studio, sync) {
             /** The key the current session's agent is asking for
              *  (`request_secret`), or null. */
             keyRequest() {
-                const q = keyRequests.asking[session().name];
+                const q = keyRequests.open(session().name);
                 return q === undefined ? null : { name: q.name, origins: [...q.origins], why: q.why };
             },
             /** Answer it, as the chat's picker does: an entry's id to
@@ -434,6 +453,49 @@ export function installDevHook(studio, sync) {
             answerKeyRequest(entryId) {
                 keyRequests.answer(session().name, entryId);
                 return vault.agentGrantsOf(session().name);
+            },
+            /** The sites the current session's agent may open. */
+            sites() {
+                return vault.sitesOf(session().name);
+            },
+            /** @param {string} [domain] */
+            revokeSites(domain) {
+                vault.revokeSites(session().name, domain);
+                return vault.sitesOf(session().name);
+            },
+            /** The sites the current session's agent is asking to open
+             *  (`request_sites`), or null. */
+            sitesRequest() {
+                const q = siteRequests.open(session().name);
+                return q === undefined ? null : { domains: [...q.domains], why: q.why };
+            },
+            /** Answer it, as the card does: the domains allowed, or none
+             *  for Not now. @param {string[]} domains */
+            answerSitesRequest(domains) {
+                siteRequests.answer(session().name, domains);
+                return vault.sitesOf(session().name);
+            },
+        },
+        /** What the current session's agent is asking the person about
+         *  its browser tabs (a step to confirm, a handoff), or null. */
+        browserAsk() {
+            const q = browserAsks.openConfirm(session().name) ?? browserAsks.openHandoff(session().name);
+            return q === undefined ? null : { ...q, answer: undefined };
+        },
+        /** Answer it, as its card does: yes (or Done), or no (or Skip).
+         *  @param {boolean} yes */
+        answerBrowserAsk(yes) {
+            browserAsks.answer(session().name, yes);
+        },
+        /** The studio's browser extension: whether it's here, and a call
+         *  of one of its ops (see `extension/src/protocol.js`). */
+        extension: {
+            status() {
+                return { status: browserExtension.status, version: browserExtension.version, problem: browserExtension.problem, held: browserExtension.held };
+            },
+            /** @param {string} op @param {Record<string, unknown>} [args] */
+            call(op, args) {
+                return browserExtension.call(op, args);
             },
         },
         /** Sync, as the session list works it. */

@@ -162,9 +162,10 @@ export function cancelRunning(helper) {
 /** @typedef {{ begin: (prompt: string) => void, opened: (text: string) => void, observe: (event: TurnEvent) => void, observed: () => Promise<void> }} Observer */
 /**
  * What a runner needs from the studio: the agent a delegate runs on,
- * its tools at a depth, and the chat session open on a delegate.
+ * its tools at a depth, the chat session open on a delegate, and what a
+ * run holds while it goes (`hold`, its letting go returned).
  *
- * @typedef {{ agent: (opts: { delegate: boolean, session: string }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined, toolOptions: () => { vision: boolean, codePrimer: string } }} RunnerHost
+ * @typedef {{ agent: (opts: { delegate: boolean, session: string }) => Agent, tools: (helper: Sessions, depth: number, ws: import("@agex-ts/world").Workspace) => Tool[], observe: (name: string) => Observer | undefined, toolOptions: () => { vision: boolean, codePrimer: string }, hold?: () => () => void }} RunnerHost
  */
 
 /**
@@ -216,6 +217,7 @@ export class StudioRunner {
             void helper.close();
         };
         signal.addEventListener("abort", stop, { once: true });
+        const letGo = this.host.hold?.() ?? (() => {});
         doing[session] = "starting";
         try {
             if (signal.aborted) stop();
@@ -253,6 +255,7 @@ export class StudioRunner {
             if (e instanceof Ended) return e.reply;
             throw e;
         } finally {
+            letGo();
             delete doing[session];
             delete openings[session];
             signal.removeEventListener("abort", stop);

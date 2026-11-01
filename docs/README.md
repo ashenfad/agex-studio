@@ -28,6 +28,10 @@ and services).
 - [sessions-and-storage.md](architecture/sessions-and-storage.md):
   the store, sessions as branches, what the studio keeps on its plane,
   undo, forks, bundles, sync, and publishing to gists.
+- [browser.md](architecture/browser.md): the browser extension and
+  the agent's tabs: the port, tabs woken by the debugger, outlines and
+  actions, the tool and the host object, the cards, site grants and
+  holds, shared tabs, what's promised, and the builds.
 - [errors-and-recovery.md](architecture/errors-and-recovery.md):
   what happens when something goes wrong, and what the person can do
   about it.

@@ -7,8 +7,9 @@
      *  sharing: syncing sessions through a GitHub repo of their own, and
      *  the token publishing writes gists with. Keys: the vault of keys
      *  the person gives apps and their agents, each with whether every
-     *  agent has it, and the apps and sessions' agents granted it. The
-     *  header and the buttons stay put; the tab's content scrolls. */
+     *  agent has it, and the apps and sessions' agents granted it; and
+     *  the sites each session's agent may open in this browser's tabs.
+     *  The header and the buttons stay put; the tab's content scrolls. */
     import { tick, untrack } from 'svelte'
     import { errorText } from './errors.js'
     import Dialog from './Dialog.svelte'
@@ -23,11 +24,28 @@
     import { NEW_REPO_URL, NEW_TOKEN_URL, connectSync, preferredRepo } from './sync-connect.js'
     import { studio } from './studio.svelte.js'
     import { VaultError, sessionsOf, vault } from './vault.svelte.js'
+    import { browserExtension } from './browser-extension.svelte.js'
+    import { EXTENSION_DOWNLOAD } from '../../extension/src/protocol.js'
 
     /** @type {{ onClose: () => void, tab?: 'model' | 'notify' | 'sync' | 'keys' }} */
     let { onClose, tab: firstTab = 'model' } = $props()
 
     let tab = $state(untrack(() => firstTab))
+    /** The tabs the person shared with sessions, asked of the extension
+     *  when the dialog opens and after each stop. */
+    let sharedTabs = $state(studio.shares.sharedNow())
+
+    /** @param {string} session @param {number} id */
+    async function stopSharing(session, id) {
+        await studio.shares.stop(session, id).catch(() => {})
+        sharedTabs = studio.shares.sharedNow()
+    }
+
+    /** @param {string} session @param {number} id @param {boolean} acts */
+    async function setMode(session, id, acts) {
+        await studio.shares.setMode(session, id, acts).catch(() => {})
+        sharedTabs = studio.shares.sharedNow()
+    }
 
     let permission = $state(notificationPermission())
     // notifications on only while the browser allows them (it may have stopped since)
@@ -604,6 +622,52 @@
                 {/each}
             </ul>
         {/if}
+        <h3>Sites your agents may open</h3>
+        <p class="hint">
+            The sites each session's agent may open in this browser's tabs, through the studio's extension, each with its subdomains. Its tabs load nothing else: a page that goes on to another site is stopped.
+            {#if browserExtension.status === 'found'}The extension is here{browserExtension.version ? ` (${browserExtension.version})` : ''}.{#if browserExtension.newer}{' '}<span class="warn-text">A newer one is out ({browserExtension.newer}): <a href={EXTENSION_DOWNLOAD} download>download it</a>, put its folder in place of this one's, and reload it in <code>chrome://extensions</code>.</span>{/if}{:else if browserExtension.status === 'outdated'}<span class="warn-text">The extension here is out of date: {browserExtension.problem}. <a href={EXTENSION_DOWNLOAD} download>Download the one this studio speaks</a>, put its folder in place of this one's, and reload it in <code>chrome://extensions</code>.</span>{:else}The extension isn't installed in this browser, so they open nothing until it is: <a href="/docs/#browser" target="_blank" rel="noreferrer">how to install it</a>.{/if}
+        </p>
+        {#if Object.keys(vault.agentSites).length === 0}
+            <p class="hint">None yet.</p>
+        {:else}
+            <ul class="users">
+                {#each Object.entries(vault.agentSites) as [agent, domains] (agent)}
+                    {@const session = agent.slice('agent:'.length)}
+                    {@const name = `${sessionTitle(session) ?? 'a removed session'}'s agent`}
+                    <li class="sites">
+                        <span class="hint">{name}:</span>
+                        {#each domains as domain (domain)}
+                            <span class="site"><code>{domain}</code><button class="btn secondary small" onclick={() => vault.revokeSites(session, domain)} aria-label="Revoke {name}'s use of {domain}">×</button></span>
+                        {/each}
+                        {#if domains.length > 1}<button class="btn secondary small" onclick={() => vault.revokeSites(session)} aria-label="Revoke every site {name} may open">Revoke all</button>{/if}
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+        {#if browserExtension.status === 'found'}
+            <h3>Tabs you shared</h3>
+            <p class="hint">Each is usable only while it stays on the site you shared. Share a tab from the extension's toolbar button.</p>
+            {#await sharedTabs}
+                <p class="hint">Asking the extension…</p>
+            {:then shared}
+                {#if shared.length === 0}
+                    <p class="hint">None.</p>
+                {:else}
+                    <ul class="users">
+                        {#each shared as { session, tab } (tab.id)}
+                            {@const name = sessionTitle(session) ?? 'a removed session'}
+                            <li>
+                                <span class="hint">{tab.title || tab.url} · <code>{tab.shared}</code> · {name}{tab.acts ? '' : ' · read only'}</span>
+                                <button class="btn secondary small" onclick={() => setMode(session, tab.id, !tab.acts)} aria-label="{tab.acts ? 'Only let' : 'Let'} {name} {tab.acts ? 'read' : 'act in'} {tab.title || tab.url}">{tab.acts ? 'Only read' : 'Let it act'}</button>
+                                <button class="btn secondary small" onclick={() => stopSharing(session, tab.id)} aria-label="Stop sharing {tab.title || tab.url} with {name}">Stop sharing</button>
+                            </li>
+                        {/each}
+                    </ul>
+                {/if}
+            {:catch e}
+                <p class="hint warn">{errorText(e)}</p>
+            {/await}
+        {/if}
     {:else}
         <h3>Sync</h3>
         {#if s.syncRepo}
@@ -901,5 +965,16 @@
     }
     code {
         overflow-wrap: anywhere;
+    }
+    .users li.sites {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        gap: 0.3rem 0.5rem;
+    }
+    .site {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.8rem;
     }
 </style>

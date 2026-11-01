@@ -113,7 +113,7 @@ describe("request_secret", () => {
         const { requests, tool } = setup();
         void tool.call(args);
         await opened();
-        expect(await tool.call({ ...args, name: "OTHER_KEY" })).toEqual({ text: "another key request of this session's is waiting on the person", images: [], isError: true });
+        expect(await tool.call({ ...args, name: "OTHER_KEY" })).toEqual({ text: "a key request of this session's is waiting on the person", images: [], isError: true });
         expect((await tool.call({ ...args, name: "x" })).isError).toBe(true);
         expect(Object.keys(requests.asking)).toEqual(["s1"]);
     });

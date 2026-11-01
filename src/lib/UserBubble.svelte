@@ -1,16 +1,18 @@
 <script>
     /**
      * Something the person wrote: its words, the files attached to it as
-     * chips (each opening the file), and a label when it wasn't an
+     * chips (each opening the file), the tabs it shared as chips too, and a
+     * label when it wasn't an
      * ordinary message (sent mid-turn, or waiting to be).
      */
     import FileModal from './FileModal.svelte'
-    import { attachmentsOf } from './notes.js'
+    import { attachmentsOf, sharesOf } from './notes.js'
 
     /** @type {{ session: import('./session.svelte.js').ChatSession, text: string, label?: string, faded?: boolean, onWithdraw?: () => void }} */
     let { session, text, label = '', faded = false, onWithdraw } = $props()
 
-    const parts = $derived(attachmentsOf(text))
+    const attachedTo = $derived(attachmentsOf(text))
+    const parts = $derived({ paths: attachedTo.paths, ...sharesOf(attachedTo.text) })
     /** @type {string | null} */
     let opened = $state(null)
 
@@ -25,8 +27,11 @@
             {#if onWithdraw}<button class="withdraw" onclick={onWithdraw} title="Take it back" aria-label="Take it back">✕</button>{/if}
         </div>
     {/if}
-    {#if parts.paths.length}
+    {#if parts.paths.length || parts.shares.length}
         <div class="chips">
+            {#each parts.shares as s (s.tab)}
+                <span class="chip tab" title="{s.url} · {s.acts ? 'its agent can use this page' : 'read only'} while it stays on {s.domain}">tab: {s.title || s.domain}{s.acts ? '' : ' · read only'}</span>
+            {/each}
             {#each parts.paths as p (p)}
                 <button class="chip" title={p} onclick={() => (opened = inWorkspace(p))}>{p.split('/').at(-1)}</button>
             {/each}
@@ -98,5 +103,12 @@
     }
     .chip::before {
         content: '📎 ';
+    }
+    /* a tab shared, not a file to open */
+    .chip.tab {
+        cursor: default;
+    }
+    .chip.tab::before {
+        content: '🔗 ';
     }
 </style>

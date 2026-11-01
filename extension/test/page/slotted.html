@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Slotted</title>
+<!-- an app drawn as web components: what it shows is put in its shadow root's slots -->
+<course-app>
+  <h1>Disc golf near Corvallis</h1>
+  <p>Willamette Park: 18 holes, wooded.</p>
+  <button>Directions</button>
+</course-app>
+<script>
+    customElements.define("course-app", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "open" }).innerHTML = "<header>Courses</header><main><slot></slot></main>";
+        }
+    });
+</script>
