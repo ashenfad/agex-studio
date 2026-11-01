@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>A feed</title>
+    <style>
+        article, x-post { display: block; margin: 8px; padding: 8px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+<main>
+    <div id="feed">
+        <!-- a native ad: its label's letters shuffled with hidden ones -->
+        <article id="p1"><span class="label">Spon<span style="display:none">x</span>sored</span><p>Buy a thing</p></article>
+        <article id="p2"><p>A real post</p></article>
+        <!-- a label that doesn't show is no ad -->
+        <article id="p3"><span class="label" style="display:none">Sponsored</span><p>Another real post</p></article>
+        <!-- a component: its label in its shadow root -->
+        <x-post id="p4" sponsored><p>A promoted thing</p></x-post>
+        <x-post id="p5"><p>A real component post</p></x-post>
+    </div>
+</main>
+<script>
+    // a post as a component: its label and a promo inside its own open shadow root, which
+    // holds a nested component of its own, the post's text slotted in
+    customElements.define("x-badge", class extends HTMLElement {
+        connectedCallback() {
+            if (this.shadowRoot) return;
+            this.attachShadow({ mode: "open" }).innerHTML = '<span class="promo">Promo</span>';
+        }
+    });
+    customElements.define("x-post", class extends HTMLElement {
+        connectedCallback() {
+            if (this.shadowRoot) return;
+            const label = this.hasAttribute("sponsored") ? 'Spon<span style="display:none">q</span>sored' : "Discussion";
+            this.attachShadow({ mode: "open" }).innerHTML =
+                `<div class="card"><span class="label">${label}</span><x-badge></x-badge><slot></slot></div>`;
+        }
+    });
+
+    let next = 10;
+    /** what an infinite feed does as it's scrolled: more posts, an ad among them */
+    window.loadMore = () => {
+        const feed = document.getElementById("feed");
+        const ad = document.createElement("article");
+        ad.id = `p${next++}`;
+        ad.innerHTML = '<span class="label">Spo<b style="display:none">n</b>nsored</span><p>Another thing to buy</p>';
+        const post = document.createElement("article");
+        post.id = `p${next++}`;
+        post.innerHTML = "<p>More to read</p>";
+        const component = document.createElement("x-post");
+        component.id = `p${next++}`;
+        component.setAttribute("sponsored", "");
+        feed.append(ad, post, component);
+        return [ad.id, post.id, component.id];
+    };
+</script>
+</body>
+</html>
