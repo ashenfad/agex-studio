@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "agex agent spike",
+  "version": "0.0.1",
+  "description": "Spike: agex-ts running inside an extension, with no studio tab.",
+  "permissions": ["offscreen", "storage"],
+  "host_permissions": ["https://openrouter.ai/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "sandbox": { "pages": ["sandbox.html"] }
+}
