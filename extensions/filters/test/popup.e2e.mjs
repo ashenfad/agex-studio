@@ -80,6 +80,19 @@ describe("the popup", () => {
         await popup.getByText("A filter is ready: it hides 1 thing").waitFor();
     });
 
+    it("ends a preview when the popup closes", async () => {
+        await popup.getByRole("button", { name: "Preview" }).click();
+        await popup.getByRole("button", { name: "End preview" }).waitFor();
+        assert.equal(await outline(), "outline");
+        await popup.close();
+        const until = Date.now() + 5_000;
+        while ((await outline()) !== null && Date.now() < until) await new Promise((ok) => setTimeout(ok, 100));
+        assert.equal(await outline(), null);
+        popup = await browser.context.newPage();
+        await popup.goto(`chrome-extension://${browser.id}/popup.html?tab=${tabId}`);
+        await popup.getByText("A filter is ready").waitFor();
+    });
+
     it("previews it on the page, outlined, and accepts it: the ad is hidden", async () => {
         await popup.getByRole("button", { name: "Preview" }).click();
         await popup.getByRole("button", { name: "End preview" }).waitFor();
@@ -116,6 +129,20 @@ describe("the popup", () => {
         assert.equal(await op("candidate", { site: TEST_SITE }), null);
     });
 
+    it("shows the pause as it stands on a tab that isn't a site's, and resumes from there", async () => {
+        await op("filterPause", { paused: true });
+        const extTab = await ext.evaluate(async () => (await chrome.tabs.getCurrent())?.id ?? (await chrome.tabs.query({ url: `chrome-extension://${chrome.runtime.id}/manifest.json` }))[0].id);
+        const other = await browser.context.newPage();
+        await other.goto(`chrome-extension://${browser.id}/popup.html?tab=${extTab}`);
+        await other.getByText("Not a site's page").waitFor();
+        assert.equal(await other.getByLabel("Pause all filters").isChecked(), true);
+        await other.getByLabel("Pause all filters").uncheck();
+        const until = Date.now() + 5_000;
+        while ((await op("filterState")).paused && Date.now() < until) await new Promise((ok) => setTimeout(ok, 100));
+        assert.equal((await op("filterState")).paused, false);
+        await other.close();
+    });
+
     it("forgets the site: its filter, its session and its pages", async () => {
         await popup.reload();
         await popup.getByRole("link", { name: "Forget this site" }).click();
@@ -123,5 +150,18 @@ describe("the popup", () => {
         assert.equal(await ad(), "block");
         assert.deepEqual((await op("filterState", { site: TEST_SITE })).sites, {});
         assert.equal((await op("sites")).includes(TEST_SITE), false);
+    });
+
+    it("forgets a site while its agent works: what that turn says after is dropped", async () => {
+        const slow = [
+            step("", [{ name: "run_ts", args: { code: "await new Promise((ok) => setTimeout(ok, 1500))" } }]),
+            ...presents,
+        ];
+        await op("submit", { tabId, steps: slow });
+        await op("forget", { site: TEST_SITE });
+        await new Promise((ok) => setTimeout(ok, 1000));
+        assert.equal(await op("candidate", { site: TEST_SITE }), null);
+        assert.equal(await op("status", { site: TEST_SITE }), null);
+        assert.deepEqual(Object.keys(await browser.worker.evaluate(() => chrome.notifications.getAll())), []);
     });
 });

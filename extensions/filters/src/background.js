@@ -59,7 +59,7 @@ const OPS = {
     page: async ({ tabId }) => {
         const tab = await chrome.tabs.get(/** @type {number} */ (tabId));
         const site = siteOf(tab.url);
-        if (site === null) return { site: null };
+        if (site === null) return { site: null, paused: /** @type {any} */ (await applyOps.filterState({ op: "filterState" })).paused };
         const [probe] = await chrome.scripting.executeScript({ target: { tabId: /** @type {number} */ (tabId) }, func: hasPassword }).catch(() => [null]);
         const { paused, sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site }));
         return {
@@ -104,11 +104,16 @@ const OPS = {
      *  session (its pages with it) and the permission it was given. */
     forget: async ({ site }) => {
         const s = /** @type {string} */ (site);
+        // what a turn asked for before now says of the site, arriving later, is dropped
+        await chrome.storage.session.set({ [forgotKey(s)]: Date.now() });
         const { sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site: s }));
         if (sites[s] !== undefined) await applyOps.filterRemove({ op: "filterRemove", site: s });
         await dropCandidate(s);
         await chrome.storage.session.remove(statusKey(s));
+        // the session goes once the turn running has ended; what it said meanwhile goes after it
         await agent("forget", { site: s });
+        await dropCandidate(s);
+        await chrome.storage.session.remove(statusKey(s));
         await chrome.permissions.remove({ origins: [`*://${s}/*`, `*://*.${s}/*`] }).catch(() => false);
         return null;
     },
@@ -160,6 +165,17 @@ async function submit(tabId, steps) {
 }
 
 /** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string }} Status */
+
+/** When site `site` was last forgotten. @param {string} site */
+const forgotKey = (site) => `forgot:${site}`;
+
+/** Whether site `site` was forgotten after a turn asked for at `at`: what
+ *  that turn says of it is dropped. @param {string} site @param {number | undefined} at */
+async function forgottenSince(site, at) {
+    if (typeof site !== "string" || typeof at !== "number") return false;
+    const got = /** @type {Record<string, number>} */ (await chrome.storage.session.get(forgotKey(site)));
+    return (got[forgotKey(site)] ?? 0) > at;
+}
 
 /** Site `site`'s agent's state, kept under a key of its own until the
  *  browser closes, so two sites' changes never write over each other.
@@ -214,6 +230,13 @@ async function dropCandidate(site) {
     await chrome.notifications.clear(`candidate:${site}`);
 }
 
+// a popup open on a tab: when it closes, a preview it started there ends with it
+chrome.runtime.onConnect.addListener((port) => {
+    const tab = /^popup:(\d+)$/.exec(port.name);
+    if (tab === null || port.sender?.origin !== self.location.origin) return;
+    port.onDisconnect.addListener(() => void applyOps.filterPreviewEnd({ op: "filterPreviewEnd", tabId: Number(tab[1]) }).catch(() => {}));
+});
+
 // the notice that a filter is ready: the site in front (a tab of it, or its page as sent),
 // and the popup over it, to preview the filter there
 chrome.notifications.onClicked.addListener(async (id) => {
@@ -235,6 +258,8 @@ chrome.notifications.onClicked.addListener(async (id) => {
  * @param {{ event: string, site: string, outcome?: { status: string, text: string }, error?: string }} msg
  */
 async function onEvent(msg) {
+    const site = msg.event === "candidate" ? /** @type {any} */ (msg).candidate?.site : msg.site;
+    if (await forgottenSince(site, /** @type {any} */ (msg).at)) return;
     if (msg.event === "candidate") return keepCandidate(/** @type {any} */ (msg).candidate);
     if (msg.event !== "turn-ended") return;
     if (msg.error !== undefined || msg.outcome?.status !== "completed") {

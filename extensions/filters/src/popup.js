@@ -50,11 +50,22 @@ async function tabOf() {
 
 /** Whether the candidate or the hidden things are outlined on the page now. */
 let outlining = false;
+/** The port held open to the worker while the popup is. @type {chrome.runtime.Port | null} */
+let held = null;
+
+/** A preview on tab `tabId` ended, if there is one. @param {number | undefined} tabId */
+async function endPreview(tabId) {
+    if (outlining) await ask("filterPreviewEnd", { tabId });
+    outlining = false;
+}
 
 async function show() {
     const tabId = await tabOf();
-    const page = tabId === undefined ? { site: null } : await ask("page", { tabId });
+    // held while the popup is open: the worker ends a preview here when it closes
+    if (tabId !== undefined && held === null) held = chrome.runtime.connect({ name: `popup:${tabId}` });
+    const page = tabId === undefined ? { site: null, paused: false } : await ask("page", { tabId });
     for (const id of ["candidate", "applied", "submit-section", "forget"]) $(id).hidden = true;
+    input("pause").checked = page.paused === true;
     if (page.site === null) {
         $("site").textContent = "Not a site's page";
         return;
@@ -64,7 +75,6 @@ async function show() {
     const status = statusText(page.status);
     $("status").hidden = status === "";
     $("status").textContent = status;
-    input("pause").checked = page.paused === true;
     $("forget").hidden = page.candidate === null && page.applied === null && page.status === null;
     const working = page.status?.state === "working";
 
@@ -103,14 +113,12 @@ async function show() {
             // the site's permission, asked of Chrome from this click
             const granted = await chrome.permissions.request({ origins: [`*://${site}/*`, `*://*.${site}/*`] });
             if (!granted) throw new Error(`Without permission for ${site}, the filter can't apply there.`);
-            if (outlining) await ask("filterPreviewEnd", { tabId });
-            outlining = false;
+            await endPreview(tabId);
             await ask("accept", { site });
         });
     button("reject").onclick = () =>
         act(async () => {
-            if (outlining) await ask("filterPreviewEnd", { tabId });
-            outlining = false;
+            await endPreview(tabId);
             await ask("reject", { site, reason: input("reason").value });
         });
     input("on").onchange = () => act(async () => ask("filterSetOn", { site, on: input("on").checked }));
@@ -120,10 +128,17 @@ async function show() {
             else await ask("filterPreview", { tabId, site, filter: page.applied.filter });
             outlining = !outlining;
         });
-    button("remove").onclick = () => act(async () => ask("filterRemove", { site }));
+    button("remove").onclick = () =>
+        act(async () => {
+            await endPreview(tabId);
+            await ask("filterRemove", { site });
+        });
     $("forget").onclick = (e) => {
         e.preventDefault();
-        void act(async () => ask("forget", { site }));
+        void act(async () => {
+            await endPreview(tabId);
+            await ask("forget", { site });
+        });
     };
 }
 
