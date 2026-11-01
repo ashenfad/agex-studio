@@ -36,9 +36,9 @@ const MODES = {
 };
 
 /** The scripts bundled, each from `src/` to the build's top level. */
-const ENTRIES = ["background.js", "offscreen.js", "sandbox.js"];
+const ENTRIES = ["background.js", "offscreen.js", "sandbox.js", "popup.js"];
 /** The pages, copied as they are. */
-const PAGES = ["offscreen.html", "sandbox.html"];
+const PAGES = ["offscreen.html", "sandbox.html", "popup.html"];
 /** The sandbox's CSP: eval, for the agent's kernel; workers from blobs
  *  (the kernel's); nothing from elsewhere, and no connections at all, so
  *  neither the sandbox nor the agent's code can send anything anywhere. */
@@ -60,6 +60,8 @@ export async function build(mode) {
         manifest.key = key;
         manifest.name += fixed.suffix;
     }
+    // the tests' sites (`test/harness.mjs` sends them to this machine), reachable with no click
+    if (mode === "dev") manifest.host_permissions = ["*://*.filters.test/*"];
     manifest.content_security_policy = { sandbox: SANDBOX_CSP };
     rmSync(out, { recursive: true, force: true });
     mkdirSync(out, { recursive: true });

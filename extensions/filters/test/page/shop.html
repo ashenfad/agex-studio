@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>A shop</title></head>
+<body>
+<main>
+    <article class="card"><span class="label">Sponsored</span><p>A thing for sale</p></article>
+    <article class="card"><p>A real listing</p></article>
+    <!-- a component whose shadow root is closed: a page's script can't read it -->
+    <x-closed></x-closed>
+</main>
+<script>
+    customElements.define("x-closed", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "closed" }).innerHTML = '<span class="promo">Inside a closed root</span>';
+        }
+    });
+</script>
+</body>
+</html>
