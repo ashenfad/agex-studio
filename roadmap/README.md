@@ -15,3 +15,7 @@ done.
   page, on the viewer's model through `agex.model`), then an app's
   needs and secrets, the agent's secrets and variables (the rebuild's
   S6).
+- [site-filters.md](site-filters.md): a second browser extension
+  whose agent, running inside it, writes a filter for each site the
+  person submits a page from (native ads, a site's own clutter), which
+  they preview, accept, and turn on or off.
