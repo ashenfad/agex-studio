@@ -41,8 +41,11 @@ const ENTRIES = ["background.js", "offscreen.js", "sandbox.js", "popup.js"];
 const PAGES = ["offscreen.html", "sandbox.html", "popup.html"];
 /** The sandbox's CSP: eval, for the agent's kernel; workers from blobs
  *  (the kernel's); nothing from elsewhere, and no connections at all, so
- *  neither the sandbox nor the agent's code can send anything anywhere. */
-export const SANDBOX_CSP = "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval' blob:; worker-src blob:; connect-src 'none'";
+ *  neither the sandbox nor the agent's code can send anything anywhere.
+ *  Inline styles are allowed: a saved page rebuilt there keeps its own
+ *  `style` attributes, and each would be a reported violation otherwise;
+ *  a style can load nothing (images, fonts and connections stay 'none'). */
+export const SANDBOX_CSP = "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-eval' blob:; worker-src blob:; style-src 'unsafe-inline'; connect-src 'none'";
 
 /**
  * Build `mode` into `extensions/filters/dist/<mode>/`: the directory built.
