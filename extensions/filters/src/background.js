@@ -60,9 +60,7 @@ const OPS = {
         const tab = await chrome.tabs.get(/** @type {number} */ (tabId));
         const site = siteOf(tab.url);
         if (site === null) return { site: null };
-        const [probe] = await chrome.scripting
-            .executeScript({ target: { tabId: /** @type {number} */ (tabId) }, func: () => document.querySelector("input[type=password]") !== null })
-            .catch(() => [null]);
+        const [probe] = await chrome.scripting.executeScript({ target: { tabId: /** @type {number} */ (tabId) }, func: hasPassword }).catch(() => [null]);
         const { paused, sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site }));
         return {
             site,
@@ -70,7 +68,7 @@ const OPS = {
             title: tab.title,
             password: probe?.result === true,
             status: await statusOf(site),
-            candidate: (await candidates())[site] ?? null,
+            candidate: await candidateOf(site) ?? null,
             applied: sites[site] ?? null,
             paused,
         };
@@ -82,12 +80,12 @@ const OPS = {
     /** Site `site`'s agent's state: working, done or failed, and when. */
     status: ({ site }) => statusOf(/** @type {string} */ (site)),
     /** Site `site`'s candidate filter, or null when none waits. */
-    candidate: async ({ site }) => (await candidates())[/** @type {string} */ (site)] ?? null,
+    candidate: async ({ site }) => await candidateOf(/** @type {string} */ (site)) ?? null,
     /** Site `site`'s candidate made its filter: only ever the one its agent
      *  presented, which `present_filter` checked in full. The popup asked
      *  Chrome for the site's permission first, from the person's click. */
     accept: async ({ site }) => {
-        const candidate = (await candidates())[/** @type {string} */ (site)];
+        const candidate = await candidateOf(/** @type {string} */ (site));
         if (candidate === undefined) throw new Error(`no filter for ${site} waits for an answer`);
         const applied = await applyOps.filterAccept({ op: "filterAccept", site, filter: candidate.filter });
         await dropCandidate(/** @type {string} */ (site));
@@ -109,13 +107,26 @@ const OPS = {
         const { sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site: s }));
         if (sites[s] !== undefined) await applyOps.filterRemove({ op: "filterRemove", site: s });
         await dropCandidate(s);
-        await chrome.storage.session.set({ status: Object.fromEntries(Object.entries(await statuses()).filter(([k]) => k !== s)) });
+        await chrome.storage.session.remove(statusKey(s));
         await agent("forget", { site: s });
         await chrome.permissions.remove({ origins: [`*://${s}/*`, `*://*.${s}/*`] }).catch(() => false);
         return null;
     },
 };
 Object.assign(OPS, applyOps);
+
+/** Whether the page holds a password field, a component's too (in a shadow
+ *  root, closed ones as the extension reaches them): it runs in the page. */
+function hasPassword() {
+    /** @param {Document | ShadowRoot} root @returns {boolean} */
+    const find = (root) =>
+        root.querySelector("input[type=password]") !== null ||
+        [...root.querySelectorAll("*")].some((el) => {
+            const shadow = el.shadowRoot ?? /** @type {any} */ (globalThis).chrome?.dom?.openOrClosedShadowRoot?.(el);
+            return shadow ? find(shadow) : false;
+        });
+    return find(document);
+}
 
 /** The site of the page at `url`, or null when it isn't a web page of one. @param {string | undefined} url */
 function siteOf(url) {
@@ -150,20 +161,21 @@ async function submit(tabId, steps) {
 
 /** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string }} Status */
 
-/** Every site's agent's state, kept until the browser closes. @returns {Promise<Record<string, Status>>} */
-async function statuses() {
-    const { status } = await chrome.storage.session.get("status");
-    return /** @type {Record<string, Status>} */ (status ?? {});
-}
+/** Site `site`'s agent's state, kept under a key of its own until the
+ *  browser closes, so two sites' changes never write over each other.
+ *  @param {string} site */
+const statusKey = (site) => `status:${site}`;
 
-/** Site `site`'s agent's state, or null before its first turn here. @param {string} site */
+/** Site `site`'s agent's state, or null before its first turn here. @param {string} site
+ *  @returns {Promise<Status | null>} */
 async function statusOf(site) {
-    return (await statuses())[site] ?? null;
+    const got = /** @type {Record<string, Status>} */ (await chrome.storage.session.get(statusKey(site)));
+    return got[statusKey(site)] ?? null;
 }
 
 /** @param {string} site @param {Omit<Status, "at">} now */
 async function setStatus(site, now) {
-    await chrome.storage.session.set({ status: { ...(await statuses()), [site]: { ...now, at: Date.now() } } });
+    await chrome.storage.session.set({ [statusKey(site)]: { ...now, at: Date.now() } });
 }
 
 /**
@@ -172,16 +184,21 @@ async function setStatus(site, now) {
  *   pages, waiting for the person to preview it and say yes or no.
  */
 
-/** Every site's candidate, kept until the person answers. @returns {Promise<Record<string, Candidate & { at: number }>>} */
-async function candidates() {
-    const { candidates: all } = await chrome.storage.local.get("candidates");
-    return /** @type {Record<string, Candidate & { at: number }>} */ (all ?? {});
+/** Site `site`'s candidate, kept under a key of its own until the person
+ *  answers. @param {string} site */
+const candidateKey = (site) => `candidate:${site}`;
+
+/** Site `site`'s candidate, or undefined when none waits. @param {string} site
+ *  @returns {Promise<(Candidate & { at: number }) | undefined>} */
+async function candidateOf(site) {
+    const got = /** @type {Record<string, Candidate & { at: number }>} */ (await chrome.storage.local.get(candidateKey(site)));
+    return got[candidateKey(site)];
 }
 
 /** A presented filter kept as its site's candidate, replacing one not yet
  *  answered, and the person told it's ready. @param {Candidate} candidate */
 async function keepCandidate(candidate) {
-    await chrome.storage.local.set({ candidates: { ...(await candidates()), [candidate.site]: { ...candidate, at: Date.now() } } });
+    await chrome.storage.local.set({ [candidateKey(candidate.site)]: { ...candidate, at: Date.now() } });
     const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
     await chrome.notifications.create(`candidate:${candidate.site}`, {
         type: "basic",
@@ -193,7 +210,7 @@ async function keepCandidate(candidate) {
 
 /** Site `site`'s candidate dropped, and its notice with it. @param {string} site */
 async function dropCandidate(site) {
-    await chrome.storage.local.set({ candidates: Object.fromEntries(Object.entries(await candidates()).filter(([k]) => k !== site)) });
+    await chrome.storage.local.remove(candidateKey(site));
     await chrome.notifications.clear(`candidate:${site}`);
 }
 
@@ -202,7 +219,7 @@ async function dropCandidate(site) {
 chrome.notifications.onClicked.addListener(async (id) => {
     if (!id.startsWith("candidate:")) return;
     const site = id.slice("candidate:".length);
-    const candidate = (await candidates())[site];
+    const candidate = await candidateOf(site);
     if (candidate === undefined) return;
     const open = (await chrome.tabs.query({})).find((t) => siteOf(t.url) === site);
     const tab = open ?? (await chrome.tabs.create({ url: candidate.pages.at(-1)?.url }));

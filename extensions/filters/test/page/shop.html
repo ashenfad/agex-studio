@@ -5,10 +5,20 @@
 <main>
     <article class="card"><span class="label">Sponsored</span><p>A thing for sale</p></article>
     <article class="card"><p>A real listing</p></article>
+    <!-- a card the page itself hides (a layout for another width) -->
+    <article class="card" style="display:none"><span class="promo-label">Promoted</span><p>Not shown here</p></article>
+    <!-- a component whose label is in its open shadow root -->
+    <x-open></x-open>
     <!-- a component whose shadow root is closed: a page's script can't read it -->
     <x-closed></x-closed>
 </main>
 <script>
+    customElements.define("x-open", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "open" }).innerHTML = '<div class="box"><span class="badge">Featured</span></div>';
+        }
+    });
     customElements.define("x-closed", class extends HTMLElement {
         constructor() {
             super();

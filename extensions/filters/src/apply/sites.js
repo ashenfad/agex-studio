@@ -50,11 +50,37 @@ function serial(change) {
     return run;
 }
 
-/** The extension's dynamic rules made those `state` wants, in one call (all or none).
- *  @param {import("./state.js").State} state */
+/**
+ * The extension's dynamic rules made those `state` wants, in one call
+ * (all or none), for the sites the extension may still run on: a block
+ * rule needs no host permission of its own, so a site whose permission
+ * the person took back is left out here, not by Chrome.
+ *
+ * @param {import("./state.js").State} state
+ */
 async function installRules(state) {
+    const permitted = Object.fromEntries(await Promise.all(Object.entries(state.sites).map(async ([site, entry]) => [site, (await mayRunOn(site)) ? entry : null])));
+    const sites = Object.fromEntries(Object.entries(permitted).filter(([, entry]) => entry !== null));
     const have = await chrome.declarativeNetRequest.getDynamicRules();
-    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: have.map((r) => r.id), addRules: wantedRules(state) });
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: have.map((r) => r.id), addRules: wantedRules({ ...state, sites }) });
+}
+
+/**
+ * `next` made the state: its rules installed first (when Chrome refuses
+ * one, nothing is stored and the old rules stay), then saved; when saving
+ * fails (storage full), the rules of `prev` go back, so rules and state
+ * never disagree.
+ *
+ * @param {import("./state.js").State} prev @param {import("./state.js").State} next
+ */
+async function commit(prev, next) {
+    await installRules(next);
+    try {
+        await save(next);
+    } catch (e) {
+        await installRules(prev).catch(() => {});
+        throw e;
+    }
 }
 
 /** Whether the extension may run on `site`'s pages. @param {string} site */
@@ -151,8 +177,9 @@ function view(state, site) {
 /**
  * The state, its rules and its content scripts made to agree again: the
  * rules the state wants, a script for each stored site the extension may
- * still run on, none for a site no longer stored. Run when the extension
- * is installed, updated or the browser starts.
+ * still run on, none for a site no longer stored or no longer permitted.
+ * Run when the extension is installed, updated or the browser starts, and
+ * when the person takes a permission back.
  */
 export function repair() {
     return serial(async () => {
@@ -162,7 +189,8 @@ export function repair() {
             const site = siteOfScript(script.id);
             if (site !== null && !Object.hasOwn(state.sites, site)) await unregister(site);
         }
-        for (const site of Object.keys(state.sites)) if (await mayRunOn(site)) await register(site);
+        // a site whose permission the person took back runs nothing until it's given again
+        for (const site of Object.keys(state.sites)) await ((await mayRunOn(site)) ? register(site) : unregister(site));
     });
 }
 
@@ -182,10 +210,9 @@ export const applyOps = {
         const checked = checkWithoutDom(filter, s);
         if ("errors" in checked) throw new Error(`the filter doesn't pass its checks:\n${checked.errors.join("\n")}`);
         if (!(await mayRunOn(s))) throw new Error(`no permission to run on ${s}'s pages; it is asked for from the person's click`);
-        const next = acceptFilter(await load(), s, checked.filter);
-        // the rules first: when Chrome refuses one, nothing is stored and the old rules stay
-        await installRules(next);
-        await save(next);
+        const prev = await load();
+        await commit(prev, acceptFilter(prev, s, checked.filter));
+        const next = await load();
         await register(s);
         await injectOpen(s);
         return view(next, s);
@@ -194,27 +221,27 @@ export const applyOps = {
     /** `site`'s filter turned on or off. Answers the state of `site`. */
     filterSetOn: ({ site, on }) => serial(async () => {
         const s = siteArg(site);
-        const next = setOn(await load(), s, boolArg(on, "on"));
-        await installRules(next);
-        await save(next);
+        const prev = await load();
+        const next = setOn(prev, s, boolArg(on, "on"));
+        await commit(prev, next);
         return view(next, s);
     }),
 
     /** `site`'s filter removed: its rules, its content script, its entry. */
     filterRemove: ({ site }) => serial(async () => {
         const s = siteArg(site);
-        const next = removeSite(await load(), s);
-        await installRules(next);
-        await save(next);
+        const prev = await load();
+        const next = removeSite(prev, s);
+        await commit(prev, next);
         await unregister(s);
         return view(next, s);
     }),
 
     /** Every site's filter paused (no hiding, no blocking), or resumed. */
     filterPause: ({ paused }) => serial(async () => {
-        const next = setPaused(await load(), boolArg(paused, "paused"));
-        await installRules(next);
-        await save(next);
+        const prev = await load();
+        const next = setPaused(prev, boolArg(paused, "paused"));
+        await commit(prev, next);
         return view(next);
     }),
 
@@ -263,3 +290,4 @@ export const applyOps = {
 
 chrome.runtime.onInstalled.addListener(() => void repair());
 chrome.runtime.onStartup.addListener(() => void repair());
+chrome.permissions.onRemoved.addListener(() => void repair());
