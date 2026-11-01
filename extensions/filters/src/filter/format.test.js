@@ -135,6 +135,14 @@ describe("checkFilter", () => {
         if (MODIFIERS) expect(errorsOf(modifiers)).toEqual([]);
         else expect(errorsOf(modifiers)[0]).toMatch(/not a valid regular expression/);
         expect(errorsOf(hiding({ selector: "a", hasText: "(ad|promo)s?" }))).toEqual([]);
+        // however deep the repeat inside
+        for (const hasText of ["((a+))+$", "(x(a*)y){2,}", "(?:(?:\\w+)\\s)*"]) {
+            expect(errorsOf(hiding({ selector: "a", hasText }))[0], hasText).toMatch(/repeated group/);
+        }
+        // a repeat inside an unrepeated group, a repeated group with none inside, and escapes and classes, pass
+        for (const hasText of ["(a+)?b", "(?:ab)+", "\\(a+\\)+", "[(a+)]+", "(?=x+)y"]) {
+            expect(errorsOf(hiding({ selector: "a", hasText })), hasText).toEqual([]);
+        }
     });
 
     it("holds a filter to its caps", () => {
@@ -154,7 +162,7 @@ describe("checkFilter", () => {
         for (const urlFilter of ["*", "||", "|http", "^", "ad"]) {
             expect(errorsOf(blocking({ urlFilter }))[0], urlFilter).toMatch(/nearly every request/);
         }
-        for (const urlFilter of ["||reddit.com^", "||www.reddit.com", "|https://old.reddit.com/*", "||reddit.com/"]) {
+        for (const urlFilter of ["||reddit.com^", "||www.reddit.com", "|https://old.reddit.com/*", "||reddit.com/", "|wss://reddit.com/*", "|ws://www.reddit.com"]) {
             expect(errorsOf(blocking({ urlFilter }))[0], urlFilter).toMatch(/the site's own host; add a path/);
         }
         expect(errorsOf(blocking({ urlFilter: "ads|tracker" }))[0]).toMatch(/\|\| only at its start/);

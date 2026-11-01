@@ -118,10 +118,44 @@ export function patternProblem(pattern) {
     } catch (e) {
         return `not a valid regular expression (${e instanceof Error ? e.message : String(e)})`;
     }
-    if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)[+*{]/.test(pattern)) {
+    if (nestedRepeat(pattern)) {
         return "has a repeated group that itself repeats (like (a+)+), which can stall the page; write it without the outer repeat";
     }
     return null;
+}
+
+/**
+ * Whether `pattern` repeats a group that repeats inside, at any depth
+ * (`(a+)+`, `((a+))*`, `(x(a*)y){2,}`): the shape that can backtrack for
+ * seconds. Read conservatively: any `+`, `*` or `{` inside a group that
+ * is itself followed by one counts.
+ *
+ * @param {string} pattern
+ */
+function nestedRepeat(pattern) {
+    /** for each group open, whether something inside it repeats @type {boolean[]} */
+    const groups = [];
+    let inClass = false;
+    for (let i = 0; i < pattern.length; i++) {
+        const ch = pattern[i];
+        if (ch === "\\") {
+            i++;
+            continue;
+        }
+        if (inClass) {
+            if (ch === "]") inClass = false;
+            continue;
+        }
+        if (ch === "[") inClass = true;
+        else if (ch === "(") groups.push(false);
+        else if (ch === ")") {
+            const inside = groups.pop() ?? false;
+            const repeated = "+*{".includes(pattern[i + 1] ?? "");
+            if (inside && repeated) return true;
+            if (groups.length > 0 && (inside || repeated)) groups[groups.length - 1] = true;
+        } else if ("+*{".includes(ch) && groups.length > 0) groups[groups.length - 1] = true;
+    }
+    return false;
 }
 
 /**
@@ -158,6 +192,6 @@ export function urlFilterProblem(urlFilter, site) {
  * @param {string} urlFilter
  */
 function ownHost(urlFilter) {
-    const m = /^(?:\|\||\|https?:\/\/)([a-z0-9.-]+)([*^/|]*)$/i.exec(urlFilter);
+    const m = /^(?:\|\||\|(?:https?|wss?):\/\/)([a-z0-9.-]+)([*^/|]*)$/i.exec(urlFilter);
     return m ? m[1].toLowerCase() : null;
 }
