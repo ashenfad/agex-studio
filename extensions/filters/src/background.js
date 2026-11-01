@@ -127,7 +127,16 @@ function hasPassword() {
     const find = (root) =>
         root.querySelector("input[type=password]") !== null ||
         [...root.querySelectorAll("*")].some((el) => {
-            const shadow = el.shadowRoot ?? /** @type {any} */ (globalThis).chrome?.dom?.openOrClosedShadowRoot?.(el);
+            let shadow = el.shadowRoot;
+            // a closed root, through what only an extension can call, which takes HTML elements alone
+            const dom = /** @type {any} */ (globalThis).chrome?.dom;
+            if (!shadow && el instanceof HTMLElement && typeof dom?.openOrClosedShadowRoot === "function") {
+                try {
+                    shadow = dom.openOrClosedShadowRoot(el);
+                } catch {
+                    shadow = null;
+                }
+            }
             return shadow ? find(shadow) : false;
         });
     return find(document);
@@ -151,7 +160,8 @@ async function submit(tabId, steps) {
     if (site === null) throw new Error("this tab isn't a web page of a site");
     const [done] = await chrome.scripting.executeScript({ target: { tabId }, func: capturePage, args: [{}] });
     const capture = done?.result;
-    if (!capture) throw new Error("the page couldn't be captured");
+    if (!capture) throw new Error("the page couldn't be captured (the capture script returned nothing)");
+    if ("error" in capture) throw new Error(`the page couldn't be captured: ${capture.error}`);
     // what was in view, for an agent that reads images; the capture is enough without it
     const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 70 }).catch(() => null);
     await setStatus(site, { state: "working" });
