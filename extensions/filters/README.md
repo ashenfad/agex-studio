@@ -26,10 +26,15 @@ neither widens the other's.
     (`host/kv.js`). Its CSP (`SANDBOX_CSP` in `build.mjs`) allows no
     connections: neither it nor the agent's code can send anything
     anywhere.
-  - `host/`: the store across the sandbox's wall, and the kernel's
-    worker started as a classic one (a module worker from a blob can't
-    start in an opaque origin; the build refuses a kernel worker that
-    needs one).
+  - `host/`: what crosses the sandbox's wall: the store (`kv.js`) and
+    the model (`provider.js`: a stand-in in the sandbox, the real
+    provider in the offscreen document, built from the person's
+    settings, so the key never enters the sandbox); a session per site
+    (`sessions.js`, `site-reddit_com` for `reddit.com`); and the
+    kernel's worker started as a classic one (`worker.js`: a module
+    worker from a blob can't start in an opaque origin; the build refuses
+    a kernel worker that needs one). One turn runs at a time, across all
+    sites.
   - `filter/`: the filter format, its guards, and the engine that
     applies a filter to a page or tests it on a capture.
   - `capture/`: a page as the person sees it, and its rebuild for
