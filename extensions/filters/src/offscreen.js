@@ -72,7 +72,7 @@ window.addEventListener("message", async (e) => {
     const m = e.data;
     if (m?.ready === true) return isReady();
     // a filter the agent presented: the worker keeps it as its site's candidate
-    if (m?.event === "candidate") return void chrome.runtime.sendMessage({ event: "candidate", candidate: m.candidate });
+    if (m?.event === "candidate") return void chrome.runtime.sendMessage({ event: "candidate", candidate: m.candidate, at: current?.at });
     if (typeof m?.reply === "number") {
         const w = waiting.get(m.reply);
         waiting.delete(m.reply);
@@ -137,6 +137,7 @@ async function command(msg) {
             // read again now: a Save just before this turn may not have reached the storage event yet
             reloadSettings();
             turnProvider = provider();
+            current = { site: /** @type {string} */ (msg.site), at: typeof msg.at === "number" ? msg.at : Date.now() };
             const s = getSettings();
             return ask({ ...msg, steps: undefined, model: __DEV__ && script !== null ? "scripted" : modelOf(s), thinking: thinkingOf(s), vision: visionOf(s) });
         });
@@ -154,11 +155,16 @@ async function command(msg) {
  * @param {string} site @param {string} prompt @param {unknown} [steps] in the dev build, a scripted model's replies
  */
 function detach(site, prompt, steps) {
-    command({ cmd: "turn", site, prompt, ...(__DEV__ && steps !== undefined && { steps }) }).then(
-        (outcome) => chrome.runtime.sendMessage({ event: "turn-ended", site, outcome }),
-        (e) => chrome.runtime.sendMessage({ event: "turn-ended", site, error: String(e?.message ?? e) }),
+    // when it was asked for: the worker drops what a turn asked for before the site was forgotten says
+    const at = Date.now();
+    command({ cmd: "turn", site, prompt, at, ...(__DEV__ && steps !== undefined && { steps }) }).then(
+        (outcome) => chrome.runtime.sendMessage({ event: "turn-ended", site, at, outcome }),
+        (e) => chrome.runtime.sendMessage({ event: "turn-ended", site, at, error: String(e?.message ?? e) }),
     );
 }
+
+/** The turn running: its site, and when it was asked for. @type {{ site: string, at: number } | null} */
+let current = null;
 
 /** The turn running or last run, which the next waits for. */
 let turns = Promise.resolve();
