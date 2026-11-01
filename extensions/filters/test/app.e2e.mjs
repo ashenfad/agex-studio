@@ -59,5 +59,9 @@ describe("the extension's page", () => {
         await page.getByText("console.log(6 * 7)").waitFor();
         assert.equal(await page.locator(".step pre.result").first().textContent(), "42");
         assert.match(await page.locator(".run .hint").first().textContent() ?? "", /completed · 1 call/);
+        // a run on an endpoint of the person's own is never priced at OpenRouter's rates
+        const [run] = await page.evaluate(() => chrome.runtime.sendMessage({ op: "log", site: "example.com" }).then((r) => r.value));
+        assert.deepEqual(run.providers, ["custom"]);
+        assert.doesNotMatch(await page.locator(".run .hint").first().textContent() ?? "", /\$/);
     });
 });

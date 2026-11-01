@@ -92,10 +92,14 @@ describe("what the agent is doing, at a glance", () => {
         assert.deepEqual(await notices(), [`candidate:${TEST_SITE}`]);
     });
 
-    it("takes the dot away once the filter is accepted", async () => {
+    it("takes the dot away once the filter is accepted, and never says its turn ended without one", async () => {
         await op("accept", { site: TEST_SITE });
         assert.equal(await op("dot", { site: TEST_SITE }), null);
         assert.deepEqual(await notices(), []);
+        const page = await popup();
+        await page.getByText("1 hidden on this page.").waitFor();
+        assert.equal(await page.getByText("finished without a filter").count(), 0);
+        await page.close();
     });
 
     it("asks for changes to an accepted filter, in the person's words, with the page", async () => {

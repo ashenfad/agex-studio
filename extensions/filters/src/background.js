@@ -130,7 +130,7 @@ const OPS = {
         // the session goes once the turn running has ended; what it said meanwhile goes after it
         await agent("forget", { site: s });
         await dropCandidate(s);
-        await chrome.storage.session.remove(statusKey(s));
+        await chrome.storage.session.remove([statusKey(s), lastPageKey(s)]);
         await chrome.notifications.clear(`ended:${s}`);
         await paintSite(s);
         await chrome.permissions.remove({ origins: [`*://${s}/*`, `*://*.${s}/*`] }).catch(() => false);
@@ -191,6 +191,8 @@ async function submit(tabId, request, steps) {
     // what was in view, for an agent that reads images; the capture is enough without it
     const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 70 }).catch(() => null);
     await setStatus(site, { state: "working" });
+    // where a notice about this turn can take the person, whatever tabs are open then
+    await chrome.storage.session.set({ [lastPageKey(site)]: capture.url });
     try {
         const saved = /** @type {{ page: string }} */ (await agent("submit", { site, capture, shot, ...(request !== undefined && { request }), ...(steps !== undefined && { steps }) }));
         return { site, page: saved.page };
@@ -200,8 +202,13 @@ async function submit(tabId, request, steps) {
     }
 }
 
-/** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string, seen?: boolean }} Status
- *   `seen`: the person has looked since it ended (the popup showed it). */
+/** @typedef {{ state: "working" | "done" | "failed", at: number, text?: string, error?: string, seen?: boolean, presented?: boolean }} Status
+ *   `seen`: the person has looked since it ended (the popup showed it).
+ *   `presented`: the turn presented a filter (which the person may have
+ *   answered since): it didn't end without one. */
+
+/** The page of site `site` last sent to its agent. @param {string} site */
+const lastPageKey = (site) => `lastPage:${site}`;
 
 /** When site `site` was last forgotten. @param {string} site */
 const forgotKey = (site) => `forgot:${site}`;
@@ -333,10 +340,13 @@ chrome.runtime.onConnect.addListener((port) => {
 async function onNotice(id) {
     const site = /^(?:candidate|ended):(.+)$/.exec(id)?.[1];
     if (site === undefined) return;
-    await chrome.notifications.clear(id);
     const open = (await chrome.tabs.query({})).find((t) => siteOf(t.url) === site);
-    const url = (await candidateOf(site))?.pages.at(-1)?.url;
-    const tab = open ?? (url === undefined ? undefined : await chrome.tabs.create({ url }));
+    const kept = /** @type {Record<string, string>} */ (await chrome.storage.session.get(lastPageKey(site)))[lastPageKey(site)];
+    const url = (await candidateOf(site))?.pages.at(-1)?.url ?? kept;
+    // nowhere to take the person: the notice stays, rather than vanish having done nothing
+    if (open === undefined && url === undefined) return;
+    await chrome.notifications.clear(id);
+    const tab = open ?? (await chrome.tabs.create({ url }));
     if (tab?.id === undefined) return;
     await chrome.tabs.update(tab.id, { active: true });
     if (tab.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true });
@@ -379,7 +389,7 @@ async function onEvent(msg) {
     const presented = candidate !== undefined && typeof (/** @type {any} */ (msg).at) === "number" && candidate.at >= /** @type {any} */ (msg).at;
     if (msg.error !== undefined || msg.outcome?.status !== "completed") {
         await setStatus(msg.site, { state: "failed", error: msg.error ?? msg.outcome?.text ?? msg.outcome?.status ?? "the turn ended early" });
-    } else await setStatus(msg.site, { state: "done", text: msg.outcome.text, ...(presented && { seen: true }) });
+    } else await setStatus(msg.site, { state: "done", text: msg.outcome.text, ...(presented && { seen: true, presented: true }) });
     const status = await statusOf(msg.site);
     if (!presented && status !== null) await noticeEnding(msg.site, status);
 }

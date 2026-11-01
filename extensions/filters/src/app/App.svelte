@@ -47,11 +47,14 @@
         log = ask('log', { site })
     }
 
-    /** A run's cost in dollars, from the catalog's prices for its model, or null when they aren't known.
-     *  @param {{ models: string[], usage: { inputTokens: number, outputTokens: number } }} run */
+    /** A run's cost in dollars, from OpenRouter's prices for its model; null
+     *  when they aren't known, or the run went to another service (an
+     *  endpoint of the person's own may charge otherwise, or nothing).
+     *  @param {{ models: string[], providers: string[], usage: { inputTokens: number, outputTokens: number } }} run */
     function costOf(run) {
         void $catalogStore
-        const info = run.models.length === 1 ? modelInfo(run.models[0]) : null
+        const viaRouter = run.providers.length > 0 && run.providers.every((p) => /openrouter/i.test(p))
+        const info = viaRouter && run.models.length === 1 ? modelInfo(run.models[0]) : null
         if (info === null || info.input === null || info.output === null) return null
         return (run.usage.inputTokens * info.input + run.usage.outputTokens * info.output) / 1e6
     }
