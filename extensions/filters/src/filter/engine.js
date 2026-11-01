@@ -390,10 +390,11 @@ export const liveView = {
 /**
  * A rebuilt capture's view, from the marks the capture left
  * (`data-agex-box="left top width height"` on what draws a box,
- * `data-agex-hidden` on what doesn't, its subtree with it). Its text is
- * the text a person would see: the text nodes of what is drawn (a
- * host's shadow tree in place of its children, what's slotted in place
- * of a slot), none under a hidden mark, a space between blocks.
+ * `data-agex-block` beside it when layout drew a block, `data-agex-hidden`
+ * on what draws nothing, its subtree with it). Its text is the text a
+ * person would see: the text nodes of what is drawn (a host's shadow
+ * tree in place of its children, what's slotted in place of a slot),
+ * none under a hidden mark, a space between blocks.
  *
  * @type {View}
  */
@@ -411,7 +412,10 @@ export const capturedView = {
             if (node.nodeType !== Node.ELEMENT_NODE) return;
             const e = /** @type {Element} */ (node);
             if (e.hasAttribute("data-agex-hidden") || UNSEEN.has(e.localName)) return;
-            const block = BLOCKS.has(e.localName);
+            // a block as layout drew it, which the capture records (`data-agex-block`): flex
+            // and grid items are blocks by their style, not their tag; a capture without
+            // boxes (written by hand) falls back to the tags that are blocks by default
+            const block = e.localName === "br" || e.hasAttribute("data-agex-block") || (!e.hasAttribute("data-agex-box") && BLOCKS.has(e.localName));
             if (block) parts.push(" ");
             for (const c of drawnChildren(e)) walk(c);
             if (block) parts.push(" ");

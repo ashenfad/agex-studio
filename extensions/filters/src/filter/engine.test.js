@@ -79,11 +79,12 @@ describe("matches", () => {
 
 // a capture as the capture script leaves one: boxes on what draws, a
 // hidden mark on what doesn't, a shadow root declared, no scripts
-const CAPTURE = `<!doctype html><html data-agex-box="0 0 1280 3000"><head><title>Feed</title></head><body data-agex-box="0 0 1280 3000"><main data-agex-box="0 0 1280 3000">
-  <article id="a1" data-agex-box="0 0 600 200"><span class="badge" id="s1" data-agex-box="10 10 80 20">Spon<span data-agex-hidden="">x</span>sored</span><p data-agex-box="10 40 500 20">Buy   now</p></article>
+// as the walk writes it: boxes, blocks where layout drew one (the badges are inline)
+const CAPTURE = `<!doctype html><html data-agex-box="0 0 1280 3000" data-agex-block=""><head><title>Feed</title></head><body data-agex-box="0 0 1280 3000" data-agex-block=""><main data-agex-box="0 0 1280 3000" data-agex-block="">
+  <article id="a1" data-agex-box="0 0 600 200" data-agex-block=""><span class="badge" id="s1" data-agex-box="10 10 80 20">Spon<span data-agex-hidden="">x</span>sored</span><p data-agex-box="10 40 500 20" data-agex-block="">Buy   now</p></article>
   <article id="a2" data-agex-hidden=""><span class="badge">Sponsored</span></article>
-  <article id="a3" data-agex-box="0 220 600 200"><p data-agex-box="10 230 500 20">A real post</p></article>
-  <x-card id="c1" data-agex-box="0 440 600 200"><template shadowrootmode="open"><style>.f{}</style><div class="frame" data-agex-box="0 440 600 200"><span class="badge" id="s2" data-agex-box="0 440 80 20">Promoted</span><slot name="title"></slot></div></template><h3 slot="title" data-agex-box="0 470 600 30">A deal</h3><p id="loose">not slotted</p></x-card>
+  <article id="a3" data-agex-box="0 220 600 200" data-agex-block=""><p data-agex-box="10 230 500 20" data-agex-block="">A real post</p></article>
+  <x-card id="c1" data-agex-box="0 440 600 200" data-agex-block=""><template shadowrootmode="open"><style>.f{}</style><div class="frame" data-agex-box="0 440 600 200" data-agex-block=""><span class="badge" id="s2" data-agex-box="0 440 80 20">Promoted</span><slot name="title"></slot></div></template><h3 slot="title" data-agex-box="0 470 600 30" data-agex-block="">A deal</h3><p id="loose">not slotted</p></x-card>
   <x-card id="c2" data-agex-hidden=""><template shadowrootmode="open"><span class="badge" id="s3">Promoted</span></template></x-card>
 </main></body></html>`;
 
@@ -96,6 +97,14 @@ describe("capturedView", () => {
         expect(capturedView.text($("a1"))).toBe("Sponsored Buy now");
         expect(capturedView.text($("a2"))).toBe("");
         expect(capturedView.text(doc.body)).not.toMatch(/Feed|\.f\{\}/);
+    });
+
+    it("breaks text where the capture says layout drew a block, whatever the tag", () => {
+        const flex = parseCapture(
+            '<div id="row" data-agex-box="0 0 300 20"><span data-agex-box="0 0 50 20" data-agex-block>$325</span><span data-agex-box="60 0 50 20" data-agex-block>$325</span><div data-agex-box="0 20 100 20">inline</div><b data-agex-box="0 40 9 9">x</b></div>',
+        );
+        // spans laid out as flex items are blocks; a div the walk didn't mark is drawn inline
+        expect(capturedView.text(/** @type {Element} */ (flex.getElementById("row")))).toBe("$325 $325 inlinex");
     });
 
     it("reads a host as it draws: its shadow tree, with what's slotted in its slots", () => {

@@ -95,9 +95,10 @@ describe("the engine and the applier in a live page", () => {
     it("reads a capture rebuilt by the browser's own parser as it reads the live page", async () => {
         const r = await page.evaluate(() => {
             const { engine, filter } = /** @type {any} */ (window);
+            // as the walk writes it: boxes, and blocks where layout drew one
             const capture = '<body data-agex-box="0 0 800 600"><main data-agex-box="0 0 800 600">' +
                 '<article id="c1" data-agex-box="0 0 800 100"><span class="label" data-agex-box="0 0 80 20">Spon<span data-agex-hidden="">x</span>sored</span></article>' +
-                '<x-post id="c2" data-agex-box="0 100 800 100"><template shadowrootmode="open"><div class="card" data-agex-box="0 100 800 100"><span class="label" data-agex-box="0 100 80 20">Sponsored</span><slot></slot></div></template><p data-agex-box="0 120 800 20">slotted</p></x-post>' +
+                '<x-post id="c2" data-agex-box="0 100 800 100"><template shadowrootmode="open"><div class="card" data-agex-box="0 100 800 100" data-agex-block><span class="label" data-agex-box="0 100 80 20">Sponsored</span><slot></slot></div></template><p data-agex-box="0 120 800 20" data-agex-block>slotted</p></x-post>' +
                 '<article id="c3" data-agex-hidden=""><span class="label">Sponsored</span></article>' +
                 "</main></body>";
             const doc = engine.parseCapture(capture);
