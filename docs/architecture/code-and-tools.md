@@ -51,7 +51,8 @@ The profile adds three commands to termish's own:
 Worker: the world's worker, which Vite bundles (`import workerUrl from
 "@agex-ts/world/worker?worker&url"`) and the profile names
 (`code.worker`). Code has the session's files as `fs`, a cache, the
-host objects by name (and as `import { … } from 'host'`), and `ui`.
+host objects by name, and `ui`. A module of the session's has the host
+objects, `fs`, `cache` and `env` as `import { … } from 'host'`.
 
 - **Types are stripped**, not checked: the world's default transform,
   ts-blank-space, which loads (with the TypeScript compiler) on the
