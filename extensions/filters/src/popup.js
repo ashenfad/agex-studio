@@ -129,13 +129,16 @@ async function show() {
     if (page.candidate !== null) {
         const hidden = page.candidate.pages.reduce((/** @type {number} */ n, /** @type {{ hidden: number }} */ p) => n + p.hidden, 0);
         $("candidate").hidden = false;
-        $("candidate-text").textContent = `A filter is ready: it hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. It isn't on, since the extension doesn't have access to ${site}: preview it here, then accept it or say what's wrong.`;
+        const why = page.candidate.error !== undefined
+            ? `It couldn't go on (${page.candidate.error}): preview it here, then accept it to try again, or say what's wrong.`
+            : `It isn't on, since the extension doesn't have access to ${site}: preview it here, then accept it or say what's wrong.`;
+        $("candidate-text").textContent = `A filter is ready: it hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. ${why}`;
         button("preview").textContent = outlining ? "End preview" : "Preview";
     } else if (page.applied !== null) {
         $("applied").hidden = false;
         input("on").checked = page.applied.on;
-        // the agent's last turn put this version on: one click takes it off again
-        if (page.status?.version !== undefined && page.status.version === page.applied.version) {
+        // the agent's last filter is this version: one click takes it off again
+        if (page.presented?.version !== undefined && page.presented.version === page.applied.version) {
             $("fresh").hidden = false;
             $("fresh-text").textContent = page.applied.previous === undefined ? "The agent's filter is on." : "The agent's new version is on.";
             button("undo").title = page.applied.previous === undefined ? "Remove the filter" : "Go back to the version before";
@@ -241,6 +244,11 @@ async function act(change) {
     }
     await show().catch(fail);
 }
+
+// a candidate put on, or a filter changed, from elsewhere (the permission given in Chrome's prompt, a notice's undo)
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && Object.keys(changes).some((key) => key === "applied" || key.startsWith("candidate:"))) void show().catch(fail);
+});
 
 input("pause").onchange = () => act(async () => ask("filterPause", { paused: input("pause").checked }));
 $("settings").onclick = (e) => {
