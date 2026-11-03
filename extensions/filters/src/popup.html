@@ -19,6 +19,10 @@
     label { display: flex; gap: 6px; align-items: center; }
     footer { display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid #2a3456; padding-top: 8px; }
     a { color: #9a9ab0; font-size: 12px; }
+    .working { display: flex; gap: 8px; align-items: center; }
+    .spinner { flex: none; width: 14px; height: 14px; border: 2px solid #2a3456; border-top-color: #e94560; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
     [hidden] { display: none !important; }
 </style>
 </head>
@@ -26,6 +30,7 @@
 <main>
     <h1 id="site">…</h1>
     <p id="status" class="muted" hidden></p>
+    <p id="working" class="working" role="status" hidden><span class="spinner"></span><span id="working-text"></span></p>
 
     <section id="candidate" hidden>
         <p id="candidate-text"></p>
@@ -40,6 +45,10 @@
     </section>
 
     <section id="applied" hidden>
+        <div id="fresh" class="row" hidden>
+            <p id="fresh-text"></p>
+            <button id="undo" class="secondary">Undo</button>
+        </div>
         <label><input id="on" type="checkbox"> Filter this site</label>
         <p id="count" class="muted"></p>
         <p id="hint" class="warn" hidden>The filter hides nothing on this page. Extend it with this page?</p>
@@ -47,7 +56,7 @@
             <button id="show" class="secondary">Show hidden</button>
             <button id="remove" class="secondary">Remove filter</button>
         </div>
-        <p id="changes-note" class="muted">Changes go to the agent with this page, and come back as a new filter to preview.</p>
+        <p id="changes-note" class="muted"></p>
         <div class="row">
             <input id="request" type="text" placeholder="What should change? (also hide the sidebar…)">
         </div>

@@ -2,7 +2,8 @@
 
 An agent, running inside the extension, writes a filter for each site
 the person submits a page from: the clutter and native ads that filter
-lists miss. The person previews it, accepts it, and turns it on or off.
+lists miss. It goes on when it's ready; the person can undo it, and turn
+it on or off.
 The design, and what's built so far, are in
 [`roadmap/site-filters.md`](../../roadmap/site-filters.md).
 
@@ -51,13 +52,20 @@ neither widens the other's.
   - `popup.html`, `popup.js`: the toolbar's popup, for the tab in front
     and its site. Opening it is the person's click on the extension,
     which lets it read that tab (`activeTab`).
-    - *Filter this site*, after a warning that says where the page goes
-      (stronger when it has a password field).
-    - A filter the agent presented (a notification says when): preview it
-      on the page, outlined; accept it (the click Chrome asks for the
-      site's permission on; the worker accepts only the stored candidate,
-      which `present_filter` checked in full); or reject it, with a
-      reason that becomes the agent's next turn.
+    - *Filter this site*, beside a warning that says where the page goes
+      (stronger when it has a password field, and the button reads *Send
+      anyway*). The same click asks Chrome for the site's permission, so
+      that what the agent presents goes on as soon as it's ready.
+    - While the agent works, a spinner and how long it has been at it;
+      the popup shows itself again when the turn ends.
+    - A filter the agent presented (a notification says when), on at once,
+      with *Undo* (in the popup and on the notice): back to the version it
+      replaced, or, for a site's first, no filter.
+    - Where the person declined the permission, the filter waits as the
+      site's candidate instead: preview it on the page, outlined; accept
+      it (Chrome asks for the permission again; the worker accepts only
+      the stored candidate, which `present_filter` checked in full); or
+      reject it, with a reason that becomes the agent's next turn.
     - The site's filter: on or off, what it hides on this page, shown
       outlined, extended with this page (offered when it hides nothing
       here), removed.
@@ -67,14 +75,14 @@ neither widens the other's.
       agent's own last words, or why it stopped.
     - An accepted filter changed: *Ask for changes* (the person's words,
       with the page) or *Extend with this page*, either a turn whose new
-      version comes back to preview; the accepted one keeps working
-      meanwhile.
+      version goes on when it's ready (and *Undo* goes back); the
+      accepted one keeps working meanwhile.
   - `dots.js`: the toolbar icon's dot on a site's tabs, as the studio
-    marks its sessions: working (the accent), a filter waiting (green), a
-    turn that stopped or ended without one and isn't seen yet (amber).
-    Every ending also has a notice; a ready filter's stays until it's
-    dealt with, and when the person is on the site, the popup opens on
-    its own.
+    marks its sessions: working (the accent), a filter that went on or
+    waits, not looked at yet (green), a turn that stopped or ended
+    without one and isn't seen yet (amber). Every ending also has a
+    notice; a waiting candidate's stays until it's dealt with, and when
+    the person is on the site, the popup opens on its own.
   - `site.js`: a page's site, its registrable domain by the Public Suffix
     List (`tldts`, private domains included: `foo.github.io` is its own).
   - A submission (`submit` in `background.js`): the tab captured
@@ -94,7 +102,8 @@ neither widens the other's.
     - `present_filter`: the site's filter file (`filters/<site>.json`)
       checked and tried on every saved page, where it has to hide
       something and never more than half a page's text; on a pass the
-      worker keeps it as the site's candidate for the person.
+      worker puts it on for the site (where it holds the site's
+      permission) or keeps it as the site's candidate for the person.
     - The `site-filters` skill (`skills/site-filters.md`): the format,
       the operators, what's stable to select by, trying before
       presenting. A page's screenshot is the agent's to look at when its

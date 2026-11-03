@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
     acceptFilter, checkWithoutDom, emptyState, freeIds, matchesOf, readState, removeSite, scriptId, setOn,
-    setPaused, siteOfHost, siteOfScript, wantedRules,
+    setPaused, siteOfHost, siteOfScript, undoAccept, wantedRules,
 } from "./state.js";
 
 /** a filter of `n` block rules and one hide rule, as the worker's check passes it @param {number} n */
@@ -93,6 +93,21 @@ describe("the state", () => {
         expect(s1.sites["a.com"]).toMatchObject({ on: true, version: 1, rules: [1, 2] });
         const s2 = acceptFilter(setOn(s1, "a.com", false), "a.com", filterOf(3));
         expect(s2.sites["a.com"]).toMatchObject({ on: true, version: 2, rules: [1, 2, 3] });
+    });
+
+    it("undoes an accept: back to the filter it replaced, or to none for a site's first", () => {
+        const first = filterOf(1);
+        const s1 = acceptFilter(emptyState(), "a.com", first);
+        expect(s1.sites["a.com"].previous).toBeUndefined();
+        expect(undoAccept(s1, "a.com")).toEqual(emptyState());
+        const s2 = acceptFilter(setOn(s1, "a.com", false), "a.com", filterOf(3));
+        expect(s2.sites["a.com"].previous).toEqual(first);
+        const back = undoAccept(s2, "a.com");
+        expect(back.sites["a.com"]).toEqual({ filter: first, on: true, version: 3, rules: [1] });
+        // undone once: nothing further back
+        expect(undoAccept(back, "a.com")).toEqual(emptyState());
+        expect(() => undoAccept(emptyState(), "a.com")).toThrow(/no filter is accepted for a.com/);
+        expect(readState(JSON.parse(JSON.stringify(s2)))).toEqual(s2);
     });
 
     it("turns a site off and on, pauses, removes", () => {

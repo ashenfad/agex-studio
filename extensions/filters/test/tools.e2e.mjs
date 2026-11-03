@@ -1,7 +1,8 @@
 // The agent's tools on a site's saved pages, in a scripted turn: `site`
 // finds where text shows and tries a filter, and `present_filter`
 // refuses a filter that hides the page and presents one that hides its
-// ad, which the service worker keeps as the site's candidate.
+// ad, which the service worker keeps as the site's candidate (where the
+// person kept the site from the extension).
 //
 //     pnpm filters:test
 
@@ -43,6 +44,8 @@ describe("the agent's tools", () => {
         browser = await launch(await build("dev"));
         ext = await browser.context.newPage();
         await ext.goto(`chrome-extension://${browser.id}/manifest.json`);
+        // as without the site's permission: what the agent presents waits as its candidate
+        await op("withhold", { on: true });
         const shop = await browser.context.newPage();
         await shop.goto(`http://shop.${TEST_SITE}:${port}/shop.html`);
         await shop.bringToFront();

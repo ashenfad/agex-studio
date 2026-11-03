@@ -27,21 +27,26 @@ for the sites the person picks, and for what lists don't catch.
 ## The person's view
 
 1. **Submit a page.** On a site, the toolbar's popup offers *Filter
-   this site*. A small warning says what happens: the page as it is
-   now goes to the person's model provider, and is kept on this device
-   as one of the site's test pages; stronger when the page has a
-   password field or looks like an account page.
-2. **The agent works in the background.** The tab can be closed.
-3. **A notification:** "A filter for reddit.com is ready: 14 items
-   hidden on the pages you sent."
-4. **Preview.** On the site, the popup shows the candidate applied,
-   what it hides outlined rather than removed, with a before/after
-   switch.
-5. **Accept or Reject.** Accept makes it the site's filter (and is
-   when Chrome asks for the site's permission, so applying it on later
-   visits is approved as it starts). Reject keeps what was there, with
-   an optional reason the agent gets next time.
-6. **Afterwards, per site:** on/off; *Extend* (submit this page too);
+   this site*, beside a small warning that says what happens: the page
+   as it is now goes to the person's model provider, and is kept on
+   this device as one of the site's test pages; stronger when the page
+   has a password field. The same click is when Chrome asks for the
+   site's permission, so the filter can go on when it's ready: two
+   clicks in all, one when the extension has the site already.
+2. **The agent works in the background.** The popup shows a spinner
+   while it's open; the tab can be closed.
+3. **The filter goes on,** in the site's open tabs and on later
+   visits, and a notification says so: "A filter for reddit.com is on:
+   it hides 14 things on the pages you sent", with *Undo*. On the site,
+   the popup opens on its own with the same.
+4. **Undo** goes back to the filter it replaced, or to none for a
+   site's first. *Show hidden* outlines what it hides.
+5. **Without the permission** (the person declined it), the filter
+   waits as the site's candidate instead: preview it, outlined; accept
+   it (Chrome asks again); or reject it, with an optional reason the
+   agent gets next time.
+6. **Afterwards, per site:** on/off; *Ask for changes* and *Extend*
+   (submit this page too), whose new version goes on the same way;
    *Remove* the filter; *Forget this site* (its session, its pages, the
    permission). A global pause, for "is the extension what broke this?"
 
@@ -178,12 +183,12 @@ extension checks it at the call, and the result says what failed:
   and operators run against them, and the recorded boxes stand in for
   layout.
 
-On a pass it becomes the site's candidate, the notification goes out,
-and the turn can end: the agent is told the person decides. Their
-decision is the next turn's input ("accepted"; "rejected: it hid the
-comments"). A new candidate replaces one not yet answered. The
-extension keeps two filters a site: the accepted one, which applies,
-and the candidate.
+On a pass it goes on for the site, the notification goes out, and the
+turn can end. The extension keeps the filter it replaced, for *Undo*.
+Where it doesn't have the site's permission, the filter becomes the
+site's candidate instead, and the person decides; a rejection's reason
+is the next turn's input ("rejected: it hid the comments"). A new
+candidate replaces one not yet answered.
 
 The agent tries filters before presenting them with a host object
 (`site.try(filter)`: what each rule matches on each saved page, with
@@ -197,9 +202,9 @@ samples), and may judge many candidate elements at once with
   operators, again on added nodes (`MutationObserver`): infinite feeds
   and navigation inside a single-page app need nothing from the agent.
 - **Block rules** are dynamic `declarativeNetRequest` rules.
-- **Host permission** for the site is asked when the person accepts
-  its first filter (optional host permissions, one site at a time), and
-  given back when they forget the site.
+- **Host permission** for the site is asked when the person submits
+  its first page (optional host permissions, one site at a time), from
+  the same click, and given back when they forget the site.
 - **Show hidden** outlines what the filter hides; on/off and the global
   pause take effect at once.
 - **What it hid** on the page in front is the popup's count.
@@ -208,12 +213,13 @@ samples), and may judge many candidate elements at once with
 
 - **Promised:** the agent reads only pages the person submitted; it
   can't send anything anywhere (no network, no remote imports); the key
-  never reaches the sandbox; no filter applies until the person accepts
-  it; every filter is checked against the guards, and stays within its
+  never reaches the sandbox; no filter applies on a site the person
+  hasn't given the extension, and every one is a click from undone;
+  every filter is checked against the guards, and stays within its
   site.
 - **A page may be aimed at the agent.** What it can do is bounded by
   the above: at worst a bad filter, for that site, which the person
-  previews and can turn off. A session's memory can carry a page's
+  sees go on and can undo or turn off. A session's memory can carry a page's
   instructions into its later turns, which is why each site has its own;
   peeking lets one session read another's files, which the run log
   makes visible.
@@ -298,9 +304,9 @@ guards and its before-and-after check; peeks are counted.
 
 ### Phase 3: applying, and the person's say
 
-Exit: in the person's own Chrome, three sites submitted, previewed,
-accepted, applied on later visits (a feed scrolled, a page navigated in
-place), one rejected with a reason and presented again, one extended,
+Exit: in the person's own Chrome, three sites submitted, their
+filters on, kept on later visits (a feed scrolled, a page navigated in
+place), one undone and one changed in the person's words, one extended,
 one forgotten.
 
 | # | Where | What |
@@ -308,6 +314,7 @@ one forgotten.
 | 1 | extension | The content script: the stylesheet, the operators on added nodes, block rules, show hidden, the count; host permission asked at the first accept |
 | 2 | extension | Notifications; preview, accept, reject with a reason; on/off, *Extend*, *Remove*, *Forget this site*, the global pause; the hint when a filter matched nothing |
 | 3 | extension | The run log and the meter in the app page and the popup |
+| 4 | extension | Fewer clicks: the site's permission asked from *Filter this site*, a presented filter on at once with *Undo*, the popup's spinner; preview and accept only where the permission was declined |
 
 ### Phase 4: how good is it
 
@@ -330,7 +337,10 @@ the format needs its next level, and whether peeking earns its keep.
   reading.
 - **Filters are data,** checked by the extension; code is for finding
   them, in the agent's own sandbox.
-- **Done is `present_filter`,** and only the person makes a filter live.
+- **Done is `present_filter`,** and the person's permission makes a
+  filter live: given from *Filter this site*, the filter goes on when
+  it's ready, one click from undone. Previewing first cost three more
+  clicks a filter; the undo covers one that hides the wrong thing.
 - **The agent has no network,** and the key stays out of its page.
 - **Peeking enabled,** to learn whether agents use it.
 

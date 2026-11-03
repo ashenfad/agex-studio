@@ -10,8 +10,8 @@
  *   `site.query(selector)` and `site.try(filter)`. Its code runs in a
  *   worker with no DOM, so these are how it looks at the pages.
  * - `present_filter`, a tool: the site's filter file checked, and on every
- *   page before and after, then handed to the extension as the site's
- *   candidate for the person to preview and accept.
+ *   page before and after, then handed to the extension, which puts it on
+ *   for the site (or keeps it for the person to accept, where it can't).
  */
 
 import { hostFactory, typedHost } from "@agex-ts/world";
@@ -211,8 +211,9 @@ export function siteHost() {
  * file at `filterPath(site)` checked, then tried on every saved page,
  * where it has to hide something somewhere and never more than
  * `MAX_HIDDEN_SHARE` of a page's text. What passes goes to `present`
- * (the extension, which keeps it as the site's candidate and tells the
- * person); what doesn't comes back to the agent, saying why.
+ * (the extension, which puts it on for the site, or keeps it as the
+ * site's candidate, and tells the person); what doesn't comes back to
+ * the agent, saying why.
  *
  * @param {Workspace} ws
  * @param {(candidate: { site: string, filter: import("../filter/format.js").Filter, pages: { page: string, url: string, hidden: number, hiddenShare: number }[] }) => void} present
@@ -222,7 +223,7 @@ export function presentFilterTool(ws, present) {
     const site = siteOfWs(ws);
     return {
         name: "present_filter",
-        description: `Present ${filterPath(site)} to the person as ${site}'s filter, once it hides what it should on the site's saved pages. It's checked and tried on every saved page first; what fails comes back to you to fix. On a pass the person is told it's ready, previews it on the live site, and accepts or rejects it: stop there, and say in a line what it hides.`,
+        description: `Present ${filterPath(site)} to the person as ${site}'s filter, once it hides what it should on the site's saved pages. It's checked and tried on every saved page first; what fails comes back to you to fix. On a pass it goes on for the site at once (or, where the person kept the site from the extension, waits for them to preview and accept it), and the person can undo it: stop there, and say in a line what it hides.`,
         parameters: { type: "object", properties: {}, additionalProperties: false },
         async call() {
             const fail = (/** @type {string} */ text) => ({ text, images: [], isError: true });

@@ -78,9 +78,10 @@ does nothing.
    samples and `hiddenShare` (how much of each page's text it hides).
 3. When it hides what it should on every page, and nothing else, call
    `present_filter`. It checks the filter again: it has to hide
-   something, and never more than half a page's text. On a pass the
-   person previews it on the live site and accepts or rejects it. Then
-   stop, saying in a line what it hides.
+   something, and never more than half a page's text. On a pass it goes
+   on for the site at once, and the person can undo it (or, where they
+   kept the site from the extension, they preview it and accept or
+   reject it). Then stop, saying in a line what it hides.
 
 If the person rejected one with a reason, or submitted another page to
 extend it, start from `filters/<site>.json` as it is, keep what works,
