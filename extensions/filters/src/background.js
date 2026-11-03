@@ -73,6 +73,7 @@ const OPS = {
             password: probe?.result === true,
             status: await statusOf(site),
             candidate: await candidateOf(site) ?? null,
+            presented: await presentedOf(site) ?? null,
             applied: sites[site] ?? null,
             paused,
         };
@@ -98,28 +99,34 @@ const OPS = {
     status: ({ site }) => statusOf(/** @type {string} */ (site)),
     /** Site `site`'s candidate filter, or null when none waits. */
     candidate: async ({ site }) => await candidateOf(/** @type {string} */ (site)) ?? null,
-    /** Site `site`'s candidate made its filter: only ever the one its agent
-     *  presented, which `present_filter` checked in full. The popup asked
-     *  Chrome for the site's permission first, from the person's click
-     *  (a candidate waits only when the extension didn't have it). */
+    /** Site `site`'s candidate made its filter (`putOn`): only ever the one
+     *  its agent presented, which `present_filter` checked in full. The
+     *  popup asked Chrome for the site's permission first, from the
+     *  person's click (a candidate waits only when the extension didn't
+     *  have it, or putting it on failed). One the permission's grant put
+     *  on meanwhile is already the site's. */
     accept: async ({ site }) => {
-        const candidate = await candidateOf(/** @type {string} */ (site));
-        if (candidate === undefined) throw new Error(`no filter for ${site} waits for an answer`);
-        const applied = await applyOps.filterAccept({ op: "filterAccept", site, filter: candidate.filter });
-        await dropCandidate(/** @type {string} */ (site));
-        return applied;
+        const s = /** @type {string} */ (site);
+        const applied = await putOn(s, { told: false });
+        if (applied !== null) return applied;
+        const state = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site: s }));
+        if (state.sites[s] === undefined) throw new Error(`no filter for ${s} waits for an answer`);
+        return state;
     },
     /** Site `site`'s filter as it was before its agent's last one went on
      *  (none, for its first): only while that one is still the site's, so
-     *  an old notice's undo never takes off a later change. */
+     *  an old notice's undo never takes off a later change. It works while
+     *  the turn that presented it still runs, and after one that failed. */
     undo: async ({ site }) => {
         const s = /** @type {string} */ (site);
-        const status = await statusOf(s);
+        const last = await presentedOf(s);
         const { sites } = /** @type {any} */ (await applyOps.filterState({ op: "filterState", site: s }));
-        if (status?.version === undefined || sites[s]?.version !== status.version) throw new Error(`${s}'s filter has changed since its agent's last one went on: there's nothing to undo`);
+        if (last?.version === undefined || sites[s]?.version !== last.version) throw new Error(`${s}'s filter has changed since its agent's last one went on: there's nothing to undo`);
         const applied = await applyOps.filterUndo({ op: "filterUndo", site: s });
+        await chrome.storage.session.set({ [presentedKey(s)]: { at: last.at } });
         await chrome.notifications.clear(`applied:${s}`);
-        await chrome.storage.session.set({ [statusKey(s)]: { ...status, seen: true } });
+        const status = await statusOf(s);
+        if (status !== null) await chrome.storage.session.set({ [statusKey(s)]: { ...status, seen: true } });
         await paintSite(s);
         return applied;
     },
@@ -221,8 +228,8 @@ async function submit(tabId, request, steps) {
  *   `seen`: the person has looked since it ended (the popup showed it).
  *   `presented`: the turn presented a filter (put on, or waiting for the
  *   person): it didn't end without one.
- *   `version`: the version of the site's filter the turn put on, when it
- *   put one on. */
+ *   `version`: the version of the site's filter the turn's filter became,
+ *   once it went on. */
 
 /** The page of site `site` last sent to its agent. @param {string} site */
 const lastPageKey = (site) => `lastPage:${site}`;
@@ -294,10 +301,11 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
 chrome.tabs.onActivated.addListener(({ tabId }) => void chrome.tabs.get(tabId).then((tab) => paintTab(tabId, tab.url), () => {}));
 
 /**
- * @typedef {{ site: string, filter: unknown, pages: { page: string, url: string, hidden: number, hiddenShare: number }[] }} Candidate
+ * @typedef {{ site: string, filter: unknown, pages: { page: string, url: string, hidden: number, hiddenShare: number }[], error?: string }} Candidate
  *   A filter the site's agent presented, checked and tried on its saved
  *   pages: put on at once where the extension may run, and otherwise
  *   kept, waiting for the person to preview it and say yes or no.
+ *   `error`: why putting it on failed, where the extension may run.
  */
 
 /** Site `site`'s candidate, kept under a key of its own until the person
@@ -312,8 +320,13 @@ async function candidateOf(site) {
 }
 
 /** What site `site`'s agent last presented: when, and the version of the
- *  site's filter it became when it went on at once. @param {string} site */
+ *  site's filter it became once it went on. @param {string} site */
 const presentedKey = (site) => `presented:${site}`;
+
+/** @param {string} site @returns {Promise<{ at: number, version?: number } | undefined>} */
+async function presentedOf(site) {
+    return /** @type {Record<string, { at: number, version?: number }>} */ (await chrome.storage.session.get(presentedKey(site)))[presentedKey(site)];
+}
 
 /** Whether a filter for site `site` goes on as soon as it's presented:
  *  when the extension may run there (the person gave it the site when
@@ -323,45 +336,87 @@ async function goesOn(site) {
     return chrome.permissions.contains({ origins: [`*://${site}/*`, `*://*.${site}/*`] });
 }
 
+/** The putting-on running or last run, which the next waits for, so a
+ *  candidate goes on once however many ask. */
+let putting = Promise.resolve();
+
 /**
- * A presented filter made its site's, on, where the extension may run
- * there; otherwise kept as its site's candidate, replacing one not yet
- * answered. Either way the person is told, so it can't be missed: the
- * site's green dot; a notice (one with an undo, or one that stays until
- * the candidate's dealt with); and when the person is on the site now,
- * the popup itself, over the page.
+ * Site `site`'s candidate, if one waits, made its filter and dropped, and
+ * the person told (unless it was their own click): a notice with an
+ * undo. When it fails, the candidate stays, saying why. Answers the
+ * site's state, or null when none waits.
+ *
+ * @param {string} site @param {{ told?: boolean }} [options]
+ */
+function putOn(site, { told = true } = {}) {
+    const run = putting.then(async () => {
+        const candidate = await candidateOf(site);
+        if (candidate === undefined) return null;
+        /** @type {any} */
+        let applied;
+        try {
+            applied = await applyOps.filterAccept({ op: "filterAccept", site, filter: candidate.filter });
+        } catch (e) {
+            await chrome.storage.local.set({ [candidateKey(site)]: { ...candidate, error: String(/** @type {Error} */ (e)?.message ?? e) } });
+            throw e;
+        }
+        const version = /** @type {number} */ (applied.sites[site].version);
+        await chrome.storage.session.set({ [presentedKey(site)]: { at: Date.now(), version } });
+        // a turn that ended before it went on: its status says so now, for the dot
+        const status = await statusOf(site);
+        if (status !== null && status.state !== "working") await chrome.storage.session.set({ [statusKey(site)]: { ...status, presented: true, version } });
+        await dropCandidate(site);
+        if (!told) return applied;
+        const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
+        await chrome.notifications.create(`applied:${site}`, {
+            type: "basic",
+            iconUrl: "icons/128.png",
+            title: `A filter for ${site} is on`,
+            message: `It hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent.`,
+            buttons: [{ title: "Undo" }],
+        });
+        return applied;
+    });
+    putting = run.then(() => {}, () => {});
+    return run;
+}
+
+/** Every waiting candidate of a site the extension may now run on, put
+ *  on: the person gave a site after its filter was presented (still
+ *  deciding Chrome's prompt when a quick turn ended, or later). */
+async function putOnPermitted() {
+    for (const key of Object.keys(await chrome.storage.local.get(null))) {
+        const site = /^candidate:(.+)$/.exec(key)?.[1];
+        if (site !== undefined && (await goesOn(site))) await putOn(site).catch(() => {});
+    }
+}
+chrome.permissions.onAdded.addListener(() => void putOnPermitted());
+
+/**
+ * A presented filter kept as its site's candidate, replacing one not yet
+ * answered, then put on where the extension may run there. Either way
+ * the person is told, so it can't be missed: the site's green dot; a
+ * notice (one with an undo, or, for one that waits, one that stays until
+ * it's dealt with); and when the person is on the site now, the popup
+ * itself, over the page.
  *
  * @param {Candidate} candidate
  */
 async function onPresented(candidate) {
     const { site } = candidate;
-    const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
-    const things = `${hidden} ${hidden === 1 ? "thing" : "things"}`;
-    /** @type {number | undefined} */
-    let version;
-    if (await goesOn(site)) {
-        const applied = /** @type {any} */ (await applyOps.filterAccept({ op: "filterAccept", site, filter: candidate.filter }).catch(() => null));
-        version = applied?.sites[site]?.version;
-    }
-    await chrome.storage.session.set({ [presentedKey(site)]: { at: Date.now(), ...(version !== undefined && { version }) } });
-    if (version !== undefined) {
-        // one that went on replaces any waiting for an answer
-        await dropCandidate(site);
-        await chrome.notifications.create(`applied:${site}`, {
-            type: "basic",
-            iconUrl: "icons/128.png",
-            title: `A filter for ${site} is on`,
-            message: `It hides ${things} on the pages you sent.`,
-            buttons: [{ title: "Undo" }],
-        });
-    } else {
-        await chrome.storage.local.set({ [candidateKey(site)]: { ...candidate, at: Date.now() } });
+    await chrome.storage.local.set({ [candidateKey(site)]: { ...candidate, at: Date.now() } });
+    await chrome.storage.session.set({ [presentedKey(site)]: { at: Date.now() } });
+    /** @type {string | undefined} */
+    let failed;
+    const on = (await goesOn(site)) && (await putOn(site).then(() => true, (e) => ((failed = String(e?.message ?? e)), false)));
+    if (!on) {
         await paintSite(site);
+        const hidden = candidate.pages.reduce((n, p) => n + p.hidden, 0);
         await chrome.notifications.create(`candidate:${site}`, {
             type: "basic",
             iconUrl: "icons/128.png",
-            title: `A filter for ${site} is ready`,
-            message: `It hides ${things} on the pages you sent.`,
+            title: failed === undefined ? `A filter for ${site} is ready` : `A filter for ${site} is ready, but couldn't go on`,
+            message: failed ?? `It hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent.`,
             buttons: [{ title: "Preview it" }],
             requireInteraction: true,
         });
@@ -443,18 +498,19 @@ async function onEvent(msg) {
     if (msg.event === "candidate") return onPresented(/** @type {any} */ (msg).candidate);
     if (msg.event !== "turn-ended") return;
     // a filter this turn presented has its notice and its dot; any other ending gets both too
-    const last = /** @type {{ at: number, version?: number } | undefined} */ ((await chrome.storage.session.get(presentedKey(msg.site)))[presentedKey(msg.site)]);
+    const last = await presentedOf(msg.site);
     const presented = last !== undefined && typeof (/** @type {any} */ (msg).at) === "number" && last.at >= /** @type {any} */ (msg).at;
+    // one that went on keeps its dot until the person looks (and its undo, the turn failed after or not); a candidate keeps its own
+    const kept = presented && { presented: true, ...(last.version === undefined ? { seen: true } : { version: last.version }) };
     if (msg.error !== undefined || msg.outcome?.status !== "completed") {
-        await setStatus(msg.site, { state: "failed", error: msg.error ?? msg.outcome?.text ?? msg.outcome?.status ?? "the turn ended early" });
-    } else {
-        // one that went on keeps its dot until the person looks; a candidate keeps its own
-        const kept = presented && { presented: true, ...(last.version === undefined ? { seen: true } : { version: last.version }) };
-        await setStatus(msg.site, { state: "done", text: msg.outcome.text, ...kept });
-    }
+        await setStatus(msg.site, { state: "failed", error: msg.error ?? msg.outcome?.text ?? msg.outcome?.status ?? "the turn ended early", ...kept });
+    } else await setStatus(msg.site, { state: "done", text: msg.outcome.text, ...kept });
     const status = await statusOf(msg.site);
     if (!presented && status !== null) await noticeEnding(msg.site, status);
 }
+
+/** The offscreen document's last event being handled, which the next waits for. */
+let events = Promise.resolve();
 
 if (__DEV__) {
     /** The replies a scripted model gives the next submission that comes with
@@ -464,9 +520,11 @@ if (__DEV__) {
         return null;
     };
     /** Presented filters kept as candidates, as where the person didn't
-     *  give the extension the site (the dev build holds every test site). */
+     *  give the extension the site (the dev build holds every test site);
+     *  turned off, as the person giving it: what waits goes on. */
     OPS.withhold = async ({ on }) => {
         await chrome.storage.session.set({ withheld: on === true });
+        if (on !== true) await putOnPermitted();
         return null;
     };
     /** A turn on a scripted model, for the tests: `steps` are its replies. */
@@ -482,7 +540,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     // only the extension's own pages (a content script's sender is the site's
     // page), and not what's meant for the offscreen document
     if (sender.id !== chrome.runtime.id || sender.origin !== self.location.origin || msg?.target !== undefined) return;
-    if (typeof msg?.event === "string") return void onEvent(msg);
+    // in the order they came: a turn's end waits for what it presented to go on
+    if (typeof msg?.event === "string") return void (events = events.then(() => onEvent(msg)).catch(() => {}));
     const op = Object.hasOwn(OPS, msg?.op) ? OPS[msg.op] : undefined;
     if (op === undefined) return;
     op(msg).then((value) => reply({ value }), (e) => reply({ error: String(e?.message ?? e) }));

@@ -168,14 +168,47 @@ describe("what the agent is doing, at a glance", () => {
         await page.getByRole("button", { name: "Filter this site" }).click();
         await page.getByText(`The agent is writing a filter for ${TEST_SITE}…`).waitFor();
         assert.equal(await page.locator(".spinner").isVisible(), true);
-        // the popup shows itself again when the turn ends
+        // the popup follows: the filter on, then the turn's end
         await page.getByText("The agent's filter is on.").waitFor({ timeout: 30_000 });
-        assert.equal(await page.locator(".spinner").isVisible(), false);
+        await page.locator(".spinner").waitFor({ state: "hidden" });
         assert.equal(await ad(), "none");
         await page.getByRole("button", { name: "Undo" }).click();
         await page.getByRole("button", { name: "Filter this site" }).waitFor();
         assert.equal(await stored(), null);
         assert.equal(await soon(async () => (await ad()) === "block"), true);
+        await page.close();
+    });
+
+    it("undoes a filter while the turn that presented it still runs", async () => {
+        const [write, present, last] = presents();
+        const lingers = [write, present, step("", [{ name: "run_ts", args: { code: "await new Promise((ok) => setTimeout(ok, 1500))" } }]), last];
+        await op("submit", { tabId, steps: lingers });
+        assert.equal(await soon(async () => (await stored()) !== null), true);
+        assert.equal((await op("status", { site: TEST_SITE }))?.state, "working");
+        await op("undo", { site: TEST_SITE });
+        assert.equal(await stored(), null);
+        const status = await settled();
+        assert.equal(status?.state, "done");
+        assert.equal(status.version, undefined);
+        assert.equal(await op("dot", { site: TEST_SITE }), null);
+        await assert.rejects(op("undo", { site: TEST_SITE }), /nothing to undo/);
+    });
+
+    it("puts a filter on once the person gives the site, though it was presented while they decided", async () => {
+        await op("withhold", { on: true });
+        await op("submit", { tabId, steps: presents() });
+        await settled();
+        assert.notEqual(await op("candidate", { site: TEST_SITE }), null);
+        const page = await popup();
+        await page.getByText("It isn't on, since the extension doesn't have access").waitFor();
+        // as Chrome's prompt allowed: what waits goes on, and the open popup follows
+        await op("withhold", { on: false });
+        assert.deepEqual(await stored(), { version: 1, rules: 1 });
+        assert.equal(await op("candidate", { site: TEST_SITE }), null);
+        await page.getByText("The agent's filter is on.").waitFor();
+        assert.deepEqual(await notices(), [`applied:${TEST_SITE}`]);
+        await page.getByRole("button", { name: "Undo" }).click();
+        await page.getByRole("button", { name: "Filter this site" }).waitFor();
         await page.close();
     });
 });
