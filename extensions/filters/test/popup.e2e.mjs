@@ -1,6 +1,7 @@
-// The person's say, through the popup: a filter the agent presented, its
-// notice, previewed on the page, accepted (the ad hidden), turned off and
-// on, and the site forgotten; and a rejection's reason, a turn of its own.
+// The person's say, through the popup, where they kept the site from the
+// extension: a filter the agent presented, its notice, previewed on the
+// page, accepted (the ad hidden), turned off and on, and the site
+// forgotten; and a rejection's reason, a turn of its own.
 //
 //     pnpm filters:test
 
@@ -60,6 +61,8 @@ describe("the popup", () => {
         browser = await launch(await build("dev"));
         ext = await browser.context.newPage();
         await ext.goto(`chrome-extension://${browser.id}/manifest.json`);
+        // as without the site's permission: what the agent presents waits for the person
+        await op("withhold", { on: true });
         shop = await browser.context.newPage();
         await shop.goto(`http://shop.${TEST_SITE}:${port}/shop.html`);
         await shop.bringToFront();

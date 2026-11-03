@@ -1,12 +1,14 @@
 /**
  * The toolbar's popup, for the tab in front and its site: submitting the
- * page as the person sees it for the site's agent (after a warning that
- * says where it goes); the filter the agent presented, previewed on the
- * page and accepted or turned down; and once there's one, the site's
- * filter turned on or off, its hidden things shown, extended with this
- * page, or removed. Opening the popup is the person's click on the
- * extension, which lets it read that one tab (`activeTab`); accepting is
- * the click Chrome asks for the site's permission on.
+ * page as the person sees it for the site's agent (beside a warning that
+ * says where it goes), the click Chrome asks for the site's permission
+ * on; the agent at work, and how long for; the filter it presented, on
+ * at once with an undo, or, where the person kept the site from the
+ * extension, previewed on the page and accepted or turned down; and once
+ * there's one, the site's filter turned on or off, its hidden things
+ * shown, changed, extended with this page, or removed. Opening the popup
+ * is the person's click on the extension, which lets it read that one
+ * tab (`activeTab`).
  *
  * `?tab=<id>` names the tab instead of the one in front (the tests').
  */
@@ -26,16 +28,19 @@ async function ask(op, args = {}) {
     return reply?.value;
 }
 
+/** The match patterns of site `site`'s pages, which its permission is for. @param {string} site */
+const originsOf = (site) => [`*://${site}/*`, `*://*.${site}/*`];
+
 /**
- * How the site's agent stands, in words: working (and for how long), or
- * how its last turn ended when it ended without a filter to preview.
+ * How the site's agent's last turn ended, in words, when it ended without
+ * a filter (nothing while it works: the spinner says that).
  *
  * @param {{ state: string, at: number, text?: string, error?: string, presented?: boolean } | null} status
  * @param {boolean} candidate whether a filter it presented waits
  */
 function statusText(status, candidate) {
     if (status === null) return "";
-    if (status.state === "working") return `Its agent is working on this site (${since(status.at)}).`;
+    if (status.state === "working") return "";
     if (status.state === "failed") return `Its agent stopped: ${status.error}`;
     // a turn that presented a filter didn't end without one, answered since or not
     if (candidate || status.presented) return "";
@@ -43,10 +48,34 @@ function statusText(status, candidate) {
     return `Its agent finished without a filter${words === "" ? "." : `: “${words.length > 300 ? `${words.slice(0, 299)}…` : words}”`}`;
 }
 
-/** How long ago `at` was, roughly. @param {number} at */
+/** How long ago `at` was, to the second. @param {number} at */
 function since(at) {
     const s = Math.max(0, Math.round((Date.now() - at) / 1000));
-    return s < 60 ? `${s}s` : `${Math.round(s / 60)} min`;
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+/** The ticker while the site's agent works. @type {ReturnType<typeof setInterval> | undefined} */
+let ticker;
+
+/**
+ * The spinner, with how long site `site`'s agent has worked, each second;
+ * the popup shown again once the turn ends.
+ *
+ * @param {string} site @param {number} at when the turn started
+ */
+function spin(site, at) {
+    clearInterval(ticker);
+    const text = () => ($("working-text").textContent = `The agent is writing a filter for ${site}… ${since(at)}`);
+    text();
+    $("working").hidden = false;
+    ticker = setInterval(() => {
+        text();
+        void ask("status", { site }).then((now) => {
+            if (now?.state === "working") return;
+            clearInterval(ticker);
+            void show().catch(fail);
+        }, () => {});
+    }, 1000);
 }
 
 /** Say `e` in the status line. @param {unknown} e */
@@ -79,7 +108,8 @@ async function show() {
     // held while the popup is open: the worker ends a preview here when it closes
     if (tabId !== undefined && held === null) held = chrome.runtime.connect({ name: `popup:${tabId}` });
     const page = tabId === undefined ? { site: null, paused: false } : await ask("page", { tabId });
-    for (const id of ["candidate", "applied", "submit-section", "forget"]) $(id).hidden = true;
+    clearInterval(ticker);
+    for (const id of ["candidate", "applied", "submit-section", "forget", "working", "fresh"]) $(id).hidden = true;
     input("pause").checked = page.paused === true;
     if (page.site === null) {
         $("site").textContent = "Not a site's page";
@@ -94,35 +124,57 @@ async function show() {
     $("status").textContent = status;
     $("forget").hidden = page.candidate === null && page.applied === null && page.status === null;
     const working = page.status?.state === "working";
+    if (working) spin(site, page.status.at);
 
     if (page.candidate !== null) {
         const hidden = page.candidate.pages.reduce((/** @type {number} */ n, /** @type {{ hidden: number }} */ p) => n + p.hidden, 0);
         $("candidate").hidden = false;
-        $("candidate-text").textContent = `A filter is ready: it hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. Preview it here, then accept it or say what's wrong.`;
+        $("candidate-text").textContent = `A filter is ready: it hides ${hidden} ${hidden === 1 ? "thing" : "things"} on the pages you sent. It isn't on, since the extension doesn't have access to ${site}: preview it here, then accept it or say what's wrong.`;
         button("preview").textContent = outlining ? "End preview" : "Preview";
     } else if (page.applied !== null) {
         $("applied").hidden = false;
         input("on").checked = page.applied.on;
+        // the agent's last turn put this version on: one click takes it off again
+        if (page.status?.version !== undefined && page.status.version === page.applied.version) {
+            $("fresh").hidden = false;
+            $("fresh-text").textContent = page.applied.previous === undefined ? "The agent's filter is on." : "The agent's new version is on.";
+            button("undo").title = page.applied.previous === undefined ? "Remove the filter" : "Go back to the version before";
+        }
         const count = await ask("filterCount", { tabId });
         $("count").textContent = page.paused ? "All filters are paused." : !page.applied.on ? "Off for this site." : `${count} hidden on this page.`;
         $("hint").hidden = !(page.applied.on && !page.paused && count === 0);
         button("show").textContent = outlining ? "Hide them again" : "Show hidden";
         $("changes-note").className = page.password ? "warn" : "muted";
-        $("changes-note").textContent = "Changes go to the agent with this page, and come back as a new filter to preview." +
+        $("changes-note").textContent = "Changes go to the agent with this page; the new version goes on when it's ready, and Undo goes back to this one." +
             (page.password ? " This page has a password field: send it only if nothing on it is private." : "");
         button("ask-changes").disabled = working;
         button("extend").disabled = working;
     }
     if (page.candidate === null && page.applied === null) {
-        // a site's first page
-        $("submit-section").hidden = false;
-        button("submit").disabled = working;
+        // a site's first page; while its agent works, the spinner instead
+        $("submit-section").hidden = working;
+        const permitted = await chrome.permissions.contains({ origins: originsOf(site) });
         $("warning").className = page.password ? "warn" : "muted";
         $("warning").textContent = `The page as it is now goes to your model's service, and stays on this device as one of ${site}'s pages.` +
-            (page.password ? " It has a password field: submit it only if nothing on it is private." : "");
+            (permitted ? "" : ` Chrome asks you for access to ${site}, so the filter goes on when it's ready.`) +
+            (page.password ? " It has a password field: send it only if nothing on it is private." : "");
+        button("submit").textContent = page.password ? "Send anyway" : "Filter this site";
     }
 
-    button("submit").onclick = () => act(async () => ask("submit", { tabId }));
+    button("submit").onclick = () =>
+        act(async () => {
+            // sent first, so a popup the permission's prompt closes has still sent it
+            const sent = ask("submit", { tabId });
+            // the site's permission, asked of Chrome from this click: with it the filter
+            // goes on when it's ready; without, it waits for the person to accept it
+            await chrome.permissions.request({ origins: originsOf(site) }).catch(() => false);
+            await sent;
+        });
+    button("undo").onclick = () =>
+        act(async () => {
+            await endPreview(tabId);
+            await ask("undo", { site });
+        });
     button("preview").onclick = () =>
         act(async () => {
             if (outlining) await ask("filterPreviewEnd", { tabId });
@@ -132,7 +184,7 @@ async function show() {
     button("accept").onclick = () =>
         act(async () => {
             // the site's permission, asked of Chrome from this click
-            const granted = await chrome.permissions.request({ origins: [`*://${site}/*`, `*://*.${site}/*`] });
+            const granted = await chrome.permissions.request({ origins: originsOf(site) });
             if (!granted) throw new Error(`Without permission for ${site}, the filter can't apply there.`);
             await endPreview(tabId);
             await ask("accept", { site });

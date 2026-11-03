@@ -4,7 +4,8 @@
  * the studio's colours.
  *
  * - `working`: the site's agent is at work (the studio's accent).
- * - `ready`: a filter waits to be previewed (green).
+ * - `ready`: a filter waits to be previewed, or one went on and the
+ *   person hasn't looked since (green).
  * - `stopped`: the last turn stopped, or ended without a filter, and the
  *   person hasn't looked since (amber).
  */

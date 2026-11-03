@@ -7,7 +7,7 @@
  *
  * Nothing applies without the person: a filter is accepted only for a
  * site the extension holds host permission for (which the popup asks for
- * from the person's click), and a preview reaches a tab only through
+ * from the person's click, when they submit the site's page), and a preview reaches a tab only through
  * `activeTab`, which that click grants.
  *
  * The extension's dynamic rules are this module's alone: each change
@@ -18,7 +18,7 @@
 import { isSite } from "../filter/guards.js";
 import {
     APPLIED, acceptFilter, checkWithoutDom, matchesOf, readState, removeSite, scriptId, setOn, setPaused,
-    siteOfScript, wantedRules,
+    siteOfScript, undoAccept, wantedRules,
 } from "./state.js";
 
 /** The content script's bundle, at the build's top level. */
@@ -215,6 +215,18 @@ export const applyOps = {
         const next = await load();
         await register(s);
         await injectOpen(s);
+        return view(next, s);
+    }),
+
+    /** `site`'s last accept undone: the filter it replaced back, or, for
+     *  its first, its filter removed. Answers the state of `site`. */
+    filterUndo: ({ site }) => serial(async () => {
+        const s = siteArg(site);
+        const prev = await load();
+        const next = undoAccept(prev, s);
+        await commit(prev, next);
+        if (Object.hasOwn(next.sites, s)) await injectOpen(s);
+        else await unregister(s);
         return view(next, s);
     }),
 

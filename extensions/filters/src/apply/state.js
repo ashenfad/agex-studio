@@ -1,8 +1,9 @@
 /**
  * What the extension keeps of the filters the person accepted: one entry
  * per site (its registrable domain, `reddit.com`) with its filter,
- * whether it is on, the filter's version (one more at each accept) and
- * the ids of its block rules; and a pause for every site at once. It is
+ * whether it is on, the filter's version (one more at each accept), the
+ * ids of its block rules and the filter it replaced (for an undo); and a
+ * pause for every site at once. It is
  * kept in `chrome.storage.local` under `APPLIED`, written by the service
  * worker and read by the content script on each of the site's pages.
  *
@@ -25,12 +26,15 @@ export const SCRIPT_PREFIX = "filters:";
  *   on: boolean,
  *   version: number,
  *   rules: number[],
+ *   previous?: import("../filter/format.js").Filter,
  * }} SiteEntry
  *   `filter`: the accepted filter, as the worker's check returned it.
  *   `on`: whether it applies (the person's per-site switch).
  *   `version`: 1 at its first accept, one more at each since.
  *   `rules`: the ids of its `declarativeNetRequest` rules, one per block
  *   rule, consecutive, none shared with another site.
+ *   `previous`: the filter this one replaced, which an undo goes back
+ *   to; none for a site's first, whose undo removes it.
  */
 
 /** @typedef {{ paused: boolean, sites: Record<string, SiteEntry> }} State */
@@ -63,6 +67,7 @@ export function readState(raw) {
             on: entry.on !== false,
             version,
             rules,
+            ...(isRecord(entry.previous) && { previous: /** @type {SiteEntry["filter"]} */ (/** @type {unknown} */ (entry.previous)) }),
         };
     }
     return state;
@@ -165,9 +170,9 @@ function entryOf(state, site) {
 }
 
 /**
- * `filter` accepted as `site`'s filter, on, replacing the one before: its
- * version one more than that one's, its block rules given ids no other
- * site holds.
+ * `filter` accepted as `site`'s filter, on, replacing the one before
+ * (kept, for an undo): its version one more than that one's, its block
+ * rules given ids no other site holds.
  *
  * @param {State} state
  * @param {string} site
@@ -182,7 +187,25 @@ export function acceptFilter(state, site, filter) {
         on: true,
         version: (before?.version ?? 0) + 1,
         rules: freeIds(state, site, filter.block.length),
+        ...(before !== undefined && { previous: before.filter }),
     };
+    return next;
+}
+
+/**
+ * `site`'s last accept undone: the filter it replaced back, on, as a new
+ * version (with nothing before it to go back to), or, when it replaced
+ * none, `site`'s filter gone.
+ *
+ * @param {State} state
+ * @param {string} site
+ * @returns {State}
+ */
+export function undoAccept(state, site) {
+    const { previous, version } = entryOf(state, site);
+    if (previous === undefined) return removeSite(state, site);
+    const next = copy(state);
+    next.sites[site] = { filter: previous, on: true, version: version + 1, rules: freeIds(state, site, previous.block.length) };
     return next;
 }
 
