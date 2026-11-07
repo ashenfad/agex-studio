@@ -4,15 +4,19 @@
  * which differ only in their view, how an element's text, box and
  * visibility are read.
  *
- * A selector runs in the document and in every open shadow root under
- * it, nested ones too (a selector doesn't pierce a shadow root); its
+ * A selector runs in the document and in every shadow root under it,
+ * nested ones too (a selector doesn't pierce a shadow root); its
  * matches are kept by `hasText` and `matchesAttr`, then mapped through
  * `upward`. Nothing a rule matches is ever the page's root: the
  * document's root element, its body, or its `main` (an element or a
  * role), whatever a rule says.
  *
- * The module uses the DOM alone, no extension API, so it runs in a page
- * as it does in the extension's own documents.
+ * The module uses the DOM alone, so it runs in a page as it does in the
+ * extension's own documents. Where `chrome.dom` is there too (a content
+ * script), it reads closed shadow roots as well as open ones, as the
+ * capture does (`capture/walk.js`): a filter checked on a capture hides
+ * the same on the live page. Elsewhere it reads open ones only; a
+ * rebuilt capture has no other kind.
  */
 
 /** @typedef {import("./format.js").HideRule} HideRule */
@@ -80,8 +84,27 @@ function compile(rule) {
 }
 
 /**
- * Every open shadow root under `root`, nested ones too, in document
- * order: a host's root before the hosts inside it.
+ * `el`'s shadow root: an open one, or a closed one where `chrome.dom`
+ * reaches it. That API takes an HTML element only (an SVG icon would
+ * throw).
+ *
+ * @param {Element} el
+ * @returns {ShadowRoot | null}
+ */
+function shadowOf(el) {
+    if (el.shadowRoot) return el.shadowRoot;
+    const dom = /** @type {any} */ (globalThis).chrome?.dom;
+    if (typeof dom?.openOrClosedShadowRoot !== "function" || !(el instanceof HTMLElement)) return null;
+    try {
+        return dom.openOrClosedShadowRoot(el) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Every shadow root under `root` (`shadowOf`), nested ones too, in
+ * document order: a host's root before the hosts inside it.
  *
  * @param {Root} root
  * @returns {ShadowRoot[]}
@@ -92,14 +115,15 @@ export function shadowRoots(root) {
     /** @param {Root} r */
     const visit = (r) => {
         for (const el of r.querySelectorAll("*")) {
-            if (el.shadowRoot) {
-                out.push(el.shadowRoot);
-                visit(el.shadowRoot);
+            const shadow = shadowOf(el);
+            if (shadow) {
+                out.push(shadow);
+                visit(shadow);
             }
         }
     };
-    if (root.nodeType === Node.ELEMENT_NODE && /** @type {Element} */ (root).shadowRoot) {
-        const own = /** @type {ShadowRoot} */ (/** @type {Element} */ (root).shadowRoot);
+    const own = root.nodeType === Node.ELEMENT_NODE ? shadowOf(/** @type {Element} */ (root)) : null;
+    if (own) {
         out.push(own);
         visit(own);
     }
@@ -157,7 +181,7 @@ function up(el, upward) {
 }
 
 /**
- * `root` and every open shadow root under it: where a filter's selectors
+ * `root` and every shadow root under it: where a filter's selectors
  * run. Found once for a whole filter, not once a rule: finding them
  * walks the page.
  *
@@ -330,8 +354,8 @@ function pathOf(el) {
 /**
  * The live page's view, from layout: the text a person sees, the box it
  * draws, and whether it shows. Its text is what `innerText` gives (so
- * letters in hidden spans don't count) but read into open shadow roots
- * too, which `innerText` leaves out: the text nodes of what is drawn (a
+ * letters in hidden spans don't count) but read into shadow roots too,
+ * which `innerText` leaves out: the text nodes of what is drawn (a
  * host's shadow tree in place of its children, what's slotted in place
  * of a slot), none that is `display: none` or `visibility: hidden`, a
  * space between blocks. A capture's view reads the same text from the
@@ -466,7 +490,8 @@ export const capturedView = {
  * @returns {Iterable<Node>}
  */
 function drawnChildren(el) {
-    if (el.shadowRoot) return el.shadowRoot.childNodes;
+    const shadow = shadowOf(el);
+    if (shadow) return shadow.childNodes;
     if (el.localName === "slot" && typeof (/** @type {HTMLSlotElement} */ (el).assignedNodes) === "function") {
         const assigned = /** @type {HTMLSlotElement} */ (el).assignedNodes();
         if (assigned.length > 0) return assigned;
