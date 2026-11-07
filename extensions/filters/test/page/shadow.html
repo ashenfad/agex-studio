@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Shadow feed</title>
+<!-- a feed drawn as web components: open roots nested three deep, named and default slots,
+     a slot's fallback, and a closed root, which a capture can't read -->
+<feed-app>
+  <h1 slot="title">Your feed</h1>
+  <feed-post><span slot="author">Ana</span><p>First post body</p></feed-post>
+  <feed-post sponsored><span slot="author">Shop</span><p>Buy now</p></feed-post>
+  <secret-box><p class="light">Light of a closed host</p></secret-box>
+</feed-app>
+<script>
+    customElements.define("post-badge", class extends HTMLElement {
+        connectedCallback() {
+            if (this.shadowRoot) return;
+            const host = this.getRootNode().host;
+            const sponsored = host?.hasAttribute("sponsored");
+            this.attachShadow({ mode: "open" }).innerHTML = `<span class="badge"${sponsored ? "" : " hidden"}>Sponsored</span>`;
+        }
+    });
+    customElements.define("feed-post", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "open" }).innerHTML =
+                `<article class="post"><div class="byline"><slot name="author"></slot> <post-badge></post-badge></div><slot></slot></article>`;
+        }
+    });
+    customElements.define("feed-app", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "open" }).innerHTML =
+                `<style>main { display: block }</style><header><slot name="title">Untitled</slot></header>` +
+                `<main class="feed"><slot></slot></main><footer><slot name="missing"><em>Fallback shown</em></slot></footer>`;
+        }
+    });
+    customElements.define("secret-box", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "closed" }).innerHTML = `<p class="secret">Closed content</p><slot></slot>`;
+        }
+    });
+</script>

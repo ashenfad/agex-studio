@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Sign in</title></head>
+<body>
+<main><x-login></x-login></main>
+<script>
+    // a sign-in form inside a component whose shadow root is closed
+    customElements.define("x-login", class extends HTMLElement {
+        constructor() {
+            super();
+            this.attachShadow({ mode: "closed" }).innerHTML = '<form><input name="user"><input type="password" name="pass"></form>';
+        }
+    });
+</script>
+</body>
+</html>

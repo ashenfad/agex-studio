@@ -37,8 +37,9 @@ jobs:
     - name: Build
       run: pnpm build
 
-  # the browser extension, loaded into Chromium: its port to a page
-  # playing the studio, the service worker's idle stop and the heartbeat
+  # the browser extensions, loaded into Chromium: the browsing one's port
+  # to a page playing the studio, its service worker's idle stop and the
+  # heartbeat; the site-filter one's agent and filters
   extension:
     runs-on: ubuntu-latest
 
@@ -77,3 +78,6 @@ jobs:
 
     - name: Run the extension's tests
       run: pnpm extension:test
+
+    - name: Run the site-filter extension's tests
+      run: pnpm filters:test

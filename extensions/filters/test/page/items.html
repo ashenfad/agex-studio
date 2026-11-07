@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>A shop</title>
+    <style>
+        .item { display: block; margin: 8px; padding: 8px; border: 1px solid #ccc; }
+    </style>
+    <script>
+        // an ad network's script, from a host of its own, as the page's own request
+        const ad = document.createElement("script");
+        ad.src = `http://ads.filters.test:${location.port}/ad.js`;
+        document.head.append(ad);
+    </script>
+</head>
+<body>
+<main>
+    <div id="items">
+        <div class="item promo" id="ad1">A promoted thing</div>
+        <div class="item" id="i1">A real item</div>
+        <div class="item" id="ad2"><span class="tag">Ad</span> Another promoted thing</div>
+        <div class="item" id="i2">Another real item, with an Ad in it</div>
+    </div>
+</main>
+</body>
+</html>
