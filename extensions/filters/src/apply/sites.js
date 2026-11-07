@@ -179,7 +179,7 @@ function view(state, site) {
  * rules the state wants, a script for each stored site the extension may
  * still run on, none for a site no longer stored or no longer permitted.
  * Run when the extension is installed, updated or the browser starts, and
- * when the person takes a permission back.
+ * when the person takes a permission back or gives one again.
  */
 export function repair() {
     return serial(async () => {
@@ -303,3 +303,4 @@ export const applyOps = {
 chrome.runtime.onInstalled.addListener(() => void repair());
 chrome.runtime.onStartup.addListener(() => void repair());
 chrome.permissions.onRemoved.addListener(() => void repair());
+chrome.permissions.onAdded.addListener(() => void repair());

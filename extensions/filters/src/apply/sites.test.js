@@ -47,6 +47,7 @@ function fakeChrome() {
             // held for a site when both its patterns are
             contains: async (/** @type {{ origins: string[] }} */ { origins }) => origins.every((o) => fake.permitted.has(o.replace(/^\*:\/\/(\*\.)?/, "").replace(/\/\*$/, ""))),
             onRemoved: listener(),
+            onAdded: listener(),
         },
         runtime: { onInstalled: listener(), onStartup: listener() },
     };

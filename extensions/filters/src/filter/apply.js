@@ -1,13 +1,14 @@
 /**
  * A filter applied to a live page: what its hide rules match is marked
  * (`data-agex-filtered`), and a stylesheet in the document, and in each
- * open shadow root holding a match, hides what is marked or, to show
+ * shadow root holding a match, hides what is marked or, to show
  * what it hides, outlines it. The page is matched again as it changes
  * (an infinite feed, navigation inside a single-page app, a component
  * filling its shadow root), so what it adds later is filtered too.
  *
- * It uses the DOM alone and imports only the engine, with no extension
- * API, so a content script can load it as a module or have it bundled.
+ * It imports only the engine and uses no extension API of its own (the
+ * engine reads closed shadow roots through `chrome.dom` where it's
+ * there), so a content script can load it as a module or have it bundled.
  * One filter applies to a document at a time: applying another, or
  * another mode, replaces it.
  */

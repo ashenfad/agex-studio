@@ -147,6 +147,17 @@ describe("an accepted filter on its site's pages", () => {
         await page.close();
     });
 
+    it("hides a match inside a closed shadow root, as the capture reads it", async () => {
+        const had = new Set(await tabIds());
+        const page = await browser.context.newPage();
+        const tabId = (await tabIds()).find((id) => !had.has(id));
+        await page.goto(`http://${SITE}:${port}/shop.html`);
+        // the shop's one `.promo` is the closed component's only child: hidden, its host draws nothing
+        await until(async () => (await op({ op: "filterCount", tabId })) === 1, "the closed root's match hidden");
+        assert.equal(await page.evaluate(() => /** @type {Element} */ (document.querySelector("x-closed")).getBoundingClientRect().width), 0);
+        await page.close();
+    });
+
     it("filters a subdomain of the site, and not a sibling of it", async () => {
         const sub = await open(SUB);
         await hides(sub.page, ["ad1", "ad2"]);
