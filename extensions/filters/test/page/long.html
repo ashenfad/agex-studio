@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Long feed</title>
+<!-- a long feed, more than a capture keeps: its later posts are cut, the page around it kept -->
+<header id="top"><h1>Everything</h1><nav><a href="/a">A</a> <a href="/b">B</a></nav></header>
+<ul id="feed"></ul>
+<footer id="bottom">The end</footer>
+<script>
+    const feed = document.getElementById("feed");
+    for (let i = 0; i < 2000; i++) {
+        const li = document.createElement("li");
+        li.className = i % 7 === 3 ? "item promoted" : "item";
+        li.innerHTML = `<h2>Post ${i}</h2><p>${"Words in a post. ".repeat(4)}</p>`;
+        feed.append(li);
+    }
+</script>

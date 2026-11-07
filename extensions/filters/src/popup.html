@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agex Site Filters</title>
+<style>
+    body { margin: 0; width: 320px; font: 13px/1.4 system-ui, sans-serif; color: #e6e6f0; background: #1a1a2e; }
+    main { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+    section { display: flex; flex-direction: column; gap: 8px; }
+    h1 { margin: 0; font-size: 15px; font-weight: 600; }
+    p { margin: 0; }
+    .muted { color: #9a9ab0; font-size: 12px; }
+    .warn { color: #d9a441; font-size: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    button { padding: 6px 10px; border: 0; border-radius: 6px; background: #e94560; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #2a3456; color: #e6e6f0; font-weight: 500; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    input[type=text] { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid #2a3456; border-radius: 6px; background: #16213e; color: inherit; font: inherit; }
+    label { display: flex; gap: 6px; align-items: center; }
+    footer { display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid #2a3456; padding-top: 8px; }
+    a { color: #9a9ab0; font-size: 12px; }
+    .working { display: flex; gap: 8px; align-items: center; }
+    .spinner { flex: none; width: 14px; height: 14px; border: 2px solid #2a3456; border-top-color: #e94560; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+    [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+    <h1 id="site">…</h1>
+    <p id="status" class="muted" hidden></p>
+    <p id="working" class="working" role="status" hidden><span class="spinner"></span><span id="working-text"></span></p>
+
+    <section id="candidate" hidden>
+        <p id="candidate-text"></p>
+        <div class="row">
+            <button id="preview" class="secondary">Preview</button>
+            <button id="accept">Accept</button>
+        </div>
+        <div class="row">
+            <input id="reason" type="text" placeholder="What's wrong with it? (optional)">
+            <button id="reject" class="secondary">Reject</button>
+        </div>
+    </section>
+
+    <section id="applied" hidden>
+        <div id="fresh" class="row" hidden>
+            <p id="fresh-text"></p>
+            <button id="undo" class="secondary">Undo</button>
+        </div>
+        <label><input id="on" type="checkbox"> Filter this site</label>
+        <p id="count" class="muted"></p>
+        <p id="hint" class="warn" hidden>The filter hides nothing on this page. Extend it with this page?</p>
+        <div class="row">
+            <button id="show" class="secondary">Show hidden</button>
+            <button id="remove" class="secondary">Remove filter</button>
+        </div>
+        <p id="changes-note" class="muted"></p>
+        <div class="row">
+            <input id="request" type="text" placeholder="What should change? (also hide the sidebar…)">
+        </div>
+        <div class="row">
+            <button id="ask-changes">Ask for changes</button>
+            <button id="extend" class="secondary">Extend with this page</button>
+        </div>
+    </section>
+
+    <section id="submit-section" hidden>
+        <p id="warning" class="muted"></p>
+        <button id="submit">Filter this site</button>
+    </section>
+
+    <footer>
+        <label class="muted"><input id="pause" type="checkbox"> Pause all filters</label>
+        <a id="forget" href="#" hidden>Forget this site</a>
+        <a id="settings" href="#">Model and settings</a>
+    </footer>
+</main>
+<script type="module" src="popup.js"></script>
+</body>
+</html>
