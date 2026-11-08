@@ -27,7 +27,7 @@ also gave it the Gists permission.
 From a session's **⋯** dialog, choose **Publish…**:
 
 - **As it is now** (the default): its files and conversation, without
-  the history. Smaller.
+  the history, its screenshots made smaller. Much smaller.
 - **With its history**: every commit, so viewers can undo its turns.
 
 Tick that you understand anyone with the link can see all of it, then
