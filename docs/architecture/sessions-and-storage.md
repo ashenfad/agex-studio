@@ -73,6 +73,16 @@ one commit holding what `at` holds, less what only makes sense with the
 history behind it (`kept`): the cache (`__cache__/`), the agent's own
 git (`__ws_git__`), and the undo points (`__plane__/studio/turns/`).
 
+A snapshot is one commit, so a sync has to carry it in one request,
+and in a long session with screenshots nearly all of its bytes are the
+screenshots. So it makes the conversation's images small on the way
+(`compactConversation`, `image-compact.js`): an image in a message the
+fold in force covers, which the model is no longer sent and only the
+transcript shows, becomes a thumbnail (at most 640px across, WebP);
+every other large image is re-encoded as WebP when that is at most
+three quarters of its size. Compact forks, current-state bundles and
+gists all go through it.
+
 `Studio.adopt(branch, meta)` turns a branch made outside the world (a
 snapshot, a bundle's commits) into a session: a full fork of it, so
 the conversation becomes the new session's own, then the branch is

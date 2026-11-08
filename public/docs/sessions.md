@@ -69,7 +69,9 @@ haven't delivered are dropped.
 - **Its files only**: the same files, a fresh conversation.
 - **As it is now**: the files and the conversation as they are,
   without the history behind them. Much smaller, but its earlier
-  turns can't be undone.
+  turns can't be undone. Its screenshots are made smaller too, and
+  those from turns the agent has already summarized become
+  thumbnails.
 
 A fork is a session like any other: rename it, delete it, publish it.
 
