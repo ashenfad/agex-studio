@@ -143,22 +143,41 @@ async function fitImage(image, { limit = IMAGE_LIMIT } = {}) {
     }
 }
 
-/** @param {ImageBitmap} bitmap @param {number} scale @returns {Promise<Img>} */
-async function encode(bitmap, scale) {
+/** @param {ImageBitmap} bitmap @param {number} scale @param {number} [quality] @returns {Promise<Img>} */
+async function encode(bitmap, scale, quality = QUALITY) {
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = new OffscreenCanvas(width, height);
     const g = /** @type {OffscreenCanvasRenderingContext2D} */ (canvas.getContext("2d"));
     g.drawImage(bitmap, 0, 0, width, height);
-    let blob = await canvas.convertToBlob({ type: "image/webp", quality: QUALITY });
+    let blob = await canvas.convertToBlob({ type: "image/webp", quality });
     if (blob.type !== "image/webp") {
         // no WebP writer: JPEG, over white, since it has no transparency
         g.globalCompositeOperation = "destination-over";
         g.fillStyle = "#fff";
         g.fillRect(0, 0, width, height);
-        blob = await canvas.convertToBlob({ type: "image/jpeg", quality: QUALITY });
+        blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
     }
     return { data: bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mediaType: blob.type };
+}
+
+/**
+ * `image` decoded and encoded again as WebP (JPEG on white where the
+ * browser can't write WebP), at `quality`, its longest side scaled down
+ * to `maxSide` if past it. Needs a browser: it decodes and draws with
+ * `createImageBitmap` and an `OffscreenCanvas`.
+ *
+ * @param {Img} image
+ * @param {{ maxSide?: number, quality?: number }} [opts]
+ * @returns {Promise<Img>}
+ */
+export async function reencode(image, { maxSide = Number.POSITIVE_INFINITY, quality = QUALITY } = {}) {
+    const bitmap = await createImageBitmap(await (await fetch(`data:${image.mediaType};base64,${image.data}`)).blob());
+    try {
+        return await encode(bitmap, Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height)), quality);
+    } finally {
+        bitmap.close();
+    }
 }
 
 /**

@@ -16,6 +16,7 @@ import { read as readAppStorage } from "./app-storage.js";
 import { appAgent } from "./app-tasks.svelte.js";
 import { errorText } from "./errors.js";
 import { GRID_MAX, tileGrid } from "./grid.js";
+import { compactImage } from "./image-compact.js";
 import { STAND_INS_MAX, parseStandIns } from "./stand-ins.js";
 import { liveVariables } from "./variables.js";
 
@@ -36,7 +37,7 @@ actions: a list of plain objects, run in order:
 - {read: "#sel"} or {read: "#sel", prop: "value"}: innerText (the text as shown), or a property (prop: "textContent" for the raw text)
 - {eval: "expr", label: "name"}: a JS expression in the app's page; a Promise is awaited. The optional label names it in the result in place of its code
 - {assert: "expr", message: "..."}: a failing assertion ends the call with an error. With soft: true a failure is reported and the actions go on; the call then ends as an error saying how many soft asserts failed
-- {screenshot: true} or {screenshot: "#sel"}: a PNG, attached to this result
+- {screenshot: true} or {screenshot: "#sel"}: an image of the page (or of that element), attached to this result
 - {screenshot: true | "#sel", grid: "name", label: "1.5s title"}: held, and every frame of a grid comes back tiled into ONE captioned image at the end (also when an action fails); up to ${GRID_MAX} frames a grid. Use it to check several states (scenes, steps) for the cost of one image
 - {viewport: "mobile" | "tablet" | "desktop" | {width, height}}: resize (not live)
 - {reload: true}: reload the page (rebuilt from the same files), keeping what this test wrote to localStorage, sessionStorage and agex.db, and wait for it to load again: checks what survives a reload. The person's storage and database are never written (not live)
@@ -201,21 +202,38 @@ async function runTest(session, args) {
     return formatResults(results);
 }
 
+/** @typedef {import("@agex-ts/world").ToolImage} ToolImage */
+
+/**
+ * A screenshot as the turn's record keeps it: re-encoded as WebP when
+ * it's large and that's much smaller (`compactImage`), else as it came.
+ *
+ * @param {ToolImage} image
+ * @param {{ reencode?: import("./image-compact.js").Reencode }} [opts]
+ * @returns {Promise<ToolImage>}
+ */
+export async function compactShot(image, opts = {}) {
+    const out = await compactImage({ data: image.data, mediaType: `image/${image.format}` }, opts);
+    if (out.data === image.data) return image;
+    return { data: out.data, format: /** @type {ToolImage["format"]} */ (out.mediaType.slice("image/".length)) };
+}
+
 /**
  * The results as the model reads them, screenshots attached as images:
  * each on its own, or a grid's frames tiled into one image at the end
- * (by `tile`; frames past `GRID_MAX` are left out, and said so). Soft
- * asserts that failed are counted at the end, and make the result an
- * error. An eval with a label shows the label in place of its code.
+ * (by `tile`; frames past `GRID_MAX` are left out, and said so), each
+ * image then as the record keeps it (by `compact`). Soft asserts that
+ * failed are counted at the end, and make the result an error. An eval
+ * with a label shows the label in place of its code.
  *
  * @param {any[]} results
- * @param {{ tile?: (frames: { data: string, label: string }[]) => Promise<string> }} [opts]
+ * @param {{ tile?: (frames: { data: string, label: string }[]) => Promise<string>, compact?: (image: ToolImage) => Promise<ToolImage> }} [opts]
  * @returns {Promise<import("@agex-ts/world").ToolOutput>}
  */
-export async function formatResults(results, { tile = tileGrid } = {}) {
+export async function formatResults(results, { tile = tileGrid, compact = compactShot } = {}) {
     /** @type {string[]} */
     const lines = [];
-    /** @type {{ data: string, format: "png" }[]} */
+    /** @type {ToolImage[]} */
     const images = [];
     /** The grids' frames, by name, in the order each grid began. */
     /** @type {Map<string, { data: string, label: string }[]>} */
@@ -269,9 +287,13 @@ export async function formatResults(results, { tile = tileGrid } = {}) {
     if (softFailed > 0) {
         lines.push(`${softFailed} soft assert${softFailed === 1 ? "" : "s"} failed`);
     }
+    // one at a time: each holds a decoded bitmap and a canvas while it's re-encoded
+    /** @type {ToolImage[]} */
+    const kept = [];
+    for (const image of images) kept.push(await compact(image));
     return {
         text: lines.length === 0 ? "(no console output, and no action gave a result)" : lines.join("\n"),
-        images,
+        images: kept,
         isError: softFailed > 0,
     };
 }
