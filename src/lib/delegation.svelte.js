@@ -50,6 +50,22 @@ export const doing = $state({});
  *  mid-turn. @type {Record<string, string>} */
 export const openings = {};
 
+/** A running delegate's turn so far, by session name: its events, a
+ *  text's or a thought's deltas run together. What a view of it opened
+ *  mid-turn replays, so it shows the turn from its start.
+ *  @type {Record<string, import("@agex-ts/world").TurnEvent[]>} */
+export const turnSoFar = {};
+
+/** Add `event` to `events`, running a delta into the one before it
+ *  when both are the same kind.
+ *  @param {import("@agex-ts/world").TurnEvent[]} events @param {import("@agex-ts/world").TurnEvent} event */
+export function keepEvent(events, event) {
+    const last = events.at(-1);
+    if ((event.kind === "TextDelta" || event.kind === "ThinkingDelta") && last?.kind === event.kind) {
+        events[events.length - 1] = { ...last, text: last.text + event.text };
+    } else events.push(event);
+}
+
 /** @param {import("@agex-ts/world").TurnEvent} event */
 function doingOf(event) {
     switch (event.kind) {
@@ -228,11 +244,14 @@ export class StudioRunner {
                     // the brief and task, or for a woken turn, the answers it's told of
                     awaiting = prompt === null;
                     openings[session] = prompt ?? "";
+                    turnSoFar[session] = [];
                     this.host.observe(session)?.begin(openings[session]);
                     /** @param {import("@agex-ts/world").TurnEvent} event */
                     const onEvent = (event) => {
                         const now = doingOf(event);
                         if (now !== null) doing[session] = now;
+                        // kept first: a view opened now replays it with the rest
+                        keepEvent((turnSoFar[session] ??= []), event);
                         this.host.observe(session)?.observe(event);
                     };
                     const turn = prompt !== null ? delegate.stream(prompt, { onEvent }) : new RunStream(delegate, { wake: true, onEvent });
@@ -258,6 +277,7 @@ export class StudioRunner {
             letGo();
             delete doing[session];
             delete openings[session];
+            delete turnSoFar[session];
             signal.removeEventListener("abort", stop);
             await helper.close();
             await child.close();

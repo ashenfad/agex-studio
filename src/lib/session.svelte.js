@@ -10,7 +10,7 @@
 import { Inbox, Policy, Sessions } from "@agex-ts/world";
 import { Agent, RunStream, ScriptedProvider } from "agex-ts";
 import { dbRestores } from "./db-restore.svelte.js";
-import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool } from "./delegation.svelte.js";
+import { DELEGATE_TOOL_CALLS, StudioRunner, WAKES, cancelRunning, depthOf, openings, renderPublished, studioSessionsTool, turnSoFar } from "./delegation.svelte.js";
 import { buildModel, foldBudgetOf, thinkingOf } from "./model.js";
 import { wordsOf } from "./notes.js";
 import { lastReply, notifyTurnEnded } from "./notify.js";
@@ -245,9 +245,9 @@ export class ChatSession {
         }
         await this.reload();
         if (!this.readonly) await this.#findInterrupted();
-        // a delegate opened while it runs: its turn, live from here, opening as
-        // it did (unless its runner's events, arriving while this opened, began it)
-        else if (openings[this.name] !== undefined && !this.busy) this.begin(openings[this.name] ?? "");
+        // a delegate opened while it runs: its turn from its start, then live
+        // (unless its runner's events, arriving while this opened, caught it up)
+        else if (openings[this.name] !== undefined && !this.busy) this.#catchUp();
     }
 
     /**
@@ -397,11 +397,18 @@ export class ChatSession {
     /** A delegate's turn event, from its runner, when this session is
      *  that delegate's, open to read. @param {TurnEvent} event */
     observe(event) {
-        if (!this.busy) {
-            // opened mid-turn: how the turn opened, from its runner
-            this.begin(openings[this.name] ?? "");
-        }
-        this.#apply(event);
+        // opened mid-turn: the turn so far, which its runner keeps this event in
+        if (!this.busy) this.#catchUp(event);
+        else this.#apply(event);
+    }
+
+    /** Opened while its delegate's turn runs: the turn from its start,
+     *  as its runner kept it (how it opened, and its events so far), or
+     *  `event` alone if it kept none.
+     *  @param {TurnEvent} [event] */
+    #catchUp(event) {
+        this.begin(openings[this.name] ?? "");
+        for (const kept of turnSoFar[this.name] ?? (event === undefined ? [] : [event])) this.#apply(kept);
     }
 
     /** A delegate's turn ended: its record is read again. */

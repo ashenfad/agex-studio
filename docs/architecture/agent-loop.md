@@ -155,8 +155,10 @@ stored alike) is shown as the person's, except:
 The live turn opens as the stored one will. A woken turn's opening is
 the answers' delivery, which the inbox reports as it happens
 (`onDelivered`); a delegate's runner tells the view open on it each
-turn's prompt (`begin`, `opened`), and keeps it (`openings`) for a view
-opened mid-turn.
+turn's prompt (`begin`, `opened`). For a view opened mid-turn it keeps
+the prompt (`openings`) and the turn's events so far (`turnSoFar`, a
+text's or a thought's deltas run together), which the view replays,
+so it shows the turn from its start rather than from when it opened.
 
 Replies render markdown with `ui` artifacts spliced in where the reply
 embeds them (see [code-and-tools.md](code-and-tools.md)). A link to a
@@ -271,8 +273,10 @@ agex-ts's; `delegation.svelte.js` adds:
 
 Each `ChatSession` owns one `Sessions` helper for its workspace, so
 its delegates outlive each turn's agent. Its job table is copied into
-`jobs` and `unread` for the strip and the session list, polled while a
-turn or a delegate runs.
+`jobs` and `unread` for the strip and the session list, polled every
+second while a turn or a delegate runs. The strip's elapsed time ticks
+on its own clock, which only whether any delegate runs starts and
+stops: the poll copies the jobs afresh each time.
 
 **Waking.** When a delegate answers while the session is idle
 (`helper.onAnswer`), `#maybeWake` runs a turn with no prompt
