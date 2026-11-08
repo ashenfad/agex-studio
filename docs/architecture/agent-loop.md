@@ -159,6 +159,8 @@ turn's prompt (`begin`, `opened`). For a view opened mid-turn it keeps
 the prompt (`openings`) and the turn's events so far (`turnSoFar`, a
 text's or a thought's deltas run together), which the view replays,
 so it shows the turn from its start rather than from when it opened.
+Both go when the turn ends: a delegate between turns, waiting on its
+own delegates' answers, is read from its record.
 
 Replies render markdown with `ui` artifacts spliced in where the reply
 embeds them (see [code-and-tools.md](code-and-tools.md)). A link to a

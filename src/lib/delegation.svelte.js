@@ -45,14 +45,16 @@ export function depthOf(name) {
  *  @type {Record<string, string>} */
 export const doing = $state({});
 
-/** How a running delegate's turn opened (its brief and task, or the
- *  answers that woke it), by session name: for a view of it opened
- *  mid-turn. @type {Record<string, string>} */
+/** How a delegate's turn opened (its brief and task, or the answers
+ *  that woke it), by session name, while that turn runs: for a view of
+ *  it opened mid-turn. @type {Record<string, string>} */
 export const openings = {};
 
-/** A running delegate's turn so far, by session name: its events, a
- *  text's or a thought's deltas run together. What a view of it opened
- *  mid-turn replays, so it shows the turn from its start.
+/** A delegate's turn so far, by session name, while that turn runs:
+ *  its events, a text's or a thought's deltas run together. What a view
+ *  of it opened mid-turn replays, so it shows the turn from its start.
+ *  A delegate between turns (waiting on its own delegates' answers) has
+ *  none: a view opened then reads its turns from the record.
  *  @type {Record<string, import("@agex-ts/world").TurnEvent[]>} */
 export const turnSoFar = {};
 
@@ -256,6 +258,9 @@ export class StudioRunner {
                     };
                     const turn = prompt !== null ? delegate.stream(prompt, { onEvent }) : new RunStream(delegate, { wake: true, onEvent });
                     const outcome = await turn.wait();
+                    // the turn is over: a view opened from here reads it from the record
+                    delete openings[session];
+                    delete turnSoFar[session];
                     // a restore of the app's database it asked about goes unanswered
                     dbRestores.cancel(session);
                     await this.host.observe(session)?.observed();
