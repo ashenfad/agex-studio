@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { delegateTask, deliveredAnswers, depthOf } from "./delegation.svelte.js";
+import { delegateTask, deliveredAnswers, depthOf, keepEvent } from "./delegation.svelte.js";
 
 const block = (/** @type {string} */ body) => {
     const b = `\n\n---- inbox ----\n${body}`;
@@ -30,5 +30,32 @@ describe("delegation's text", () => {
         expect(delegateTask(brief)).toEqual({ parent: "lead", task: "Write notes." });
         expect(delegateTask("Write notes.")).toBeNull();
         expect([depthOf("lead"), depthOf("lead.scout"), depthOf("lead.scout.deep")]).toEqual([0, 1, 2]);
+    });
+});
+
+describe("a delegate's turn so far", () => {
+    it("keeps each event, a text's or a thought's deltas run together", () => {
+        const tool = { kind: "ToolStarted", callId: "c1", name: "run_ts", args: { code: "1" } };
+        /** @type {import("@agex-ts/world").TurnEvent[]} */
+        const events = [];
+        for (const event of /** @type {import("@agex-ts/world").TurnEvent[]} */ ([
+            { kind: "ThinkingDelta", text: "Look" },
+            { kind: "ThinkingDelta", text: "ing." },
+            { kind: "TextDelta", text: "Run" },
+            { kind: "TextDelta", text: "ning." },
+            tool,
+            { kind: "TextDelta", text: "Done" },
+            { kind: "TextDelta", text: "." },
+        ])) {
+            keepEvent(events, event);
+        }
+        expect(events).toEqual([
+            { kind: "ThinkingDelta", text: "Looking." },
+            { kind: "TextDelta", text: "Running." },
+            tool,
+            { kind: "TextDelta", text: "Done." },
+        ]);
+        // the event itself, not a copy, when nothing is run into it
+        expect(events[2]).toBe(tool);
     });
 });
