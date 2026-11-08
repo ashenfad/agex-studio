@@ -13,8 +13,12 @@
     const shown = $derived(session.jobs.filter((j) => j.status === 'running' || session.unread.includes(j.name)))
 
     let now = $state(Date.now())
+    // on whether any runs, not on the jobs: they're copied afresh every second,
+    // which would restart the tick before it ever fired
+    const running = $derived(shown.some((j) => j.status === 'running'))
     $effect(() => {
-        if (!shown.some((j) => j.status === 'running')) return
+        if (!running) return
+        now = Date.now()
         const tick = setInterval(() => (now = Date.now()), 1000)
         return () => clearInterval(tick)
     })
