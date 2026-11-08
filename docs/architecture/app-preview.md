@@ -407,9 +407,13 @@ when it is still loading.
 
 Actions run in order: `click`, `type`, `select`, `waitFor`,
 `waitUntil`, `wait`, `read` (`innerText` or a property), `eval`,
-`assert`, `screenshot` (a PNG in the result, seen by a model that takes
-images), `viewport`, `reload`. The result lists the app's console
-output, then each action's result.
+`assert`, `screenshot` (an image in the result, seen by a model that
+takes images), `viewport`, `reload`. The result lists the app's console
+output, then each action's result. A screenshot is captured as a PNG,
+and a large one is attached (and kept in the turn's record) as WebP
+when that is at most three quarters of its size (`compactShot`,
+`image-compact.js`): a screenshot of a busy page, a map or a game, is
+several times smaller so.
 
 An action that can't do what it asks fails loudly. `click`, `type` and
 `select` poll for their target (1s, or the action's `timeout`) and

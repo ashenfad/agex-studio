@@ -3,7 +3,8 @@ import { Store } from '@agex-ts/world'
 import { describe, expect, it } from 'vitest'
 import { appDigest, hasApp, readApp } from './app-files.js'
 import { GRID_MAX, gridLayout } from './grid.js'
-import { HIDDEN_NOTE, formatResults, testAppTool, watchHidden } from './test-app.js'
+import { COMPACT_MIN } from './image-compact.js'
+import { HIDDEN_NOTE, compactShot, formatResults, testAppTool, watchHidden } from './test-app.js'
 
 describe('the app’s files', () => {
     it('are read by app/ path, text apart from binary, with a fingerprint that follows them', async () => {
@@ -121,6 +122,41 @@ describe('test_app’s result', () => {
         })
         expect(broken.images.map((i) => i.data)).toEqual(['F0', 'F1'])
         expect(broken.text).toMatch(/couldn't be tiled \(no canvas\): its 2 frames attached one by one/)
+    })
+
+    it('attaches each image as the record keeps it, a grid’s after it is tiled', async () => {
+        /** @type {string[]} */
+        const seen = []
+        const compact = async (/** @type {import('@agex-ts/world').ToolImage} */ image) => {
+            seen.push(image.data)
+            return { data: `small ${image.data}`, format: /** @type {const} */ ('webp') }
+        }
+        const out = await formatResults(
+            [
+                { type: 'screenshot', data: 'ONE' },
+                { type: 'screenshot', data: 'A', grid: 'g' },
+                { type: 'screenshot', data: 'B', grid: 'g' },
+            ],
+            { tile: async (frames) => `TILE ${frames.map((f) => f.data).join('')}`, compact },
+        )
+        expect(seen).toEqual(['ONE', 'TILE AB'])
+        expect(out.images).toEqual([
+            { data: 'small ONE', format: 'webp' },
+            { data: 'small TILE AB', format: 'webp' },
+        ])
+    })
+})
+
+describe('a screenshot as the record keeps it', () => {
+    it('is WebP when that is much smaller, and as it came otherwise', async () => {
+        const webp = async () => ({ data: 'w'.repeat(10), mediaType: 'image/webp' })
+        const big = { data: 'p'.repeat(COMPACT_MIN + 1), format: /** @type {const} */ ('png') }
+        expect(await compactShot(big, { reencode: webp })).toEqual({ data: 'w'.repeat(10), format: 'webp' })
+        // a browser that can't write WebP gives JPEG
+        const jpeg = async () => ({ data: 'j'.repeat(10), mediaType: 'image/jpeg' })
+        expect(await compactShot(big, { reencode: jpeg })).toEqual({ data: 'j'.repeat(10), format: 'jpeg' })
+        const small = { data: 'iVBORw0KGgo=', format: /** @type {const} */ ('png') }
+        expect(await compactShot(small, { reencode: webp })).toBe(small)
     })
 })
 
