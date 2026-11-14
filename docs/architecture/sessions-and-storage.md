@@ -56,9 +56,9 @@ The session list's fork actions:
 - **Fork** (`full`): `ws.fork`, a branch at the head; the conversation
   comes along, rebound to the child.
 - **Fork with files only** (`fresh`): the files, no conversation.
-- **Fork as it is now** (`compact`): a one-commit snapshot of the head
-  (`snapshotBranch`), adopted as a new session. Much smaller; its
-  earlier turns can't be undone.
+- **Fork as it is now** (`compact`): a snapshot of the head without its
+  history (`snapshotBranch`), adopted as a new session. Much smaller;
+  its earlier turns can't be undone.
 
 The app's data is copied to a fork (`copyAppStorage`). Its database
 (`agex.db`) is shared with the fork, or, if the person ticks "With its
@@ -68,15 +68,28 @@ of the fork's own (`forkSharing` in `studio.svelte.js`; see
 
 ### Snapshots
 
-`snapshotBranch(store, at, branch)` makes a branch from the root with
-one commit holding what `at` holds, less what only makes sense with the
+`snapshotBranch(store, at, branch)` makes a branch from the root whose
+head holds what `at` holds, less what only makes sense with the
 history behind it (`kept`): the cache (`__cache__/`), the agent's own
 git (`__ws_git__`), and the undo points (`__plane__/studio/turns/`).
 
-A snapshot is one commit, so a sync has to carry it in one request,
-and in a long session with screenshots nearly all of its bytes are the
-screenshots. So it makes the conversation's images small on the way
-(`compactConversation`, `image-compact.js`): an image in a message the
+A sync pushes a session in packs of whole commits, one GraphQL request
+each, and GitHub gives up on a request whose body hasn't arrived after
+about five seconds (`sync-limits.js`), so a commit much larger than a
+pack (`PACK_BYTES`, 2 MiB of values) may never sync. A long session's
+workspace media and conversation together are far more. So a snapshot
+is written in parts of at most a pack (`PART_BYTES`, `snapshotParts`),
+each a commit adding to the one before, with `part` ("2/5") in its
+info: the files first, then the conversation's runs, then the rest
+(the conversation's index and folds, the studio's records), so a push
+that stops partway leaves runs before the index that names them. A
+snapshot that fits in one part is one commit. A single value past the
+limit gets a commit of its own, and syncs only if it reaches GitHub in
+time.
+
+In a long session with screenshots nearly all of a snapshot's bytes
+are the screenshots, so it makes the conversation's images small on
+the way (`compactConversation`, `image-compact.js`): an image in a message the
 fold in force covers, which the model is no longer sent and only the
 transcript shows, becomes a thumbnail (at most 640px across, WebP);
 every other large image is re-encoded as WebP when that is at most
