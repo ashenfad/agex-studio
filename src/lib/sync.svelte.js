@@ -36,6 +36,7 @@ import { getSettings, settingsStore } from "./settings.js";
 import { openStore } from "./store.js";
 import { studio } from "./studio.svelte.js";
 import { describe } from "./sync-connect.js";
+import { PACK_BYTES } from "./sync-limits.js";
 import { SessionBusy } from "./gate.js";
 import { APP_DATA, appBranch, commitAppData, moveAppData, readAppData } from "./app-data.js";
 import { read as readAppStorage, write as writeAppStorage } from "./app-storage.js";
@@ -163,7 +164,7 @@ export class Sync {
         const store = await openStore();
         await adoptRepo(store.repo, api === "" ? repo : `${api} ${repo}`, notedRepo);
         const client = new GithubClient({ token, repo, writeIntervalMs: 0, ...(api !== "" && { apiBase: api }) });
-        return new PackRemote(client, store.repo.store, { meta: (branch) => this.#meta(branch) });
+        return new PackRemote(client, store.repo.store, { meta: (branch) => this.#meta(branch), maxPackBytes: PACK_BYTES });
     }
 
     /** What the repo's roster shows of a session. @param {string} name */
