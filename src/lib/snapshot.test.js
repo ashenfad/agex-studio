@@ -1,7 +1,8 @@
+import { walkDelta } from "@agex-ts/kvgit";
 import { Memory } from "@agex-ts/kvgit/backends/memory";
 import { Store } from "@agex-ts/world";
 import { describe, expect, it } from "vitest";
-import { compactConversation, snapshotBranch } from "./snapshot.js";
+import { compactConversation, snapshotBranch, snapshotParts } from "./snapshot.js";
 
 /** @param {string} data */
 const image = (data) => ({ kind: "image", data, mediaType: "image/png" });
@@ -112,18 +113,34 @@ describe("a snapshot's conversation", () => {
     });
 });
 
+/** A session "s" holding `conversation` (folded through a's result),
+ *  a cache entry, and `files` beside a.txt; the store and its head.
+ *  @param {Record<string, Uint8Array>} [files] */
+async function session(files = {}) {
+    const store = await Store.open(new Memory());
+    await store.repo.branches.create("s");
+    const wt = await store.repo.worktree("s");
+    for (const [key, value] of conversation([{ through: "a-result" }])) wt.set(key, value);
+    for (const [path, bytes] of Object.entries(files)) wt.set(`__file__/workspace/${path}`, bytes);
+    wt.set("__cache__/x", "rebuilds");
+    const { commit } = await wt.commit({ info: { tool: "t" } });
+    return { store, commit: /** @type {string} */ (commit) };
+}
+
+/** The commits from the root to `head`, as a sync or a bundle carries them.
+ *  @param {Store} store @param {string} head */
+async function commitsTo(store, head) {
+    /** @type {import("@agex-ts/kvgit").WireCommit[]} */
+    const out = [];
+    for await (const wc of walkDelta(store.repo.store, { want: head })) out.push(wc);
+    return out;
+}
+
 describe("snapshotBranch", () => {
     it("makes one commit from the root, its conversation's images made small, without the cache", async () => {
-        const store = await Store.open(new Memory());
-        const repo = store.repo;
-        await repo.branches.create("s");
-        const wt = await repo.worktree("s");
-        for (const [key, value] of conversation([{ through: "a-result" }])) wt.set(key, value);
-        wt.set("__cache__/x", "rebuilds");
-        const { commit } = await wt.commit({ info: { tool: "t" } });
-
-        const head = await snapshotBranch(store, /** @type {string} */ (commit), "s.snap", { session: "s" }, { compact, thumbnail });
-        const snap = await repo.snapshot({ commit: head });
+        const { store, commit } = await session();
+        const head = await snapshotBranch(store, commit, "s.snap", { session: "s" }, { compact, thumbnail });
+        const snap = await store.repo.snapshot({ commit: head });
         const keys = await snap.keys();
         expect(keys).not.toContain("__cache__/x");
         expect(keys).toContain("__file__/workspace/a.txt");
@@ -131,5 +148,66 @@ describe("snapshotBranch", () => {
             r1: ["thumb A (image/webp)", "compact B (image/webp)"],
             r2: ["compact C (image/webp)"],
         });
+        // the root, then the snapshot: no parts to count
+        const commits = await commitsTo(store, head);
+        expect(commits).toHaveLength(2);
+        expect(commits[1].info).toEqual({ tool: "studio.snapshot", from: commit, session: "s" });
+    });
+
+    it("writes a snapshot past the part size as commits that each fit, files first and the index last", async () => {
+        const files = Object.fromEntries([1, 2, 3, 4, 5].map((i) => [`f${i}.bin`, new Uint8Array(300).fill(i)]));
+        const { store, commit } = await session(files);
+        const head = await snapshotBranch(store, commit, "s.snap", { session: "s" }, { compact, thumbnail, partBytes: 700 });
+
+        const parts = (await commitsTo(store, head)).slice(1);
+        expect(parts.length).toBeGreaterThan(2);
+        parts.forEach((wc, i) => {
+            expect(wc.info).toEqual({ tool: "studio.snapshot", from: commit, session: "s", part: `${i + 1}/${parts.length}` });
+            // within the limit, or one value alone
+            const sizes = [...wc.updates.values()].map((v) => v.length);
+            if (sizes.length > 1) expect(sizes.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(700);
+        });
+        /** The part that adds `key`. @param {string} key */
+        const partOf = (key) => parts.findIndex((wc) => wc.updates.has(key));
+        const fileParts = Object.keys(files).map((path) => partOf(`__file__/workspace/${path}`));
+        const runParts = ["r1", "r2"].map((id) => partOf(`__conversation__/runs/${id}`));
+        expect(Math.max(...fileParts)).toBeLessThanOrEqual(Math.min(...runParts));
+        expect(Math.max(...runParts)).toBeLessThanOrEqual(partOf("__conversation__/index"));
+        expect(partOf("__conversation__/index")).toBe(parts.length - 1);
+
+        // the last holds the whole snapshot, the same as one commit would
+        const whole = await snapshotBranch(store, commit, "s.whole", { session: "s" }, { compact, thumbnail });
+        const [a, b] = [await store.repo.snapshot({ commit: head }), await store.repo.snapshot({ commit: whole })];
+        const keys = await b.keys();
+        expect((await a.keys()).sort()).toEqual([...keys].sort());
+        expect(await a.getMany(keys)).toEqual(await b.getMany(keys));
+    });
+});
+
+describe("snapshotParts", () => {
+    const size = (/** @type {unknown} */ v) => /** @type {number} */ (v);
+
+    it("puts the files first, the runs next and the rest last, each in key order", () => {
+        const values = new Map(
+            ["__plane__/studio/meta", "__conversation__/runs/b", "__file__/workspace/z", "__conversation__/index", "__meta__/workspace/z", "__conversation__/runs/a", "__file__/workspace/a"].map((k) => [k, 1]),
+        );
+        expect(snapshotParts(values, size, 100)).toEqual([
+            ["__file__/workspace/a", "__file__/workspace/z", "__meta__/workspace/z", "__conversation__/runs/a", "__conversation__/runs/b", "__conversation__/index", "__plane__/studio/meta"],
+        ]);
+    });
+
+    it("starts a part where the next value would pass the limit, and gives a larger value a part of its own", () => {
+        const values = new Map([
+            ["__file__/workspace/a", 4],
+            ["__file__/workspace/b", 4],
+            ["__file__/workspace/big", 25],
+            ["__file__/workspace/c", 2],
+            ["__conversation__/index", 1],
+        ]);
+        expect(snapshotParts(values, size, 10)).toEqual([["__file__/workspace/a", "__file__/workspace/b"], ["__file__/workspace/big"], ["__file__/workspace/c", "__conversation__/index"]]);
+    });
+
+    it("is one empty part for no values", () => {
+        expect(snapshotParts(new Map(), size, 10)).toEqual([[]]);
     });
 });

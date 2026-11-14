@@ -10,8 +10,9 @@
  *     {"title": …, "head": …, "shape": "everything" | "current", …}\n
  *     <pack bytes>
  *
- * `everything` carries the whole history; `current` one commit holding
- * the session as it is now (see `snapshot`), a fraction of the size.
+ * `everything` carries the whole history; `current` the session as it
+ * is now, without that history (see `snapshot`: a commit, or a few when
+ * it's large), a fraction of the size.
  * Opening one imports it as a new session (a fork of what it holds, so
  * its conversation is that session's own), or switches to the session
  * an earlier import of it made.
