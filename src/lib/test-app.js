@@ -222,7 +222,10 @@ export async function compactShot(image, opts = {}) {
  * The results as the model reads them, screenshots attached as images:
  * each on its own, or a grid's frames tiled into one image at the end
  * (by `tile`; frames past `GRID_MAX` are left out, and said so), each
- * image then as the record keeps it (by `compact`). Soft asserts that
+ * image then as the record keeps it (by `compact`). A screenshot that
+ * says its format was encoded by the app's page as the record keeps
+ * it, and goes as it came: decoding it here would leave its pixels in
+ * the studio's process. Soft asserts that
  * failed are counted at the end, and make the result an error. An eval
  * with a label shows the label in place of its code.
  *
@@ -235,6 +238,8 @@ export async function formatResults(results, { tile = tileGrid, compact = compac
     const lines = [];
     /** @type {ToolImage[]} */
     const images = [];
+    /** Whether each image is kept as it came. @type {boolean[]} */
+    const settled = [];
     /** The grids' frames, by name, in the order each grid began. */
     /** @type {Map<string, { data: string, label: string }[]>} */
     const grids = new Map();
@@ -267,7 +272,9 @@ export async function formatResults(results, { tile = tileGrid, compact = compac
                 lines.push(`screenshot: grid ${r.grid} is full (${GRID_MAX} frames): this one${label ? ` (${label})` : ""} is left out`);
             }
         } else if (r?.type === "screenshot") {
-            images.push({ data: r.data, format: "png" });
+            const format = r.format === "webp" || r.format === "png" ? r.format : null;
+            images.push({ data: r.data, format: format ?? "png" });
+            settled.push(format !== null);
             lines.push(`screenshot ${images.length}: attached`);
         } else {
             lines.push(shown(r));
@@ -277,10 +284,14 @@ export async function formatResults(results, { tile = tileGrid, compact = compac
         const labels = frames.map((f, i) => `${i + 1} ${f.label}`.trim()).join(" · ");
         try {
             images.push({ data: await tile(frames), format: "png" });
+            settled.push(false);
             lines.push(`grid ${name}: ${frames.length} frame${frames.length === 1 ? "" : "s"} (${labels}), attached as image ${images.length}`);
         } catch (e) {
             // a grid that couldn't be drawn still shows its frames, one by one
-            for (const f of frames) images.push({ data: f.data, format: "png" });
+            for (const f of frames) {
+                images.push({ data: f.data, format: "png" });
+                settled.push(false);
+            }
             lines.push(`grid ${name}: couldn't be tiled (${errorText(e)}): its ${frames.length} frames attached one by one`);
         }
     }
@@ -290,7 +301,7 @@ export async function formatResults(results, { tile = tileGrid, compact = compac
     // one at a time: each holds a decoded bitmap and a canvas while it's re-encoded
     /** @type {ToolImage[]} */
     const kept = [];
-    for (const image of images) kept.push(await compact(image));
+    for (const [i, image] of images.entries()) kept.push(settled[i] ? image : await compact(image));
     return {
         text: lines.length === 0 ? "(no console output, and no action gave a result)" : lines.join("\n"),
         images: kept,

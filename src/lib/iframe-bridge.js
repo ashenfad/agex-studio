@@ -123,12 +123,18 @@ export function waitForFrame(win, timeoutMs = 100) {
  * providers (Gemini, OpenAI) are more lenient but we treat the
  * strictest as the contract so the agent's UX is consistent.
  *
+ * Encoded here, in the app's page, as the record keeps it (see
+ * `encodeShot`), so the studio never decodes it: an image a page
+ * decodes stays in its process, and this page's process can go away
+ * with the test.
+ *
  * @param {Document} doc
  * @param {string|null} selector
- * @returns {Promise<string>} base64-encoded PNG (no data URI prefix)
+ * @param {{ compact?: boolean }} [opts] compact: false keeps it a PNG
+ * @returns {Promise<{ data: string, format: string }>} base64 (no data URI prefix), and its format
  */
-async function captureScreenshot(doc, selector) {
-    const { toPng } = await loadHtmlToImage();
+async function captureScreenshot(doc, selector, { compact = true } = {}) {
+    const { toCanvas } = await loadHtmlToImage();
     const target = selector ? doc.querySelector(selector) : doc.body;
     if (!target) throw new Error(`Screenshot target not found: ${selector}`);
 
@@ -137,7 +143,7 @@ async function captureScreenshot(doc, selector) {
     // tab is backgrounded (rAF paused) — see waitForFrame.
     await waitForFrame(doc.defaultView || globalThis);
 
-    const dataUrl = await toPng(target, {
+    const canvas = await toCanvas(target, {
         // Images are fetched again to be embedded; skip the HTTP cache,
         // where an <img> without crossorigin may have left a response a
         // CORS fetch can't use. (Not `cacheBust`: it adds a query to
@@ -152,6 +158,39 @@ async function captureScreenshot(doc, selector) {
         // to parse. Comments draw nothing, so leave them out.
         filter: (node) => node.nodeType !== Node.COMMENT_NODE,
     });
+    return encodeShot(canvas, { compact });
+}
+
+/** A screenshot with no more base64 than this stays a PNG (as
+ *  `COMPACT_MIN` in `image-compact.js`). */
+const SHOT_COMPACT_MIN = 100_000;
+/** The most a WebP may be, as a share of the PNG's base64, to be kept
+ *  in its place (as `KEEP_RATIO` in `image-compact.js`). */
+const SHOT_KEEP_RATIO = 0.75;
+/** A screenshot's WebP quality (as `QUALITY` in `image-fit.js`). */
+const SHOT_QUALITY = 0.85;
+
+/**
+ * A canvas as a screenshot is kept: a PNG, or a WebP where the PNG is
+ * large and the WebP much smaller (a busy page: a map, a game, a
+ * photo), when `compact`.
+ *
+ * @param {{ toDataURL(type?: string, quality?: number): string }} canvas
+ * @param {{ compact?: boolean }} [opts]
+ * @returns {{ data: string, format: string }}
+ */
+export function encodeShot(canvas, { compact = true } = {}) {
+    const png = { data: _base64Of(canvas.toDataURL('image/png')), format: 'png' };
+    if (!compact || png.data.length <= SHOT_COMPACT_MIN) return png;
+    const webpUrl = canvas.toDataURL('image/webp', SHOT_QUALITY);
+    // a browser with no WebP writer gives a PNG back
+    if (!webpUrl.startsWith('data:image/webp')) return png;
+    const webp = { data: _base64Of(webpUrl), format: 'webp' };
+    return webp.data.length <= png.data.length * SHOT_KEEP_RATIO ? webp : png;
+}
+
+/** @param {string} dataUrl */
+function _base64Of(dataUrl) {
     // Strict prefix match: accept any `data:image/<type>[;params];base64,`
     // shape (some encoders emit charset / vendor params before `base64`).
     // The previous regex only matched `data:image/png;base64,` exactly,
@@ -473,8 +512,9 @@ export async function dispatchAction(doc, action, global) {
     if (action.screenshot !== undefined) {
         const selector = typeof action.screenshot === 'string' ? action.screenshot : null;
         try {
-            const data = await captureScreenshot(doc, selector);
-            return { type: 'screenshot', data };
+            // a grid's frames are tiled into one image, kept as the record keeps it then
+            const shot = await captureScreenshot(doc, selector, { compact: action.grid === undefined });
+            return { type: 'screenshot', data: shot.data, format: shot.format };
         } catch (e) {
             return {
                 type: 'log', level: 'error',
