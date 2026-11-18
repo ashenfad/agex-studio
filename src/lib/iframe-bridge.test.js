@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
     actionWaitMs,
     dispatchAction,
+    encodeShot,
     handleControlMessage,
     installControlBridge,
     waitForFrame,
@@ -760,5 +761,30 @@ describe("installControlBridge", () => {
             expect.objectContaining({ type: "agex-control-result", id: "r1" }),
             "https://agex.studio",
         );
+    });
+});
+
+describe("encodeShot", () => {
+    /** A canvas whose encodings are `png` and `webp` base64 long. */
+    const canvas = (/** @type {number} */ png, /** @type {number | null} */ webp) => ({
+        toDataURL: (/** @type {string} */ type) =>
+            type === "image/webp" && webp !== null ? `data:image/webp;base64,${"w".repeat(webp)}` : `data:image/png;base64,${"p".repeat(png)}`,
+    });
+
+    it("keeps a small screenshot a PNG", () => {
+        expect(encodeShot(canvas(1000, 10))).toEqual({ data: "p".repeat(1000), format: "png" });
+    });
+
+    it("keeps a large one as WebP when that is much smaller", () => {
+        expect(encodeShot(canvas(200_000, 50_000))).toEqual({ data: "w".repeat(50_000), format: "webp" });
+    });
+
+    it("keeps the PNG when the WebP saves little, or can't be written", () => {
+        expect(encodeShot(canvas(200_000, 190_000)).format).toBe("png");
+        expect(encodeShot(canvas(200_000, null)).format).toBe("png");
+    });
+
+    it("keeps a PNG when asked not to compact (a grid's frame, tiled later)", () => {
+        expect(encodeShot(canvas(200_000, 50_000), { compact: false }).format).toBe("png");
     });
 });

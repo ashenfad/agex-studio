@@ -147,6 +147,31 @@ describe('test_app’s result', () => {
     })
 })
 
+describe('a screenshot the app’s page encoded', () => {
+    it('goes as it came, never decoded here', async () => {
+        /** @type {string[]} */
+        const seen = []
+        const compact = async (/** @type {import('@agex-ts/world').ToolImage} */ image) => {
+            seen.push(image.data)
+            return { data: `small ${image.data}`, format: /** @type {const} */ ('webp') }
+        }
+        const out = await formatResults(
+            [
+                { type: 'screenshot', data: 'W', format: 'webp' },
+                { type: 'screenshot', data: 'P', format: 'png' },
+                { type: 'screenshot', data: 'OLD' },
+            ],
+            { compact },
+        )
+        expect(seen).toEqual(['OLD'])
+        expect(out.images).toEqual([
+            { data: 'W', format: 'webp' },
+            { data: 'P', format: 'png' },
+            { data: 'small OLD', format: 'webp' },
+        ])
+    })
+})
+
 describe('a screenshot as the record keeps it', () => {
     it('is WebP when that is much smaller, and as it came otherwise', async () => {
         const webp = async () => ({ data: 'w'.repeat(10), mediaType: 'image/webp' })
