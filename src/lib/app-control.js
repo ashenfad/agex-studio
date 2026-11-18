@@ -10,7 +10,7 @@
 
 import { CONTROL_TIMEOUT_MS, hasLoaded, pageGone, pageLoaded, pageUp, sendControl, waitForLoad } from "./send-control.js";
 import { actionWaitMs } from "./iframe-bridge.js";
-import { APPS_ORIGIN, isFromAppFrame, replyToApp } from "./apps-origin.js";
+import { TEST_APPS_ORIGIN, frameOrigin, isFromAppFrame, replyToApp, setFrameOrigin } from "./apps-origin.js";
 import { hostInit } from "./app-assets.js";
 import { answerDb } from "./app-db-bridge.js";
 import { cancelModel, cancelModels, relayModel } from "./app-model.js";
@@ -644,10 +644,11 @@ const CHAIN_GRACE_MS = 300;
  *
  * @param {boolean} hostReady the apps host's page loaded and asked for the app
  * @param {number} ms
+ * @param {string} [origin] the apps host's origin
  */
-export function bootFailure(hostReady, ms) {
+export function bootFailure(hostReady, ms, origin = TEST_APPS_ORIGIN) {
     if (!hostReady) {
-        return `test_app: the app sandbox at ${APPS_ORIGIN} didn't load within ${ms}ms ` +
+        return `test_app: the app sandbox at ${origin} didn't load within ${ms}ms ` +
             "(it may be unreachable), so the app never ran.";
     }
     let text = `test_app: iframe failed to come up within ${ms}ms — ` +
@@ -726,7 +727,7 @@ function _bootFrame(iframe) {
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
             window.removeEventListener("message", readyListener);
-            reject(new Error(bootFailure(hostReady, BRIDGE_READY_TIMEOUT_MS)));
+            reject(new Error(bootFailure(hostReady, BRIDGE_READY_TIMEOUT_MS, frameOrigin(iframe))));
         }, BRIDGE_READY_TIMEOUT_MS);
         const readyListener = (event) => {
             if (!isFromAppFrame(event, iframe)) return;
@@ -737,7 +738,7 @@ function _bootFrame(iframe) {
             resolve(undefined);
         };
         window.addEventListener("message", readyListener);
-        iframe.src = `${APPS_ORIGIN}/?t=${Date.now()}`;
+        iframe.src = `${frameOrigin(iframe)}/?t=${Date.now()}`;
         if (!iframe.isConnected) document.body.appendChild(iframe);
     });
 }
@@ -843,6 +844,8 @@ export async function runTestApp(opts) {
         let due = page;
 
         iframe = document.createElement("iframe");
+        // a test's page runs at the tests' origin, in a process of its own where that's another site
+        setFrameOrigin(iframe, TEST_APPS_ORIGIN);
         // In-viewport but visually hidden: in-viewport so the browser
         // doesn't throttle CSS @keyframes animations on the assumption
         // that nothing's visible (the classic "iframe at left:-9999px"
