@@ -13,7 +13,7 @@
  * doesn't quietly drop a need.
  */
 
-import { APPS_ORIGIN } from "./apps-origin.js";
+import { APP_ORIGINS } from "./apps-origin.js";
 
 /** Where an app declares its needs. */
 export const NEEDS_PATH = "app/agex.json";
@@ -150,14 +150,14 @@ export function parseNeeds(text, opts = {}) {
 
 /**
  * The origins a secret never goes to, beside the studio's domain: the
- * apps' origin, and the studio's own where it runs (a development
+ * apps' origins (the preview's and the tests'), and the studio's own where it runs (a development
  * server's, say).
  *
  * @returns {string[]}
  */
 function defaultStudioOrigins() {
     const here = globalThis.location?.origin;
-    return [APPS_ORIGIN, ...(typeof here === "string" && here !== "null" ? [here] : [])];
+    return [...APP_ORIGINS, ...(typeof here === "string" && here !== "null" ? [here] : [])];
 }
 
 /**

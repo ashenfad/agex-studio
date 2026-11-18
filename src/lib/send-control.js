@@ -6,7 +6,7 @@
  * and addresses only it.
  */
 
-import { APPS_ORIGIN, isFromAppFrame } from "./apps-origin.js";
+import { frameOrigin, isFromAppFrame } from "./apps-origin.js";
 
 /** How long an action may take before `sendControl` gives up on it. An
  *  `eval` awaits a Promise it returns and a screenshot draws the page,
@@ -277,6 +277,6 @@ export function sendControl(iframe, action, { timeoutMs = CONTROL_TIMEOUT_MS } =
         }
         window.addEventListener("message", handler);
         state.inflight.add(onGone);
-        target.postMessage({ type: "agex-control", id, action }, APPS_ORIGIN);
+        target.postMessage({ type: "agex-control", id, action }, frameOrigin(/** @type {HTMLIFrameElement} */ (iframe)));
     });
 }
