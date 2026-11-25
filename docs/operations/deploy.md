@@ -16,6 +16,16 @@ studio only needs it up. The bootloader takes an app only from a studio
 at `agex.studio`, or from `localhost` on port 5173 or 4173 (dev and
 `vite preview`).
 
+`test_app`'s hidden tests load the same bootloader from a third origin,
+`https://agex-studio.github.io` (the build's `VITE_TEST_APPS_ORIGIN`),
+published by [agex-studio.github.io](https://github.com/agex-studio/agex-studio.github.io)
+as a copy of agex-studio-apps' `main` without its `CNAME` and OAuth
+relay. agex-studio-apps asks it to redeploy on each push to `main`
+(`repository_dispatch`, with the secret `TEST_ORIGIN_DISPATCH_TOKEN`),
+and it redeploys daily besides. Both must serve the same bootloader:
+a change the studio relies on has to reach both before the studio
+ships.
+
 ## Build
 
 ```
@@ -82,8 +92,8 @@ agex-ts):
       shows it again.
 - [ ] **The preview**, through `apps.agex.studio`: ask for a small app;
       it renders beside the chat and rebuilds as its files change.
-- [ ] **`test_app`**: the agent checks the app it built; with vision on,
-      its screenshot comes back.
+- [ ] **`test_app`**, through `agex-studio.github.io`: the agent checks
+      the app it built; with vision on, its screenshot comes back.
 - [ ] **Rich replies**: ask for a chart and a table; both render in the
       reply.
 - [ ] **Sync** with a real fine-grained token: a private repo with a
@@ -145,3 +155,13 @@ works without a paid tier, and Vite's output fits it as it is.
 can't reach the studio's storage, its keys or its DOM: the preview's
 iframe loads from `apps.agex.studio`, and the two talk only by
 `postMessage`, each checking the other's origin.
+
+**Why a third for tests?** `apps.agex.studio` is same-site with
+`agex.studio`, so the browser runs its frames in the studio tab's
+process, on its main thread. A test's screenshot, which can take
+seconds on a large page, would freeze the tab, and the decoded images
+it leaves would stay in the tab's memory. A `github.io` origin is at
+another site (`github.io` is on the Public Suffix List), so Chrome and
+Firefox give a test frame a process of its own, which exits after the
+test. GitHub Pages can't send the `Origin-Agent-Cluster` header that
+would isolate a subdomain instead.

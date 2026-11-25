@@ -42,6 +42,9 @@ jobs:
       env:
         VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
         VITE_GOOGLE_API_KEY: ${{ secrets.VITE_GOOGLE_API_KEY }}
+        # test_app's hidden tests load from a copy of agex-studio-apps at
+        # another site than agex.studio, so each runs in its own process
+        VITE_TEST_APPS_ORIGIN: https://agex-studio.github.io
 
     - name: Setup Pages
       uses: actions/configure-pages@v5

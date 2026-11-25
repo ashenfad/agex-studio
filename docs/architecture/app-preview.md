@@ -12,7 +12,12 @@ alone. All three assemble the page with `buildAppPage`
 bootloader from `APPS_ORIGIN` (`apps-origin.js`: `apps.agex.studio` in
 production, `VITE_APPS_ORIGIN` to point at a local copy of the
 agex-studio-apps repo), at `{APPS_ORIGIN}/?t={timestamp}` so each load
-reloads it. The handshake is two messages: the bootloader posts
+reloads it. `test_app`'s hidden frames load from `TEST_APPS_ORIGIN`
+instead (`VITE_TEST_APPS_ORIGIN`; `agex-studio.github.io` in
+production, `APPS_ORIGIN` when unset), a copy at another site, so the
+browser runs each test in a process of its own: its screenshots don't
+block the studio's main thread, and their memory leaves with the
+process. The handshake is two messages: the bootloader posts
 `agex-host-ready` once it listens, and the studio answers with
 `agex-host-init` carrying the built page (`hostInit`), which the
 bootloader writes in as its document.
