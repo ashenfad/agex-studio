@@ -21,12 +21,13 @@ export const APPS_ORIGIN = (
 
 /**
  * Origin of the hidden iframes `test_app` builds: the same apps host,
- * served from another site than the studio's, so the browser runs each
- * test's page in a process of its own that exits after the test. What a
- * test's page leaves behind (Chrome keeps the decoded pixels of every
- * image a page decodes until its process exits, and a screenshot
- * decodes several) then goes with it, rather than piling up in the
- * studio's process, which an origin of the studio's own site shares.
+ * served from another site than the studio's, so the browser runs tests'
+ * pages in a process apart from the studio's, which exits once no test
+ * is using it (tests that overlap share it). What a test's page leaves
+ * behind (Chrome keeps the decoded pixels of every image a page decodes
+ * until its process exits, and a screenshot decodes several) then goes
+ * with it, rather than piling up in the studio's process, which an
+ * origin of the studio's own site shares.
  *
  * Set by `VITE_TEST_APPS_ORIGIN`; without it, tests run at `APPS_ORIGIN`.
  */

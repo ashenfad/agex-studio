@@ -83,7 +83,7 @@ production), so an app's code can't reach the studio's storage, DOM or
 keys. The app talks back to the studio by `postMessage`: its storage,
 cached values, notifications, and agent tasks. `test_app` builds the
 same page in a hidden iframe, loaded from another site
-(`TEST_APPS_ORIGIN`) so it runs in a process of its own. See [app-preview.md](app-preview.md).
+(`TEST_APPS_ORIGIN`) so it runs in a process apart from the studio's. See [app-preview.md](app-preview.md).
 
 ## Around the chat
 
