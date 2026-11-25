@@ -162,6 +162,9 @@ process, on its main thread. A test's screenshot, which can take
 seconds on a large page, would freeze the tab, and the decoded images
 it leaves would stay in the tab's memory. A `github.io` origin is at
 another site (`github.io` is on the Public Suffix List), so Chrome and
-Firefox give a test frame a process of its own, which exits after the
-test. GitHub Pages can't send the `Origin-Agent-Cluster` header that
-would isolate a subdomain instead.
+Firefox run test frames in a process apart from the studio's, which
+exits once no test is using it. Tests that overlap in one tab share
+that process, and as frames of one origin they can reach each other,
+as every app frame at `apps.agex.studio` already can. GitHub Pages
+can't send the `Origin-Agent-Cluster` header that would isolate a
+subdomain instead.

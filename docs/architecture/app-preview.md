@@ -15,9 +15,10 @@ agex-studio-apps repo), at `{APPS_ORIGIN}/?t={timestamp}` so each load
 reloads it. `test_app`'s hidden frames load from `TEST_APPS_ORIGIN`
 instead (`VITE_TEST_APPS_ORIGIN`; `agex-studio.github.io` in
 production, `APPS_ORIGIN` when unset), a copy at another site, so the
-browser runs each test in a process of its own: its screenshots don't
-block the studio's main thread, and their memory leaves with the
-process. The handshake is two messages: the bootloader posts
+browser runs tests in a process apart from the studio's: their
+screenshots don't block the studio's main thread, and their memory
+leaves when that process exits, once no test is using it. Tests that
+overlap share it. The handshake is two messages: the bootloader posts
 `agex-host-ready` once it listens, and the studio answers with
 `agex-host-init` carrying the built page (`hostInit`), which the
 bootloader writes in as its document.
