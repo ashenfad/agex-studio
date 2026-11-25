@@ -29,8 +29,10 @@
         - `worker-src 'self' blob:` — workers come from our bundle or
           blob URLs (e.g. esbuild-wasm worker), not arbitrary origins.
         - `frame-src` — restricted to our own origin, the cross-
-          origin app sandbox host (apps.agex.studio in prod;
-          localhost:* in dev), and Google OAuth endpoints. Agent
+          origin app sandbox hosts (apps.agex.studio for the
+          preview and agex-studio.github.io for test_app's hidden
+          tests in prod; localhost:* in dev), and Google OAuth
+          endpoints. Agent
           apps render in the apps-origin iframe; blob: stays in
           the list for legacy paths but isn't actively used.
         - `object-src 'none'` and `base-uri 'self'` — defense in depth.
@@ -53,7 +55,7 @@
       media-src 'self' data: blob: https:;
       font-src 'self' data: https:;
       connect-src 'self' blob: data: https: http://localhost:* http://127.0.0.1:*;
-      frame-src 'self' blob: https://apps.agex.studio http://localhost:* http://127.0.0.1:* https://*.google.com https://*.googleusercontent.com https://accounts.google.com;
+      frame-src 'self' blob: https://apps.agex.studio https://agex-studio.github.io http://localhost:* http://127.0.0.1:* https://*.google.com https://*.googleusercontent.com https://accounts.google.com;
       object-src 'none';
       base-uri 'self';
     ">

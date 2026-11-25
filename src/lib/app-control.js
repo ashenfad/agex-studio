@@ -861,7 +861,7 @@ export async function runTestApp(opts) {
             `position:fixed;top:0;left:0;width:${vpWidth}px;height:${vpHeight}px;` +
             "opacity:0;pointer-events:none;z-index:-1;";
         // No sandbox attribute — the cross-origin separation between
-        // agex.studio and apps.agex.studio provides the isolation
+        // agex.studio and the apps origin provides the isolation
         // that `sandbox="allow-scripts"` used to. The `allow` list
         // matches the live AppPreview iframe so test_app behavior
         // mirrors what the user sees.

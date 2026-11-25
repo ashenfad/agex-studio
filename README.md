@@ -54,7 +54,8 @@ origins:
 - **esm.sh**, when code or an app imports a bare npm package.
 - **`apps.agex.studio`**, the origin the preview's iframe loads from (a
   static bootloader; the app's HTML is posted to it in the page, not
-  uploaded).
+  uploaded), and **`agex-studio.github.io`**, the same bootloader, where
+  `test_app`'s hidden tests load from.
 - **GitHub**, only if you connect sync (your repo) or publish (your
   gists), and to open a published link (its gist).
 - **Google Drive**, only when you import from it.

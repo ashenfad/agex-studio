@@ -28,8 +28,9 @@ The agex.studio static site itself uses no analytics, no tracking
 pixels, no cookies, and no form of user identification. Loading
 the site fetches its static files, and its fonts from Google
 Fonts. The app preview loads a small static page from
-apps.agex.studio, and your app is handed to it inside your
-browser. None of these requests carry your data, and nothing on
+apps.agex.studio, and the agent's tests of your app load the same
+page from agex-studio.github.io; your app is handed to it inside
+your browser. None of these requests carry your data, and nothing on
 the page calls back to a server we control, because there is no
 server we control.
 

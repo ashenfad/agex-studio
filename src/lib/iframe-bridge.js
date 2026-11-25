@@ -58,12 +58,13 @@ async function loadHtmlToImage() {
     // _to diagnose_ failures, so the dependency being available is
     // load-bearing for the feature; (2) the relative path resolves
     // against the iframe's apps-origin location (apps.agex.studio
-    // in prod, localhost:5174 in dev) — same-origin, no CORS.
+    // or agex-studio.github.io in prod, localhost in dev) —
+    // same-origin, no CORS.
     if (!_htmlToImagePromise) {
         // Indirect through a local binding so Vite's static analysis
         // can't resolve the import at build/test time — the path
-        // exists at the apps-origin runtime (apps.agex.studio/
-        // vendor/...), not in the agex-studio repo. Direct string-
+        // exists at the apps-origin runtime (/vendor/... on the
+        // apps origin), not in the agex-studio repo. Direct string-
         // literal dynamic imports get walked by `vite:import-
         // analysis` even with `/* @vite-ignore */`. A variable
         // reference defeats the walker cleanly.
